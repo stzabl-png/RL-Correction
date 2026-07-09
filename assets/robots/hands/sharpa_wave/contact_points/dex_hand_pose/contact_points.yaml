@@ -1,0 +1,234 @@
+left_points:
+  thumb_tip_main:
+    source_type: "sphere"
+    source_link: "left_thumb_DP"
+    source_sphere_index: 1
+    role_tags: ["thumb_tip", "contact"]
+  thumb_pad_main:
+    source_type: "sphere"
+    source_link: "left_thumb_PP"
+    source_sphere_index: 1
+    role_tags: ["thumb_pad", "contact"]
+  index_tip_main:
+    source_type: "sphere"
+    source_link: "left_index_DP"
+    source_sphere_index: 0
+    role_tags: ["index_tip", "contact"]
+  index_pad_main:
+    source_type: "sphere"
+    source_link: "left_index_PP"
+    source_sphere_index: 1
+    role_tags: ["index_pad", "contact"]
+  index_side_main:
+    source_type: "sphere"
+    source_link: "left_index_PP"
+    source_sphere_index: 1
+    role_tags: ["index_side", "contact"]
+  middle_tip_main:
+    source_type: "sphere"
+    source_link: "left_middle_DP"
+    source_sphere_index: 1
+    role_tags: ["middle_tip", "contact"]
+  middle_pad_main:
+    source_type: "sphere"
+    source_link: "left_middle_PP"
+    source_sphere_index: 1
+    role_tags: ["middle_pad", "contact"]
+  middle_side_main:
+    source_type: "sphere"
+    source_link: "left_middle_PP"
+    source_sphere_index: 1
+    role_tags: ["middle_side", "contact"]
+  ring_tip_main:
+    source_type: "sphere"
+    source_link: "left_ring_DP"
+    source_sphere_index: 0
+    role_tags: ["ring_tip", "contact"]
+  ring_pad_main:
+    source_type: "sphere"
+    source_link: "left_ring_PP"
+    source_sphere_index: 1
+    role_tags: ["ring_pad", "contact"]
+  ring_side_main:
+    source_type: "sphere"
+    source_link: "left_ring_PP"
+    source_sphere_index: 1
+    role_tags: ["ring_side", "contact"]
+  little_tip_main:
+    source_type: "sphere"
+    source_link: "left_pinky_DP"
+    source_sphere_index: 1
+    role_tags: ["little_tip", "pinky_tip", "contact"]
+  little_pad_main:
+    source_type: "sphere"
+    source_link: "left_pinky_PP"
+    source_sphere_index: 1
+    role_tags: ["little_pad", "pinky_pad", "contact"]
+  little_side_main:
+    source_type: "sphere"
+    source_link: "left_pinky_PP"
+    source_sphere_index: 1
+    role_tags: ["little_side", "pinky_side", "contact"]
+  palm_avoid_center:
+    source_type: "sphere"
+    source_link: "left_hand_C_MC"
+    source_sphere_index: 1
+    role_tags: ["palm", "avoid"]
+  palm_support_center:
+    source_type: "sphere"
+    source_link: "left_hand_C_MC"
+    source_sphere_index: 0
+    role_tags: ["palm", "support", "contact", "main"]
+  palm_avoid_lower:
+    source_type: "sphere"
+    source_link: "left_hand_C_MC"
+    source_sphere_index: 3
+    role_tags: ["palm", "avoid"]
+
+right_points:
+  thumb_tip_main:
+    source_type: "sphere"
+    source_link: "right_thumb_DP"
+    source_sphere_index: 1
+    role_tags: ["thumb_tip", "contact"]
+  thumb_pad_main:
+    source_type: "sphere"
+    source_link: "right_thumb_PP"
+    source_sphere_index: 1
+    role_tags: ["thumb_pad", "contact"]
+  index_tip_main:
+    source_type: "sphere"
+    source_link: "right_index_DP"
+    source_sphere_index: 0
+    role_tags: ["index_tip", "contact"]
+  index_pad_main:
+    source_type: "sphere"
+    source_link: "right_index_PP"
+    source_sphere_index: 1
+    role_tags: ["index_pad", "contact"]
+  index_side_main:
+    source_type: "sphere"
+    source_link: "right_index_PP"
+    source_sphere_index: 1
+    role_tags: ["index_side", "contact"]
+  middle_tip_main:
+    source_type: "sphere"
+    source_link: "right_middle_DP"
+    source_sphere_index: 1
+    role_tags: ["middle_tip", "contact"]
+  middle_pad_main:
+    source_type: "sphere"
+    source_link: "right_middle_PP"
+    source_sphere_index: 1
+    role_tags: ["middle_pad", "contact"]
+  middle_side_main:
+    source_type: "sphere"
+    source_link: "right_middle_PP"
+    source_sphere_index: 1
+    role_tags: ["middle_side", "contact"]
+  ring_tip_main:
+    source_type: "sphere"
+    source_link: "right_ring_DP"
+    source_sphere_index: 0
+    role_tags: ["ring_tip", "contact"]
+  ring_pad_main:
+    source_type: "sphere"
+    source_link: "right_ring_PP"
+    source_sphere_index: 1
+    role_tags: ["ring_pad", "contact"]
+  ring_side_main:
+    source_type: "sphere"
+    source_link: "right_ring_PP"
+    source_sphere_index: 1
+    role_tags: ["ring_side", "contact"]
+  little_tip_main:
+    source_type: "sphere"
+    source_link: "right_pinky_DP"
+    source_sphere_index: 1
+    role_tags: ["little_tip", "pinky_tip", "contact"]
+  little_pad_main:
+    source_type: "sphere"
+    source_link: "right_pinky_PP"
+    source_sphere_index: 1
+    role_tags: ["little_pad", "pinky_pad", "contact"]
+  little_side_main:
+    source_type: "sphere"
+    source_link: "right_pinky_PP"
+    source_sphere_index: 1
+    role_tags: ["little_side", "pinky_side", "contact"]
+  palm_avoid_center:
+    source_type: "sphere"
+    source_link: "right_hand_C_MC"
+    source_sphere_index: 1
+    role_tags: ["palm", "avoid"]
+  palm_support_center:
+    source_type: "sphere"
+    source_link: "right_hand_C_MC"
+    source_sphere_index: 0
+    role_tags: ["palm", "support", "contact", "main"]
+  palm_avoid_lower:
+    source_type: "sphere"
+    source_link: "right_hand_C_MC"
+    source_sphere_index: 3
+    role_tags: ["palm", "avoid"]
+
+cat1:
+  active_points:
+    - "thumb_pad_main"
+    - "index_pad_main"
+    - "middle_pad_main"
+  avoid_points:
+    - "palm_avoid_center"
+    - "palm_avoid_lower"
+  opposition_pairs:
+    - ["thumb_pad_main", "index_pad_main"]
+    - ["thumb_pad_main", "middle_pad_main"]
+
+cat2:
+  active_points:
+    - "thumb_pad_main"
+    - "index_pad_main"
+    - "index_tip_main"
+    - "middle_pad_main"
+    - "middle_tip_main"
+    - "ring_pad_main"
+    - "little_pad_main"
+  avoid_points:
+    - "palm_avoid_center"
+    - "palm_avoid_lower"
+  opposition_pairs:
+    - ["thumb_pad_main", "index_pad_main"]
+    - ["thumb_pad_main", "middle_pad_main"]
+
+cat3:
+  active_points:
+    - "palm_support_center"
+    - "thumb_pad_main"
+    - "index_side_main"
+    - "middle_side_main"
+    - "ring_side_main"
+    - "little_side_main"
+  avoid_points:
+    - "palm_avoid_lower"
+  opposition_pairs:
+    - ["thumb_pad_main", "index_side_main"]
+    - ["thumb_pad_main", "middle_side_main"]
+
+cat4:
+  active_points:
+    - "palm_support_center"
+    - "thumb_pad_main"
+    - "thumb_tip_main"
+    - "index_pad_main"
+    - "index_tip_main"
+    - "middle_pad_main"
+    - "middle_tip_main"
+    - "ring_pad_main"
+    - "ring_tip_main"
+    - "little_pad_main"
+    - "little_tip_main"
+  avoid_points:
+    - "palm_avoid_lower"
+  opposition_pairs:
+    - ["thumb_pad_main", "index_pad_main"]
+    - ["thumb_pad_main", "middle_pad_main"]

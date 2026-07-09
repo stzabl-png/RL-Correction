@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ocir"
+version = "0.1.0"
+description = "Sharpa Wave grasp synthesis on official cuRobo v2, with Isaac Sim visualization support."
+requires-python = ">=3.10"
+dependencies = [
+  "numpy",
+  "PyYAML",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,96 @@
+shared_posture_names:
+  available:
+    - "neutral"
+    - "open_hand"
+    - "light_close"
+    - "medium_close"
+    - "cat2_hold_close"
+    - "cat3_palm_first"
+    - "cat3_fingers_down"
+    - "cat3_side_press"
+    - "cat3_push_hold"
+
+left_seed_adjustment:
+  wrist_rpy_offset_deg: [0.0, 0.0, 0.0]
+  position_offset_local: [0.0, 0.0, 0.0]
+
+right_seed_adjustment:
+  wrist_rpy_offset_deg: [0.0, 0.0, 0.0]
+  position_offset_local: [0.0, 0.0, 0.0]
+
+cat1:
+  seed_template: "edge_rim"
+  joint_seed_postures:
+    - "light_close"
+    - "medium_close"
+  default_num_seeds_per_region: 48
+  approach_family:
+    - "outside_in"
+    - "slightly_top_down"
+  wrist_perturbation:
+    rpy_offset_deg:
+      roll: [-10.0, 10.0]
+      pitch: [-10.0, 10.0]
+      yaw: [-20.0, 20.0]
+    xyz_offset_local:
+      x: [-0.010, 0.010]
+      y: [-0.010, 0.010]
+      z: [-0.010, 0.010]
+
+cat2:
+  seed_template: "bottom_band"
+  joint_seed_postures:
+    - "light_close"
+    - "cat2_hold_close"
+  default_num_seeds_per_region: 10
+  approach_family:
+    - "from_below"
+    - "below_and_forward"
+  wrist_perturbation:
+    rpy_offset_deg:
+      roll: [-10.0, 10.0]
+      pitch: [-20.0, 20.0]
+      yaw: [-15.0, 15.0]
+    xyz_offset_local:
+      x: [-0.010, 0.010]
+      y: [-0.010, 0.010]
+      z: [-0.015, 0.015]
+
+cat3:
+  seed_template: "side_wrap"
+  joint_seed_postures:
+    - "cat3_palm_first"
+    - "cat3_side_press"
+  default_num_seeds_per_region: 8
+  approach_family:
+    - "side_in"
+    - "side_wrap"
+  wrist_perturbation:
+    rpy_offset_deg:
+      roll: [-8.0, 8.0]
+      pitch: [-14.0, 14.0]
+      yaw: [-18.0, 18.0]
+    xyz_offset_local:
+      x: [-0.012, 0.012]
+      y: [-0.012, 0.012]
+      z: [-0.018, 0.008]
+
+cat4:
+  seed_template: "convex_hold"
+  joint_seed_postures:
+    - "light_close"
+    - "medium_close"
+  default_num_seeds_per_region: 16
+  approach_family:
+    - "side_in"
+    - "side_wrap"
+    - "top_down"
+  wrist_perturbation:
+    rpy_offset_deg:
+      roll: [-15.0, 15.0]
+      pitch: [-15.0, 15.0]
+      yaw: [-25.0, 25.0]
+    xyz_offset_local:
+      x: [-0.015, 0.015]
+      y: [-0.015, 0.015]
+      z: [-0.012, 0.012]

@@ -1,0 +1,3 @@
+# Placeholder for hand-local bimanual metadata. Pair selection is currently
+# driven by src/pipeline_bimanual.py and global category config.
+enabled: true

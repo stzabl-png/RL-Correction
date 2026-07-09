@@ -1,0 +1,125 @@
+world:
+  type: scene_cfg
+  template_path: object/DGN_5k_test/scene_cfg/**/floating/*.npy
+  start: 
+  end: 
+
+robot_file: "sharpa_right.yml"
+robot_file_with_arm: 
+base_cfg_file: "base_grasp.yml"
+particle_file: "particle_grasp_debug.yml"
+gradient_file: "gradient_grasp_fc.yml"
+
+exp_name: debug
+seed_num: 10000
+seeder_cfg:
+  obj_sample:
+    num: 128
+    inflate: 0.1
+    convex_hull: True
+    collision_free: True 
+  ik_init_q:
+  load_path: 
+  skip_transfer: False
+  t:  
+  r:  
+  # 关节初始值（按URDF关节顺序）
+  q: [1.4835,  # right_thumb_CMC_FE   (range: -0.1745 ~ 1.9199)
+      -0.32, # right_thumb_CMC_AA   (range: -0.3491 ~ 0.3491)
+      0.4538,  # right_thumb_MCP_FE   (range: -0.5236 ~ 1.3963)
+      0.0,     # right_thumb_MCP_AA   (range: -0.3491 ~ 0.3491)
+      0.6458,  # right_thumb_IP       (range: 0 ~ 1.7453)
+      0.2705,  # right_index_MCP_FE   (range: -0.1745 ~ 1.5708)
+      0.0,     # right_index_MCP_AA   (range: -0.3491 ~ 0.3491)
+      0.6807,  # right_index_PIP      (range: 0 ~ 1.7453)
+      0.7156,  # right_index_DIP      (range: 0 ~ 1.3963)
+      0.2705,  # right_middle_MCP_FE  (range: -0.1745 ~ 1.5708)
+      0.0,     # right_middle_MCP_AA  (range: -0.3491 ~ 0.3491)
+      0.6807,  # right_middle_PIP     (range: 0 ~ 1.7453)
+      0.7156,  # right_middle_DIP     (range: 0 ~ 1.3963)
+      0.2705,  # right_ring_MCP_FE    (range: -0.1745 ~ 1.5708)
+      0.0,     # right_ring_MCP_AA    (range: -0.3491 ~ 0.3491)
+      0.6807,  # right_ring_PIP       (range: 0 ~ 1.7453)
+      0.7156,  # right_ring_DIP       (range: 0 ~ 1.3963)
+      0.0,     # right_pinky_CMC      (range: 0 ~ 0.2618)
+      0.1396,  # right_pinky_MCP_FE   (range: -0.1745 ~ 1.5708)
+      0.0,     # right_pinky_MCP_AA   (range: -0.3491 ~ 0.3491)
+      0.6981,  # right_pinky_PIP      (range: 0 ~ 1.7453)
+      0.7156]  # right_pinky_DIP      (range: 0 ~ 1.3963)
+  jitter_angle: [[-180, -15, -15], [180, 15, 15]]
+  jitter_dist: [[0.0, -0.03, -0.03], [0.03, 0.03, 0.03]]
+
+grasp_contact_strategy:
+  # 接触点对应URDF中的指尖链接名称
+  contact_points_name: ['right_pinky_DP/1',
+                        'right_pinky_PP/0',
+                        'right_ring_PP/0',
+                        'right_ring_DP/1',
+                        'right_middle_PP/0',
+                        'right_middle_DP/1',
+                        'right_index_PP/0',
+                        'right_index_DP/1',
+                        'right_thumb_PP/0',
+                        'right_thumb_DP/1',
+                        'right_hand_C_MC/0']
+  opt_progress: [0.0, 0.6, 0.8]
+  distance: [0.02, 0.01, 0.0]
+  # distance: [0.03, 0.005, -0.005]
+  contact_query_mode: [-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  save_qpos: [False, True]
+  max_ge_stage: 0
+
+grasp_cfg:
+  task_dict:
+    f: [0, 0, 1]
+    p: [0, 0, 0]
+    t: [0, 0, 0]
+    gamma: 180
+  ge_param:
+    type: 'qp'
+    miu_coef: [0.3, 0]
+    solver_type: 'batch_reluqp'
+    k_lower: 0.3
+    pressure_constraints:
+      # 1) total force across all contacts (fingers + palm) ≤ 1.0
+      [[[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 1.0],
+
+       # 2) thumb alone (both thumb contacts) ≤ 0.5
+       [[8, 9], 0.5],
+
+       # 3) all fingers except thumb (pinky, ring, mid, index) ≤ 0.7
+       #    pinky: 0,1; ring: 2,3; mid: 4,5; index: 6,7
+       [[0, 1, 2, 3, 4, 5, 6, 7], 0.7],
+
+       # 4) pinky + ring (weaker fingers) ≤ 0.4
+       #    pinky: 0,1; ring: 2,3
+       [[0, 1, 2, 3], 0.4],
+
+       # 5) mid + index (stronger fingers) ≤ 0.5
+       #    mid: 4,5; index: 6,7
+       [[4, 5, 6, 7], 0.5]]
+    enable_density: False
+    solve_interval: 5
+
+mogen_init: [1.2741,  # right_thumb_CMC_FE   (q=1.4835 - 0.2094)
+             -0.32, # right_thumb_CMC_AA   (unchanged, directional)
+             0.2444,  # right_thumb_MCP_FE   (q=0.4538 - 0.2094)
+             0.0,     # right_thumb_MCP_AA   (unchanged, directional)
+             0.4364,  # right_thumb_IP       (q=0.6458 - 0.2094)
+             0.0,     # right_index_MCP_FE   (q=0.15 - 0.2094 → clamped)
+             0.0,     # right_index_MCP_AA   (unchanged, directional)
+             0.4713,  # right_index_PIP      (q=0.6807 - 0.2094)
+             0.5062,  # right_index_DIP      (q=0.7156 - 0.2094)
+             0.0611,  # right_middle_MCP_FE  (q=0.2705 - 0.2094)
+             0.0,     # right_middle_MCP_AA  (unchanged, directional)
+             0.4713,  # right_middle_PIP     (q=0.6807 - 0.2094)
+             0.5062,  # right_middle_DIP     (q=0.7156 - 0.2094)
+             0.0611,  # right_ring_MCP_FE    (q=0.2705 - 0.2094)
+             0.0,     # right_ring_MCP_AA    (unchanged, directional)
+             0.4713,  # right_ring_PIP       (q=0.6807 - 0.2094)
+             0.5062,  # right_ring_DIP       (q=0.7156 - 0.2094)
+             0.0,     # right_pinky_CMC      (unchanged, at 0)
+             0.0,     # right_pinky_MCP_FE   (q=0.1396 - 0.2094 → clamped)
+             0.0,     # right_pinky_MCP_AA   (unchanged, directional)
+             0.4887,  # right_pinky_PIP      (q=0.6981 - 0.2094)
+             0.5062]  # right_pinky_DIP      (q=0.7156 - 0.2094)

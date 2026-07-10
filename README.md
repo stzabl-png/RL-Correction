@@ -250,7 +250,7 @@ scripts/run_grasp_synthesis_conda.sh \
 | `--isaac-visualize-failed` / `--no-...` (default on) | If no seed strictly succeeded, visualize the best-ranked failed seed instead of skipping. |
 | `--isaac-mode {server,standalone}` (default `server`) | `server` submits to the persistent control server (see below). `standalone` launches a one-shot local Isaac Sim window per grasp instead -- for a headed machine with no persistent server running. |
 | `--control-host`, `--control-port` (default `127.0.0.1:8765`) | Persistent server address, used when `--isaac-mode server`. |
-| `--isaac-width`, `--isaac-height`, `--isaac-tabletop-z`, `--isaac-hold-open[-seconds]`, `--isaac-show-object-points` | Visualization rendering options, passed through to `visualize_grasp.py`. |
+| `--isaac-width`, `--isaac-height`, `--isaac-tabletop-z`, `--isaac-hold-open[-seconds]`, `--isaac-show-object-points` | Visualization rendering options, passed through to `visualize_grasp.py`. The hold is timed (default 10 s); in standalone mode the one-shot Isaac window closes itself afterwards so batch runs continue unattended. |
 | `--check-only` | Only validate the backend; no sequence/out-dir needed. |
 | `--strict-success-exit-code` | Exit 1 if any sequence had zero strictly-successful seeds. |
 
@@ -344,7 +344,9 @@ scripts/run_isaacsim_conda.sh scripts/isaac/visualize_grasp.py \
 ```
 
 Important flags: `--tabletop-z`, `--show-table`/`--show-object-points`,
-`--hold-open[-seconds]` (keep the viewport open after rendering),
+`--hold-open[-seconds]` (timed viewport hold after rendering; add
+`--hold-open-until-closed` in `--mode local` to instead keep the window
+alive until you close it manually),
 `--camera-eye-offset`/`--camera-target-offset` (camera framing). With
 `--mode webrtc` (submits to the persistent server), `--use-raw-object-pose`
 plus `--manifest`/`--sequence-id`/`--frame-id` optionally replay the

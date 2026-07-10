@@ -34,6 +34,7 @@ SERVER_ONLY_FIELDS = {
     "livestream",
     "hold_open",
     "hold_open_seconds",
+    "hold_open_until_closed",
     "control_host",
     "control_port",
     "request_timeout",
@@ -581,7 +582,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--camera-focal-length", type=float, default=45.0)
     parser.add_argument("--camera-horizontal-aperture", type=float, default=38.0)
     parser.add_argument("--hold-open", action=argparse.BooleanOptionalAction, default=False)
-    parser.add_argument("--hold-open-seconds", type=float, default=5.0)
+    parser.add_argument("--hold-open-seconds", type=float, default=10.0)
+    parser.add_argument(
+        "--hold-open-until-closed",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Only used with --mode local: after the timed hold, keep the Isaac window open until it is "
+        "closed manually instead of exiting. Off by default so batch standalone runs proceed to the "
+        "next sequence on their own.",
+    )
     parser.add_argument("--livestream", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--reuse-instance", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--control-host", default="127.0.0.1")
@@ -720,16 +729,20 @@ def main() -> int:
             print(f"OCIR_GRASP_ISAAC no control server at {args.control_host}:{args.control_port}: {exc}", flush=True)
             return 1
     if args.mode == "local":
+        # The timed hold (--hold-open / --hold-open-seconds) happens inside
+        # visualize_grasp; afterwards the app closes so batch standalone runs
+        # continue to the next sequence, unless --hold-open-until-closed asks
+        # to keep the window alive for manual inspection.
         app = launch_simulation_app(args)
         try:
             visualize_grasp(app, args)
-            if args.hold_open:
+            if args.hold_open_until_closed:
+                log("holding Isaac window open until it is closed manually (--hold-open-until-closed)")
                 while app.is_running():
                     app.update()
                     time.sleep(1.0 / 60.0)
         finally:
-            if not args.hold_open:
-                app.close()
+            app.close()
         return 0
     if server_is_running(args.control_host, args.control_port):
         return submit_job_to_server(args)

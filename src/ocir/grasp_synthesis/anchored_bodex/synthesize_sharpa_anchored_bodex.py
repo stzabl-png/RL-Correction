@@ -80,7 +80,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--isaac-height", type=int, default=768)
     parser.add_argument("--isaac-tabletop-z", type=float, default=0.8)
     parser.add_argument("--isaac-hold-open", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--isaac-hold-open-seconds", type=float, default=5.0)
+    parser.add_argument(
+        "--isaac-hold-open-seconds",
+        type=float,
+        default=10.0,
+        help="How long the visualization stays up before the pipeline continues. In standalone mode the "
+        "one-shot Isaac window closes itself after this hold, so batch runs proceed unattended.",
+    )
     parser.add_argument("--isaac-show-object-points", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--check-only", action="store_true", help="Only check backend availability.")
     parser.add_argument("--strict-success-exit-code", action="store_true")

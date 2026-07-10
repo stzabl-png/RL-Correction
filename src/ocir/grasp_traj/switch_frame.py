@@ -1,10 +1,9 @@
-"""Dynamic switch-frame selection: walk backward from a default
-approach-duration frame until the retargeted hand pose is collision-safe.
+"""Dynamic handoff-frame selection for retarget replay -> planned pregrasp.
 
-Replaces any custom motion-planning machinery for the approach segment: the
-approach itself (see ``segments.py``) is a plain standoff + straight-line
-interpolation, so all the "safely reach the grasp pose without touching the
-object too early" work happens here, once, by picking a good starting frame.
+Walk backward from a default lead-time frame until the fully-open retargeted
+hand is collision-safe and still precedes the demonstration's first contact.
+The selected frame becomes the exact start state of the collision-constrained
+cuRobo plan to the repaired pregrasp pose.
 """
 
 from __future__ import annotations
@@ -88,9 +87,11 @@ def select_switch_frame(
 
     satisfied = chosen is not None
     if not satisfied:
-        chosen = default_frame
-        chosen_clearance = float(clearances[0]) if len(clearances) else None
-        walked = 0
+        raise ValueError(
+            "no valid pre-contact handoff frame gives the fully-open hand "
+            f"the requested {clearance_m:.4f} m object clearance "
+            f"({len(candidates)} candidates checked from frame {default_frame} backward)"
+        )
 
     report = {
         "default_frame": int(default_frame),

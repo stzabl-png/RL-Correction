@@ -32,7 +32,6 @@ from ocir.grasp_traj.segments import (
     polyline_wrist_trajectory,
     quat_to_matrix,
     slerp_wxyz,
-    standoff_pose,
     steps_for_leg,
 )
 from ocir.grasp_traj.switch_frame import select_switch_frame
@@ -55,13 +54,12 @@ CARRY_START_PICKUP_FRAME = "pickup_frame"
 @dataclass
 class GraspTrajectoryConfig:
     fps: float = 30.0
-    approach_seconds: float = 0.5
+    approach_seconds: float = 1.0
     close_seconds: float = 0.3
     squeeze_seconds: float = 0.3
-    standoff_m: float = 0.10
     pregrasp_open_fraction: float = 1.0
     squeeze_delta: float = 0.15
-    approach_clearance_m: float = 0.01
+    approach_clearance_m: float = 0.003
     carry_start: str = CARRY_START_GRASP_FRAME
     max_wrist_speed_mps: float = 0.25
     carry_blend_seconds: float = 0.3
@@ -203,22 +201,22 @@ class GraspTrajectoryGenerator:
         world,
         switch_pos: np.ndarray,
         switch_quat: np.ndarray,
-        standoff_pos: np.ndarray,
-        standoff_quat: np.ndarray,
+        pregrasp_pos: np.ndarray,
+        pregrasp_quat: np.ndarray,
         pregrasp_joints: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
-        """Switch pose (hand already fully open -- the opening ramp lives in
+        """Handoff pose (hand already fully open -- the opening ramp lives in
         the retarget segment, and the switch frame was selected for open-hand
-        clearance) -> grasp standoff, via cuRobo v2 MotionPlanner
+        clearance) -> repaired pregrasp pose, via cuRobo v2 MotionPlanner
         (floating-base hand, fingers locked wide open, object mesh as
-        obstacle); straight-line + radial via-point fallback if planning is
-        disabled or fails."""
+        obstacle). ``planner=linear`` is an explicit debugging alternative;
+        cuRobo failures are fail-closed rather than silently replacing the
+        collision-constrained plan."""
 
         cfg = self.config
         report: dict = {}
         switch_pos = np.asarray(switch_pos, dtype=np.float64)
 
-        transit = None
         if cfg.planner == "curobo":
             try:
                 planner = TransitPlanner(
@@ -228,22 +226,19 @@ class GraspTrajectoryGenerator:
                     self.device_cfg,
                 )
                 transit = planner.plan(
-                    switch_pos, switch_quat, standoff_pos, standoff_quat,
+                    switch_pos, switch_quat, pregrasp_pos, pregrasp_quat,
                     seconds=cfg.approach_seconds, fps=cfg.fps,
                     max_speed_mps=cfg.max_wrist_speed_mps,
                 )
             except Exception as exc:  # planner construction/planning issues
-                print(f"[grasp_traj] WARNING: cuRobo transit planning raised {exc!r}; falling back to linear")
-                transit = None
-            report["planner"] = "curobo" if transit is not None else "linear_fallback"
-            if transit is None and cfg.planner == "curobo":
-                print("[grasp_traj] WARNING: cuRobo transit planning failed; falling back to straight-line + via-point")
+                raise RuntimeError(f"cuRobo direct-to-pregrasp planning raised {exc!r}") from exc
+            if transit is None:
+                raise RuntimeError("cuRobo could not find a collision-constrained direct-to-pregrasp plan")
+            report["planner"] = "curobo"
         else:
             report["planner"] = "linear"
-
-        if transit is None:
             transit = self._linear_transit(
-                surface, world, switch_pos, switch_quat, standoff_pos, standoff_quat, pregrasp_joints, report
+                surface, world, switch_pos, switch_quat, pregrasp_pos, pregrasp_quat, pregrasp_joints, report
             )
         pos, quat = transit
         # plan()/_linear_transit are start-exclusive; emit the switch pose
@@ -272,8 +267,8 @@ class GraspTrajectoryGenerator:
         world,
         start_pos: np.ndarray,
         start_quat: np.ndarray,
-        standoff_pos: np.ndarray,
-        standoff_quat: np.ndarray,
+        pregrasp_pos: np.ndarray,
+        pregrasp_quat: np.ndarray,
         pregrasp_joints: np.ndarray,
         report: dict,
     ) -> tuple[np.ndarray, np.ndarray]:
@@ -288,7 +283,7 @@ class GraspTrajectoryGenerator:
             n_steps = steps_for_leg(dist, cfg.approach_seconds, cfg.fps, cfg.max_wrist_speed_mps)
             return polyline_wrist_trajectory(wp, wq, n_steps, include_start=False)
 
-        pos, quat = build([start_pos, standoff_pos], [start_quat, standoff_quat])
+        pos, quat = build([start_pos, pregrasp_pos], [start_quat, pregrasp_quat])
         joints = np.tile(pregrasp_joints[None], (pos.shape[0], 1))
         if self._min_clearance(world, pos, quat, joints) >= cfg.approach_clearance_m:
             report["via_point"] = None
@@ -297,14 +292,93 @@ class GraspTrajectoryGenerator:
         points = np.asarray(surface.points_object_frame, dtype=np.float64)
         centroid = points.mean(axis=0)
         bbox_radius = float(np.linalg.norm(points - centroid, axis=1).max())
-        midpoint = 0.5 * (np.asarray(start_pos, dtype=np.float64) + np.asarray(standoff_pos, dtype=np.float64))
+        midpoint = 0.5 * (np.asarray(start_pos, dtype=np.float64) + np.asarray(pregrasp_pos, dtype=np.float64))
         radial = midpoint - centroid
         radial_norm = float(np.linalg.norm(radial))
         direction = radial / radial_norm if radial_norm > 1e-9 else np.asarray([0.0, 0.0, 1.0])
-        via_pos = centroid + direction * max(bbox_radius + cfg.standoff_m, radial_norm)
-        via_quat = slerp_wxyz(start_quat, standoff_quat, 0.5)
+        via_pos = centroid + direction * max(bbox_radius + cfg.open_clearance_m, radial_norm)
+        via_quat = slerp_wxyz(start_quat, pregrasp_quat, 0.5)
         report["via_point"] = via_pos.tolist()
-        return build([start_pos, via_pos, standoff_pos], [start_quat, via_quat, standoff_quat])
+        return build([start_pos, via_pos, pregrasp_pos], [start_quat, via_quat, pregrasp_quat])
+
+    def _resample_carry_object_poses(
+        self,
+        object_pos_camera: np.ndarray,
+        object_quat_camera: np.ndarray,
+        grasp_root_tf: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, dict]:
+        """Insert samples into the recorded object trajectory until the
+        composed hand-root translation respects ``max_wrist_speed_mps``.
+
+        Demo frames are retained exactly; only intermediate object poses are
+        added (linear translation + quaternion slerp).  This prevents a fast
+        recorded carry from yanking a marginal friction grasp loose while
+        preserving the demonstrated geometric path.
+        """
+
+        obj_pos = np.asarray(object_pos_camera, dtype=np.float64)
+        obj_quat = np.asarray(object_quat_camera, dtype=np.float64)
+        if obj_pos.shape[0] <= 1 or self.config.max_wrist_speed_mps <= 0.0:
+            return obj_pos, obj_quat, {"raw_steps": int(obj_pos.shape[0]), "resampled_steps": int(obj_pos.shape[0])}
+
+        hand_pos_raw, _ = matrix_to_pos_quat(
+            pos_quat_to_matrix(obj_pos, obj_quat) @ np.asarray(grasp_root_tf, dtype=np.float64)[None]
+        )
+        out_pos = [obj_pos[0]]
+        out_quat = [obj_quat[0]]
+        subdivisions: list[int] = []
+        for i in range(obj_pos.shape[0] - 1):
+            hand_distance = float(np.linalg.norm(hand_pos_raw[i + 1] - hand_pos_raw[i]))
+            n_steps = max(
+                1,
+                int(np.ceil(hand_distance * self.config.fps / self.config.max_wrist_speed_mps)),
+            )
+            subdivisions.append(n_steps)
+            for step in range(1, n_steps + 1):
+                alpha = step / float(n_steps)
+                out_pos.append(obj_pos[i] * (1.0 - alpha) + obj_pos[i + 1] * alpha)
+                out_quat.append(slerp_wxyz(obj_quat[i], obj_quat[i + 1], alpha))
+
+        out_pos_np = np.asarray(out_pos, dtype=np.float64)
+        out_quat_np = np.asarray(out_quat, dtype=np.float64)
+        hand_pos_out, _ = matrix_to_pos_quat(
+            pos_quat_to_matrix(out_pos_np, out_quat_np) @ np.asarray(grasp_root_tf, dtype=np.float64)[None]
+        )
+        step_dist = np.linalg.norm(np.diff(hand_pos_out, axis=0), axis=1)
+        return out_pos_np, out_quat_np, {
+            "raw_steps": int(obj_pos.shape[0]),
+            "resampled_steps": int(out_pos_np.shape[0]),
+            "max_subdivisions_per_demo_step": int(max(subdivisions, default=1)),
+            "max_hand_step_m": float(step_dist.max()) if step_dist.size else 0.0,
+            "max_hand_speed_mps": float(step_dist.max() * self.config.fps) if step_dist.size else 0.0,
+        }
+
+    def _cap_synchronized_pose_speed(
+        self,
+        hand_pos: np.ndarray,
+        hand_quat: np.ndarray,
+        object_pos: np.ndarray,
+        object_quat: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Densify synchronized hand/object poses to enforce the translational
+        wrist speed cap, including the squeeze->carry boundary blend."""
+
+        if hand_pos.shape[0] <= 1 or self.config.max_wrist_speed_mps <= 0.0:
+            return hand_pos, hand_quat, object_pos, object_quat
+        hp = [np.asarray(hand_pos[0], dtype=np.float64)]
+        hq = [np.asarray(hand_quat[0], dtype=np.float64)]
+        op = [np.asarray(object_pos[0], dtype=np.float64)]
+        oq = [np.asarray(object_quat[0], dtype=np.float64)]
+        for i in range(hand_pos.shape[0] - 1):
+            distance = float(np.linalg.norm(hand_pos[i + 1] - hand_pos[i]))
+            n_steps = max(1, int(np.ceil(distance * self.config.fps / self.config.max_wrist_speed_mps)))
+            for step in range(1, n_steps + 1):
+                alpha = step / float(n_steps)
+                hp.append(hand_pos[i] * (1.0 - alpha) + hand_pos[i + 1] * alpha)
+                hq.append(slerp_wxyz(hand_quat[i], hand_quat[i + 1], alpha))
+                op.append(object_pos[i] * (1.0 - alpha) + object_pos[i + 1] * alpha)
+                oq.append(slerp_wxyz(object_quat[i], object_quat[i + 1], alpha))
+        return np.asarray(hp), np.asarray(hq), np.asarray(op), np.asarray(oq)
 
     def generate(self, sequence_dir: str | Path, grasp_record: dict) -> GraspTrajectory:
         sequence_dir = Path(sequence_dir)
@@ -410,52 +484,22 @@ class GraspTrajectoryGenerator:
         # Failed-grasp records can place even the PALM inside the object; no
         # finger projection can repair that. Pull the grasp wrist pose back
         # along its own approach axis until the wide-open hand clears the
-        # surface, and use the corrected pose everywhere (standoff, close,
+        # surface, and use the corrected pose everywhere (pregrasp goal, close,
         # squeeze, and the carry's grasp_root_tf).
         grasp_pos, wrist_backoff = self._project_wrist_pose(
             world, grasp_pos, grasp_quat, pregrasp_joints,
-            clearance_target_m=self.config.near_contact_margin_m,
+            clearance_target_m=self.config.approach_clearance_m,
         )
         squeeze_joints = self._clamp(grasp_joints_full + self.config.squeeze_delta * self.relax_mask)
-        # The standoff is the grasp pose pulled back along ITS palm approach
-        # axis, so the final reach comes straight in along the synthesized
-        # approach direction instead of sweeping in from wherever the switch
-        # pose happens to be.
-        standoff_pos = standoff_pose(grasp_pos, grasp_quat, self.config.standoff_m)
-        standoff_quat = grasp_quat
 
         static_object_pose = demo.object_pose_camera[switch_frame]
 
         approach_pos, approach_quat, approach_joints, transit_report = self._plan_transit(
             surface, world,
             switch_pos, switch_quat,
-            standoff_pos, standoff_quat, pregrasp_joints,
+            grasp_pos, grasp_quat, pregrasp_joints,
         )
         clearance_report = {**clearance_report, "transit": transit_report}
-
-        # Reach: fly the wide-open hand from the standoff to the grasp wrist
-        # pose (fingers pinned open; contact with the object is not expected
-        # until the fingers close, so this leg is not SDF-checked). Labeled
-        # SEGMENT_APPROACH -- it is the tail of the approach.
-        reach_steps = steps_for_leg(
-            float(np.linalg.norm(grasp_pos - standoff_pos)),
-            self.config.close_seconds, self.config.fps, self.config.max_wrist_speed_mps,
-        )
-        reach_pos, reach_quat, reach_joints = interp_trajectory(
-            standoff_pos, standoff_quat, pregrasp_joints,
-            grasp_pos, grasp_quat, pregrasp_joints,
-            reach_steps, include_start=False,
-        )
-        reach_clearance = self._min_clearance(world, reach_pos, reach_quat, reach_joints)
-        clearance_report = {**clearance_report, "reach_min_clearance_m": reach_clearance}
-        if reach_clearance < 0.0:
-            print(
-                "[grasp_traj] WARNING: the open hand brushes the object during the reach leg "
-                f"(min clearance {reach_clearance:.4f} m)"
-            )
-        approach_pos = np.concatenate([approach_pos, reach_pos], axis=0)
-        approach_quat = np.concatenate([approach_quat, reach_quat], axis=0)
-        approach_joints = np.concatenate([approach_joints, reach_joints], axis=0)
 
         # Close: wrist holds the grasp pose while the fingers close in two
         # stages onto a CONTACT-PROJECTED target -- the synthesized grasp
@@ -522,9 +566,14 @@ class GraspTrajectoryGenerator:
             else analysis.pickup_frame_index
         )
         carry_indices = demo.valid_indices[demo.valid_indices >= carry_frame]
+        carry_resample_report: dict = {"raw_steps": 0, "resampled_steps": 0}
         if carry_indices.size:
             obj_pose_cam = demo.object_pose_camera[carry_indices]
             obj_pos_cam, obj_quat_cam = matrix_to_pos_quat(obj_pose_cam)
+            obj_pos_cam, obj_quat_cam, carry_resample_report = self._resample_carry_object_poses(
+                obj_pos_cam, obj_quat_cam, grasp_root_tf
+            )
+            obj_pose_cam = pos_quat_to_matrix(obj_pos_cam, obj_quat_cam)
             hand_pose_cam = obj_pose_cam @ grasp_root_tf[None]
             hand_pos_cam, hand_quat_cam = matrix_to_pos_quat(hand_pose_cam)
             # Ease out of the squeeze-end pose: segment b froze the object at
@@ -534,8 +583,18 @@ class GraspTrajectoryGenerator:
             hand_pos_cam, hand_quat_cam = blend_into_trajectory(
                 hand_pos_chunks[-1][-1], hand_quat_chunks[-1][-1], hand_pos_cam, hand_quat_cam, n_blend
             )
-            joints_carry = np.tile(squeeze_joints[None], (carry_indices.size, 1))
-            _append(hand_pos_cam, hand_quat_cam, joints_carry, obj_pos_cam, obj_quat_cam, SEGMENT_CARRY, carry_indices.size)
+            steps_before_final_cap = int(hand_pos_cam.shape[0])
+            hand_pos_cam, hand_quat_cam, obj_pos_cam, obj_quat_cam = self._cap_synchronized_pose_speed(
+                hand_pos_cam, hand_quat_cam, obj_pos_cam, obj_quat_cam
+            )
+            actual_step = np.linalg.norm(np.diff(hand_pos_cam, axis=0), axis=1)
+            carry_resample_report["steps_before_boundary_speed_cap"] = steps_before_final_cap
+            carry_resample_report["steps_after_boundary_speed_cap"] = int(hand_pos_cam.shape[0])
+            carry_resample_report["max_hand_speed_after_boundary_blend_mps"] = (
+                float(actual_step.max() * self.config.fps) if actual_step.size else 0.0
+            )
+            joints_carry = np.tile(squeeze_joints[None], (hand_pos_cam.shape[0], 1))
+            _append(hand_pos_cam, hand_quat_cam, joints_carry, obj_pos_cam, obj_quat_cam, SEGMENT_CARRY, hand_pos_cam.shape[0])
 
         traj = GraspTrajectory(
             hand_pos_camera=np.concatenate(hand_pos_chunks, axis=0),
@@ -557,7 +616,6 @@ class GraspTrajectoryGenerator:
                     "approach_seconds": self.config.approach_seconds,
                     "close_seconds": self.config.close_seconds,
                     "squeeze_seconds": self.config.squeeze_seconds,
-                    "standoff_m": self.config.standoff_m,
                     "pregrasp_open_fraction": self.config.pregrasp_open_fraction,
                     "squeeze_delta": self.config.squeeze_delta,
                     "approach_clearance_m": self.config.approach_clearance_m,
@@ -577,6 +635,8 @@ class GraspTrajectoryGenerator:
                 "object_mesh": str(surface.object_mesh_path),
                 "num_retarget_frames": int(retarget_frames.size) if retarget_frames.size else 0,
                 "num_carry_frames": int(carry_indices.size) if carry_indices.size else 0,
+                "num_carry_steps": int(carry_resample_report["resampled_steps"]),
+                "carry_resample": carry_resample_report,
             },
         )
         return traj

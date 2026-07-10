@@ -31,19 +31,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out-dir", type=Path, default=None, help="Required unless --check-only.")
 
     parser.add_argument("--fps", type=float, default=30.0)
-    parser.add_argument("--approach-seconds", type=float, default=0.5)
+    parser.add_argument("--approach-seconds", type=float, default=1.0, help="Minimum lead time before grasp used for handoff selection and minimum duration of the direct cuRobo plan to pregrasp.")
     parser.add_argument("--close-seconds", type=float, default=0.3)
     parser.add_argument("--squeeze-seconds", type=float, default=0.3)
-    parser.add_argument("--standoff", type=float, default=0.10)
     parser.add_argument("--pregrasp-open-fraction", type=float, default=1.0, help="How wide the fingers open before the final reach: 1.0 scales all flexion joints to 0 rad (fully open), 0.0 keeps the grasp posture.")
     parser.add_argument("--squeeze-delta", type=float, default=0.15)
-    parser.add_argument("--approach-clearance", type=float, default=0.01)
+    parser.add_argument("--approach-clearance", type=float, default=0.003, help="Minimum all-sphere clearance for the direct planned approach, including the open-hand pregrasp endpoint.")
     parser.add_argument("--carry-start", choices=["grasp_frame", "pickup_frame"], default="grasp_frame")
     parser.add_argument("--max-wrist-speed", type=float, default=0.25, help="Cap on wrist speed (m/s) in the synthetic approach/close segments; step counts grow beyond the seconds-based defaults when a leg would exceed it.")
     parser.add_argument("--carry-blend-seconds", type=float, default=0.3, help="Blend duration easing the hand from the squeeze-end pose onto the recorded carry trajectory.")
     parser.add_argument("--open-clearance", type=float, default=0.05, help="SDF clearance (m) the WIDE-OPEN hand must have at the switch frame (the switch-frame search walks backward through the demo until satisfied).")
     parser.add_argument("--open-horizon-seconds", type=float, default=1.0, help="Duration of the smooth finger-opening ramp blended into the tail of the retarget replay, ending fully open at the switch frame.")
-    parser.add_argument("--planner", choices=["curobo", "linear"], default="curobo", help="Transit planner for retreat-pose -> standoff: cuRobo v2 MotionPlanner with the object mesh as obstacle (falls back to linear on failure), or plain straight-line + via-point.")
+    parser.add_argument("--planner", choices=["curobo", "linear"], default="curobo", help="Planner for handoff -> repaired open-hand pregrasp. cuRobo uses the object mesh as a collision constraint and fails closed; linear is an explicit debug-only alternative.")
     parser.add_argument("--final-close-seconds", type=float, default=0.4, help="Duration of the slow final close from the near-contact posture to the contact-projected posture.")
     parser.add_argument("--near-contact-margin", type=float, default=0.003, help="Clearance (m) of the near-contact posture that the fast close stage sweeps to before the slow final close.")
 
@@ -216,7 +215,6 @@ def main(argv: list[str] | None = None) -> int:
         approach_seconds=args.approach_seconds,
         close_seconds=args.close_seconds,
         squeeze_seconds=args.squeeze_seconds,
-        standoff_m=args.standoff,
         pregrasp_open_fraction=args.pregrasp_open_fraction,
         squeeze_delta=args.squeeze_delta,
         approach_clearance_m=args.approach_clearance,
@@ -265,8 +263,9 @@ def main(argv: list[str] | None = None) -> int:
             metrics = report.get("metrics", {}) if isinstance(report, dict) else {}
             print(
                 "OCIR_GRASP_TRAJ simulation done: "
-                f"lifted={metrics.get('lifted')} dropped={metrics.get('object_dropped')} "
-                f"max_carry_z={metrics.get('max_carry_z')} "
+                f"grasp_success={metrics.get('grasp_success')} lifted={metrics.get('lifted')} "
+                f"sustained={metrics.get('sustained_lift')} dropped={metrics.get('object_dropped')} "
+                f"max_lift_m={metrics.get('max_lift_m')} "
                 f"final_object_position_error_m={metrics.get('final_object_position_error_m')} "
                 f"(full report: {sim_out_dir / 'report.json'})",
                 flush=True,

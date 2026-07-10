@@ -134,7 +134,7 @@ class TransitPlanner:
         object_mesh_path: str | Path,
         device_cfg: DeviceCfg,
         *,
-        collision_activation_distance_m: float = 0.02,
+        collision_activation_distance_m: float = 0.002,
     ):
         from curobo.motion_planner import MotionPlanner, MotionPlannerCfg
 

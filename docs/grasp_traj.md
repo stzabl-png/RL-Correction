@@ -366,6 +366,14 @@ a 10.6cm pinch-ejection. The remaining blocker is strict grasp feasibility
 upstream: every current record is `failed_grasp` (`successful_seed_count: 0`),
 not a collision or frame-mapping failure in the trajectory stack.
 
+### v11 -- expanded upstream-search check (2026-07-10)
+
+A versioned 100-seed / 1000-iteration wood-block synthesis search also
+produced zero strict successes and a worse top failure (`grasp_error_max`
+0.0229 versus 0.0171 for the current 40-seed record). It was deliberately
+not promoted. Retention now requires a change to anchored-BODex's grasp
+feasibility objective or constraints, not more trajectory playback tuning.
+
 ### Tooling (2026-07-10, commits 3da7b95 + 3946a12)
 
 Videos encoded H.264/yuv420p via ffmpeg; console output reduced to progress

@@ -13,7 +13,6 @@ dir's ``summary.json``) plus its sequence directory, writes
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 import subprocess
 import sys
@@ -260,7 +259,18 @@ def main(argv: list[str] | None = None) -> int:
     else:
         ok, response = submit_simulation_job(params, args.control_host, args.control_port, args.isaac_request_timeout)
         if ok:
-            print(f"OCIR_GRASP_TRAJ simulation job response: {json.dumps(response, indent=2)}", flush=True)
+            # The full report (incl. per-step diagnostics) lives in
+            # <sim_out_dir>/report.json; only surface the core outcome here.
+            report = response.get("summary") if isinstance(response.get("summary"), dict) else response
+            metrics = report.get("metrics", {}) if isinstance(report, dict) else {}
+            print(
+                "OCIR_GRASP_TRAJ simulation done: "
+                f"lifted={metrics.get('lifted')} dropped={metrics.get('object_dropped')} "
+                f"max_carry_z={metrics.get('max_carry_z')} "
+                f"final_object_position_error_m={metrics.get('final_object_position_error_m')} "
+                f"(full report: {sim_out_dir / 'report.json'})",
+                flush=True,
+            )
     if not ok:
         print("OCIR_GRASP_TRAJ Isaac simulation failed or was skipped.", file=sys.stderr, flush=True)
         return 1

@@ -382,6 +382,162 @@ object's own extent -- which happens for a poorly-converged grasp whose hand
 ends up far from the object -- the camera frames on the object alone instead
 of zooming out to fit both, so the shot stays close and legible.
 
+## Grasp Trajectory + Physics Simulation (`grasp_traj`)
+
+Turns one synthesized anchored-BODex grasp into a full manipulation --
+approach from the human video demo, retarget the hand along the way, close
+and squeeze onto the grasp pose, then carry the object along its recorded
+trajectory -- and renders it as a video in Isaac Sim **with real PhysX
+physics** on the object (gravity, collision, a table, tuned friction), not
+just kinematic replay. Split into two stages across the two conda
+environments the rest of this repo already uses:
+
+```
+sequence dir + grasp record  --[grasp-synthesis env, torch/CUDA]-->  trajectory.npz/.json
+                                                                       |
+                                                            [isaacsim env, PhysX]
+                                                                       v
+                                                  video.mp4 / report.json (lift/drop metrics)
+```
+
+### How it works
+
+- **Approach = retreat, open, planned transit, reach.** From the switch pose
+  the hand first *retreats* straight back along its palm axis (fingers still
+  in the retargeted posture) until the wide-open hand would clear the object
+  by `--open-clearance` (capped at `--retreat-max`), *opens wide in place*
+  there over `--open-seconds` (all flexion joints scaled toward 0 rad by
+  `--pregrasp-open-fraction`; spread/thumb-rotation channels keep their grasp
+  values) -- opening right next to the object would push it away with the
+  opening fingers themselves. The open hand then flies to the grasp standoff
+  (the grasp pose pulled back `--standoff` along its palm approach axis) via
+  **cuRobo v2 motion planning**: the hand is modeled as a floating-base robot
+  (a generated `*_floating.generated.urdf` with a 6-DOF virtual joint chain,
+  the MagicSim `SharpaWaveFloating` construction), fingers locked wide open,
+  the object mesh loaded as a collision obstacle, and
+  `MotionPlanner.plan_pose` produces a collision-free wrist path that is
+  arc-length-resampled under the `--max-wrist-speed` cap. `--planner linear`
+  (or any planning failure, automatically) falls back to the previous
+  straight-line + radial-via-point path; either way the final path is
+  SDF-validated with all 37 hand collision spheres and the result recorded in
+  `trajectory.json`'s transit report. Finally the open hand *reaches*
+  standoff -> grasp wrist pose in a straight line, and only there do the
+  fingers close onto the grasp joints in place (`--close-seconds`).
+- **Dynamic switch-frame selection**: starting from a default frame
+  (`--approach-seconds` before the detected grasp frame, default 0.5s), the
+  generator walks backward one demo frame at a time until the retargeted
+  hand pose is clear of the object by `--approach-clearance` and before the
+  demo's first hand-object contact frame.
+- **Contact-projected close.** Synthesized grasp records -- especially
+  `failed_grasp` ones -- routinely place fingers (and sometimes the palm)
+  several mm INSIDE the object; commanding those positions plows the fingers
+  through it. Stage A therefore repairs the targets against the object SDF:
+  the grasp wrist pose is backed off along its approach axis until the
+  wide-open hand clears the surface (`wrist_backoff_m` in the report), and
+  the close happens in two stages -- fast to a near-contact posture
+  (`--near-contact-margin`, 3mm), then a slow final close
+  (`--final-close-seconds`) to the zero-clearance posture
+  (`contact_close_fraction` in the report). The original grasp joints and
+  the `--squeeze-delta` beyond them survive only as the squeeze target,
+  i.e. a bounded drive-force request against real contact. During the close
+  segment the simulation additionally softens the finger drives
+  (`--close-joint-stiffness`/`--close-joint-max-force`, Stage B flags) so an
+  early-touching finger stalls instead of shoving the object, restoring full
+  gains for squeeze/carry.
+- **Carry** follows `object_pose_camera(t) @ grasp_root_tf` -- the recorded
+  human object trajectory composed with the rigid hand-to-object transform
+  at the grasp -- blended out of the squeeze-end pose over
+  `--carry-blend-seconds` (segment b froze the object at switch time, so the
+  boundary would otherwise jump). The object is carried by contact friction
+  alone (a real dynamic rigid body, not kinematically attached).
+  `--carry-mode kinematic` is a debug override: the object becomes a pure
+  visual prim (no collision -- fingers squeezing into an immovable teleported
+  collider detonates the articulation) teleported along the reference
+  trajectory, validating trajectory/frame-mapping geometry only (its
+  `final_object_position_error_m` metric should be exactly 0).
+- **Hand physics**: the Sharpa Wave USD's palm link is rigidly fixed to the
+  world by a zero-offset `PhysicsFixedJoint` (`root_joint`, the standard
+  URDF-import "fixed base" convention). The simulation deactivates that
+  joint, applies `ArticulationRootAPI` (the asset's own copy lives in an
+  authoring layer that isn't in the loaded USD's stack), and drives the
+  resulting **floating-base articulation** through the PhysX tensor API
+  (`SingleArticulation`): root pose + finite-difference root velocities
+  every step, finger joints on PD position drives (radians). Reduced-
+  coordinate solving means links physically cannot separate -- unlike
+  teleporting authored USD transforms, which this Isaac version does not
+  reliably honor. Per-link velocity/depenetration caps and articulation
+  solver iterations 20/10 (MagicSim's floating-hand values) keep contact-
+  heavy squeezes stable; each `app.update()` advances sim time 1/60s, so
+  `--sim-steps-per-frame 2` plays a 30fps trajectory in real time.
+
+### Generate a trajectory
+
+```bash
+scripts/run_grasp_synthesis_conda.sh \
+  scripts/grasp_traj/generate_grasp_traj.py \
+  --sequence-dir /path/to/sequences/<sequence_id> \
+  --synthesis-out-dir /path/to/anchored_bodex_output/<sequence_id> \
+  --out-dir /path/to/grasp_traj_output/<sequence_id>
+```
+
+`--synthesis-out-dir` resolves the grasp record from that dir's
+`summary.json` (`grasp_json` on success, else `failed_grasp_json`) -- or
+pass `--grasp-json` directly. Key flags: `--fps` (30), `--approach-seconds`
+(0.5), `--close-seconds`/`--squeeze-seconds` (0.3 each), `--standoff` (0.10m),
+`--pregrasp-open-fraction` (1.0 = fully open), `--squeeze-delta` (0.15 rad),
+`--approach-clearance`
+(0.01m), `--open-clearance` (0.05m, required before the fingers open),
+`--retreat-max` (0.25m), `--open-seconds` (0.4),
+`--planner {curobo,linear}` (default `curobo`),
+`--max-wrist-speed` (0.25 m/s cap on the synthetic segments),
+`--carry-blend-seconds` (0.3), `--carry-start {grasp_frame,pickup_frame}`
+(default `grasp_frame`, for continuity with the end of the synthetic squeeze
+segment). Writes `trajectory.npz` (per-step hand/object pos+quat, finger
+targets, segment labels) + `trajectory.json` (metadata: switch frame,
+clearance + transit-path report, config) to `--out-dir`.
+
+By default (`--simulate`, on) it also submits the trajectory to Isaac Sim --
+`--isaac-mode {server,standalone}` and the Isaac-side flags (`--isaac-*`,
+see below) work exactly like `synthesize_sharpa_anchored_bodex.py`'s
+`--isaac-*` passthrough. Pass `--no-simulate` to only generate the
+trajectory (no Isaac/GPU-for-rendering needed for that half).
+
+### Simulate a trajectory in Isaac Sim
+
+```bash
+scripts/run_isaacsim_conda.sh scripts/isaac/simulate_grasp_traj.py \
+  --mode local \
+  --trajectory-dir /path/to/grasp_traj_output/<sequence_id> \
+  --out-dir /path/to/some/output/dir \
+  --sequence-id <sequence_id>
+```
+
+Same persistent-server / standalone duality as the rest of this repo's Isaac
+tooling (registers as task `grasp_traj_simulation` through
+`visualize_grasp.py`'s hot-reload chain, so an already-running persistent
+server picks it up without a restart). Key flags: `--object-mass`
+(auto-estimated from mesh volume x `--object-density`, default 700 kg/m^3, if
+not given), `--friction` (2.0, both hand and object colliders),
+`--joint-stiffness/-damping/-max-force/-armature/-friction` (80/20/300/
+0.01/0.05, the finger PD drives), `--carry-mode {friction,kinematic}`
+(default `friction`), `--lift-threshold`/`--drop-threshold` (0.02m/0.005m,
+for the `lifted`/`object_dropped` metrics), `--tabletop-z` (0.0),
+`--sim-steps-per-frame` (2; app updates per trajectory frame, 1/60s of sim
+time each), `--time-steps-per-second` (120, PhysX substep rate -- keep a
+multiple of 60), `--capture-every` (1), `--settle-steps` (60),
+`--video-fps` (defaults to the trajectory's own fps).
+
+Writes `video.mp4`, `screenshot.png` (final frame), `scene.usd`, and
+`report.json` with `metrics.lifted`/`metrics.object_dropped`/
+`metrics.final_object_position_error_m`, plus
+`max_joint_tracking_error_rad`/`joint_tracking_error_per_step` (drive-target
+vs. actual joint positions; values that explode past ~1 rad indicate solver
+instability, small fractions of a rad are normal contact stall). A
+`lifted: false` result is a genuine, useful finding: it means the
+synthesized grasp does not hold the object under real physics (common for
+grasps that did not reach anchored-BODex's own strict force-closure
+success), not necessarily a bug in the simulation.
+
 ## Configuration
 
 The hand asset is described by a single yaml config, default

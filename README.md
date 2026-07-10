@@ -402,27 +402,29 @@ sequence dir + grasp record  --[grasp-synthesis env, torch/CUDA]-->  trajectory.
 
 ### How it works
 
-- **Approach = retreat, open, planned transit, reach.** From the switch pose
-  the hand first *retreats* straight back along its palm axis (fingers still
-  in the retargeted posture) until the wide-open hand would clear the object
-  by `--open-clearance` (capped at `--retreat-max`), *opens wide in place*
-  there over `--open-seconds` (all flexion joints scaled toward 0 rad by
-  `--pregrasp-open-fraction`; spread/thumb-rotation channels keep their grasp
-  values) -- opening right next to the object would push it away with the
-  opening fingers themselves. The open hand then flies to the grasp standoff
-  (the grasp pose pulled back `--standoff` along its palm approach axis) via
-  **cuRobo v2 motion planning**: the hand is modeled as a floating-base robot
-  (a generated `*_floating.generated.urdf` with a 6-DOF virtual joint chain,
-  the MagicSim `SharpaWaveFloating` construction), fingers locked wide open,
-  the object mesh loaded as a collision obstacle, and
-  `MotionPlanner.plan_pose` produces a collision-free wrist path that is
-  arc-length-resampled under the `--max-wrist-speed` cap. `--planner linear`
-  (or any planning failure, automatically) falls back to the previous
-  straight-line + radial-via-point path; either way the final path is
-  SDF-validated with all 37 hand collision spheres and the result recorded in
-  `trajectory.json`'s transit report. Finally the open hand *reaches*
-  standoff -> grasp wrist pose in a straight line, and only there do the
-  fingers close onto the grasp joints in place (`--close-seconds`).
+- **Approach = smooth long-horizon opening, planned transit, reach.** The
+  fingers open *smoothly during the retarget replay itself*: over the last
+  `--open-horizon-seconds` (default 1.0s) of the replay each frame blends the
+  retargeted joints toward the wide-open pregrasp (all flexion joints scaled
+  toward 0 rad by `--pregrasp-open-fraction`; spread/thumb-rotation channels
+  keep their grasp values), reaching fully open exactly at the switch frame.
+  The switch frame itself is selected by walking backward through the demo
+  until the FULLY OPEN hand clears the object by `--open-clearance` (default
+  5cm), so the opening always finishes well away from the object -- there is
+  no separate in-place opening action next to it. The open hand then flies
+  to the grasp standoff (the grasp pose pulled back `--standoff` along its
+  palm approach axis) via **cuRobo v2 motion planning**: the hand is modeled
+  as a floating-base robot (a generated `*_floating.generated.urdf` with a
+  6-DOF virtual joint chain, the MagicSim `SharpaWaveFloating`
+  construction), fingers locked wide open, the object mesh loaded as a
+  collision obstacle, and `MotionPlanner.plan_pose` produces a
+  collision-free wrist path that is arc-length-resampled under the
+  `--max-wrist-speed` cap. `--planner linear` (or any planning failure,
+  automatically) falls back to a straight-line + radial-via-point path;
+  either way the final path is SDF-validated with all 37 hand collision
+  spheres and the result recorded in `trajectory.json`'s transit report.
+  Finally the open hand *reaches* standoff -> grasp wrist pose in a straight
+  line, and only there do the fingers close (`--close-seconds`).
 - **Dynamic switch-frame selection**: starting from a default frame
   (`--approach-seconds` before the detected grasp frame, default 0.5s), the
   generator walks backward one demo frame at a time until the retargeted
@@ -486,8 +488,8 @@ pass `--grasp-json` directly. Key flags: `--fps` (30), `--approach-seconds`
 (0.5), `--close-seconds`/`--squeeze-seconds` (0.3 each), `--standoff` (0.10m),
 `--pregrasp-open-fraction` (1.0 = fully open), `--squeeze-delta` (0.15 rad),
 `--approach-clearance`
-(0.01m), `--open-clearance` (0.05m, required before the fingers open),
-`--retreat-max` (0.25m), `--open-seconds` (0.4),
+(0.01m), `--open-clearance` (0.05m, open-hand clearance required at the
+switch frame), `--open-horizon-seconds` (1.0),
 `--planner {curobo,linear}` (default `curobo`),
 `--max-wrist-speed` (0.25 m/s cap on the synthetic segments),
 `--carry-blend-seconds` (0.3), `--carry-start {grasp_frame,pickup_frame}`
@@ -517,7 +519,13 @@ tooling (registers as task `grasp_traj_simulation` through
 `visualize_grasp.py`'s hot-reload chain, so an already-running persistent
 server picks it up without a restart). Key flags: `--object-mass`
 (auto-estimated from mesh volume x `--object-density`, default 700 kg/m^3, if
-not given), `--friction` (2.0, both hand and object colliders),
+not given), `--object-collision {sdf,convex}` (default `sdf`: exact
+triangle-mesh collision at `--sdf-resolution` 256 -- convex decomposition
+bridges concavities, which wedges the object inside the closed hand's hull
+volume and makes it follow the hand or pop out violently),
+`--hand-rest-offset` (0.002m rest offset on every hand collider, effectively
+inflating the hand collision surface by 2mm per the physical gripper
+calibration), `--friction` (2.0, both hand and object colliders),
 `--joint-stiffness/-damping/-max-force/-armature/-friction` (80/20/300/
 0.01/0.05, the finger PD drives), `--carry-mode {friction,kinematic}`
 (default `friction`), `--lift-threshold`/`--drop-threshold` (0.02m/0.005m,

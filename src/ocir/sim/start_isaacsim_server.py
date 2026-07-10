@@ -40,8 +40,6 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         action="append",
         default=[
-            REPO_ROOT / "scripts/isaac/replay_dexycb.py",
-            REPO_ROOT / "scripts/isaac/setup_dexycb_retarget_scene.py",
             REPO_ROOT / "scripts/isaac/visualize_grasp.py",
         ],
         help="Task module path. May be repeated. Each module must define register_sim_tasks(registry).",

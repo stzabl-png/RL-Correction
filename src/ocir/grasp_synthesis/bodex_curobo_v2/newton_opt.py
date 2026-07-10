@@ -222,7 +222,21 @@ class BodexProgressGradientOptCore(GradientOptCore):
             self._record_iteration_state(iteration_state)
         if isinstance(self._line_search_strategy, BodexGreedyLineSearchStrategy):
             self._line_search_strategy.decay_alpha(self.config.lr_decay_rate)
+        self._log_progress(iteration_state)
         return iteration_state
+
+    def _log_progress(self, iteration_state: OptimizationIterationState) -> None:
+        pct = 100.0 * self.current_iteration / float(max(self.config.num_iters, 1))
+        cost = iteration_state.cost
+        if cost is not None:
+            cost_msg = f" cost min={cost.min().item():.4g} mean={cost.mean().item():.4g}"
+        else:
+            cost_msg = ""
+        print(
+            f"OCIR_BODEX_CUROBO_V2 bodex_newton iter {self.current_iteration}/{self.config.num_iters} "
+            f"({pct:.0f}%){cost_msg}",
+            flush=True,
+        )
 
     def reinitialize(self, *args, **kwargs) -> None:
         self._bodex_progress = 0.0

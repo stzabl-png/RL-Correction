@@ -413,6 +413,12 @@ def visualize_anchored_grasp(app, args: argparse.Namespace, progress=None) -> di
         for name in stage_order:
             for other in stage_order:
                 set_prim_visibility(stage, f"/World/StageHands/{other}", other == name)
+            # USD visibility edits are authored synchronously, but the
+            # persistent Isaac renderer can otherwise return its previous
+            # frame on the first camera read.  Advance once after switching
+            # the row so every 1x3 capture contains only this stage hand.
+            for _ in range(2):
+                app.update()
             row_path, camera_report = capture_orthogonal_composite(
                 app, camera, camera_prim_path, cam_target, cam_radius, args, out_dir, f"stage_{name}"
             )

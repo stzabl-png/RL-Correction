@@ -340,6 +340,15 @@ tracking error 0.74rad) and produced a 10.6cm peak lift before the known
 marginal failed grasp slipped. This is the current physics baseline; pass
 `--isaac-hand-rest-offset 0.002` to reproduce the former calibration.
 
+### v9 -- isolate staged-grasp visualization rows (2026-07-10)
+
+The anchored-BODex 4x3 renderer authors visibility changes before each stage
+row. Isaac's camera could capture its previous frame before those changes had
+been rendered, making every row appear to stack all four stage hands. The
+renderer now advances the app twice after each visibility switch. Verified on
+the staged wood-block record: each front/side/top row contains exactly its
+selected `pregrasp`, `raw_grasp`, `grasp`, or `squeeze` hand.
+
 ### Tooling (2026-07-10, commits 3da7b95 + 3946a12)
 
 Videos encoded H.264/yuv420p via ffmpeg; console output reduced to progress

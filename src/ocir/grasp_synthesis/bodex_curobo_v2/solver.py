@@ -174,21 +174,7 @@ def find_object_mesh_from_surface(surface: ObjectSurface, explicit: Path | None 
         if explicit.exists():
             return explicit
         raise FileNotFoundError(explicit)
-    raw = surface.metadata.get("object_points_path")
-    if raw is None:
-        raise FileNotFoundError("surface artifact has no object_points_path metadata")
-    model_dir = Path(str(raw)).expanduser().parent
-    candidates = [
-        model_dir / "textured_simple.obj",
-        model_dir / "textured.obj",
-        model_dir / f"{model_dir.name}.stl",
-    ]
-    candidates.extend(sorted(model_dir.glob("*.obj")))
-    candidates.extend(sorted(model_dir.glob("*.stl")))
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    raise FileNotFoundError(f"no mesh found near {model_dir}")
+    return surface.object_mesh_path
 
 
 def expand_active_action_to_full_joint_order(
@@ -584,7 +570,7 @@ def _build_grasp_record(
     dist_error: float,
     successful_seed_count: int,
     metric_summary: dict,
-    surface_artifact: Path,
+    sequence_dir: Path,
     object_mesh_path: Path,
     surface: ObjectSurface,
     rollout: SharpaBodexRollout,
@@ -604,7 +590,7 @@ def _build_grasp_record(
         "object_mesh": str(object_mesh_path),
         "object_gravity_center": rollout.object_gravity_center.detach().cpu().numpy().reshape(-1).tolist(),
         "object_obb_length": float(rollout.object_obb_length.detach().cpu().item()),
-        "surface_artifact": str(surface_artifact),
+        "sequence_dir": str(sequence_dir),
         "action": full_action.astype(float).tolist(),
         "joint_names": rollout.full_joint_order,
         "success": bool(success_flag),
@@ -621,7 +607,7 @@ def _build_grasp_record(
 
 
 def solve_sharpa_bodex(
-    surface_artifact: Path,
+    sequence_dir: Path,
     out_dir: Path,
     object_mesh: Path | None = None,
     seeds: int = 20,
@@ -636,7 +622,7 @@ def solve_sharpa_bodex(
     torch.manual_seed(seed)
     np.random.seed(seed)
     device_cfg = DeviceCfg(device=torch.device("cuda:0"), dtype=torch.float32)
-    surface = ObjectSurface.load(surface_artifact)
+    surface = ObjectSurface.from_sequence_dir(sequence_dir)
     object_mesh_path = find_object_mesh_from_surface(surface, object_mesh)
     pts = np.asarray(surface.points_object_frame, dtype=np.float32)
     center = pts.mean(axis=0)
@@ -717,7 +703,7 @@ def solve_sharpa_bodex(
                 dist_error=float(dist_error[seed_idx].item()),
                 successful_seed_count=successful_seed_count,
                 metric_summary=metric_summary,
-                surface_artifact=surface_artifact,
+                sequence_dir=sequence_dir,
                 object_mesh_path=object_mesh_path,
                 surface=surface,
                 rollout=rollouts[0],
@@ -739,7 +725,7 @@ def solve_sharpa_bodex(
             "sequence_id": str(surface.metadata.get("sequence_id")) if surface.metadata.get("sequence_id") is not None else None,
             "object_name": str(surface.metadata.get("object_name")) if surface.metadata.get("object_name") is not None else None,
             "object_mesh": str(object_mesh_path),
-            "surface_artifact": str(surface_artifact),
+            "sequence_dir": str(sequence_dir),
             "success": False,
             "successful_seed_count": 0,
             "metric_summary": metric_summary,

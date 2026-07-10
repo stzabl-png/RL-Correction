@@ -127,19 +127,6 @@ def origin_matrix(elem) -> np.ndarray:
     return out
 
 
-def heatmap_colors(surface: ObjectSurface) -> np.ndarray:
-    values = np.zeros((surface.points_object_frame.shape[0],), dtype=float) if surface.heatmap is None else np.clip(surface.heatmap, 0.0, 1.0)
-    cold = np.asarray([0.08, 0.12, 0.34])
-    mid = np.asarray([0.05, 0.70, 0.82])
-    hot = np.asarray([1.00, 0.70, 0.08])
-    rgb = np.empty((values.shape[0], 3), dtype=float)
-    mask = values <= 0.5
-    rgb[mask] = cold * (1.0 - 2.0 * values[mask, None]) + mid * (2.0 * values[mask, None])
-    u = (values[~mask] - 0.5) * 2.0
-    rgb[~mask] = mid * (1.0 - u[:, None]) + hot * u[:, None]
-    return rgb
-
-
 def link_transforms_from_urdf(urdf_path: Path, base_link: str, joint_order: list[str], qpos: np.ndarray) -> dict[str, np.ndarray]:
     root = ET.parse(urdf_path).getroot()
     q_map = {name: float(qpos[i]) for i, name in enumerate(joint_order)}
@@ -175,21 +162,7 @@ def link_transforms_from_urdf(urdf_path: Path, base_link: str, joint_order: list
 def find_object_mesh(surface: ObjectSurface, explicit: Path | None) -> Path | None:
     if explicit is not None:
         return explicit if explicit.exists() else None
-    raw = surface.metadata.get("object_points_path")
-    if raw is None:
-        return None
-    model_dir = Path(str(raw)).expanduser().parent
-    candidates = [
-        model_dir / "textured_simple.obj",
-        model_dir / "textured.obj",
-        model_dir / f"{model_dir.name}.stl",
-    ]
-    candidates.extend(sorted(model_dir.glob("*.obj")))
-    candidates.extend(sorted(model_dir.glob("*.stl")))
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return None
+    return surface.object_mesh_path if surface.object_mesh_path.exists() else None
 
 
 def sequence_by_id(manifest: dict, sequence_id: str) -> dict:
@@ -400,7 +373,7 @@ def visualize_grasp(app, args: argparse.Namespace, progress=None) -> dict:
     out_dir = Path(args.out_dir).expanduser()
     out_dir.mkdir(parents=True, exist_ok=True)
     grasp = load_grasp_json(Path(args.grasp_json))
-    surface = ObjectSurface.load(args.surface_artifact)
+    surface = ObjectSurface.from_sequence_dir(args.sequence_dir)
     asset = load_sharpa_wave_right(args.asset_config)
     action = np.asarray(grasp["action"], dtype=float)
     qpos = action[7:]
@@ -436,11 +409,12 @@ def visualize_grasp(app, args: argparse.Namespace, progress=None) -> dict:
 
     cloud_report = {"enabled": False}
     if args.show_object_points:
+        point_color = np.tile(np.asarray([0.25, 0.55, 0.85]), (points_world.shape[0], 1))
         cloud_report = define_points(
             stage,
-            "/World/Object/AffordancePoints",
+            "/World/Object/SurfacePoints",
             points_world,
-            heatmap_colors(surface),
+            point_color,
             float(args.point_width),
         )
         cloud_report["enabled"] = True
@@ -531,7 +505,7 @@ def visualize_grasp(app, args: argparse.Namespace, progress=None) -> dict:
         "task": "grasp_pose_visualization",
         "out_dir": str(out_dir),
         "grasp_json": str(args.grasp_json),
-        "surface_artifact": str(args.surface_artifact),
+        "sequence_dir": str(args.sequence_dir),
         "asset_config": str(asset.config_path),
         "stage": str(stage_path),
         "screenshot": str(screenshot),
@@ -553,12 +527,20 @@ def visualize_grasp(app, args: argparse.Namespace, progress=None) -> dict:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=["webrtc", "local"], default=DEFAULT_ISAACSIM_MODE)
+    parser.add_argument(
+        "--headless",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Only used with --mode local. Defaults to a real on-screen window, since local mode's "
+        "purpose is a standalone launch on a headed machine (no persistent Isaac server involved).",
+    )
+    parser.add_argument("--stream-ui", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--sequence-id", default=None)
     parser.add_argument("--frame-id", type=int, default=None)
     parser.add_argument("--use-raw-object-pose", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--grasp-json", type=Path, default=None)
-    parser.add_argument("--surface-artifact", type=Path, default=None)
+    parser.add_argument("--sequence-dir", type=Path, default=None)
     parser.add_argument("--asset-config", type=Path, default=DEFAULT_SHARPA_WAVE_RIGHT_CONFIG)
     parser.add_argument("--object-mesh", type=Path, default=None)
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
@@ -607,7 +589,7 @@ def apply_mode_defaults(args: argparse.Namespace, parser: argparse.ArgumentParse
 
 def normalize_paths(args: argparse.Namespace) -> None:
     args.grasp_json = resolve_artifact_path(args.grasp_json)
-    args.surface_artifact = resolve_artifact_path(args.surface_artifact)
+    args.sequence_dir = resolve_artifact_path(args.sequence_dir)
     args.asset_config = resolve_artifact_path(args.asset_config)
     args.object_mesh = resolve_artifact_path(args.object_mesh)
     args.manifest = resolve_artifact_path(args.manifest)
@@ -616,8 +598,8 @@ def normalize_paths(args: argparse.Namespace) -> None:
         return
     if args.grasp_json is None:
         raise ValueError("--grasp-json is required")
-    if args.surface_artifact is None:
-        raise ValueError("--surface-artifact is required")
+    if args.sequence_dir is None:
+        raise ValueError("--sequence-dir is required")
     if int(args.width) <= 0 or int(args.height) <= 0:
         raise ValueError("--width and --height must be positive")
     if float(args.tabletop_z) <= 0.0:

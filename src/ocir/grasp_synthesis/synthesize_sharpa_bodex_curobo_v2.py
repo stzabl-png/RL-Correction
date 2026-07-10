@@ -6,6 +6,10 @@ ports BODex-specific grasp objective code under
 ``third_party/BODex``. It fails closed when the exact backend (official
 cuRobo v2 + standalone ``coal`` + this package's ported BODex objective) is
 not available.
+
+Input is dataset-agnostic: a "sequence" is any directory that provides one
+object mesh (see ``ocir.grasp_synthesis.object_surface.ObjectSurface``), not
+tied to DexYCB or any particular affordance-extraction pipeline.
 """
 
 from __future__ import annotations
@@ -13,25 +17,64 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import subprocess
 import sys
 import traceback
 
 from ocir.grasp_synthesis.bodex_curobo_v2 import ExactBodexUnavailable, check_exact_bodex_v2_backend
-from ocir.grasp_synthesis.object_surface import infer_surface_artifact_path
 from ocir.sim.control_client import request_json, server_is_running, submit_job
 
-DEFAULT_DATA_ROOT = Path("/data/users/hangkes2/OCIR")
-DEFAULT_OUTPUT_ROOT = DEFAULT_DATA_ROOT / "testing/grasp_synthesis/sharpa_wave_bodex_curobo_v2"
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def run_standalone_visualization(params: dict) -> bool:
+    """Launch a one-shot local Isaac Sim window for a single grasp, instead of
+    submitting to the persistent control server. For deploying on a headed
+    machine without a long-running Isaac Sim instance already up."""
+
+    cmd = [
+        str(REPO_ROOT / "scripts/run_isaacsim_conda.sh"),
+        str(REPO_ROOT / "scripts/isaac/visualize_grasp.py"),
+        "--mode",
+        "local",
+    ]
+    for key, value in params.items():
+        flag = "--" + key.replace("_", "-")
+        if isinstance(value, bool):
+            cmd.append(flag if value else flag.replace("--", "--no-", 1))
+        else:
+            cmd.extend([flag, str(value)])
+    print(f"OCIR_BODEX_CUROBO_V2 launching standalone Isaac Sim visualization: {' '.join(cmd)}", flush=True)
+    result = subprocess.run(cmd, cwd=str(REPO_ROOT))
+    return result.returncode == 0
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--sequence-dir", type=Path, default=None)
-    parser.add_argument("--surface-artifact", type=Path, default=None)
+    input_group = parser.add_mutually_exclusive_group()
+    input_group.add_argument(
+        "--sequence-dir",
+        type=Path,
+        default=None,
+        help="Run a single sequence directory. Exactly one of --sequence-dir/--sequences-root is "
+        "required, unless --check-only is passed.",
+    )
+    input_group.add_argument(
+        "--sequences-root",
+        type=Path,
+        default=None,
+        help="Run every immediate subdirectory of this root as a sequence (batch mode).",
+    )
     parser.add_argument("--asset-config", type=Path, default=None)
-    parser.add_argument("--object-mesh", type=Path, default=None)
-    parser.add_argument("--dexycb-manifest", type=Path, default=DEFAULT_DATA_ROOT / "processed_data/dex_ycb/manifests/selected_5_sequences.json")
-    parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUTPUT_ROOT)
+    parser.add_argument(
+        "--object-mesh",
+        type=Path,
+        default=None,
+        help="Override the auto-discovered object mesh. Only valid together with --sequence-dir.",
+    )
+    parser.add_argument(
+        "--out-dir", type=Path, default=None, help="Required unless --check-only is passed."
+    )
     parser.add_argument("--seeds", type=int, default=20)
     parser.add_argument("--top-k", type=int, default=8)
     parser.add_argument("--seed", type=int, default=0)
@@ -44,6 +87,14 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="If no seed reached strict success, visualize the best-ranked (lowest-score) failed seed instead of skipping.",
+    )
+    parser.add_argument(
+        "--isaac-mode",
+        choices=["server", "standalone"],
+        default="server",
+        help="'server' (default) submits to the persistent Isaac Sim control server. 'standalone' launches a "
+        "one-shot local Isaac Sim window per grasp instead -- for deploying on a headed machine with no "
+        "persistent server running.",
     )
     parser.add_argument("--control-host", default="127.0.0.1")
     parser.add_argument("--control-port", type=int, default=8765)
@@ -71,6 +122,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.top_k <= 0:
         print("--top-k must be positive", file=sys.stderr)
         return 2
+    if args.object_mesh is not None and args.sequence_dir is None:
+        print("--object-mesh requires --sequence-dir (it overrides a single sequence's mesh)", file=sys.stderr)
+        return 2
     try:
         report = check_exact_bodex_v2_backend()
     except ExactBodexUnavailable as exc:
@@ -81,32 +135,37 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Exact BODex-curobo-v2 backend is available. Active cuRobo path: {report.curobo_path}")
         return 0
 
+    if args.sequence_dir is None and args.sequences_root is None:
+        print("one of --sequence-dir (single sequence) or --sequences-root (batch) is required", file=sys.stderr)
+        return 2
+    if args.out_dir is None:
+        print("--out-dir is required", file=sys.stderr)
+        return 2
+
     from ocir.grasp_synthesis.bodex_curobo_v2.solver import solve_sharpa_bodex
 
-    jobs: list[tuple[Path, Path]] = []
-    if args.surface_artifact is not None:
-        surface = args.surface_artifact
-        sequence_dir = args.sequence_dir or surface.parents[1]
-        jobs.append((surface, sequence_dir))
-    elif args.sequence_dir is not None:
-        jobs.append((infer_surface_artifact_path(args.sequence_dir), args.sequence_dir))
+    if args.sequence_dir is not None:
+        jobs = [args.sequence_dir]
     else:
-        manifest = json.loads(Path(args.dexycb_manifest).read_text(encoding="utf-8"))
-        for sequence in manifest.get("sequences", []):
-            sequence_dir = Path(sequence.get("sequence_dir") or sequence["path"])
-            jobs.append((infer_surface_artifact_path(sequence_dir), sequence_dir))
+        if not Path(args.sequences_root).is_dir():
+            print(f"sequences root not found: {args.sequences_root}", file=sys.stderr)
+            return 2
+        jobs = sorted(p for p in Path(args.sequences_root).iterdir() if p.is_dir())
+        if not jobs:
+            print(f"no sequence directories found under {args.sequences_root}", file=sys.stderr)
+            return 2
 
     summaries = []
     failed_visualizations = 0
     solver_failures = 0
     strict_failures = 0
-    for surface_artifact, sequence_dir in jobs:
+    for sequence_dir in jobs:
         sequence_name = sequence_dir.name
         out_dir = Path(args.out_dir) / sequence_name
-        print(f"OCIR_BODEX_CUROBO_V2 solving {sequence_name} surface={surface_artifact}", flush=True)
+        print(f"OCIR_BODEX_CUROBO_V2 solving {sequence_name} sequence_dir={sequence_dir}", flush=True)
         try:
             run_summary = solve_sharpa_bodex(
-                surface_artifact=surface_artifact,
+                sequence_dir=sequence_dir,
                 out_dir=out_dir,
                 object_mesh=args.object_mesh,
                 seeds=args.seeds,
@@ -122,7 +181,7 @@ def main(argv: list[str] | None = None) -> int:
                 "ok": False,
                 "backend": "curobo_v2_bodex_exact_single_object",
                 "sequence_id": sequence_name,
-                "surface_artifact": str(surface_artifact),
+                "sequence_dir": str(sequence_dir),
                 "error": f"{type(exc).__name__}: {exc}",
                 "traceback": traceback.format_exc(),
             }
@@ -141,10 +200,8 @@ def main(argv: list[str] | None = None) -> int:
                 grasp_json = run_summary.get("failed_grasp_json")
                 used_failed_fallback = grasp_json is not None
             params = {
-                "manifest": str(args.dexycb_manifest),
-                "sequence_id": run_summary.get("sequence_id"),
+                "sequence_dir": str(sequence_dir),
                 "grasp_json": grasp_json,
-                "surface_artifact": str(surface_artifact),
                 "asset_config": str(args.asset_config) if args.asset_config else None,
                 "object_mesh": run_summary.get("object_mesh"),
                 "out_dir": str(vis_out_dir),
@@ -175,11 +232,16 @@ def main(argv: list[str] | None = None) -> int:
                     flush=True,
                 )
                 failed_visualizations += 1
+            elif args.isaac_mode == "standalone":
+                ok = run_standalone_visualization(params)
+                run_summary["isaac_visualization"] = {"ok": ok, "out_dir": str(vis_out_dir), "mode": "standalone"}
+                failed_visualizations += int(not ok)
             elif not server_is_running(args.control_host, int(args.control_port), timeout=1.0):
                 print(
                     "OCIR_BODEX_CUROBO_V2 Isaac visualization requested, but no persistent Isaac control "
                     f"server is running at {args.control_host}:{args.control_port}. Start it with "
-                    "scripts/run_isaacsim_conda.sh scripts/sim/start_isaacsim_server.py first.",
+                    "scripts/run_isaacsim_conda.sh scripts/sim/start_isaacsim_server.py first, or pass "
+                    "--isaac-mode standalone to launch a one-shot local Isaac Sim window instead.",
                     file=sys.stderr,
                     flush=True,
                 )

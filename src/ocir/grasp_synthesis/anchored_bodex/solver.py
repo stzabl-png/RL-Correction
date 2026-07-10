@@ -1,0 +1,413 @@
+"""Anchored-BODex orchestration: demo -> guidance -> optimize -> ranked records.
+
+Mirrors ``bodex_curobo_v2.solver.solve_sharpa_bodex`` (two rollout instances,
+``BodexNewtonOpt`` inside ``MultiStageOptimizer``, identical strict-success
+semantics -- success stays pure force-closure + contact distance), with the
+human-guidance pipeline in front and similarity-aware ranking behind:
+
+    sequence dir -> ObjectSurface + HumanDemo
+                 -> ensure_affordance (lazy per-sequence cache)
+                 -> analyze_demo (grasp window, contact roles)
+                 -> HandFitter + AnchoredSeedGenerator (retargeted seeds)
+                 -> AnchoredBodexRollout (contact subset + guidance energies)
+                 -> optimize -> exact metrics + affordance/pose similarity
+                 -> grasp_*.json / summary.json
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import json
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import torch
+
+from ocir.grasp_synthesis.anchored_bodex.affordance import Affordance, ensure_affordance
+from ocir.grasp_synthesis.anchored_bodex.demo_analysis import ROLE_ORDER, DemoGraspAnalysis, analyze_demo
+from ocir.grasp_synthesis.anchored_bodex.demo_data import HumanDemo
+from ocir.grasp_synthesis.anchored_bodex.guidance import (
+    GuidanceWeights,
+    build_pressure_constraints,
+    select_contact_points,
+)
+from ocir.grasp_synthesis.anchored_bodex.retarget import HandFitter, load_mano_transfer, transfer_path
+from ocir.grasp_synthesis.anchored_bodex.rollout import AnchoredBodexRollout
+from ocir.grasp_synthesis.anchored_bodex.seed_generator import AnchoredSeedGenerator
+from ocir.grasp_synthesis.assets import load_sharpa_wave_right
+from ocir.grasp_synthesis.bodex_curobo_v2.newton_opt import BodexNewtonOpt, BodexNewtonOptCfg
+from ocir.grasp_synthesis.bodex_curobo_v2.solver import (
+    DEFAULT_CONTACT_STRATEGY,
+    DEFAULT_DISTANCE_THRESHOLD,
+    DEFAULT_GRASP_THRESHOLD,
+    build_metric_summary,
+    compute_success,
+    expand_active_action_to_full_joint_order,
+    find_object_mesh_from_surface,
+)
+from ocir.grasp_synthesis.object_surface import ObjectSurface
+
+from ocir.grasp_synthesis.bodex_curobo_v2.backend import import_official_curobo
+
+import_official_curobo()
+
+from curobo._src.optim.multi_stage_optimizer import MultiStageOptimizer
+from curobo._src.types.device_cfg import DeviceCfg
+
+BACKEND_NAME = "curobo_v2_anchored_bodex"
+DEFAULT_AFFORD_TAU = 0.3
+
+
+@dataclass(frozen=True)
+class SimilarityMetrics:
+    affordance_coverage: np.ndarray   # (B,) mean heatmap value at contacts
+    affordance_hit_fraction: np.ndarray  # (B,) contacts on heatmap >= tau
+    wrist_pos_m: np.ndarray           # (B,) |final - anchor| wrist translation
+    wrist_rot_deg: np.ndarray         # (B,) final-vs-anchor wrist rotation
+    joint_rms_rad: np.ndarray         # (B,)
+
+
+def compute_similarity_metrics(
+    final_actions: torch.Tensor,      # (B, 7+J) rollout joint order
+    ref_actions: torch.Tensor,        # (B, 7+J) per-seed anchors, same order
+    contact_points_world: torch.Tensor,  # (B, n_contacts, 3)
+    affordance: Affordance,
+    afford_tau: float = DEFAULT_AFFORD_TAU,
+) -> SimilarityMetrics:
+    final_np = final_actions.detach().cpu().numpy()
+    ref_np = ref_actions.detach().cpu().numpy()
+
+    wrist_pos = np.linalg.norm(final_np[:, :3] - ref_np[:, :3], axis=-1)
+    qdot = np.abs(np.sum(final_np[:, 3:7] * ref_np[:, 3:7], axis=-1)).clip(max=1.0)
+    wrist_rot = np.rad2deg(2.0 * np.arccos(qdot))
+    joint_rms = np.sqrt(((final_np[:, 7:] - ref_np[:, 7:]) ** 2).mean(axis=-1))
+
+    contacts = contact_points_world.detach().cpu().numpy().reshape(final_np.shape[0], -1, 3)
+    points = affordance.points_object_frame
+    heat = affordance.heatmap
+    coverage = np.zeros((contacts.shape[0],))
+    hits = np.zeros((contacts.shape[0],))
+    for b in range(contacts.shape[0]):
+        d2 = ((contacts[b][:, None, :] - points[None, :, :]) ** 2).sum(-1)
+        nearest = d2.argmin(axis=-1)
+        values = heat[nearest]
+        coverage[b] = float(values.mean())
+        hits[b] = float((values >= afford_tau).mean())
+    return SimilarityMetrics(
+        affordance_coverage=coverage,
+        affordance_hit_fraction=hits,
+        wrist_pos_m=wrist_pos,
+        wrist_rot_deg=wrist_rot,
+        joint_rms_rad=joint_rms,
+    )
+
+
+def rank_scores(
+    costs: np.ndarray,
+    similarity: SimilarityMetrics,
+    *,
+    rank_affordance_weight: float,
+    rank_pose_weight: float,
+) -> np.ndarray:
+    pose_dev = (
+        similarity.wrist_pos_m / 0.05 + similarity.wrist_rot_deg / 45.0 + similarity.joint_rms_rad / 0.5
+    ) / 3.0
+    return costs + rank_affordance_weight * (1.0 - similarity.affordance_coverage) + rank_pose_weight * pose_dev
+
+
+def solve_sharpa_anchored_bodex(
+    sequence_dir: Path,
+    out_dir: Path,
+    object_mesh: Path | None = None,
+    seeds: int = 20,
+    top_k: int = 8,
+    opt_iters: int = 500,
+    seed: int = 0,
+    grasp_threshold: float = DEFAULT_GRASP_THRESHOLD,
+    distance_threshold: float = DEFAULT_DISTANCE_THRESHOLD,
+    *,
+    relax_flexion: float = 0.15,
+    relax_standoff: float = 0.015,
+    jitter_pos: float = 0.01,
+    jitter_rot_deg: float = 10.0,
+    jitter_joint: float = 0.08,
+    affordance_weight: float = 20.0,
+    pose_weight: float = 1.0,
+    contact_subset: bool = True,
+    afford_tau: float = DEFAULT_AFFORD_TAU,
+    rank_affordance_weight: float = 1.0,
+    rank_pose_weight: float = 0.5,
+    force_affordance: bool = False,
+) -> dict[str, Any]:
+    if not torch.cuda.is_available():
+        raise RuntimeError("anchored BODex grasp synthesis requires CUDA")
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    device_cfg = DeviceCfg(device=torch.device("cuda:0"), dtype=torch.float32)
+
+    surface = ObjectSurface.from_sequence_dir(sequence_dir)
+    object_mesh_path = find_object_mesh_from_surface(surface, object_mesh)
+    demo = HumanDemo.from_sequence_dir(sequence_dir)
+    affordance = ensure_affordance(
+        sequence_dir, demo, surface.points_object_frame, force=force_affordance
+    )
+    analysis = analyze_demo(demo, affordance)
+
+    asset = load_sharpa_wave_right()
+    calib_path = transfer_path(asset)
+    if not calib_path.exists():
+        raise FileNotFoundError(
+            f"missing MANO->Sharpa calibration {calib_path}; run "
+            "scripts/grasp_synthesis/calibrate_mano_sharpa.py once to generate it"
+        )
+    calib = load_mano_transfer(calib_path)
+    fitter = HandFitter(asset, calib, device_cfg)
+    seed_generator = AnchoredSeedGenerator(
+        fitter=fitter,
+        demo=demo,
+        affordance=affordance,
+        analysis=analysis,
+        relax_flexion=relax_flexion,
+        relax_standoff=relax_standoff,
+        jitter_pos=jitter_pos,
+        jitter_rot_deg=jitter_rot_deg,
+        jitter_joint=jitter_joint,
+        seed=1312 + seed,
+    )
+
+    active_roles = analysis.active_roles if contact_subset else ROLE_ORDER
+    contact_points = select_contact_points(active_roles)
+    pressure_constraints = build_pressure_constraints(active_roles)
+
+    afford_mask = affordance.heatmap >= afford_tau
+    afford_points = (
+        device_cfg.to_device(affordance.points_object_frame[afford_mask].astype(np.float32))
+        if afford_mask.any()
+        else None
+    )
+    weights = GuidanceWeights.from_contact_strategy(
+        DEFAULT_CONTACT_STRATEGY, w_afford=affordance_weight, pose_scale=pose_weight
+    )
+
+    pts = np.asarray(surface.points_object_frame, dtype=np.float32)
+    center = pts.mean(axis=0)
+    radius = float(max(np.linalg.norm(pts - center[None, :], axis=1).max() + 0.18, 0.25))
+    rollout_cfg = dict(
+        device_cfg=device_cfg,
+        surface=surface,
+        object_mesh_path=object_mesh_path,
+        root_bounds_center=center,
+        root_bounds_radius=radius,
+        contact_points=contact_points,
+        pressure_constraints=pressure_constraints,
+        seed_generator=seed_generator,
+        afford_points=afford_points,
+        weights=weights,
+        opt_iters=opt_iters,
+    )
+    rollouts = [AnchoredBodexRollout(**rollout_cfg), AnchoredBodexRollout(**rollout_cfg)]
+
+    opt_cfg = BodexNewtonOptCfg(
+        num_iters=int(opt_iters),
+        inner_iters=50,
+        bodex_line_search_scale=[0.1],
+        base_scale=[0.01, 0.1, 0.1],
+        translation_dim=3,
+        quaternion_dim=4,
+        momentum=True,
+        normalize_grad=True,
+        momentum_decay=0.9,
+        lr_decay_rate=0.95,
+        fixed_iters=True,
+        return_best_action=False,
+        num_problems=int(seeds),
+        device_cfg=device_cfg,
+    )
+    optimizer = MultiStageOptimizer([BodexNewtonOpt(opt_cfg, rollouts, use_cuda_graph=False)], rollouts)
+    optimizer.update_num_problems(seeds)
+    for rollout in rollouts:
+        rollout.batch_size = seeds
+    init_action = rollouts[0].get_initial_action(use_random=True)
+    optimizer.reinitialize(init_action)
+    result = optimizer.optimize(init_action)
+
+    metrics = rollouts[0].compute_metrics_from_action(result, opt_progress=1.0)
+    costs = metrics.costs_and_constraints.get_sum_cost(sum_horizon=True).detach()
+    exact = rollouts[0].evaluate_exact_grasp_metrics(result)
+    success, grasp_error_max = compute_success(
+        exact["grasp_error"], exact["dist_error"], grasp_threshold, distance_threshold
+    )
+    dist_error = exact["dist_error"].detach()
+    grasp_error_max = grasp_error_max.detach()
+
+    ref_actions = rollouts[0]._remap_seed_actions(seed_generator.ref_actions)
+    similarity = compute_similarity_metrics(
+        final_actions=result[:, 0, :],
+        ref_actions=ref_actions,
+        contact_points_world=exact["contact_point"].reshape(result.shape[0], -1, 3),
+        affordance=affordance,
+        afford_tau=afford_tau,
+    )
+    costs_np = costs.cpu().numpy()
+    scores = rank_scores(
+        costs_np,
+        similarity,
+        rank_affordance_weight=rank_affordance_weight,
+        rank_pose_weight=rank_pose_weight,
+    )
+
+    metric_summary = build_metric_summary(
+        success=success,
+        grasp_error_max=grasp_error_max,
+        dist_error=dist_error,
+        costs=costs,
+        grasp_threshold=grasp_threshold,
+        distance_threshold=distance_threshold,
+    )
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for pattern in ("grasp_*.json", "failed_grasp_*.json"):
+        for path in out_dir.glob(pattern):
+            path.unlink()
+
+    successful_seed_count = int(success.sum().item())
+    result_cpu = result.detach()
+    ref_np = ref_actions.detach().cpu().numpy()
+    guidance_common = {
+        "backend": BACKEND_NAME,
+        "human_guided": True,
+        "grasp_frame_id": analysis.report["grasp_frame_id"],
+        "pickup_frame_id": analysis.report["pickup_frame_id"],
+        "active_contact_roles": list(active_roles),
+        "contact_points_used": list(contact_points),
+        "pressure_constraints_used": [[list(g), c] for g, c in pressure_constraints],
+        "contact_subset_enabled": bool(contact_subset),
+        "guidance_weights": {
+            "affordance_weight": float(weights.w_afford),
+            "pose_weights": list(weights.w_pose),
+            "pose_anneal_end": float(weights.pose_anneal_end),
+            "afford_decay": list(weights.afford_decay),
+            "afford_tau": float(afford_tau),
+        },
+        "seed_params": {
+            "relax_flexion": float(relax_flexion),
+            "relax_standoff": float(relax_standoff),
+            "jitter_pos": float(jitter_pos),
+            "jitter_rot_deg": float(jitter_rot_deg),
+            "jitter_joint": float(jitter_joint),
+        },
+        "retarget_report": seed_generator.retarget_result.report,
+        "demo_analysis": analysis.report,
+    }
+
+    def _record(seed_idx: int, rank: int, prefix: str) -> tuple[dict, Path]:
+        optimized_action = result_cpu[seed_idx, 0].cpu().numpy().copy()
+        optimized_action[3:7] = optimized_action[3:7] / max(np.linalg.norm(optimized_action[3:7]), 1e-9)
+        full_action = expand_active_action_to_full_joint_order(
+            optimized_action, rollouts[0].joint_names, rollouts[0].full_joint_order, rollouts[0].full_neutral_q
+        )
+        full_action[3:7] = full_action[3:7] / max(np.linalg.norm(full_action[3:7]), 1e-9)
+        record = {
+            "ok": bool(success[seed_idx].item()),
+            **guidance_common,
+            "hand": "sharpa_wave_right",
+            "rank": int(rank),
+            "seed_index": int(seed_idx),
+            "anchor_frame_index": int(seed_generator.seed_frame_indices[seed_idx]),
+            "anchor_frame_id": int(demo.frame_ids[seed_generator.seed_frame_indices[seed_idx]]),
+            "sequence_id": str(surface.metadata.get("sequence_id")) if surface.metadata.get("sequence_id") is not None else None,
+            "object_name": str(surface.metadata.get("object_name")) if surface.metadata.get("object_name") is not None else None,
+            "object_mesh": str(object_mesh_path),
+            "object_gravity_center": rollouts[0].object_gravity_center.detach().cpu().numpy().reshape(-1).tolist(),
+            "object_obb_length": float(rollouts[0].object_obb_length.detach().cpu().item()),
+            "sequence_dir": str(sequence_dir),
+            "action": full_action.astype(float).tolist(),
+            "joint_names": rollouts[0].full_joint_order,
+            "success": bool(success[seed_idx].item()),
+            "successful_seed_count": successful_seed_count,
+            "grasp_error_max": float(grasp_error_max[seed_idx].item()),
+            "dist_error": float(dist_error[seed_idx].item()),
+            "dist_error_final": float(dist_error[seed_idx].item()),
+            "metric_summary": metric_summary,
+            "score": float(costs_np[seed_idx]),
+            "rank_score": float(scores[seed_idx]),
+            "affordance_coverage": float(similarity.affordance_coverage[seed_idx]),
+            "affordance_hit_fraction": float(similarity.affordance_hit_fraction[seed_idx]),
+            "pose_similarity": {
+                "wrist_pos_m": float(similarity.wrist_pos_m[seed_idx]),
+                "wrist_rot_deg": float(similarity.wrist_rot_deg[seed_idx]),
+                "joint_rms_rad": float(similarity.joint_rms_rad[seed_idx]),
+            },
+            "anchor_action": ref_np[seed_idx].astype(float).tolist(),
+            "optimized_action": optimized_action.astype(float).tolist(),
+            "optimized_joint_names": rollouts[0].joint_names,
+            "passive_joint_names": rollouts[0].passive_joint_names,
+        }
+        path = out_dir / f"{prefix}_{rank:03d}.json"
+        path.write_text(json.dumps(record, indent=2), encoding="utf-8")
+        return record, path
+
+    def _write_records(order: list[int], prefix: str) -> list[dict]:
+        entries = []
+        for rank, seed_idx in enumerate(order):
+            _, path = _record(int(seed_idx), rank, prefix)
+            entries.append(
+                {
+                    "rank": int(rank),
+                    "seed_index": int(seed_idx),
+                    "score": float(costs_np[seed_idx]),
+                    "rank_score": float(scores[seed_idx]),
+                    "affordance_coverage": float(similarity.affordance_coverage[seed_idx]),
+                    "grasp_json": str(path),
+                }
+            )
+        return entries
+
+    summary_common = {
+        **guidance_common,
+        "hand": "sharpa_wave_right",
+        "sequence_id": str(surface.metadata.get("sequence_id")) if surface.metadata.get("sequence_id") is not None else None,
+        "object_name": str(surface.metadata.get("object_name")) if surface.metadata.get("object_name") is not None else None,
+        "object_mesh": str(object_mesh_path),
+        "sequence_dir": str(sequence_dir),
+        "metric_summary": metric_summary,
+        "seed_count": int(seeds),
+        "opt_iters": int(opt_iters),
+    }
+
+    if successful_seed_count == 0:
+        failed_order = list(np.argsort(scores)[: min(int(top_k), int(seeds))])
+        top_failed_grasps = _write_records(failed_order, "failed_grasp")
+        summary = {
+            "ok": False,
+            **summary_common,
+            "success": False,
+            "successful_seed_count": 0,
+            "top_k": 0,
+            "top_grasps": [],
+            "top_failed_grasps": top_failed_grasps,
+            "failed_grasp_json": str(top_failed_grasps[0]["grasp_json"]) if top_failed_grasps else None,
+            "error": "No successful grasp seeds under the configured thresholds.",
+        }
+        (out_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        return summary
+
+    success_np = success.cpu().numpy()
+    candidate_indices = np.flatnonzero(success_np)
+    candidate_scores = scores[candidate_indices]
+    order = list(candidate_indices[np.argsort(candidate_scores)[: min(int(top_k), len(candidate_indices))]])
+    top_grasps = _write_records(order, "grasp")
+
+    best = json.loads(Path(top_grasps[0]["grasp_json"]).read_text(encoding="utf-8"))
+    summary = {
+        **best,
+        "ok": bool(best.get("success", False)),
+        "seed_count": int(seeds),
+        "top_k": len(top_grasps),
+        "top_grasps": top_grasps,
+        "opt_iters": int(opt_iters),
+        "grasp_json": str(top_grasps[0]["grasp_json"]),
+    }
+    (out_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    return summary

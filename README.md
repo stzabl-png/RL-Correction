@@ -21,6 +21,20 @@ sequence directory (object mesh) -> solve_sharpa_bodex() -> grasp_*.json / summa
                                                            -> Isaac Sim visualization (optional)
 ```
 
+A second, human-demonstration-guided pipeline (**anchored BODex**, see
+[Anchored BODex](#anchored-bodex-human-demo-guided-synthesis)) additionally
+reads a reconstructed human video demonstration (MANO hand + object
+trajectory) from the sequence directory and anchors the same optimization to
+it: seeds come from retargeted human contact-frame poses, the contact-point
+set and an affordance heatmap come from where the human actually touched the
+object, and annealed guidance energies keep the result similar to the demo
+while the force-closure QP still decides success.
+
+```text
+sequence directory (object mesh + human_demo.npz)
+    -> solve_sharpa_anchored_bodex() -> grasp_*.json / summary.json (+ affordance.npz cache)
+```
+
 Object meshes are convex-decomposed with `coacd` for contact evaluation;
 the hand's own link meshes currently use a single whole-mesh convex hull
 each (see [Known Limitations](#known-limitations)).
@@ -32,22 +46,25 @@ src/ocir/
   grasp_synthesis/
     assets.py            # Sharpa Wave asset-config resolution (URDF, USD, collision, joint limits)
     object_surface.py    # generic "sequence directory" -> object mesh + surface points loader
-    synthesize_sharpa_bodex_curobo_v2.py   # CLI entry point (this is the main script)
+    synthesize_sharpa_bodex_curobo_v2.py   # CLI entry point (pure object-only pipeline)
     bodex_curobo_v2/     # the grasp-synthesis algorithm itself:
                           # grasp-energy QP, staged contact cost (mesh-mesh + sphere-mesh),
                           # BODex-faithful momentum optimizer, seed generator, cuRobo v2 rollout wiring
+    anchored_bodex/      # human-demo-guided pipeline built on top of (never modifying) bodex_curobo_v2:
+                          # demo_data.py (human_demo.npz loader), affordance.py (heatmap + contact
+                          # frames, lazily cached per sequence), demo_analysis.py (grasp window +
+                          # contact roles), retarget.py (MANO->Sharpa calibration + fingertip-fit IK),
+                          # seed_generator.py (relaxed retargeted contact-frame seeds), guidance.py,
+                          # rollout.py, solver.py, synthesize_sharpa_anchored_bodex.py (CLI)
   isaac/
     visualize_grasp.py   # renders a synthesized grasp in Isaac Sim (persistent-server or standalone)
     replay_dexycb.py, sim_cli.py   # shared geometry/CLI helpers visualize_grasp.py depends on
   sim/
     control_client.py, isaac_server.py, start_isaacsim_server.py   # persistent Isaac control server
   dexycb/
-    prepare_dexycb_subset.py, mano_model.py   # optional: DexYCB subset prep, only needed if you
-                                               # want to regenerate sequence inputs from DexYCB
-  affordance/
-    extract_dexycb_object_affordance.py   # optional: standalone DexYCB hand-contact heatmap
-                                           # (.ply/.png) generator; not read by grasp synthesis
-                                           # or Isaac visualization -- visualization only
+    prepare_dexycb_subset.py, mano_model.py, labels.py   # DexYCB subset prep + label/MANO helpers
+    export_grasp_sequences.py   # DexYCB labels -> per-sequence human_demo.npz exporter
+                                 # (needed once per sequence before anchored-BODex runs)
 
 scripts/            # thin conda-env wrappers around the modules above (same CLI flags)
 assets/robots/hands/sharpa_wave/   # hand URDF, meshes, USD, collision spheres, manip configs
@@ -107,6 +124,10 @@ any directory that provides one object mesh:
   <object_name>.obj (or .stl)   # required: exactly one mesh file, unless overridden below
   points.xyz                    # optional: pre-sampled surface points, one "x y z" per line
   sequence.json                 # optional: {"object_mesh": "...", "points": "...", ...} overrides
+  human_demo.npz                # anchored BODex only: MANO hand + object trajectory in the
+                                 # object canonical frame (schema in anchored_bodex/demo_data.py)
+  affordance.npz                # anchored BODex only: heatmap + contact-frame cache; created
+                                 # automatically on first run, reused afterwards
 ```
 
 Resolution rules (`ObjectSurface.from_sequence_dir`, in
@@ -132,21 +153,35 @@ Resolution rules (`ObjectSurface.from_sequence_dir`, in
 Batch runs treat every immediate subdirectory of a given root as one
 sequence (see [Quick Start](#quick-start)).
 
-### Optional: regenerating sequences from DexYCB
+### Regenerating sequences from DexYCB
 
-`src/ocir/dexycb/prepare_dexycb_subset.py` and
-`src/ocir/affordance/extract_dexycb_object_affordance.py` are DexYCB-specific
-utilities kept only for regenerating sequence inputs from that dataset; grasp
-synthesis itself never invokes them or reads their manifest/heatmap outputs.
-`prepare_dexycb_subset.py --help` and `extract_dexycb_object_affordance.py
---help` document their own flags (subject, camera, sequence count, contact
-threshold). The heatmap/`.ply`/`.png` files the affordance script produces
-are for human inspection only -- nothing in this repo's synthesis or
-visualization path reads them.
+`src/ocir/dexycb/prepare_dexycb_subset.py` regenerates the object-mesh
+sequence dirs and the manifest from raw DexYCB archives (`--help` documents
+subject/camera/sequence-count flags). For anchored BODex, additionally run
+the demo exporter once per sequence set:
+
+```bash
+scripts/run_grasp_synthesis_conda.sh scripts/dexycb/export_grasp_sequences.py \
+  --manifest ${OCIR_DATA_ROOT}/processed_data/dex_ycb/manifests/selected_5_sequences.json \
+  --sequences-root ${OCIR_DATA_ROOT}/processed_data/dex_ycb/sequences
+```
+
+It writes `human_demo.npz` (per-frame MANO vertices/keypoints + object pose,
+pre-transformed into the object canonical frame) into each sequence dir and
+records it in `sequence.json`. The `affordance.npz` cache is then computed
+lazily by the anchored solver itself, or ahead of time (optionally with debug
+`.ply`/`.png` renders) via:
+
+```bash
+scripts/run_grasp_synthesis_conda.sh -m ocir.grasp_synthesis.anchored_bodex.affordance \
+  --sequences-root ${OCIR_DATA_ROOT}/processed_data/dex_ycb/sequences --debug-viz
+```
 
 To build a sequence directory by hand for a new object, all you need is the
 object mesh (`.obj`/`.stl`) in its own directory; `points.xyz`/
-`sequence.json` are optional refinements.
+`sequence.json` are optional refinements. The pure pipeline needs nothing
+else; anchored BODex needs `human_demo.npz` from whatever reconstruction
+pipeline produced the demonstration.
 
 ## Quick Start
 
@@ -223,6 +258,60 @@ Exit code is nonzero if any sequence's solver crashed or its visualization
 failed (or, with `--strict-success-exit-code`, if any sequence had zero
 successful seeds); otherwise 0, even if some individual sequences report
 `"ok": false` in their summary.
+
+### Anchored BODex: human-demo-guided synthesis
+
+`scripts/grasp_synthesis/synthesize_sharpa_anchored_bodex.py` runs the
+human-demonstration-guided variant. One-time setup: generate the
+MANO->Sharpa wrist calibration (writes
+`assets/.../grasp_synthesis/bodex/mano_transfer.yml` plus an overlay PNG for
+eyeballing; hard-fails on convention errors):
+
+```bash
+scripts/run_grasp_synthesis_conda.sh scripts/grasp_synthesis/calibrate_mano_sharpa.py
+```
+
+Then run it exactly like the pure CLI (same input/output/Isaac flags), on
+sequence dirs that contain `human_demo.npz`:
+
+```bash
+scripts/run_grasp_synthesis_conda.sh \
+  scripts/grasp_synthesis/synthesize_sharpa_anchored_bodex.py \
+  --sequence-dir /path/to/sequences/<sequence_id> \
+  --out-dir /path/to/output_root \
+  --seeds 40 --top-k 8 --opt-iters 500
+```
+
+How it differs from the pure pipeline:
+
+- **Seeding**: no object-surface sampling. Seeds are human hand poses from
+  demo frames where the hand contacts the object (contact frames are detected
+  and cached in `affordance.npz`), retargeted to the Sharpa hand (wrist pose
+  relative to the object frame + finger joints via fingertip-fit IK), then
+  *relaxed* out of contact (`--relax-flexion`, default 0.15 rad opened on
+  flexion joints; `--relax-standoff`, default 1.5 cm wrist pull-back) and
+  jittered (`--jitter-pos/--jitter-rot-deg/--jitter-joint`). Seed #0 is the
+  unjittered grasp-frame pose. Each seed keeps its un-relaxed retargeted pose
+  as its *anchor*.
+- **Contact points**: the active subset of the 11 Sharpa contact points is
+  selected per sequence from which human hand parts (fingertips/pads/palm)
+  actually touched the object, and the force-closure QP's pressure
+  constraints are regenerated for that subset (`--no-contact-subset`
+  restores all 11).
+- **Guidance energies** (on top of the unchanged BODex staged cost):
+  an annealed pose prior toward each seed's anchor (`--pose-weight`, zero by
+  the stage-0->1 contact switch) and an affordance attraction pulling
+  fingertip/pad contact spheres toward the high-heatmap region
+  (`--affordance-weight`, `--afford-tau`, decayed over stages 1->2).
+- **Success is unchanged**: strict success is still pure force-closure +
+  contact distance. Similarity only affects *ranking* among successful seeds
+  (`--rank-affordance-weight`, `--rank-pose-weight`) and is reported in the
+  records (`affordance_coverage`, `pose_similarity`, `anchor_frame_id`,
+  `rank_score`, `retarget_report`, ...).
+
+Right-hand demos only (the Sharpa asset is a right hand); left-hand
+sequences fail with a clear error. Requires the same CUDA backend as the
+pure pipeline.
 
 ### Isaac Sim visualization: persistent server vs. standalone
 

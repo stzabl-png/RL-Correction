@@ -60,17 +60,32 @@ force-closure QP, seed generation).
 
 ## Installation
 
-1. Initialize the cuRobo submodule:
+1. Initialize the cuRobo submodule (official NVLabs cuRobo, not a fork):
    ```bash
    git submodule update --init --recursive third_party/curobo
    ```
-2. Everything runs in one conda environment that already has: `torch` (CUDA
-   build), `warp-lang`, the standalone `coal` package, `coacd`, `trimesh`,
-   `PyYAML`, `numpy`, and an Isaac Sim install (for the visualization half).
-   This repo's own `pyproject.toml` only declares `numpy`/`PyYAML` --
-   the heavier ML/robotics/sim dependencies are expected to already be
-   present in that environment (this repo does not manage or pin them).
-   Install this package itself into that environment:
+2. Create/use a single conda environment for everything -- grasp synthesis
+   and Isaac Sim visualization both run in it. All of this repo's helper
+   scripts (`scripts/run_grasp_synthesis_conda.sh`,
+   `scripts/run_isaacsim_conda.sh`) default to an environment named
+   `env_isaacsim`, overridable via the `OCIR_ISAACSIM_CONDA_ENV` /
+   `OCIR_GRASP_SYNTHESIS_CONDA_ENV` / `OCIR_CUROBO_CONDA_ENV` env vars if you
+   name yours differently. It needs:
+
+   | Package | Notes |
+   | --- | --- |
+   | `isaacsim` | Isaac Sim itself (tested against 5.1.x). Only needed for the visualization half; grasp synthesis alone doesn't import it. |
+   | `torch` | CUDA build. Must be importable before `coacd` in-process (see below). |
+   | `warp-lang` | cuRobo v2's GPU kernels (mesh SDF queries, etc.) run on this. |
+   | `coal` | GJK/EPA convex-convex distance. Installed from **conda-forge**, not pip (`conda install -c conda-forge coal`) -- a plain `pip install coal` will not get you this package. |
+   | `coacd` | Convex decomposition of object meshes (`pip install coacd`). |
+   | `trimesh`, `PyYAML`, `numpy` | Mesh I/O and config loading. |
+
+   None of this is declared in this repo's own `pyproject.toml` (which only
+   lists `numpy`/`PyYAML`) -- the heavier ML/robotics/sim stack is assumed
+   to already be present in the environment, not managed or pinned by this
+   repo. Once the environment has all of the above, install this package
+   itself into it:
    ```bash
    pip install -e .
    ```

@@ -336,8 +336,9 @@ squeeze/carry gains caused a 101rad joint-tracking blow-up.
 
 The default hand rest offset is now **1mm** (2mm total pair separation).
 On the staged wood-block record this eliminated the blow-up (maximum joint
-tracking error 0.74rad) and produced a 10.6cm peak lift before the known
-marginal failed grasp slipped. This is the current physics baseline; pass
+tracking error 0.74rad). Its 10.6cm peak was a brief pinch-ejection rather
+than a retained grasp, so it is explicitly not counted as success. This is
+the current physics baseline; pass
 `--isaac-hand-rest-offset 0.002` to reproduce the former calibration.
 
 ### v9 -- isolate staged-grasp visualization rows (2026-07-10)
@@ -348,6 +349,22 @@ been rendered, making every row appear to stack all four stage hands. The
 renderer now advances the app twice after each visibility switch. Verified on
 the staged wood-block record: each front/side/top row contains exactly its
 selected `pregrasp`, `raw_grasp`, `grasp`, or `squeeze` hand.
+
+### v10 -- all-sequence staged physics benchmark (2026-07-10)
+
+Regenerated the four-stage anchored-BODex records (40 seeds, 500 iterations)
+and ran the right-hand trajectory + dynamic SDF physics on all three
+sequences at the v8 contact calibration. All use record stages and stayed
+stable: maximum joint tracking error was 0.82rad (can), 0.87rad (mug), and
+0.74rad (wood block), with no solver blow-up. The can and mug did not reach
+the 2cm lift threshold; the wood block briefly pinch-ejected then dropped.
+
+A ranked-candidate and squeeze sweep did not find a stable wood-block grasp:
+candidate 003 never lifted and destabilized after falling; squeeze scales
+0.5, 0.8, and 1.0 yielded respectively no lift, a 3.4cm transient lift, and
+a 10.6cm pinch-ejection. The remaining blocker is strict grasp feasibility
+upstream: every current record is `failed_grasp` (`successful_seed_count: 0`),
+not a collision or frame-mapping failure in the trajectory stack.
 
 ### Tooling (2026-07-10, commits 3da7b95 + 3946a12)
 

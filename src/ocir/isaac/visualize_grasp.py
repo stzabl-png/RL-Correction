@@ -20,6 +20,21 @@ if str(REPO_ROOT) not in sys.path:
 
 from ocir.grasp_synthesis.assets import ASSET_ROOT, DEFAULT_SHARPA_WAVE_RIGHT_CONFIG, load_sharpa_wave_right
 from ocir.grasp_synthesis.object_surface import ObjectSurface
+
+# The persistent server hot-reloads THIS module per job, but plain
+# from-imports would silently rebind against the stale helper modules left
+# in sys.modules (e.g. an old write_video kept encoding mp4v video long
+# after the H.264 change landed on disk). Refresh the shared helpers first,
+# before any from-import below -- or in the task modules reloaded by
+# register_sim_tasks -- binds names from them.
+import importlib as _importlib
+
+from ocir.isaac import replay_dexycb as _replay_dexycb_module
+from ocir.isaac import sim_cli as _sim_cli_module
+
+_importlib.reload(_replay_dexycb_module)
+_importlib.reload(_sim_cli_module)
+
 from ocir.isaac.replay_dexycb import camera_pose_to_isaac, load_dexycb_frame_mapper, quat_to_matrix, read_label
 from ocir.sim.control_client import request_json, server_is_running, submit_job
 from ocir.sim.isaac_server import DEFAULT_OCIR_DATA_ROOT, launch_simulation_app

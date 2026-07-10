@@ -66,8 +66,7 @@ class GraspTrajectoryConfig:
     max_wrist_speed_mps: float = 0.25
     carry_blend_seconds: float = 0.3
     open_clearance_m: float = 0.05
-    retreat_max_m: float = 0.25
-    open_seconds: float = 0.4
+    open_horizon_seconds: float = 1.0
     planner: str = "curobo"  # or "linear"
     final_close_seconds: float = 0.4
     near_contact_margin_m: float = 0.003
@@ -204,65 +203,21 @@ class GraspTrajectoryGenerator:
         world,
         switch_pos: np.ndarray,
         switch_quat: np.ndarray,
-        switch_joints: np.ndarray,
         standoff_pos: np.ndarray,
         standoff_quat: np.ndarray,
         pregrasp_joints: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
-        """Switch pose -> grasp standoff in three phases:
-
-        1. retreat: pull straight back along the switch pose's palm axis
-           (fingers still at the retargeted posture) until the WIDE-OPEN hand
-           would clear the object by ``open_clearance_m`` (capped at
-           ``retreat_max_m``) -- the hand must not open right next to the
-           object or the opening fingers themselves push it away.
-        2. open: hold the wrist at the retreat pose, open the fingers to
-           pregrasp over ``open_seconds``.
-        3. transit: cuRobo v2 MotionPlanner (floating-base hand, fingers
-           locked wide open, object mesh as obstacle) from the retreat pose
-           to the standoff; straight-line + radial via-point fallback if
-           planning is disabled or fails.
-        """
+        """Switch pose (hand already fully open -- the opening ramp lives in
+        the retarget segment, and the switch frame was selected for open-hand
+        clearance) -> grasp standoff, via cuRobo v2 MotionPlanner
+        (floating-base hand, fingers locked wide open, object mesh as
+        obstacle); straight-line + radial via-point fallback if planning is
+        disabled or fails."""
 
         cfg = self.config
         report: dict = {}
-
-        # --- Phase 1: retreat until the open hand would be clear -----------
         switch_pos = np.asarray(switch_pos, dtype=np.float64)
-        back_dir = -(quat_to_matrix(switch_quat) @ PALM_APPROACH_AXIS_LOCAL)
-        retreat_dist = 0.0
-        step = 0.01
-        while retreat_dist <= cfg.retreat_max_m:
-            candidate = switch_pos + retreat_dist * back_dir
-            clearance = self._min_clearance(
-                world, candidate[None], np.asarray(switch_quat)[None], pregrasp_joints[None]
-            )
-            if clearance >= cfg.open_clearance_m:
-                break
-            retreat_dist += step
-        retreat_dist = min(retreat_dist, cfg.retreat_max_m)
-        retreat_pos = switch_pos + retreat_dist * back_dir
-        report["retreat_distance_m"] = retreat_dist
-        report["open_pose_clearance_m"] = clearance
 
-        retreat_steps = steps_for_leg(retreat_dist, 0.2, cfg.fps, cfg.max_wrist_speed_mps)
-        retreat_p, retreat_q, retreat_j = interp_trajectory(
-            switch_pos, switch_quat, switch_joints,
-            retreat_pos, switch_quat, switch_joints,
-            retreat_steps, include_start=True,
-        )
-
-        # --- Phase 2: open wide, in place, away from the object ------------
-        open_steps = max(1, int(round(cfg.open_seconds * cfg.fps)))
-        _, _, open_j = interp_trajectory(
-            retreat_pos, switch_quat, switch_joints,
-            retreat_pos, switch_quat, pregrasp_joints,
-            open_steps, include_start=False,
-        )
-        open_p = np.tile(retreat_pos[None], (open_steps, 1))
-        open_q = np.tile(np.asarray(switch_quat, dtype=np.float64)[None], (open_steps, 1))
-
-        # --- Phase 3: planned transit to the standoff -----------------------
         transit = None
         if cfg.planner == "curobo":
             try:
@@ -273,7 +228,7 @@ class GraspTrajectoryGenerator:
                     self.device_cfg,
                 )
                 transit = planner.plan(
-                    retreat_pos, switch_quat, standoff_pos, standoff_quat,
+                    switch_pos, switch_quat, standoff_pos, standoff_quat,
                     seconds=cfg.approach_seconds, fps=cfg.fps,
                     max_speed_mps=cfg.max_wrist_speed_mps,
                 )
@@ -288,20 +243,21 @@ class GraspTrajectoryGenerator:
 
         if transit is None:
             transit = self._linear_transit(
-                surface, world, retreat_pos, switch_quat, standoff_pos, standoff_quat, pregrasp_joints, report
+                surface, world, switch_pos, switch_quat, standoff_pos, standoff_quat, pregrasp_joints, report
             )
-        transit_p, transit_q = transit
-        transit_j = np.tile(pregrasp_joints[None], (transit_p.shape[0], 1))
+        pos, quat = transit
+        # plan()/_linear_transit are start-exclusive; emit the switch pose
+        # itself (fully open) as the segment's first step so the retarget
+        # replay hands off without a gap.
+        pos = np.concatenate([switch_pos[None], pos], axis=0)
+        quat = np.concatenate([np.asarray(switch_quat, dtype=np.float64)[None], quat], axis=0)
+        joints = np.tile(pregrasp_joints[None], (pos.shape[0], 1))
 
-        pos = np.concatenate([retreat_p, open_p, transit_p], axis=0)
-        quat = np.concatenate([retreat_q, open_q, transit_q], axis=0)
-        joints = np.concatenate([retreat_j, open_j, transit_j], axis=0)
-
-        transit_clearance = self._min_clearance(world, transit_p, transit_q, transit_j)
+        transit_clearance = self._min_clearance(world, pos, quat, joints)
         report.update(
             transit_min_clearance_m=transit_clearance,
             clearance_satisfied=transit_clearance >= cfg.approach_clearance_m,
-            num_steps=int(pos.shape[0]) - 1,
+            num_steps=int(pos.shape[0]),
         )
         if not report["clearance_satisfied"]:
             print(
@@ -379,6 +335,20 @@ class GraspTrajectoryGenerator:
         )
         frame_to_row = {int(f): i for i, f in enumerate(retarget_all.frame_indices)}
 
+        # Pregrasp = the grasp posture with all flexion channels scaled toward
+        # 0 rad (straight/open) by pregrasp_open_fraction -- the hand must be
+        # WIDE open on the way in, or closing merely pushes the object away
+        # instead of wrapping around it. Non-flexion channels (AA spread,
+        # thumb rotation) keep their grasp values so the hand stays oriented
+        # to wrap. Computed before switch-frame selection: the switch frame
+        # must be one where the FULLY OPEN hand already clears the object by
+        # open_clearance_m, so the smooth opening ramp (below) finishes well
+        # away from the object.
+        open_scale = 1.0 - float(np.clip(self.config.pregrasp_open_fraction, 0.0, 1.0))
+        pregrasp_joints = self._clamp(
+            np.where(self.relax_mask > 0, grasp_joints_full * open_scale, grasp_joints_full)
+        )
+
         world = build_contact_world(surface.object_mesh_path, self.asset.urdf_path, self.device_cfg)
         switch_frame, clearance_report = select_switch_frame(
             demo,
@@ -389,7 +359,8 @@ class GraspTrajectoryGenerator:
             affordance,
             approach_seconds=self.config.approach_seconds,
             fps=self.config.fps,
-            clearance_m=self.config.approach_clearance_m,
+            clearance_m=self.config.open_clearance_m,
+            override_joints=pregrasp_joints,
         )
 
         hand_pos_chunks: list[np.ndarray] = []
@@ -408,12 +379,24 @@ class GraspTrajectoryGenerator:
             segment_chunks.append(np.full((n,), label, dtype=np.int8))
 
         # --- Segment a: retarget replay, camera frame -----------------------
+        # Fingers open SMOOTHLY over the last open_horizon_seconds of the
+        # replay: each frame in the window blends the retargeted joints toward
+        # the wide-open pregrasp, reaching fully open exactly at the switch
+        # frame -- no separate in-place opening action right next to the
+        # object (the opening fingers themselves used to nudge it).
         retarget_frames = candidate_frames[candidate_frames < switch_frame]
         if retarget_frames.size:
             rows = np.asarray([frame_to_row[int(f)] for f in retarget_frames])
             hand_pos_obj = retarget_all.ref_actions[rows, :3]
             hand_quat_obj = retarget_all.ref_actions[rows, 3:7]
             hand_joints = self._clamp(retarget_all.ref_actions[rows, 7:])
+            open_horizon = max(1, int(round(self.config.open_horizon_seconds * self.config.fps)))
+            m = retarget_frames.size
+            # steps_before_switch for row j is m - j (the switch pose itself
+            # comes one step after the last retarget row, at blend weight 1).
+            steps_before_switch = m - np.arange(m)
+            blend = np.clip(1.0 - steps_before_switch / float(open_horizon), 0.0, 1.0)
+            hand_joints = hand_joints * (1.0 - blend[:, None]) + pregrasp_joints[None] * blend[:, None]
             obj_pose_cam = demo.object_pose_camera[retarget_frames]
             obj_pos_cam, obj_quat_cam = matrix_to_pos_quat(obj_pose_cam)
             hand_pos_cam, hand_quat_cam = compose_pos_quat(obj_pos_cam, obj_quat_cam, hand_pos_obj, hand_quat_obj)
@@ -423,18 +406,6 @@ class GraspTrajectoryGenerator:
         switch_row = frame_to_row[int(switch_frame)]
         switch_pos = retarget_all.ref_actions[switch_row, :3]
         switch_quat = retarget_all.ref_actions[switch_row, 3:7]
-        switch_joints = self._clamp(retarget_all.ref_actions[switch_row, 7:])
-
-        # Pregrasp = the grasp posture with all flexion channels scaled toward
-        # 0 rad (straight/open) by pregrasp_open_fraction -- the hand must be
-        # WIDE open on the way in, or closing merely pushes the object away
-        # instead of wrapping around it. Non-flexion channels (AA spread,
-        # thumb rotation) keep their grasp values so the hand stays oriented
-        # to wrap.
-        open_scale = 1.0 - float(np.clip(self.config.pregrasp_open_fraction, 0.0, 1.0))
-        pregrasp_joints = self._clamp(
-            np.where(self.relax_mask > 0, grasp_joints_full * open_scale, grasp_joints_full)
-        )
 
         # Failed-grasp records can place even the PALM inside the object; no
         # finger projection can repair that. Pull the grasp wrist pose back
@@ -457,7 +428,7 @@ class GraspTrajectoryGenerator:
 
         approach_pos, approach_quat, approach_joints, transit_report = self._plan_transit(
             surface, world,
-            switch_pos, switch_quat, switch_joints,
+            switch_pos, switch_quat,
             standoff_pos, standoff_quat, pregrasp_joints,
         )
         clearance_report = {**clearance_report, "transit": transit_report}
@@ -594,8 +565,7 @@ class GraspTrajectoryGenerator:
                     "max_wrist_speed_mps": self.config.max_wrist_speed_mps,
                     "carry_blend_seconds": self.config.carry_blend_seconds,
                     "open_clearance_m": self.config.open_clearance_m,
-                    "retreat_max_m": self.config.retreat_max_m,
-                    "open_seconds": self.config.open_seconds,
+                    "open_horizon_seconds": self.config.open_horizon_seconds,
                     "planner": self.config.planner,
                     "final_close_seconds": self.config.final_close_seconds,
                     "near_contact_margin_m": self.config.near_contact_margin_m,

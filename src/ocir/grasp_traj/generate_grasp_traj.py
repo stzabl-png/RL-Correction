@@ -42,9 +42,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--carry-start", choices=["grasp_frame", "pickup_frame"], default="grasp_frame")
     parser.add_argument("--max-wrist-speed", type=float, default=0.25, help="Cap on wrist speed (m/s) in the synthetic approach/close segments; step counts grow beyond the seconds-based defaults when a leg would exceed it.")
     parser.add_argument("--carry-blend-seconds", type=float, default=0.3, help="Blend duration easing the hand from the squeeze-end pose onto the recorded carry trajectory.")
-    parser.add_argument("--open-clearance", type=float, default=0.05, help="SDF clearance (m) the WIDE-OPEN hand must have before the fingers start opening; the hand retreats along the palm axis until satisfied.")
-    parser.add_argument("--retreat-max", type=float, default=0.25, help="Cap (m) on the pre-opening retreat distance.")
-    parser.add_argument("--open-seconds", type=float, default=0.4, help="Duration of the in-place finger opening at the retreat pose.")
+    parser.add_argument("--open-clearance", type=float, default=0.05, help="SDF clearance (m) the WIDE-OPEN hand must have at the switch frame (the switch-frame search walks backward through the demo until satisfied).")
+    parser.add_argument("--open-horizon-seconds", type=float, default=1.0, help="Duration of the smooth finger-opening ramp blended into the tail of the retarget replay, ending fully open at the switch frame.")
     parser.add_argument("--planner", choices=["curobo", "linear"], default="curobo", help="Transit planner for retreat-pose -> standoff: cuRobo v2 MotionPlanner with the object mesh as obstacle (falls back to linear on failure), or plain straight-line + via-point.")
     parser.add_argument("--final-close-seconds", type=float, default=0.4, help="Duration of the slow final close from the near-contact posture to the contact-projected posture.")
     parser.add_argument("--near-contact-margin", type=float, default=0.003, help="Clearance (m) of the near-contact posture that the fast close stage sweeps to before the slow final close.")
@@ -220,8 +219,7 @@ def main(argv: list[str] | None = None) -> int:
         max_wrist_speed_mps=args.max_wrist_speed,
         carry_blend_seconds=args.carry_blend_seconds,
         open_clearance_m=args.open_clearance,
-        retreat_max_m=args.retreat_max,
-        open_seconds=args.open_seconds,
+        open_horizon_seconds=args.open_horizon_seconds,
         planner=args.planner,
         final_close_seconds=args.final_close_seconds,
         near_contact_margin_m=args.near_contact_margin,

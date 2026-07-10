@@ -34,6 +34,7 @@ def select_switch_frame(
     approach_seconds: float,
     fps: float,
     clearance_m: float = DEFAULT_APPROACH_CLEARANCE_M,
+    override_joints: np.ndarray | None = None,
 ) -> tuple[int, dict]:
     """Pick the demo frame at which retargeted replay hands off to the
     synthetic approach segment.
@@ -41,6 +42,11 @@ def select_switch_frame(
     ``retarget_all.frame_indices`` must cover (at least) every valid frame up
     to and including ``analysis.grasp_frame_index`` -- the candidate pool this
     function walks backward through.
+
+    ``override_joints`` (len == the action's joint tail), when given, replaces
+    each candidate's retargeted joints for the clearance check -- pass the
+    wide-open pregrasp posture so the chosen frame is one where the hand can
+    already be FULLY OPEN without touching the object.
     """
 
     grasp_frame = int(analysis.grasp_frame_index)
@@ -59,8 +65,12 @@ def select_switch_frame(
     if affordance.frame_in_contact.any():
         first_contact_frame = int(np.argmax(affordance.frame_in_contact))
 
+    actions_np = np.stack([retarget_all.ref_actions[frame_to_row[f]] for f in candidates])
+    if override_joints is not None:
+        actions_np = actions_np.copy()
+        actions_np[:, 7:] = np.asarray(override_joints, dtype=actions_np.dtype)[None]
     actions = torch.as_tensor(
-        np.stack([retarget_all.ref_actions[frame_to_row[f]] for f in candidates]),
+        actions_np,
         device=clearance_checker.device_cfg.device,
         dtype=clearance_checker.device_cfg.dtype,
     )

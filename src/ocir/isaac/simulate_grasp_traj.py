@@ -285,8 +285,8 @@ def set_world_pose(stage, prim_path: str, pos: np.ndarray, quat_wxyz: np.ndarray
 def apply_hand_collision_offsets(stage, ref_path: str, *, contact_offset: float, rest_offset: float) -> int:
     """Override contact/rest offsets on every hand collider. The rest offset
     effectively INFLATES the collision surface: contacts come to rest with
-    the surfaces separated by the sum of both bodies' rest offsets, so a 2mm
-    hand rest offset acts as the '+2mm on the hand collision mesh' the
+    the surfaces separated by the sum of both bodies' rest offsets, so a 1mm
+    hand rest offset acts as the '+1mm on the hand collision mesh' the
     physical gripper calibration calls for -- and keeps the fingers from
     ever entering the deep-penetration regime where the solver's
     depenetration pushes look like the object being sucked into the hand or
@@ -984,7 +984,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--convex-decomp-max-hulls", type=int, default=32)
     parser.add_argument("--object-collision", choices=["sdf", "convex"], default="sdf", help="Object collider type: exact SDF triangle mesh (concavities stay hollow) or convex decomposition.")
     parser.add_argument("--sdf-resolution", type=int, default=256)
-    parser.add_argument("--hand-rest-offset", type=float, default=0.002, help="Rest offset (m) added to every hand collider, effectively inflating the hand collision surface.")
+    parser.add_argument("--hand-rest-offset", type=float, default=0.001, help="Rest offset (m) added to every hand collider, effectively inflating the hand collision surface.")
     parser.add_argument("--sim-steps-per-frame", type=int, default=2, help="app.update() calls per trajectory frame; each advances sim time 1/60s, so 2 matches a 30fps trajectory in real time.")
     parser.add_argument("--time-steps-per-second", type=float, default=120.0, help="PhysX substep rate; keep a multiple of 60.")
     parser.add_argument("--capture-every", type=int, default=1)

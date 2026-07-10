@@ -154,7 +154,7 @@ squeeze/carry.
   bridges concavities, which wedges the object inside the closed hand's hull
   volume and makes it follow the hand ("suction") or pop out violently.
 - **Hand**: baked convex-hull colliders, inflated by `--hand-rest-offset`
-  (0.002m rest offset on every collider -- the "+2mm on the hand collision
+  (0.001m rest offset on every collider -- the "+1mm on the hand collision
   mesh" physical-gripper calibration) so fingers never enter the
   deep-penetration regime.
 - **Debug mode**: `--carry-mode kinematic` turns the object into a pure
@@ -164,7 +164,8 @@ squeeze/carry.
 
 ### Other Stage B flags
 
-`--object-mass` (auto from mesh volume x `--object-density` 700 kg/m^3),
+`--object-mass` (explicit override; known YCB objects use their published
+mass, otherwise mesh volume x `--object-density` 700 kg/m^3),
 `--friction` (2.0, both sides, multiply combine),
 `--joint-stiffness/-damping/-max-force/-armature/-friction`
 (80/20/300/0.01/0.05), `--lift-threshold`/`--drop-threshold`
@@ -324,6 +325,20 @@ close/squeeze, lifted ~3.1cm briefly, then dropped
 (`grasp_success: false`) -- acquisition mechanics all work; sustained hold
 still bounded by grasp-record quality (0 strictly-successful seeds on this
 sequence).
+
+### v8 -- stage-compatible contact offset (2026-07-10)
+
+The stage-driven record's `grasp` pose is deliberately at 0mm SDF clearance.
+The v6 2mm hand rest offset, combined with the object's 1mm rest offset,
+created a 3mm physical separation requirement that the new contact pose did
+not satisfy. Close therefore stalled by ~0.81rad, and restoring full
+squeeze/carry gains caused a 101rad joint-tracking blow-up.
+
+The default hand rest offset is now **1mm** (2mm total pair separation).
+On the staged wood-block record this eliminated the blow-up (maximum joint
+tracking error 0.74rad) and produced a 10.6cm peak lift before the known
+marginal failed grasp slipped. This is the current physics baseline; pass
+`--isaac-hand-rest-offset 0.002` to reproduce the former calibration.
 
 ### Tooling (2026-07-10, commits 3da7b95 + 3946a12)
 

@@ -67,7 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--isaac-convex-decomp-max-hulls", type=int, default=32)
     parser.add_argument("--isaac-object-collision", choices=["sdf", "convex"], default="sdf")
     parser.add_argument("--isaac-sdf-resolution", type=int, default=256)
-    parser.add_argument("--isaac-hand-rest-offset", type=float, default=0.002)
+    parser.add_argument("--isaac-hand-rest-offset", type=float, default=0.001)
     parser.add_argument("--isaac-sim-steps-per-frame", type=int, default=2)
     parser.add_argument("--isaac-time-steps-per-second", type=float, default=120.0)
     parser.add_argument("--isaac-capture-every", type=int, default=1)

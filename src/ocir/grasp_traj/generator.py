@@ -249,15 +249,23 @@ class GraspTrajectoryGenerator:
         joints = np.tile(pregrasp_joints[None], (pos.shape[0], 1))
 
         transit_clearance = self._min_clearance(world, pos, quat, joints)
+        # The transit legitimately ENDS next to the object (its goal is the
+        # synthesized pregrasp pose), so the threshold check excludes the
+        # arrival tail; the full-path minimum is still reported.
+        arrival_tail = min(max(3, pos.shape[0] // 10), max(pos.shape[0] - 1, 1))
+        enroute_clearance = self._min_clearance(
+            world, pos[:-arrival_tail], quat[:-arrival_tail], joints[:-arrival_tail]
+        ) if pos.shape[0] > arrival_tail else transit_clearance
         report.update(
             transit_min_clearance_m=transit_clearance,
-            clearance_satisfied=transit_clearance >= cfg.approach_clearance_m,
+            enroute_min_clearance_m=enroute_clearance,
+            clearance_satisfied=enroute_clearance >= cfg.approach_clearance_m,
             num_steps=int(pos.shape[0]),
         )
         if not report["clearance_satisfied"]:
             print(
                 "[grasp_traj] WARNING: transit path clearance below threshold "
-                f"({transit_clearance:.4f} m); proceeding anyway"
+                f"({enroute_clearance:.4f} m en route); proceeding anyway"
             )
         return pos, quat, joints, report
 
@@ -300,6 +308,49 @@ class GraspTrajectoryGenerator:
         via_quat = slerp_wxyz(start_quat, pregrasp_quat, 0.5)
         report["via_point"] = via_pos.tolist()
         return build([start_pos, via_pos, pregrasp_pos], [start_quat, via_quat, pregrasp_quat])
+
+    def _plan_contact_leg(
+        self,
+        surface: ObjectSurface,
+        start_pos: np.ndarray,
+        start_quat: np.ndarray,
+        goal_pos: np.ndarray,
+        goal_quat: np.ndarray,
+        locked_joints: np.ndarray,
+        *,
+        seconds: float,
+    ) -> tuple[tuple[np.ndarray, np.ndarray], str]:
+        """Short pregrasp -> grasp wrist leg: cuRobo when it can (fingers
+        locked at the pregrasp posture), straight interpolation as the
+        DESIGNED fallback -- the goal sits essentially on the contact
+        boundary, where a collision-constrained plan is expected to be
+        infeasible for some grasps. Returns ``((pos, quat), planner_name)``,
+        start-exclusive."""
+
+        cfg = self.config
+        if cfg.planner == "curobo":
+            try:
+                planner = TransitPlanner(
+                    self.asset,
+                    dict(zip(self.joint_order, locked_joints)),
+                    surface.object_mesh_path,
+                    self.device_cfg,
+                )
+                out = planner.plan(
+                    start_pos, start_quat, goal_pos, goal_quat,
+                    seconds=seconds, fps=cfg.fps, max_speed_mps=cfg.max_wrist_speed_mps,
+                )
+                if out is not None:
+                    return out, "curobo"
+                print("[grasp_traj] pregrasp->grasp leg: cuRobo found no plan (goal at contact boundary); interpolating")
+            except Exception as exc:
+                print(f"[grasp_traj] pregrasp->grasp leg: cuRobo raised {exc!r}; interpolating")
+        dist = float(np.linalg.norm(np.asarray(goal_pos) - np.asarray(start_pos)))
+        n_steps = steps_for_leg(dist, seconds, cfg.fps, cfg.max_wrist_speed_mps)
+        pos, quat = polyline_wrist_trajectory(
+            np.stack([start_pos, goal_pos]), np.stack([start_quat, goal_quat]), n_steps, include_start=False
+        )
+        return (pos, quat), "interp"
 
     def _resample_carry_object_poses(
         self,
@@ -395,6 +446,19 @@ class GraspTrajectoryGenerator:
         grasp_joints_full = _remap_by_name(action[7:], record_joint_order, self.joint_order)
         grasp_joints_full = self._clamp(grasp_joints_full)
 
+        # Four-stage records (anchored_bodex/grasp_stages.py) carry pregrasp /
+        # grasp (contact-retreated) / squeeze poses computed at synthesis
+        # time; when present they replace this generator's own wrist/finger
+        # contact projection entirely.
+        record_stages = grasp_record.get("stages") or None
+
+        def _stage_action(name: str) -> np.ndarray:
+            entry = record_stages[name]
+            joints = np.asarray([entry["joints"][j] for j in self.joint_order], dtype=np.float64)
+            quat = np.asarray(entry["orientation"], dtype=np.float64)
+            quat = quat / np.linalg.norm(quat)
+            return np.concatenate([np.asarray(entry["position"], dtype=np.float64), quat, self._clamp(joints)])
+
         # Retarget every valid demo frame up to and including the grasp frame:
         # this single batched IK call covers both the switch-frame search's
         # candidate pool and the retarget-replay segment.
@@ -481,71 +545,145 @@ class GraspTrajectoryGenerator:
         switch_pos = retarget_all.ref_actions[switch_row, :3]
         switch_quat = retarget_all.ref_actions[switch_row, 3:7]
 
-        # Failed-grasp records can place even the PALM inside the object; no
-        # finger projection can repair that. Pull the grasp wrist pose back
-        # along its own approach axis until the wide-open hand clears the
-        # surface, and use the corrected pose everywhere (pregrasp goal, close,
-        # squeeze, and the carry's grasp_root_tf).
-        grasp_pos, wrist_backoff = self._project_wrist_pose(
-            world, grasp_pos, grasp_quat, pregrasp_joints,
-            clearance_target_m=self.config.approach_clearance_m,
-        )
-        squeeze_joints = self._clamp(grasp_joints_full + self.config.squeeze_delta * self.relax_mask)
-
         static_object_pose = demo.object_pose_camera[switch_frame]
-
-        approach_pos, approach_quat, approach_joints, transit_report = self._plan_transit(
-            surface, world,
-            switch_pos, switch_quat,
-            grasp_pos, grasp_quat, pregrasp_joints,
-        )
-        clearance_report = {**clearance_report, "transit": transit_report}
-
-        # Close: wrist holds the grasp pose while the fingers close in two
-        # stages onto a CONTACT-PROJECTED target -- the synthesized grasp
-        # joints themselves often penetrate the object (all current failed_
-        # grasp records do, by 5-15mm), and commanding positions inside the
-        # object plows the fingers through it. Stage 1 sweeps quickly to a
-        # near-contact posture (restoring near-simultaneous finger arrival),
-        # stage 2 creeps the last few mm to the zero-clearance posture. The
-        # original grasp joints survive only inside the squeeze target, i.e.
-        # as a bounded drive-force request against real contact.
-        grasp_pose_clearance = self._min_clearance(
-            world, np.asarray(grasp_pos)[None], np.asarray(grasp_quat)[None], grasp_joints_full[None]
-        )
-        contact_joints, contact_t = self._project_contact_joints(
-            world, grasp_pos, grasp_quat, pregrasp_joints, grasp_joints_full, 0.0
-        )
-        near_contact_joints, near_contact_t = self._project_contact_joints(
-            world, grasp_pos, grasp_quat, pregrasp_joints, grasp_joints_full,
-            self.config.near_contact_margin_m,
-        )
-        clearance_report = {
-            **clearance_report,
-            "grasp_pose_clearance_m": grasp_pose_clearance,
-            "wrist_backoff_m": wrist_backoff,
-            "contact_close_fraction": contact_t,
-            "near_contact_close_fraction": near_contact_t,
-        }
-        close1_pos, close1_quat, close1_joints = interp_trajectory(
-            grasp_pos, grasp_quat, pregrasp_joints,
-            grasp_pos, grasp_quat, near_contact_joints,
-            self.config.close_steps(), include_start=False,
-        )
         final_close_steps = max(1, int(round(self.config.final_close_seconds * self.config.fps)))
-        close2_pos, close2_quat, close2_joints = interp_trajectory(
-            grasp_pos, grasp_quat, near_contact_joints,
-            grasp_pos, grasp_quat, contact_joints,
-            final_close_steps, include_start=False,
-        )
-        close_pos = np.concatenate([close1_pos, close2_pos], axis=0)
-        close_quat = np.concatenate([close1_quat, close2_quat], axis=0)
-        close_joints = np.concatenate([close1_joints, close2_joints], axis=0)
-        squeeze_pos, squeeze_quat, squeeze_joint_traj = interp_trajectory(
-            grasp_pos, grasp_quat, contact_joints,
-            grasp_pos, grasp_quat, squeeze_joints,
-            self.config.squeeze_steps(), include_start=False,
-        )
+
+        if record_stages is not None:
+            # --- Stage-driven segment b (retarget handoff -> planned transit
+            # to the synthesized PREGRASP pose -> close through the contact
+            # GRASP pose -> SQUEEZE), all poses from the record. ---
+            stage_pregrasp = _stage_action("pregrasp")
+            stage_grasp = _stage_action("grasp")
+            stage_squeeze = _stage_action("squeeze")
+            pre_pos, pre_quat, pre_joints = stage_pregrasp[:3], stage_pregrasp[3:7], stage_pregrasp[7:]
+            grasp_pos, grasp_quat = stage_grasp[:3], stage_grasp[3:7]
+            grasp_stage_joints = stage_grasp[7:]
+            squeeze_joints = stage_squeeze[7:]
+
+            # The wide-open hand cannot necessarily BE at the pregrasp wrist
+            # (that pose is only clear with its own near-closed joints), so
+            # the plan goal is an adaptive PREAPPROACH point: the pregrasp
+            # wrist backed off along its palm axis just far enough for the
+            # open hand to clear -- the Articulation_Bodex step-back, but
+            # computed from the SDF instead of a fixed distance.
+            preapproach_pos, preapproach_backoff = self._project_wrist_pose(
+                world, pre_pos, pre_quat, pregrasp_joints,
+                clearance_target_m=self.config.approach_clearance_m,
+                max_backoff_m=0.12,
+            )
+
+            # cuRobo transit: switch pose -> preapproach, fingers locked wide
+            # open (fail-closed, same as the non-stage path).
+            approach_pos, approach_quat, approach_joints, transit_report = self._plan_transit(
+                surface, world,
+                switch_pos, switch_quat,
+                preapproach_pos, pre_quat, pregrasp_joints,
+            )
+            clearance_report = {
+                **clearance_report,
+                "transit": transit_report,
+                "preapproach_backoff_m": preapproach_backoff,
+            }
+
+            # Close, under the simulation's softened finger gains throughout:
+            # 1. step-in: preapproach -> pregrasp wrist while the fingers
+            #    blend wide-open -> synthesized pregrasp posture
+            #    (Articulation_Bodex's step-in);
+            # 2. wrist pregrasp -> contact-grasp pose (cuRobo with the fingers
+            #    locked at the pregrasp posture when it finds a plan; this leg
+            #    ends essentially at the contact boundary, where planning to a
+            #    near-zero-clearance goal is EXPECTED to fail sometimes, so a
+            #    straight interpolation is the designed fallback, not an
+            #    error);
+            # 3. fingers pregrasp -> contact-grasp posture, in place.
+            close1_steps = steps_for_leg(
+                float(np.linalg.norm(pre_pos - preapproach_pos)),
+                self.config.close_seconds, self.config.fps, self.config.max_wrist_speed_mps,
+            )
+            close1_pos, close1_quat, close1_joints = interp_trajectory(
+                preapproach_pos, pre_quat, pregrasp_joints,
+                pre_pos, pre_quat, pre_joints,
+                close1_steps, include_start=False,
+            )
+            (leg2_pos, leg2_quat), leg2_planner = self._plan_contact_leg(
+                surface, pre_pos, pre_quat, grasp_pos, grasp_quat, pre_joints,
+                seconds=self.config.final_close_seconds,
+            )
+            leg2_joints = np.tile(pre_joints[None], (leg2_pos.shape[0], 1))
+            close3_pos, close3_quat, close3_joints = interp_trajectory(
+                grasp_pos, grasp_quat, pre_joints,
+                grasp_pos, grasp_quat, grasp_stage_joints,
+                final_close_steps, include_start=False,
+            )
+            close_pos = np.concatenate([close1_pos, leg2_pos, close3_pos], axis=0)
+            close_quat = np.concatenate([close1_quat, leg2_quat, close3_quat], axis=0)
+            close_joints = np.concatenate([close1_joints, leg2_joints, close3_joints], axis=0)
+
+            squeeze_pos, squeeze_quat, squeeze_joint_traj = interp_trajectory(
+                grasp_pos, grasp_quat, grasp_stage_joints,
+                grasp_pos, grasp_quat, squeeze_joints,
+                self.config.squeeze_steps(), include_start=False,
+            )
+            clearance_report = {
+                **clearance_report,
+                "uses_record_stages": True,
+                "pregrasp_to_grasp_planner": leg2_planner,
+                "stage_report": grasp_record.get("stage_report"),
+            }
+        else:
+            # --- Legacy records (no stages): repair the single action here. ---
+            # Failed-grasp records can place even the PALM inside the object;
+            # no finger projection can repair that. Pull the grasp wrist pose
+            # back along its own approach axis until the wide-open hand clears
+            # the surface, and use the corrected pose everywhere.
+            grasp_pos, wrist_backoff = self._project_wrist_pose(
+                world, grasp_pos, grasp_quat, pregrasp_joints,
+                clearance_target_m=self.config.approach_clearance_m,
+            )
+            squeeze_joints = self._clamp(grasp_joints_full + self.config.squeeze_delta * self.relax_mask)
+
+            approach_pos, approach_quat, approach_joints, transit_report = self._plan_transit(
+                surface, world,
+                switch_pos, switch_quat,
+                grasp_pos, grasp_quat, pregrasp_joints,
+            )
+            clearance_report = {**clearance_report, "transit": transit_report, "uses_record_stages": False}
+
+            grasp_pose_clearance = self._min_clearance(
+                world, np.asarray(grasp_pos)[None], np.asarray(grasp_quat)[None], grasp_joints_full[None]
+            )
+            contact_joints, contact_t = self._project_contact_joints(
+                world, grasp_pos, grasp_quat, pregrasp_joints, grasp_joints_full, 0.0
+            )
+            near_contact_joints, near_contact_t = self._project_contact_joints(
+                world, grasp_pos, grasp_quat, pregrasp_joints, grasp_joints_full,
+                self.config.near_contact_margin_m,
+            )
+            clearance_report = {
+                **clearance_report,
+                "grasp_pose_clearance_m": grasp_pose_clearance,
+                "wrist_backoff_m": wrist_backoff,
+                "contact_close_fraction": contact_t,
+                "near_contact_close_fraction": near_contact_t,
+            }
+            close1_pos, close1_quat, close1_joints = interp_trajectory(
+                grasp_pos, grasp_quat, pregrasp_joints,
+                grasp_pos, grasp_quat, near_contact_joints,
+                self.config.close_steps(), include_start=False,
+            )
+            close2_pos, close2_quat, close2_joints = interp_trajectory(
+                grasp_pos, grasp_quat, near_contact_joints,
+                grasp_pos, grasp_quat, contact_joints,
+                final_close_steps, include_start=False,
+            )
+            close_pos = np.concatenate([close1_pos, close2_pos], axis=0)
+            close_quat = np.concatenate([close1_quat, close2_quat], axis=0)
+            close_joints = np.concatenate([close1_joints, close2_joints], axis=0)
+            squeeze_pos, squeeze_quat, squeeze_joint_traj = interp_trajectory(
+                grasp_pos, grasp_quat, contact_joints,
+                grasp_pos, grasp_quat, squeeze_joints,
+                self.config.squeeze_steps(), include_start=False,
+            )
 
         for pos_b, quat_b, joints_b, label in (
             (approach_pos, approach_quat, approach_joints, SEGMENT_APPROACH),

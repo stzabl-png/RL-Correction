@@ -374,6 +374,21 @@ produced zero strict successes and a worse top failure (`grasp_error_max`
 not promoted. Retention now requires a change to anchored-BODex's grasp
 feasibility objective or constraints, not more trajectory playback tuning.
 
+### v12 -- anchored-BODex feasibility ablations (2026-07-10)
+
+The contact-subset and human-guidance hypotheses were tested without changing
+any defaults. Restoring all 11 Sharpa contact points improved the wood-block
+force-closure residual from 0.0171 to 0.00557 but still produced zero strict
+successes; its dynamic trajectory lifted only 3.7cm for two frames before
+dropping. A 100-seed / 1000-iteration full-contact run regressed to 0.00652.
+
+Finally, a human-seeded full-contact run with both pose and affordance
+guidance disabled also failed (0.00617) and moved 6.9cm from the anchor.
+The failure therefore persists across contact-model, search-budget, and
+guidance ablations. The current defaults remain the human-guided contact
+subset pipeline; a proper improvement needs a new feasible-grasp objective,
+not threshold relaxation or a physics-side workaround.
+
 ### Tooling (2026-07-10, commits 3da7b95 + 3946a12)
 
 Videos encoded H.264/yuv420p via ffmpeg; console output reduced to progress

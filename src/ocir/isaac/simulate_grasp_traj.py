@@ -73,6 +73,15 @@ ARTICULATION_SOLVER_VELOCITY_ITERATIONS = 10
 CARRY_MODE_FRICTION = "friction"
 CARRY_MODE_KINEMATIC = "kinematic"
 
+# Published YCB object masses.  Mesh-volume*density is a poor estimate for
+# hollow containers and also overestimates the wood block in our test set.
+# Unknown/non-YCB objects still use the density fallback below.
+YCB_OBJECT_MASS_KG = {
+    "002_master_chef_can": 0.414,
+    "025_mug": 0.118,
+    "036_wood_block": 0.729,
+}
+
 
 def log(message: str) -> None:
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] OCIR_GRASP_TRAJ_SIM {message}", flush=True)
@@ -208,7 +217,7 @@ def setup_hand_articulation_root(stage, ref_path: str) -> str:
     return str(root_prim.GetPath())
 
 
-def high_friction_material(stage, root_path: str, mat_path: str, *, static_friction: float, dynamic_friction: float, restitution: float = 0.0, combine_mode: str = "multiply") -> int:
+def high_friction_material(stage, root_path: str, mat_path: str, *, static_friction: float, dynamic_friction: float, restitution: float = 0.0, combine_mode: str = "multiply") -> dict:
     from pxr import PhysxSchema, Usd, UsdGeom, UsdPhysics, UsdShade
 
     if not stage.GetPrimAtPath(mat_path).IsValid():
@@ -225,14 +234,23 @@ def high_friction_material(stage, root_path: str, mat_path: str, *, static_frict
     PhysxSchema.PhysxMaterialAPI(mat_prim).CreateFrictionCombineModeAttr().Set(combine_mode)
 
     root = stage.GetPrimAtPath(root_path)
-    bound = 0
+    bound_paths: list[str] = []
     for prim in Usd.PrimRange(root):
         if prim.IsA(UsdGeom.Mesh) and prim.HasAPI(UsdPhysics.CollisionAPI):
             UsdShade.MaterialBindingAPI(prim).Bind(
-                UsdShade.Material(mat_prim), bindingStrength=UsdShade.Tokens.weakerThanDescendants, materialPurpose="physics"
+                UsdShade.Material(mat_prim), bindingStrength=UsdShade.Tokens.strongerThanDescendants, materialPurpose="physics"
             )
-            bound += 1
-    return bound
+            bound_paths.append(str(prim.GetPath()))
+    return {
+        "material_path": mat_path,
+        "static_friction": float(static_friction),
+        "dynamic_friction": float(dynamic_friction),
+        "restitution": float(restitution),
+        "friction_combine_mode": combine_mode,
+        "binding_strength": "strongerThanDescendants",
+        "bound_collider_count": len(bound_paths),
+        "bound_collider_paths": bound_paths,
+    }
 
 
 def set_world_pose(stage, prim_path: str, pos: np.ndarray, quat_wxyz: np.ndarray) -> None:
@@ -538,6 +556,11 @@ def build_object(stage, mesh_path: Path, *, mass_kg: float, kinematic: bool, arg
         rb_api.CreateSolverVelocityIterationCountAttr().Set(2)
 
     mesh_report["mass_kg"] = float(mass_kg)
+    mesh_report["rigid_body_dynamic"] = not bool(kinematic)
+    mesh_report["collider_type"] = None if kinematic else str(args.object_collision)
+    mesh_report["sdf_resolution"] = int(args.sdf_resolution) if (not kinematic and args.object_collision == "sdf") else None
+    mesh_report["contact_offset_m"] = 0.004 if not kinematic else None
+    mesh_report["rest_offset_m"] = 0.001 if not kinematic else None
     mesh_report["vertices_local"] = vertices
     return mesh_report
 
@@ -628,7 +651,15 @@ def compute_physics_metrics(
 ) -> dict:
     positions = np.stack(object_track_pos, axis=0)
     carry_z = positions[: len(carry_mask)][carry_mask][:, 2] if carry_mask.any() else np.asarray([])
-    lifted = bool(carry_z.size and (carry_z.max() - resting_z) >= lift_threshold)
+    lift = carry_z - float(resting_z)
+    lifted_mask = lift >= float(lift_threshold)
+    lifted = bool(lifted_mask.any())
+    max_consecutive = 0
+    current_consecutive = 0
+    for value in lifted_mask:
+        current_consecutive = current_consecutive + 1 if bool(value) else 0
+        max_consecutive = max(max_consecutive, current_consecutive)
+    sustained_lift = bool(max_consecutive >= 5)
     dropped = False
     if lifted and carry_z.size:
         peak_idx = int(np.argmax(carry_z))
@@ -637,9 +668,16 @@ def compute_physics_metrics(
     pos_error = float(np.linalg.norm(final_actual_pos - reference_final_pos))
     return {
         "lifted": lifted,
+        "sustained_lift": sustained_lift,
+        "grasp_success": bool(sustained_lift and not dropped),
         "object_dropped": dropped,
         "resting_z": float(resting_z),
         "max_carry_z": float(carry_z.max()) if carry_z.size else None,
+        "max_lift_m": float(lift.max()) if lift.size else None,
+        "final_carry_lift_m": float(lift[-1]) if lift.size else None,
+        "num_lifted_carry_steps": int(lifted_mask.sum()),
+        "max_consecutive_lifted_steps": int(max_consecutive),
+        "lifted_carry_fraction": float(lifted_mask.mean()) if lifted_mask.size else 0.0,
         "final_object_position_error_m": pos_error,
     }
 
@@ -720,19 +758,35 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
     table_report = build_table(stage, center_xy=table_center_xy, size_xy=table_size_xy, top_z=tabletop_z, margin=args.table_margin)
 
     phase("building object")
-    mass_kg = float(args.object_mass) if args.object_mass is not None else estimate_object_mass(object_mesh_path, args.object_density)
+    object_name = str(traj.extra_metadata.get("object_name") or "")
+    if args.object_mass is not None:
+        mass_kg = float(args.object_mass)
+        mass_source = "explicit_cli"
+    elif object_name in YCB_OBJECT_MASS_KG:
+        mass_kg = float(YCB_OBJECT_MASS_KG[object_name])
+        mass_source = "published_ycb"
+    else:
+        mass_kg = estimate_object_mass(object_mesh_path, args.object_density)
+        mass_source = "mesh_volume_times_density"
     object_report = build_object(
         stage, object_mesh_path, mass_kg=mass_kg, kinematic=(args.carry_mode == CARRY_MODE_KINEMATIC), args=args
+    )
+    object_report.update(
+        object_name=object_name or None,
+        mass_source=mass_source,
+        density_fallback_kg_m3=float(args.object_density),
+        mesh_watertight=bool(mesh_for_bounds.is_watertight),
+        mesh_volume_m3=float(abs(mesh_for_bounds.volume)) if mesh_for_bounds.is_watertight else float(abs(mesh_for_bounds.convex_hull.volume)),
     )
     set_world_pose(stage, OBJECT_WRAP, obj_pos_isaac_all[0], obj_quat_isaac_all[0])
 
     phase("building hand")
     hand_usd_path = Path(args.hand_usd) if args.hand_usd else load_sharpa_wave_right(args.asset_config).usd_path
     hand_report = build_hand(stage, hand_usd_path, args)
-    hand_friction_bound = high_friction_material(
+    hand_friction_report = high_friction_material(
         stage, HAND_REF, "/World/Materials/HandFriction", static_friction=args.friction, dynamic_friction=args.friction
     )
-    object_friction_bound = high_friction_material(
+    object_friction_report = high_friction_material(
         stage, OBJECT_REF, "/World/Materials/ObjectFriction", static_friction=args.friction, dynamic_friction=args.friction
     )
     set_world_pose(stage, HAND_WRAP, all_pos_isaac[0], all_quat_isaac[0])
@@ -839,6 +893,13 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
         lift_threshold=float(args.lift_threshold),
         drop_threshold=float(args.drop_threshold),
     )
+    np.savez_compressed(
+        out_dir / "object_track.npz",
+        position_world=np.asarray(object_track, dtype=np.float64),
+        reference_position_world=np.asarray(obj_pos_isaac_all, dtype=np.float64),
+        segment=np.asarray(traj.segment, dtype=np.int8),
+        carry_mask=np.asarray(carry_mask, dtype=bool),
+    )
 
     phase("capturing final screenshot")
     screenshot_path = out_dir / "screenshot.png"
@@ -877,8 +938,10 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
         "object": {k: v for k, v in object_report.items() if k != "vertices_local"},
         "table": table_report,
         "hand": hand_report,
-        "hand_friction_colliders_bound": hand_friction_bound,
-        "object_friction_colliders_bound": object_friction_bound,
+        "hand_friction": hand_friction_report,
+        "object_friction": object_friction_report,
+        "hand_friction_colliders_bound": hand_friction_report["bound_collider_count"],
+        "object_friction_colliders_bound": object_friction_report["bound_collider_count"],
         "camera": camera_report,
         "video": str(video_path) if video_ok else None,
         "screenshot": str(screenshot_path),

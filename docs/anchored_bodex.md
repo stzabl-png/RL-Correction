@@ -101,6 +101,26 @@ scripts/run_grasp_synthesis_conda.sh \
   records (`affordance_coverage`, `pose_similarity`, `anchor_frame_id`,
   `rank_score`, `retarget_report`, ...).
 
+## Four-stage grasp poses
+
+Every grasp record carries a `stages` dict with four wrist+finger poses
+(`grasp_stages.py`; each stage is `{position, orientation (wxyz),
+joints {name: rad}}` in the object canonical frame), so downstream consumers
+(the `grasp_traj` pipeline) never have to repair or invent poses themselves:
+
+| Stage | Origin |
+| --- | --- |
+| `raw_grasp` | The fully optimized final action, unmodified (identical to the record's `action`). Usually penetrates the object by several mm. |
+| `pregrasp` | Mid-optimization snapshot taken the moment the staged contact cost enters its final (distance=0) stage -- i.e. the pose optimized under the previous ~1cm-standoff target. Reproduces BODex's own `save_qpos`/`mid_result` mechanism by *subclassing* the frozen optimizer core (`SnapshotBodexNewtonOpt`), never modifying it. |
+| `grasp` | `raw_grasp` retreated along the pregrasp -> raw interpolation path to the largest fraction whose full-hand SDF clearance (all 37 collision spheres) is still >= 0: non-penetrating but in contact. The pose a physical close should actually reach. |
+| `squeeze` | Articulation-BODex extrapolation: `grasp + clamp(grasp - pregrasp, min=--squeeze-min)` per joint, the 0.15 rad floor applied to flexion channels only (never abduction/adduction), clamped to joint limits. A bounded drive-force request past contact. |
+
+`stage_report` records the retreat fraction and the SDF clearance of each
+stage. The Isaac visualization renders records with stages as a **4x3 grid**
+(one labeled row per stage x front/side/top orthogonal views); the exported
+`scene.usd` contains all four stage hands with only `grasp` visible by
+default (the rest are toggleable).
+
 ## Visualization
 
 The CLI submits `anchored_grasp_visualization` jobs (falling back to the
@@ -110,10 +130,12 @@ it adds the object points colored by the affordance heatmap, the human MANO
 hand at the seed's anchor frame (green point cloud), and a translucent blue
 ghost of the retargeted anchor pose next to the optimized grasp -- all
 present in the interactive/exported scene (`scene.usd`, toggleable there),
-but the **saved screenshot** deliberately shows only the object, the final
-grasp, and the human demo point cloud (the ghost hand and affordance heatmap
-are hidden just for that capture, then restored). Like the base visualizer,
-the screenshot is a single 1x3 composite of front/side/top orthogonal views.
+but the **saved screenshot** deliberately shows only the object, the grasp
+hand, and the human demo point cloud (the ghost hand and affordance heatmap
+are hidden just for that capture, then restored). For four-stage records
+the screenshot is a labeled **4x3 grid** (pregrasp / raw_grasp / grasp /
+squeeze rows x front/side/top views, individual rows also saved as
+`stage_<name>.png`); records without stages keep the single 1x3 composite.
 Same two modes as the base visualizer (see
 [Isaac Sim infrastructure](isaac_sim.md)); extra flags:
 `--show-affordance/--show-demo-hand/--show-anchor-hand`, `--anchor-opacity`,

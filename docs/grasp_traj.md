@@ -44,37 +44,46 @@ The generated trajectory is labeled per step with one of five segments
    the FULLY OPEN hand clears the object by `--open-clearance` (default 5cm,
    checked against the object SDF with all 37 hand collision spheres) and
    precedes the demo's first hand-object contact frame.
-3. **Grasp-pose repair (contact projection).** Synthesized grasp records --
-   especially `failed_grasp` ones -- routinely place fingers (and sometimes
-   the palm) several mm INSIDE the object. The grasp wrist pose is backed
-   off along its palm approach axis until the wide-open hand clears the
-   surface (`wrist_backoff_m` in the report), and the finger close target is
-   the largest closing fraction whose SDF clearance is still >= 0
-   (`contact_close_fraction`). The original grasp joints and
-   `--squeeze-delta` beyond them survive only as the squeeze target, i.e. a
-   bounded drive-force request against real contact.
-4. **Planned transit.** The open hand flies from the switch pose to the
-   grasp standoff (grasp pose pulled back `--standoff` along its approach
-   axis) via **cuRobo v2 motion planning**: the hand is modeled as a
-   floating-base robot (`right_sharpa_wave_floating.generated.urdf`, a 6-DOF
-   virtual joint chain generated from the hand URDF -- the MagicSim
-   `SharpaWaveFloating` construction), fingers locked wide open, the object
-   mesh loaded as a collision obstacle; the planned path is
-   arc-length-resampled under the `--max-wrist-speed` cap. `--planner
-   linear` (or any planning failure, automatically) falls back to a
-   straight-line + radial-via-point path. Either way the final path is
-   SDF-validated and recorded in `trajectory.json`'s transit report.
-5. **Reach + two-stage close + squeeze.** The open hand reaches
-   standoff -> grasp wrist pose in a straight line; fingers then close in
-   place in two stages -- fast to a near-contact posture
-   (`--near-contact-margin`, 3mm), then a slow final close
-   (`--final-close-seconds`) to the zero-clearance posture -- and squeeze
-   ramps toward the (penetrating) synthesized joints as a force request.
+3. **Stage poses come from the record.** Four-stage records (see
+   [anchored_bodex.md](anchored_bodex.md#four-stage-grasp-poses)) already
+   carry `pregrasp` / `grasp` (contact-retreated) / `squeeze` poses computed
+   at synthesis time, and the generator consumes them directly
+   (`uses_record_stages: true` in the report). Legacy single-action records
+   fall back to the generator's own repair: wrist back-off along the
+   approach axis until the open hand clears (`wrist_backoff_m`) plus a
+   finger contact projection (`contact_close_fraction`), with
+   `--squeeze-delta` building the squeeze target.
+4. **Planned transit (cuRobo v2, fail-closed).** The open hand flies from
+   the switch pose to an adaptive **preapproach** point -- the record's
+   pregrasp wrist backed off along its palm axis just far enough for the
+   wide-open hand to clear the SDF (`preapproach_backoff_m`; the
+   Articulation_Bodex step-back, computed from geometry instead of a fixed
+   distance). The hand is modeled as a floating-base robot
+   (`right_sharpa_wave_floating.generated.urdf`, a 6-DOF virtual joint chain
+   -- the MagicSim `SharpaWaveFloating` construction), fingers locked wide
+   open, the object mesh loaded as a collision obstacle; the planned path is
+   arc-length-resampled under the `--max-wrist-speed` cap. cuRobo failure
+   here is a hard error (`--planner linear` is an explicit debugging
+   alternative, not a silent fallback). The path is SDF-validated en route
+   (the arrival tail next to the object is excluded from the threshold
+   check).
+5. **Close + squeeze (all under the simulation's softened close gains).**
+   Step-in: preapproach -> pregrasp wrist while the fingers blend wide-open
+   -> the synthesized pregrasp posture. Then the wrist moves pregrasp ->
+   contact-grasp pose -- cuRobo again when it finds a plan
+   (`pregrasp_to_grasp_planner: curobo`), with straight interpolation as the
+   DESIGNED fallback since this leg ends essentially on the contact boundary
+   where collision-constrained planning is expected to be infeasible for
+   some grasps. Fingers then close in place to the contact-grasp posture
+   (`--final-close-seconds`), and squeeze ramps to the record's squeeze
+   stage (a bounded drive-force request past contact).
 6. **Carry.** The wrist follows `object_pose_camera(t) @ grasp_root_tf`
    (recorded object trajectory composed with the rigid hand-to-object
-   transform at the repaired grasp pose), blended out of the squeeze-end
-   pose over `--carry-blend-seconds`. The object is carried by contact
-   friction alone.
+   transform at the CONTACT grasp pose), blended out of the squeeze-end pose
+   over `--carry-blend-seconds`; the recorded object trajectory is densified
+   wherever the composed hand motion would exceed `--max-wrist-speed`, so a
+   fast recorded carry cannot yank a marginal friction grasp loose. The
+   object is carried by contact friction alone.
 
 ### Stage A CLI
 
@@ -89,16 +98,19 @@ scripts/run_grasp_synthesis_conda.sh \
 `--synthesis-out-dir` resolves the grasp record from that dir's
 `summary.json` (`grasp_json` on success, else `failed_grasp_json`) -- or
 pass `--grasp-json` directly. Key flags (defaults in parentheses):
-`--fps` (30), `--approach-seconds` (0.5), `--close-seconds` /
-`--squeeze-seconds` (0.3), `--final-close-seconds` (0.4), `--standoff`
-(0.10m), `--pregrasp-open-fraction` (1.0), `--squeeze-delta` (0.15 rad),
-`--near-contact-margin` (0.003m), `--approach-clearance` (0.01m),
-`--open-clearance` (0.05m), `--open-horizon-seconds` (1.0),
-`--planner {curobo,linear}` (curobo), `--max-wrist-speed` (0.25 m/s),
+`--fps` (30), `--approach-seconds` (1.0, minimum lead time / plan duration),
+`--close-seconds` / `--squeeze-seconds` (0.3), `--final-close-seconds`
+(0.4), `--pregrasp-open-fraction` (1.0),
+`--approach-clearance` (0.003m, en-route clearance for the planned
+approach), `--open-clearance` (0.05m), `--open-horizon-seconds` (1.0),
+`--planner {curobo,linear}` (curobo, fail-closed),
+`--max-wrist-speed` (0.25 m/s),
 `--carry-blend-seconds` (0.3), `--carry-start {grasp_frame,pickup_frame}`
-(grasp_frame). Writes `trajectory.npz` (per-step hand/object pos+quat,
-finger targets, segment labels) + `trajectory.json` (switch frame,
-clearance/transit/contact-projection report, config).
+(grasp_frame). `--squeeze-delta` (0.15 rad) and `--near-contact-margin`
+(0.003m) only apply to legacy records without stages. Writes
+`trajectory.npz` (per-step hand/object pos+quat, finger targets, segment
+labels) + `trajectory.json` (switch frame, clearance/transit/stage report,
+config).
 
 By default (`--simulate`, on) it also submits the trajectory to Isaac Sim
 (`--isaac-mode {server,standalone}` + `--isaac-*` passthrough flags for
@@ -163,15 +175,19 @@ substep rate, keep a multiple of 60), `--capture-every` (1),
 ### Outputs and diagnostics
 
 Writes `video.mp4` (H.264), `screenshot.png`, `scene.usd`, and `report.json`
-with `metrics.lifted`/`metrics.object_dropped`/`metrics.max_carry_z`/
-`metrics.final_object_position_error_m`, plus
-`max_joint_tracking_error_rad`/`joint_tracking_error_per_step` (drive-target
-vs. actual joint positions; values exploding past ~1 rad indicate solver
-instability, small fractions of a rad are normal contact stall). A
-`lifted: false` result is a genuine, useful finding: it means the
-synthesized grasp does not hold the object under real physics (common for
-grasps that did not reach anchored-BODex's own strict force-closure
-success), not necessarily a simulation bug.
+with a `metrics` block: `lifted` (any carry step above `--lift-threshold`),
+`sustained_lift` (>= 5 consecutive lifted steps), `grasp_success`
+(sustained and not dropped), `object_dropped`, `max_lift_m` /
+`final_carry_lift_m` / `num_lifted_carry_steps` /
+`max_consecutive_lifted_steps` / `lifted_carry_fraction`, and
+`final_object_position_error_m` -- plus `max_joint_tracking_error_rad` /
+`joint_tracking_error_per_step` (drive-target vs. actual joint positions;
+values exploding past ~1 rad indicate solver instability, small fractions
+of a rad are normal contact stall). A `grasp_success: false` result is a
+genuine, useful finding: it means the synthesized grasp does not hold the
+object under real physics (common for grasps that did not reach
+anchored-BODex's own strict force-closure success), not necessarily a
+simulation bug.
 
 ---
 
@@ -279,6 +295,35 @@ mug rose ~2cm briefly. No suction, no interpenetration, no ejections, no
 solver warnings on any sequence. Note: results on marginal grasps are
 run-to-run sensitive (the same trajectory produced lifted=true at 0.170m
 max z in one run and lifted=false at 0.133m in another).
+
+### v7 -- synthesis-provided four-stage poses + staged approach (2026-07-10)
+
+The stage poses moved UPSTREAM into anchored-BODex itself (see
+[anchored_bodex.md](anchored_bodex.md#four-stage-grasp-poses)): every record
+now carries `pregrasp` (true mid-optimization snapshot at the ~1cm-standoff
+stage, via an optimizer-core subclass reproducing BODex's `save_qpos`),
+`raw_grasp`, `grasp` (SDF-retreated to non-penetrating contact along the
+pregrasp->raw path), and `squeeze` (Articulation-BODex per-joint
+extrapolation with a 0.15 rad flexion floor). The generator consumes them
+directly and its own wrist/finger contact projection became a
+legacy-records-only fallback. Segment b became: cuRobo plan (fail-closed,
+per the concurrent hand-tuned approach rework) to an adaptive
+**preapproach** (pregrasp wrist backed off along its palm axis until the
+wide-open hand clears -- a fixed-goal plan to the pregrasp wrist itself
+failed because that pose is only collision-free with its own near-closed
+fingers), step-in blending fingers open->pregrasp, a second cuRobo attempt
+for the short pregrasp->grasp leg (straight interpolation as designed
+fallback at the contact boundary), in-place close to the contact posture,
+squeeze to the record's stage. Concurrent hand edits also added recorded-
+carry densification under the wrist speed cap, published YCB masses, and
+richer lift metrics (`sustained_lift`, `grasp_success`, ...).
+
+**Result:** on the fresh 40-seed/500-iter 151724 record, cuRobo planned
+both legs (en-route clearance 2.5cm), the block stayed upright through
+close/squeeze, lifted ~3.1cm briefly, then dropped
+(`grasp_success: false`) -- acquisition mechanics all work; sustained hold
+still bounded by grasp-record quality (0 strictly-successful seeds on this
+sequence).
 
 ### Tooling (2026-07-10, commits 3da7b95 + 3946a12)
 

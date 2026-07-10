@@ -344,11 +344,12 @@ the current physics baseline; pass
 ### v9 -- isolate staged-grasp visualization rows (2026-07-10)
 
 The anchored-BODex 4x3 renderer authors visibility changes before each stage
-row. Isaac's camera could capture its previous frame before those changes had
-been rendered, making every row appear to stack all four stage hands. The
-renderer now advances the app twice after each visibility switch. Verified on
-the staged wood-block record: each front/side/top row contains exactly its
-selected `pregrasp`, `raw_grasp`, `grasp`, or `squeeze` hand.
+row. Isaac's renderer ignored root-Xform inherited visibility for the baked
+stage meshes, making every row appear to stack all four hands. The renderer
+now authors visibility directly on every mesh and waits for the render/camera
+pipeline to consume those edits. Verified on the staged wood-block record:
+each front/side/top row contains exactly its selected `pregrasp`,
+`raw_grasp`, `grasp`, or `squeeze` hand.
 
 ### v10 -- all-sequence staged physics benchmark (2026-07-10)
 

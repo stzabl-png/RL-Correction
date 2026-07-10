@@ -410,14 +410,26 @@ def visualize_anchored_grasp(app, args: argparse.Namespace, progress=None) -> di
         # into a labeled 4x3 grid.
         row_paths: list[tuple[str, Path]] = []
         camera_report: dict = {}
+
+        def _set_stage_visibility(stage_name: str, visible: bool) -> None:
+            """Set both the group and every authored mesh explicitly.
+
+            Some Isaac render delegates do not invalidate a cached frame when
+            only an ancestor Xform's inherited USD visibility changes.  The
+            stage hands are baked meshes, so author visibility directly on
+            every mesh as well as the group root before requesting a frame.
+            """
+
+            set_prim_visibility(stage, f"/World/StageHands/{stage_name}", visible)
+            for mesh_report in stage_hand_reports[stage_name]:
+                set_prim_visibility(stage, mesh_report["path"], visible)
+
         for name in stage_order:
             for other in stage_order:
-                set_prim_visibility(stage, f"/World/StageHands/{other}", other == name)
-            # USD visibility edits are authored synchronously, but the
-            # persistent Isaac renderer can otherwise return its previous
-            # frame on the first camera read.  Advance once after switching
-            # the row so every 1x3 capture contains only this stage hand.
-            for _ in range(2):
+                _set_stage_visibility(other, other == name)
+            # Let USD, the render delegate, and the camera sensor all consume
+            # the per-mesh visibility edits before the next capture.
+            for _ in range(8):
                 app.update()
             row_path, camera_report = capture_orthogonal_composite(
                 app, camera, camera_prim_path, cam_target, cam_radius, args, out_dir, f"stage_{name}"
@@ -427,7 +439,7 @@ def visualize_anchored_grasp(app, args: argparse.Namespace, progress=None) -> di
         # Interactive/exported scene: show only the contact grasp by default
         # (the other stage hands stay toggleable).
         for other in stage_order:
-            set_prim_visibility(stage, f"/World/StageHands/{other}", other == "grasp")
+            _set_stage_visibility(other, other == "grasp")
     else:
         screenshot, camera_report = capture_orthogonal_composite(
             app, camera, camera_prim_path, cam_target, cam_radius, args, out_dir, "isaac_anchored_grasp"

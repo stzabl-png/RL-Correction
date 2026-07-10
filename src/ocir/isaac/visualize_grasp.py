@@ -267,29 +267,54 @@ def bind_material(prim, material) -> None:
     UsdShade.MaterialBindingAPI(prim).Bind(material)
 
 
+def _vt_vec3f_array(values: np.ndarray):
+    """(N,3) numpy -> Vt.Vec3fArray, zero-copy when the USD build supports it.
+
+    The per-element ``Gf.Vec3f`` Python loop this replaces dominated
+    visualization time (the Sharpa hand's visual meshes alone are ~414k
+    vertices per rendered hand)."""
+
+    from pxr import Gf, Vt
+
+    values = np.ascontiguousarray(np.asarray(values, dtype=np.float32).reshape(-1, 3))
+    from_numpy = getattr(Vt.Vec3fArray, "FromNumpy", None)
+    if from_numpy is not None:
+        return from_numpy(values)
+    return Vt.Vec3fArray([Gf.Vec3f(*[float(x) for x in v]) for v in values])
+
+
 def define_mesh(stage, path: str, vertices: np.ndarray, faces: np.ndarray, material) -> dict:
-    from pxr import Gf, UsdGeom, Vt
+    from pxr import UsdGeom, Vt
 
     vertices = np.asarray(vertices, dtype=float)
-    faces = np.asarray(faces, dtype=np.int64).reshape(-1, 3)
+    faces = np.ascontiguousarray(np.asarray(faces, dtype=np.int32).reshape(-1, 3))
     mesh = UsdGeom.Mesh.Define(stage, path)
-    mesh.CreatePointsAttr([Gf.Vec3f(*[float(x) for x in v]) for v in vertices])
-    mesh.CreateFaceVertexCountsAttr(Vt.IntArray([3] * len(faces)))
-    mesh.CreateFaceVertexIndicesAttr(Vt.IntArray(faces.reshape(-1).astype(int).tolist()))
+    mesh.CreatePointsAttr(_vt_vec3f_array(vertices))
+    from_numpy = getattr(Vt.IntArray, "FromNumpy", None)
+    if from_numpy is not None:
+        mesh.CreateFaceVertexCountsAttr(from_numpy(np.full((faces.shape[0],), 3, dtype=np.int32)))
+        mesh.CreateFaceVertexIndicesAttr(from_numpy(faces.reshape(-1)))
+    else:
+        mesh.CreateFaceVertexCountsAttr(Vt.IntArray([3] * len(faces)))
+        mesh.CreateFaceVertexIndicesAttr(Vt.IntArray(faces.reshape(-1).astype(int).tolist()))
     mesh.CreateDoubleSidedAttr(True)
     bind_material(mesh.GetPrim(), material)
     return {"path": path, "vertices": int(vertices.shape[0]), "faces": int(faces.shape[0])}
 
 
 def define_points(stage, path: str, points: np.ndarray, colors: np.ndarray, width: float) -> dict:
-    from pxr import Gf, UsdGeom, Vt
+    from pxr import UsdGeom, Vt
 
     points = np.asarray(points, dtype=float)
     colors = np.asarray(colors, dtype=float)
     prim = UsdGeom.Points.Define(stage, path)
-    prim.CreatePointsAttr([Gf.Vec3f(*[float(x) for x in p]) for p in points])
-    prim.CreateWidthsAttr(Vt.FloatArray([float(width)] * points.shape[0]))
-    prim.CreateDisplayColorAttr([Gf.Vec3f(*[float(x) for x in c]) for c in colors])
+    prim.CreatePointsAttr(_vt_vec3f_array(points))
+    from_numpy = getattr(Vt.FloatArray, "FromNumpy", None)
+    if from_numpy is not None:
+        prim.CreateWidthsAttr(from_numpy(np.full((points.shape[0],), float(width), dtype=np.float32)))
+    else:
+        prim.CreateWidthsAttr(Vt.FloatArray([float(width)] * points.shape[0]))
+    prim.CreateDisplayColorAttr(_vt_vec3f_array(colors))
     prim.GetDisplayColorAttr().SetMetadata("interpolation", "vertex")
     return {"path": path, "points": int(points.shape[0]), "width": float(width)}
 

@@ -22,12 +22,13 @@ from ocir.sim.control_client import request_json, server_is_running, submit_job
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 BACKEND_NAME = "curobo_v2_anchored_bodex"
+VIS_TASK_NAME = "anchored_grasp_visualization"
 
 
 def run_standalone_visualization(params: dict) -> bool:
     cmd = [
         str(REPO_ROOT / "scripts/run_isaacsim_conda.sh"),
-        str(REPO_ROOT / "scripts/isaac/visualize_grasp.py"),
+        str(REPO_ROOT / "scripts/isaac/visualize_anchored_grasp.py"),
         "--mode",
         "local",
     ]
@@ -235,10 +236,24 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 status = request_json(args.control_host, int(args.control_port), "GET", "/status", timeout=1.0)
                 registered = {task.get("name") for task in status.get("registered_tasks", [])}
-                if "grasp_pose_visualization" not in registered:
+                # A hot-reloading server picks the anchored task up from
+                # source on submission even if /status predates it; fall back
+                # to the plain grasp task only when neither path can work.
+                if VIS_TASK_NAME in registered or bool(status.get("hot_reload_tasks", False)):
+                    task_name = VIS_TASK_NAME
+                elif "grasp_pose_visualization" in registered:
+                    print(
+                        f"OCIR_ANCHORED_BODEX server does not know {VIS_TASK_NAME!r} and hot reload is off; "
+                        "falling back to plain grasp_pose_visualization (no demo/affordance overlays).",
+                        flush=True,
+                    )
+                    task_name = "grasp_pose_visualization"
+                else:
+                    task_name = None
+                if task_name is None:
                     print(
                         "OCIR_ANCHORED_BODEX persistent Isaac server is running, but it has not registered "
-                        "'grasp_pose_visualization'.",
+                        "any grasp visualization task.",
                         file=sys.stderr,
                         flush=True,
                     )
@@ -247,13 +262,14 @@ def main(argv: list[str] | None = None) -> int:
                     code, response = submit_job(
                         host=args.control_host,
                         port=int(args.control_port),
-                        task="grasp_pose_visualization",
+                        task=task_name,
                         params=params,
                         request_timeout=float(args.isaac_request_timeout),
                     )
                     run_summary["isaac_visualization"] = {
                         "ok": code == 0,
                         "out_dir": str(vis_out_dir),
+                        "task": task_name,
                         "response": response,
                     }
                     failed_visualizations += int(code != 0)

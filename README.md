@@ -308,6 +308,18 @@ How it differs from the pure pipeline:
   (`--rank-affordance-weight`, `--rank-pose-weight`) and is reported in the
   records (`affordance_coverage`, `pose_similarity`, `anchor_frame_id`,
   `rank_score`, `retarget_report`, ...).
+- **Visualization**: the CLI submits `anchored_grasp_visualization` jobs
+  (falling back to the plain task on servers that cannot load it), driven by
+  `scripts/isaac/visualize_anchored_grasp.py`. On top of the base grasp
+  scene it renders the object points colored by the affordance heatmap, the
+  human MANO hand at the seed's anchor frame (green point cloud), and a
+  translucent blue ghost of the retargeted anchor pose next to the optimized
+  grasp. Same two modes as the base visualizer -- persistent server
+  (`--mode webrtc`, picked up by a hot-reloading running server without
+  restart) or one-shot pop-up window (`--mode local`); extra flags:
+  `--show-affordance/--show-demo-hand/--show-anchor-hand`,
+  `--anchor-opacity`, `--demo-frame`. It also renders pure-BODex records,
+  skipping whichever overlays lack data.
 
 Right-hand demos only (the Sharpa asset is a right hand); left-hand
 sequences fail with a clear error. Requires the same CUDA backend as the

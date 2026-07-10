@@ -268,6 +268,27 @@ def bind_material(prim, material) -> None:
     UsdShade.MaterialBindingAPI(prim).Bind(material)
 
 
+def set_prim_visibility(stage, prim_path: str, visible: bool) -> None:
+    """Toggle a prim's (and its descendants') render visibility.
+
+    Used to keep an overlay (e.g. the anchored-BODex ghost hand or affordance
+    heatmap) present in the interactive/exported scene while excluding it
+    from the saved screenshot photos -- USD visibility is inherited, so
+    hiding a group's root Xform hides everything under it in one call.
+    """
+
+    from pxr import UsdGeom
+
+    prim = stage.GetPrimAtPath(prim_path)
+    if not prim or not prim.IsValid():
+        return
+    imageable = UsdGeom.Imageable(prim)
+    if visible:
+        imageable.MakeVisible()
+    else:
+        imageable.MakeInvisible()
+
+
 def _vt_vec3f_array(values: np.ndarray):
     """(N,3) numpy -> Vt.Vec3fArray, zero-copy when the USD build supports it.
 
@@ -350,8 +371,63 @@ def setup_stage(app):
     return stage
 
 
-def make_camera(stage, app, args: argparse.Namespace, bbox_min: np.ndarray, bbox_max: np.ndarray):
-    from isaacsim.core.utils.viewports import set_camera_view
+#: Three mutually-orthogonal camera view directions (unit vectors, world/
+#: object frame) with a compatible "up" vector each -- a straight-down "top"
+#: view needs a different up than the two horizontal views, since up can't be
+#: parallel to the view direction -- `set_camera_view` (the Isaac Sim
+#: viewport helper used for all repositioning, see `point_camera`) assumes a
+#: fixed world-up of (0, 0, 1) and would hit that degenerate case for an
+#: exactly vertical "top" view, so its direction carries a tiny (~1 degree)
+#: tilt instead of the true (0, 0, 1); visually indistinguishable from
+#: straight-down but keeps the look-at well-defined.
+def _unit(vec: list[float]) -> np.ndarray:
+    v = np.asarray(vec, dtype=float)
+    return v / np.linalg.norm(v)
+
+
+ORTHOGONAL_VIEWS: tuple[tuple[str, np.ndarray], ...] = (
+    ("front", _unit([0.0, -1.0, 0.0])),
+    ("side", _unit([1.0, 0.0, 0.0])),
+    ("top", _unit([0.0, 0.02, 1.0])),
+)
+
+
+def compute_focus_bbox(
+    primary_points: np.ndarray, secondary_points: np.ndarray, max_secondary_ratio: float = 1.6
+) -> tuple[np.ndarray, np.ndarray]:
+    """Bounding box to frame the camera on: the object ("primary") extended to
+    include the hand ("secondary") only if that doesn't blow the shot out.
+
+    A hand from a poorly-converged grasp can end up far from the object; if
+    naively fitting the camera to the full scene, that single outlier would
+    force the camera to zoom out until the object is a speck. If the combined
+    bbox would be more than ``max_secondary_ratio`` times the object's own
+    extent, frame on the object alone (modestly padded) instead.
+    """
+
+    obj_min, obj_max = primary_points.min(axis=0), primary_points.max(axis=0)
+    if secondary_points is None or secondary_points.size == 0:
+        return obj_min, obj_max
+    obj_extent = float(np.max(np.maximum(obj_max - obj_min, 1e-6)))
+    combined = np.concatenate([primary_points, secondary_points], axis=0)
+    comb_min, comb_max = combined.min(axis=0), combined.max(axis=0)
+    comb_extent = float(np.max(np.maximum(comb_max - comb_min, 1e-6)))
+    if comb_extent <= max_secondary_ratio * obj_extent:
+        return comb_min, comb_max
+    pad = 0.15 * obj_extent
+    return obj_min - pad, obj_max + pad
+
+
+def build_camera(stage, app, args: argparse.Namespace, bbox_min: np.ndarray, bbox_max: np.ndarray):
+    """Create the (single, reused) record camera and return the (target,
+    radius) its orthogonal views are framed around.
+
+    Positioning it is left entirely to ``point_camera``/`set_camera_view`
+    (see there): ``Camera.initialize()`` sets up its own translate/orient
+    xform ops on this prim, so hand-rolling a raw ``Gf.Matrix4d`` transform op
+    here would either go stale or collide with those.
+    """
+
     from isaacsim.sensors.camera import Camera
     from pxr import Gf, UsdGeom
 
@@ -359,24 +435,26 @@ def make_camera(stage, app, args: argparse.Namespace, bbox_min: np.ndarray, bbox
     extent = np.maximum(bbox_max - bbox_min, 0.05)
     radius = max(float(np.max(extent)), 0.30)
     target = center + np.asarray(args.camera_target_offset, dtype=float)
-    eye = target + np.asarray(args.camera_eye_offset, dtype=float) * radius
-    cam = UsdGeom.Camera.Define(stage, "/World/RecordCamera")
+
+    prim_path = "/World/RecordCamera"
+    cam = UsdGeom.Camera.Define(stage, prim_path)
     cam.CreateFocalLengthAttr(float(args.camera_focal_length))
     cam.CreateHorizontalApertureAttr(float(args.camera_horizontal_aperture))
     cam.CreateClippingRangeAttr(Gf.Vec2f(0.01, 100.0))
-    view = Gf.Matrix4d().SetLookAt(Gf.Vec3d(*eye), Gf.Vec3d(*target), Gf.Vec3d(0, 0, 1))
-    UsdGeom.Xformable(cam.GetPrim()).AddTransformOp().Set(view.GetInverse())
-    camera = Camera(prim_path="/World/RecordCamera", name="grasp_visualization_camera", resolution=(int(args.width), int(args.height)))
+    camera = Camera(prim_path=prim_path, name="grasp_visualization_camera", resolution=(int(args.width), int(args.height)))
     camera.initialize()
-    set_camera_view(eye=eye, target=target, camera_prim_path="/World/RecordCamera")
+    return camera, prim_path, target, radius
+
+
+def point_camera(app, camera_prim_path: str, target: np.ndarray, eye: np.ndarray) -> None:
+    from isaacsim.core.utils.viewports import set_camera_view
+
+    set_camera_view(eye=eye, target=target, camera_prim_path=camera_prim_path)
     for _ in range(10):
         app.update()
-    return camera, {"eye": eye.astype(float).tolist(), "target": target.astype(float).tolist()}
 
 
-def capture_camera_png(app, camera, path: Path) -> None:
-    import cv2
-
+def capture_camera_rgb(app, camera) -> np.ndarray:
     rgb = None
     for _ in range(45):
         app.update()
@@ -388,7 +466,47 @@ def capture_camera_png(app, camera, path: Path) -> None:
     rgb = np.asarray(rgb)
     if rgb.dtype != np.uint8:
         rgb = np.clip(rgb, 0, 255).astype(np.uint8)
+    return rgb
+
+
+def capture_camera_png(app, camera, path: Path) -> None:
+    import cv2
+
+    rgb = capture_camera_rgb(app, camera)
     cv2.imwrite(str(path), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+
+
+def capture_orthogonal_composite(
+    app, camera, camera_prim_path: str, target: np.ndarray, radius: float, args: argparse.Namespace, out_dir: Path, stem: str
+) -> tuple[Path, dict]:
+    """Render the 3 orthogonal views and lay them out as one 1-row x 3-column image."""
+
+    import cv2
+
+    distance = radius * float(args.camera_distance_scale)
+    panels = []
+    view_reports = {}
+    for idx, (name, direction) in enumerate(ORTHOGONAL_VIEWS):
+        eye = target + direction * distance
+        point_camera(app, camera_prim_path, target, eye)
+        bgr = cv2.cvtColor(capture_camera_rgb(app, camera), cv2.COLOR_RGB2BGR)
+        cv2.putText(bgr, name, (10, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 4, cv2.LINE_AA)
+        cv2.putText(bgr, name, (10, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
+        if idx < len(ORTHOGONAL_VIEWS) - 1:
+            bgr = cv2.copyMakeBorder(bgr, 0, 0, 0, 4, cv2.BORDER_CONSTANT, value=(0, 0, 0))
+        panels.append(bgr)
+        view_reports[name] = {"eye": eye.astype(float).tolist()}
+    composite = np.concatenate(panels, axis=1)
+    path = out_dir / f"{stem}.png"
+    cv2.imwrite(str(path), composite)
+    camera_report = {
+        "target": target.astype(float).tolist(),
+        "radius": float(radius),
+        "distance_scale": float(args.camera_distance_scale),
+        "layout": "1x3_front_side_top",
+        "views": view_reports,
+    }
+    return path, camera_report
 
 
 def visualize_grasp(app, args: argparse.Namespace, progress=None) -> dict:
@@ -424,12 +542,13 @@ def visualize_grasp(app, args: argparse.Namespace, progress=None) -> dict:
     object_material = add_material(stage, "/World/Materials/Object", (0.95, 0.72, 0.16))
     object_mesh_path = find_object_mesh(surface, args.object_mesh)
     object_report = {"mesh": None}
+    object_mesh_vertices_world = points_world
     if object_mesh_path is not None:
         loaded = trimesh.load(str(object_mesh_path), force="mesh", process=False)
         vertices_object = np.asarray(loaded.vertices, dtype=float) * object_scale
-        vertices = vertices_object @ world_from_object[:3, :3].T + world_from_object[:3, 3][None, :]
+        object_mesh_vertices_world = vertices_object @ world_from_object[:3, :3].T + world_from_object[:3, 3][None, :]
         faces = np.asarray(loaded.faces, dtype=np.int64)
-        object_report = define_mesh(stage, "/World/Object/Mesh", vertices, faces, object_material)
+        object_report = define_mesh(stage, "/World/Object/Mesh", object_mesh_vertices_world, faces, object_material)
         object_report["mesh"] = str(object_mesh_path)
         object_report["scale"] = object_scale
 
@@ -487,34 +606,30 @@ def visualize_grasp(app, args: argparse.Namespace, progress=None) -> dict:
                 define_mesh(stage, f"/World/SharpaHand/{safe_link}_{visual_idx}", world_vertices, faces, material)
             )
 
-    all_points = [points_world]
-    if object_report.get("mesh"):
-        all_points.append(vertices)
-    for report in hand_mesh_reports:
-        pass
-    hand_points = []
+    object_points = np.concatenate([points_world, object_mesh_vertices_world], axis=0)
+    hand_points_list = []
     for prim_path in [report["path"] for report in hand_mesh_reports]:
         prim = stage.GetPrimAtPath(prim_path)
         attr = prim.GetAttribute("points")
         if attr:
-            hand_points.append(np.asarray([[p[0], p[1], p[2]] for p in attr.Get()], dtype=float))
-    if hand_points:
-        all_points.append(np.concatenate(hand_points, axis=0))
-    scene_points = np.concatenate(all_points, axis=0)
-    bbox_min, bbox_max = scene_points.min(axis=0), scene_points.max(axis=0)
+            hand_points_list.append(np.asarray([[p[0], p[1], p[2]] for p in attr.Get()], dtype=float))
+    hand_points = np.concatenate(hand_points_list, axis=0) if hand_points_list else np.zeros((0, 3))
+
+    bbox_min, bbox_max = compute_focus_bbox(object_points, hand_points, float(args.camera_focus_max_ratio))
     if args.show_table:
         table_report = create_table(stage, bbox_min, bbox_max, float(args.tabletop_z), float(args.table_margin))
     else:
         table_report = {"enabled": False, "path": None, "top_z": float(args.tabletop_z)}
-    camera, camera_report = make_camera(stage, app, args, bbox_min, bbox_max)
+    camera, camera_prim_path, cam_target, cam_radius = build_camera(stage, app, args, bbox_min, bbox_max)
 
     timeline = omni.timeline.get_timeline_interface()
     timeline.play()
     for _ in range(30):
         app.update()
 
-    screenshot = out_dir / "isaac_grasp.png"
-    capture_camera_png(app, camera, screenshot)
+    screenshot, camera_report = capture_orthogonal_composite(
+        app, camera, camera_prim_path, cam_target, cam_radius, args, out_dir, "isaac_grasp"
+    )
     stage_path = out_dir / "scene.usd"
     stage.GetRootLayer().Export(str(stage_path.resolve()))
 
@@ -577,7 +692,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--point-width", type=float, default=0.004)
     parser.add_argument("--width", type=int, default=1024)
     parser.add_argument("--height", type=int, default=768)
-    parser.add_argument("--camera-eye-offset", type=float, nargs=3, default=[1.05, -1.6, 0.85])
+    parser.add_argument(
+        "--camera-distance-scale",
+        type=float,
+        default=1.5,
+        help="Camera distance from the focus target, as a multiple of the scene's bounding radius. Applied "
+        "identically to all 3 orthogonal views (closer than the pre-multi-view single-oblique-shot default).",
+    )
+    parser.add_argument(
+        "--camera-focus-max-ratio",
+        type=float,
+        default=1.6,
+        help="Cap on how far the hand may extend the object-centered framing: if including the hand would "
+        "expand the bounding box beyond this multiple of the object's own extent (e.g. a stray hand pose "
+        "from a failed grasp), frame on the object alone instead of zooming out to fit both.",
+    )
     parser.add_argument("--camera-target-offset", type=float, nargs=3, default=[0.0, 0.0, 0.04])
     parser.add_argument("--camera-focal-length", type=float, default=45.0)
     parser.add_argument("--camera-horizontal-aperture", type=float, default=38.0)

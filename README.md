@@ -311,13 +311,18 @@ How it differs from the pure pipeline:
 - **Visualization**: the CLI submits `anchored_grasp_visualization` jobs
   (falling back to the plain task on servers that cannot load it), driven by
   `scripts/isaac/visualize_anchored_grasp.py`. On top of the base grasp
-  scene it renders the object points colored by the affordance heatmap, the
+  scene it adds the object points colored by the affordance heatmap, the
   human MANO hand at the seed's anchor frame (green point cloud), and a
   translucent blue ghost of the retargeted anchor pose next to the optimized
-  grasp. Same two modes as the base visualizer -- persistent server
-  (`--mode webrtc`, picked up by a hot-reloading running server without
-  restart) or one-shot pop-up window (`--mode local`); extra flags:
-  `--show-affordance/--show-demo-hand/--show-anchor-hand`,
+  grasp -- all present in the interactive/exported scene (`scene.usd`,
+  toggleable there), but the **saved screenshot** deliberately shows only the
+  object, the final grasp, and the human demo point cloud (the ghost hand
+  and affordance heatmap are hidden just for that capture, then restored).
+  Like the base visualizer, the screenshot is a single 1x3 composite of
+  front/side/top orthogonal views. Same two modes as the base visualizer --
+  persistent server (`--mode webrtc`, picked up by a hot-reloading running
+  server without restart) or one-shot pop-up window (`--mode local`); extra
+  flags: `--show-affordance/--show-demo-hand/--show-anchor-hand`,
   `--anchor-opacity`, `--demo-frame`. It also renders pure-BODex records,
   skipping whichever overlays lack data.
 
@@ -359,12 +364,23 @@ Important flags: `--tabletop-z`, `--show-table`/`--show-object-points`,
 `--hold-open[-seconds]` (timed viewport hold after rendering; add
 `--hold-open-until-closed` in `--mode local` to instead keep the window
 alive until you close it manually),
-`--camera-eye-offset`/`--camera-target-offset` (camera framing). With
-`--mode webrtc` (submits to the persistent server), `--use-raw-object-pose`
-plus `--manifest`/`--sequence-id`/`--frame-id` optionally replay the
-object's real recorded pose from a DexYCB manifest instead of dropping it
-onto the table at the origin -- this is unrelated to how the sequence's
-object mesh itself is resolved.
+`--camera-distance-scale`/`--camera-target-offset`/`--camera-focus-max-ratio`
+(camera framing). With `--mode webrtc` (submits to the persistent server),
+`--use-raw-object-pose` plus `--manifest`/`--sequence-id`/`--frame-id`
+optionally replay the object's real recorded pose from a DexYCB manifest
+instead of dropping it onto the table at the origin -- this is unrelated to
+how the sequence's object mesh itself is resolved.
+
+**Camera / screenshot**: the saved screenshot is a single 1-row x 3-column
+image (`isaac_grasp.png`) combining 3 mutually orthogonal views -- front
+(along -Y), side (along +X), and top (straight down +Z), each labeled --
+rather than one oblique shot. `--camera-distance-scale` (default 1.5) sets
+how far the camera sits from the focus target, as a multiple of the scene's
+bounding radius. Framing is object-centered: if including the hand would
+expand the box beyond `--camera-focus-max-ratio` (default 1.6) times the
+object's own extent -- which happens for a poorly-converged grasp whose hand
+ends up far from the object -- the camera frames on the object alone instead
+of zooming out to fit both, so the shot stays close and legible.
 
 ## Configuration
 
@@ -399,9 +415,10 @@ Given `--out-dir <root>`, each sequence writes to `<root>/<sequence_name>/`:
   merged in on success (or `error`/`top_failed_grasps` on failure),
   `seed_count`, `top_k`, `top_grasps` (list of `{rank, seed_index, score,
   grasp_json}`), `opt_iters`.
-- `isaac_visualization/` (if `--isaac-visualize`) -- `isaac_grasp.png`
-  (screenshot), `scene.usd` (full USD stage), `report.json` (object/hand
-  mesh counts, camera framing, resolved object pose, `score`).
+- `isaac_visualization/` (if `--isaac-visualize`) -- `isaac_grasp.png` (one
+  1x3 composite of front/side/top screenshots), `scene.usd` (full USD
+  stage), `report.json` (object/hand mesh counts, camera framing, resolved
+  object pose, `score`).
 
 The top-level run also writes `<root>/summary.json`: `ok`, `curobo_path`,
 `solver_failures`, `failed_visualizations`, `strict_failures`, and `runs`

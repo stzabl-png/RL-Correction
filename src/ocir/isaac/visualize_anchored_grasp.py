@@ -56,18 +56,20 @@ from ocir.isaac.visualize_grasp import (
     add_material,
     bind_material,
     apply_mode_defaults,
+    build_camera,
     build_parser as build_base_parser,
-    capture_camera_png,
+    capture_orthogonal_composite,
+    compute_focus_bbox,
     create_table,
     define_mesh,
     define_points,
     find_object_mesh,
     link_transforms_from_urdf,
     load_grasp_json,
-    make_camera,
     normalize_paths,
     object_transform_from_raw_data,
     origin_matrix,
+    set_prim_visibility,
     setup_stage,
 )
 from ocir.sim.control_client import request_json, server_is_running, submit_job
@@ -257,8 +259,10 @@ def visualize_anchored_grasp(app, args: argparse.Namespace, progress=None) -> di
                 )
 
     # --- Human demo hand (MANO vertices) at the anchor frame --------------
+    # Shown in both the saved photos and the live/exported scene.
     phase("building demo hand point cloud")
     demo_report = {"enabled": False, "reason": None}
+    demo_points = np.zeros((0, 3))
     anchor_frame_index = grasp.get("anchor_frame_index")
     if args.demo_frame is not None:
         anchor_frame_index = int(args.demo_frame)
@@ -280,10 +284,15 @@ def visualize_anchored_grasp(app, args: argparse.Namespace, progress=None) -> di
                 color = np.tile(np.asarray([0.18, 0.72, 0.32]), (verts.shape[0], 1))
                 demo_report = define_points(stage, "/World/DemoHand/Vertices", verts, color, float(args.demo_point_width))
                 demo_report.update({"enabled": True, "frame_index": idx, "source": str(demo_path)})
+                demo_points = verts
 
     # --- Anchor ghost hand (retargeted human pose, pre-optimization) ------
+    # Kept in the live/exported scene, but hidden from the saved photos (see
+    # the visibility toggle below) -- the photos should show only the object,
+    # the final grasp, and the human demo point cloud.
     phase("building anchor ghost hand")
     anchor_report = {"enabled": False, "reason": None}
+    ghost_mesh_reports: list[dict] = []
     if args.show_anchor_hand:
         anchor_action = grasp.get("anchor_action")
         anchor_joint_names = grasp.get("optimized_joint_names")
@@ -294,11 +303,11 @@ def visualize_anchored_grasp(app, args: argparse.Namespace, progress=None) -> di
                 np.asarray(anchor_action, dtype=float), list(anchor_joint_names), list(asset.config["joint_order"])
             )
             ghost = add_translucent_material(stage, "/World/Materials/AnchorGhost", (0.25, 0.5, 0.95), float(args.anchor_opacity))
-            reports = render_hand(
+            ghost_mesh_reports = render_hand(
                 stage, asset, full_anchor, world_from_object, "/World/AnchorHand",
                 {"hand": ghost, "elastomer": ghost},
             )
-            anchor_report = {"enabled": True, "mesh_count": len(reports), "opacity": float(args.anchor_opacity)}
+            anchor_report = {"enabled": True, "mesh_count": len(ghost_mesh_reports), "opacity": float(args.anchor_opacity)}
 
     # --- Optimized grasp hand ---------------------------------------------
     phase("building optimized grasp hand")
@@ -310,19 +319,23 @@ def visualize_anchored_grasp(app, args: argparse.Namespace, progress=None) -> di
     )
 
     phase("framing camera")
-    all_points = [points_world, vertices]
-    for prim_path in [report["path"] for report in hand_mesh_reports]:
+    object_points = np.concatenate([points_world, vertices], axis=0)
+    hand_points_list = []
+    for prim_path in [report["path"] for report in hand_mesh_reports + ghost_mesh_reports]:
         prim = stage.GetPrimAtPath(prim_path)
         attr = prim.GetAttribute("points")
         if attr:
-            all_points.append(np.asarray([[p[0], p[1], p[2]] for p in attr.Get()], dtype=float))
-    scene_points = np.concatenate(all_points, axis=0)
-    bbox_min, bbox_max = scene_points.min(axis=0), scene_points.max(axis=0)
+            hand_points_list.append(np.asarray([[p[0], p[1], p[2]] for p in attr.Get()], dtype=float))
+    if demo_points.size:
+        hand_points_list.append(demo_points)
+    hand_points = np.concatenate(hand_points_list, axis=0) if hand_points_list else np.zeros((0, 3))
+
+    bbox_min, bbox_max = compute_focus_bbox(object_points, hand_points, float(args.camera_focus_max_ratio))
     if args.show_table:
         table_report = create_table(stage, bbox_min, bbox_max, float(args.tabletop_z), float(args.table_margin))
     else:
         table_report = {"enabled": False, "path": None, "top_z": float(args.tabletop_z)}
-    camera, camera_report = make_camera(stage, app, args, bbox_min, bbox_max)
+    camera, camera_prim_path, cam_target, cam_radius = build_camera(stage, app, args, bbox_min, bbox_max)
 
     phase("rendering and capturing screenshot")
     timeline = omni.timeline.get_timeline_interface()
@@ -330,8 +343,26 @@ def visualize_anchored_grasp(app, args: argparse.Namespace, progress=None) -> di
     for _ in range(30):
         app.update()
 
-    screenshot = out_dir / "isaac_anchored_grasp.png"
-    capture_camera_png(app, camera, screenshot)
+    # The saved photos show only the object, the final grasp, and the human
+    # demo point cloud -- the ghost hand and affordance heatmap stay in the
+    # interactive/exported scene (toggleable there) but are hidden here.
+    photo_hidden_prims = []
+    if anchor_report.get("enabled"):
+        photo_hidden_prims.append("/World/AnchorHand")
+    if affordance_report.get("enabled"):
+        photo_hidden_prims.append("/World/Object/AffordancePoints")
+    for prim_path in photo_hidden_prims:
+        set_prim_visibility(stage, prim_path, False)
+
+    screenshot, camera_report = capture_orthogonal_composite(
+        app, camera, camera_prim_path, cam_target, cam_radius, args, out_dir, "isaac_anchored_grasp"
+    )
+
+    for prim_path in photo_hidden_prims:
+        set_prim_visibility(stage, prim_path, True)
+    for _ in range(5):
+        app.update()
+
     phase("exporting stage")
     stage_path = out_dir / "scene.usd"
     stage.GetRootLayer().Export(str(stage_path.resolve()))

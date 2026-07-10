@@ -67,6 +67,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--isaac-close-joint-stiffness", type=float, default=20.0)
     parser.add_argument("--isaac-close-joint-max-force", type=float, default=60.0)
     parser.add_argument("--isaac-convex-decomp-max-hulls", type=int, default=32)
+    parser.add_argument("--isaac-object-collision", choices=["sdf", "convex"], default="sdf")
+    parser.add_argument("--isaac-sdf-resolution", type=int, default=256)
+    parser.add_argument("--isaac-hand-rest-offset", type=float, default=0.002)
     parser.add_argument("--isaac-sim-steps-per-frame", type=int, default=2)
     parser.add_argument("--isaac-time-steps-per-second", type=float, default=120.0)
     parser.add_argument("--isaac-capture-every", type=int, default=1)
@@ -149,6 +152,9 @@ def _simulation_params(args: argparse.Namespace, trajectory_dir: Path, out_dir: 
         "close_joint_stiffness": args.isaac_close_joint_stiffness,
         "close_joint_max_force": args.isaac_close_joint_max_force,
         "convex_decomp_max_hulls": args.isaac_convex_decomp_max_hulls,
+        "object_collision": args.isaac_object_collision,
+        "sdf_resolution": args.isaac_sdf_resolution,
+        "hand_rest_offset": args.isaac_hand_rest_offset,
         "sim_steps_per_frame": args.isaac_sim_steps_per_frame,
         "time_steps_per_second": args.isaac_time_steps_per_second,
         "capture_every": args.isaac_capture_every,

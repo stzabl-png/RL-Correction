@@ -264,6 +264,33 @@ def set_world_pose(stage, prim_path: str, pos: np.ndarray, quat_wxyz: np.ndarray
 # ---------------------------------------------------------------------------
 
 
+def apply_hand_collision_offsets(stage, ref_path: str, *, contact_offset: float, rest_offset: float) -> int:
+    """Override contact/rest offsets on every hand collider. The rest offset
+    effectively INFLATES the collision surface: contacts come to rest with
+    the surfaces separated by the sum of both bodies' rest offsets, so a 2mm
+    hand rest offset acts as the '+2mm on the hand collision mesh' the
+    physical gripper calibration calls for -- and keeps the fingers from
+    ever entering the deep-penetration regime where the solver's
+    depenetration pushes look like the object being sucked into the hand or
+    fired out of it."""
+
+    from pxr import PhysxSchema, Usd, UsdGeom, UsdPhysics
+
+    root = stage.GetPrimAtPath(ref_path)
+    n = 0
+    for prim in Usd.PrimRange(root):
+        if not (prim.IsA(UsdGeom.Mesh) and prim.HasAPI(UsdPhysics.CollisionAPI)):
+            continue
+        if not prim.HasAPI(PhysxSchema.PhysxCollisionAPI):
+            PhysxSchema.PhysxCollisionAPI.Apply(prim)
+        collision = PhysxSchema.PhysxCollisionAPI(prim)
+        collision.CreateContactOffsetAttr().Set(float(contact_offset))
+        collision.CreateRestOffsetAttr().Set(float(rest_offset))
+        n += 1
+    log(f"{ref_path}: set contactOffset={contact_offset} restOffset={rest_offset} on {n} hand colliders")
+    return n
+
+
 def setup_hand_collision(stage, ref_path: str, *, min_thickness: float, hull_vertex_limit: int, max_convex_hulls: int, contact_offset: float, rest_offset: float) -> int:
     from pxr import PhysxSchema, Usd, UsdGeom, UsdPhysics
 
@@ -478,11 +505,22 @@ def build_object(stage, mesh_path: Path, *, mass_kg: float, kinematic: bool, arg
         UsdPhysics.RigidBodyAPI.Apply(prim)
         UsdPhysics.MassAPI.Apply(prim).CreateMassAttr().Set(float(mass_kg))
         UsdPhysics.CollisionAPI.Apply(prim)
-        UsdPhysics.MeshCollisionAPI.Apply(prim).CreateApproximationAttr().Set("convexDecomposition")
-        decomp = PhysxSchema.PhysxConvexDecompositionCollisionAPI.Apply(prim)
-        decomp.CreateMinThicknessAttr().Set(0.002)
-        decomp.CreateHullVertexLimitAttr().Set(64)
-        decomp.CreateMaxConvexHullsAttr().Set(int(args.convex_decomp_max_hulls))
+        if args.object_collision == "sdf":
+            # SDF triangle-mesh collision: exact concave geometry (a mug's
+            # opening/handle stay hollow) with well-defined penetration
+            # normals. Convex decomposition BRIDGES concavities -- once the
+            # closing fingers push the object center inside the bridged hull
+            # volume it gets wedged, follows the hand ("sucked up"), and
+            # eventually pops out at the depenetration cap.
+            UsdPhysics.MeshCollisionAPI.Apply(prim).CreateApproximationAttr().Set("sdf")
+            sdf = PhysxSchema.PhysxSDFMeshCollisionAPI.Apply(prim)
+            sdf.CreateSdfResolutionAttr().Set(int(args.sdf_resolution))
+        else:
+            UsdPhysics.MeshCollisionAPI.Apply(prim).CreateApproximationAttr().Set("convexDecomposition")
+            decomp = PhysxSchema.PhysxConvexDecompositionCollisionAPI.Apply(prim)
+            decomp.CreateMinThicknessAttr().Set(0.002)
+            decomp.CreateHullVertexLimitAttr().Set(64)
+            decomp.CreateMaxConvexHullsAttr().Set(int(args.convex_decomp_max_hulls))
         collision = PhysxSchema.PhysxCollisionAPI.Apply(prim)
         collision.CreateContactOffsetAttr().Set(0.004)
         collision.CreateRestOffsetAttr().Set(0.001)
@@ -539,6 +577,11 @@ def build_hand(stage, hand_usd_path: Path, args: argparse.Namespace) -> dict:
         min_thickness=0.002, hull_vertex_limit=64, max_convex_hulls=args.convex_decomp_max_hulls,
         contact_offset=0.004, rest_offset=0.001,
     )
+    offset_count = apply_hand_collision_offsets(
+        stage, HAND_REF,
+        contact_offset=float(args.hand_rest_offset) + 0.004,
+        rest_offset=float(args.hand_rest_offset),
+    )
     drive_count = setup_hand_drives(
         stage, HAND_REF,
         stiffness=args.joint_stiffness, damping=args.joint_damping, max_force=args.joint_max_force,
@@ -548,6 +591,8 @@ def build_hand(stage, hand_usd_path: Path, args: argparse.Namespace) -> dict:
         "deactivated_joints": deactivated_joints,
         "articulation_root": articulation_root,
         "collider_count": collider_count,
+        "offset_collider_count": offset_count,
+        "hand_rest_offset_m": float(args.hand_rest_offset),
         "drive_count": drive_count,
     }
 
@@ -874,6 +919,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--close-joint-stiffness", type=float, default=20.0, help="Softened finger drive stiffness during the close segment.")
     parser.add_argument("--close-joint-max-force", type=float, default=60.0, help="Softened finger drive effort cap during the close segment.")
     parser.add_argument("--convex-decomp-max-hulls", type=int, default=32)
+    parser.add_argument("--object-collision", choices=["sdf", "convex"], default="sdf", help="Object collider type: exact SDF triangle mesh (concavities stay hollow) or convex decomposition.")
+    parser.add_argument("--sdf-resolution", type=int, default=256)
+    parser.add_argument("--hand-rest-offset", type=float, default=0.002, help="Rest offset (m) added to every hand collider, effectively inflating the hand collision surface.")
     parser.add_argument("--sim-steps-per-frame", type=int, default=2, help="app.update() calls per trajectory frame; each advances sim time 1/60s, so 2 matches a 30fps trajectory in real time.")
     parser.add_argument("--time-steps-per-second", type=float, default=120.0, help="PhysX substep rate; keep a multiple of 60.")
     parser.add_argument("--capture-every", type=int, default=1)

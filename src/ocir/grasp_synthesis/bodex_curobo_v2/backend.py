@@ -113,6 +113,7 @@ def inspect_exact_bodex_v2_backend() -> BodexCuroboV2BackendReport:
         ("curobo._src.robot.kinematics.kinematics", "Kinematics", "official cuRobo v2 kinematics"),
         ("coal", "distance", "standalone coal GJK/EPA convex distance query"),
         ("coal", "ConvexBase", "standalone coal convex hull construction"),
+        ("coacd", "run_coacd", "coacd convex decomposition of the object mesh"),
         ("warp", None, "warp for cuRobo v2 mesh SDF kernels"),
         ("ocir.grasp_synthesis.bodex_curobo_v2.qp", "BatchedReluQp", "ported BODex batched ReLU-QP solver"),
         ("ocir.grasp_synthesis.bodex_curobo_v2.grasp_energy", "QPEnergy", "ported BODex QP grasp energy"),

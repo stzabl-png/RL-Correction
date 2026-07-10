@@ -23,18 +23,39 @@ model:
   pose perturbations, refreshed periodically and reattached to the current
   (FK-differentiable) link pose in between refreshes by the caller
   (``grasp_cost.py``).
+
+The object mesh is convex-decomposed into multiple parts via ``coacd``
+(matching original BODex's "one convex part per link" object treatment)
+before being loaded into ``coal.ConvexBase`` hulls: see
+``_coacd_convex_parts``. Per-part distances are combined with a min-over-parts
+reduction in ``_narrow_phase``, approximating the concave object's true
+surface as the union of its convex pieces. Robot links still use a single
+whole-mesh convex hull (``_load_convex_hull``); see ``README.md``'s "Known
+Limitation" note for that remaining gap.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import time
 import xml.etree.ElementTree as ET
 
 import coal
 import numpy as np
 import torch
 import trimesh
+
+# `coacd` bundles its own native OpenMP/runtime libraries that segfault on
+# import if a shared-library symbol they conflict with (e.g. torch's own
+# OpenMP) hasn't been loaded first. Import order matters here: `torch` (and
+# therefore curobo/warp, which pull it in) must come before `coacd`.
+import coacd
+
+# CoACD's own C++ logger otherwise prints its full per-run parameter dump and
+# per-part progress straight to stdout; we log our own concise begin/end
+# lines around each `run_coacd` call instead (see `_coacd_convex_parts`).
+coacd.set_log_level("error")
 
 from curobo._src.geom.sphere_fit.wp_mesh_query import WarpMeshQuery
 from curobo._src.geom.transform import pose_multiply, torch_quaternion_to_matrix
@@ -197,8 +218,69 @@ def _load_convex_hull(mesh_path: Path, scale: np.ndarray) -> "coal.ConvexBase":
     return coal.ConvexBase.convexHull(points, False, None)
 
 
+def _normalize_vertices(vertices: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
+    """Center and isotropically rescale ``vertices`` to a unit bounding radius.
+
+    CoACD's concavity threshold is tuned for roughly unit-scale meshes, so
+    object meshes (which may be authored in arbitrary absolute units) are
+    normalized before decomposition. Scaling is isotropic (a single scalar,
+    not per-axis) so the inverse transform exactly recovers the original
+    shape -- only a translation and a uniform scale need to be undone.
+    """
+
+    bbox_min = vertices.min(axis=0)
+    bbox_max = vertices.max(axis=0)
+    center = (bbox_max + bbox_min) / 2.0
+    norm_scale = float(np.linalg.norm(bbox_max - bbox_min) / 2.0)
+    if norm_scale <= 0.0 or not np.isfinite(norm_scale):
+        raise ValueError("cannot normalize a degenerate (zero-extent) mesh for convex decomposition")
+    normalized = (vertices - center[None, :]) / norm_scale
+    return normalized, center, norm_scale
+
+
+def _coacd_convex_parts(mesh_path: Path, scale: np.ndarray, **coacd_kwargs) -> list[np.ndarray]:
+    """Convex-decompose a mesh with CoACD, returning per-part vertex arrays.
+
+    The mesh is normalized (see ``_normalize_vertices``) before being handed
+    to CoACD, and each returned part is mapped back through the inverse
+    normalization -- then through the caller-supplied URDF/asset ``scale`` --
+    so callers receive parts in the same frame ``_load_convex_hull`` would
+    have used for a single whole-mesh hull.
+    """
+
+    mesh = trimesh.load(str(mesh_path), force="mesh", process=False)
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    faces = np.asarray(mesh.faces, dtype=np.int32)
+
+    normalized_vertices, center, norm_scale = _normalize_vertices(vertices)
+
+    print(f"OCIR_BODEX_CUROBO_V2 coacd: decomposing {mesh_path.name} ...", flush=True)
+    t0 = time.time()
+    parts = coacd.run_coacd(coacd.Mesh(normalized_vertices, faces), **coacd_kwargs)
+    print(
+        f"OCIR_BODEX_CUROBO_V2 coacd: {mesh_path.name} -> {len(parts)} parts in {time.time() - t0:.1f}s",
+        flush=True,
+    )
+
+    part_vertices = []
+    for part_verts, _part_faces in parts:
+        restored = np.asarray(part_verts, dtype=np.float64) * norm_scale + center[None, :]
+        part_vertices.append(restored * scale.reshape(1, 3))
+    return part_vertices
+
+
+def _load_convex_parts(mesh_path: Path, scale: np.ndarray, **coacd_kwargs) -> list["coal.ConvexBase"]:
+    hulls = []
+    for vertices in _coacd_convex_parts(mesh_path, scale, **coacd_kwargs):
+        points = coal.StdVec_Vec3s()
+        for vertex in vertices:
+            points.append(vertex)
+        hulls.append(coal.ConvexBase.convexHull(points, False, None))
+    return hulls
+
+
 def _narrow_phase(
-    obj_hull: "coal.ConvexBase",
+    obj_hulls: list,
     robot_hulls: list,
     robot_idx: torch.Tensor,
     obj_rot: torch.Tensor,
@@ -208,10 +290,15 @@ def _narrow_phase(
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Batched convex-convex distance via the standalone `coal` package.
 
-    Runs one `coal.distance` call per case in a Python loop (no BODex
-    OpenMP-batched extension). This is only called every `count % 5` cost
-    evaluations by `grasp_cost.py`, so the per-call Python overhead is not on
-    the innermost hot path.
+    Runs one `coal.distance` call per (case, object part) pair in a Python
+    loop (no BODex OpenMP-batched extension). This is only called every
+    `count % 5` cost evaluations by `grasp_cost.py`, so the per-call Python
+    overhead is not on the innermost hot path.
+
+    The object is represented as a list of convex parts (from CoACD; see
+    `_coacd_convex_parts`), so each case takes a min-over-parts reduction of
+    the signed distance -- the standard way to approximate a concave shape's
+    true surface with the union of its convex-decomposed pieces.
     """
 
     cases = int(robot_idx.shape[0])
@@ -228,19 +315,32 @@ def _narrow_phase(
 
     req = coal.DistanceRequest(True)
     for i in range(cases):
-        res = coal.DistanceResult()
         tf_obj = coal.Transform3s(obj_rot_np[i], obj_trans_np[i])
         tf_robot = coal.Transform3s(robot_rot_np[i], robot_trans_np[i])
-        coal.distance(obj_hull, tf_obj, robot_hulls[int(robot_idx_np[i])], tf_robot, req, res)
-        dist[i] = res.min_distance
-        # coal's DistanceResult.normal points from geometry-1 (object) toward
-        # geometry-2 (robot finger), i.e. outward from the object surface.
-        # BODex's grasp-matrix math expects an inward-pointing normal (into
-        # the object, matching the sphere-contact path's convention), so flip
-        # the sign here.
-        normal[i] = -np.asarray(res.normal)
-        cp1[i] = np.asarray(res.getNearestPoint1())
-        cp2[i] = np.asarray(res.getNearestPoint2())
+        robot_hull = robot_hulls[int(robot_idx_np[i])]
+
+        best_dist = np.inf
+        best_normal = None
+        best_cp1 = None
+        best_cp2 = None
+        for obj_hull in obj_hulls:
+            res = coal.DistanceResult()
+            coal.distance(obj_hull, tf_obj, robot_hull, tf_robot, req, res)
+            if res.min_distance < best_dist:
+                best_dist = res.min_distance
+                # coal's DistanceResult.normal points from geometry-1 (object
+                # part) toward geometry-2 (robot finger), i.e. outward from
+                # the part's surface. BODex's grasp-matrix math expects an
+                # inward-pointing normal (into the object, matching the
+                # sphere-contact path's convention), so flip the sign here.
+                best_normal = -np.asarray(res.normal)
+                best_cp1 = np.asarray(res.getNearestPoint1())
+                best_cp2 = np.asarray(res.getNearestPoint2())
+
+        dist[i] = best_dist
+        normal[i] = best_normal
+        cp1[i] = best_cp1
+        cp2[i] = best_cp2
 
     dist_t = torch.tensor(dist, device=robot_trans.device, dtype=robot_trans.dtype)
     normal_t = torch.tensor(normal, device=robot_trans.device, dtype=robot_trans.dtype)
@@ -266,7 +366,7 @@ class MeshContactPdnFunction(torch.autograd.Function):
         ctx,
         robot_pose: torch.Tensor,
         robot_offset_pose: torch.Tensor,
-        obj_hull: "coal.ConvexBase",
+        obj_hulls: list,
         robot_hulls: list,
         perturb: torch.Tensor,
     ):
@@ -283,7 +383,7 @@ class MeshContactPdnFunction(torch.autograd.Function):
         r_rot = torch_quaternion_to_matrix(r_quat)
         obj_rot = torch.eye(3, device=robot_pose.device, dtype=robot_pose.dtype).view(1, 3, 3).expand(flat_pose.shape[0], 3, 3)
         obj_trans = torch.zeros((flat_pose.shape[0], 3), device=robot_pose.device, dtype=robot_pose.dtype)
-        dist, normal, points = _narrow_phase(obj_hull, robot_hulls, robot_idx, obj_rot, obj_trans, r_rot, r_trans)
+        dist, normal, points = _narrow_phase(obj_hulls, robot_hulls, robot_idx, obj_rot, obj_trans, r_rot, r_trans)
         points = points.view(b, h, n_links, 6)
         dist = dist.view(b, h, n_links)
         normal = normal.view(b, h, n_links, 3)
@@ -309,7 +409,7 @@ class MeshContactPdnFunction(torch.autograd.Function):
             po_rot = torch.eye(3, device=robot_pose.device, dtype=robot_pose.dtype).view(1, 3, 3).expand(pert_flat.shape[0], 3, 3)
             po_trans = torch.zeros((pert_flat.shape[0], 3), device=robot_pose.device, dtype=robot_pose.dtype)
             pnarrow_idx = torch.arange(n_links, device=robot_pose.device).repeat(p_b * p_h)
-            pdist, pnormal, ppoints = _narrow_phase(obj_hull, robot_hulls, pnarrow_idx, po_rot, po_trans, pr_rot, pr_trans)
+            pdist, pnormal, ppoints = _narrow_phase(obj_hulls, robot_hulls, pnarrow_idx, po_rot, po_trans, pr_rot, pr_trans)
             pert_points = ppoints.view((perturb_num,) + points.shape)
             pert_distance = pdist.view((perturb_num,) + dist.shape)
             pert_normal = pnormal.view((perturb_num,) + normal.shape)
@@ -353,12 +453,15 @@ class SingleObjectContactWorld:
     robot_urdf_path: Path
     contact_link_names: tuple[str, ...]
     device_cfg: DeviceCfg
+    coacd_kwargs: dict = None
 
     def __post_init__(self):
         mesh = trimesh.load(str(self.object_mesh_path), force="mesh", process=False)
         self._mesh_query = WarpMeshQuery(mesh, self.device_cfg.device)
 
-        self._object_hull = _load_convex_hull(self.object_mesh_path, np.ones(3, dtype=np.float64))
+        self._object_hulls = _load_convex_parts(
+            self.object_mesh_path, np.ones(3, dtype=np.float64), **(self.coacd_kwargs or {})
+        )
         self._robot_hulls = []
         offsets = []
         for link_name in self.contact_link_names:
@@ -392,7 +495,7 @@ class SingleObjectContactWorld:
         return MeshContactPdnFunction.apply(
             contact_robot_pose,
             self._robot_offset_pose,
-            self._object_hull,
+            self._object_hulls,
             self._robot_hulls,
             perturb,
         )

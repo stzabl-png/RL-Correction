@@ -32,11 +32,18 @@ from ocir.grasp_synthesis.anchored_bodex.guidance import (
     build_pressure_constraints,
     select_contact_points,
 )
+from ocir.grasp_synthesis.anchored_bodex.grasp_stages import (
+    DEFAULT_SQUEEZE_MIN_RAD,
+    SnapshotBodexNewtonOpt,
+    compute_grasp_stages,
+    stage_pose_dict,
+)
 from ocir.grasp_synthesis.anchored_bodex.retarget import HandFitter, load_mano_transfer, transfer_path
 from ocir.grasp_synthesis.anchored_bodex.rollout import AnchoredBodexRollout
 from ocir.grasp_synthesis.anchored_bodex.seed_generator import AnchoredSeedGenerator
 from ocir.grasp_synthesis.assets import load_sharpa_wave_right
-from ocir.grasp_synthesis.bodex_curobo_v2.newton_opt import BodexNewtonOpt, BodexNewtonOptCfg
+from ocir.grasp_synthesis.bodex_curobo_v2.newton_opt import BodexNewtonOptCfg
+from ocir.grasp_synthesis.clearance import ClearanceChecker
 from ocir.grasp_synthesis.bodex_curobo_v2.solver import (
     DEFAULT_CONTACT_STRATEGY,
     DEFAULT_DISTANCE_THRESHOLD,
@@ -139,6 +146,7 @@ def solve_sharpa_anchored_bodex(
     rank_affordance_weight: float = 1.0,
     rank_pose_weight: float = 0.5,
     force_affordance: bool = False,
+    squeeze_min_rad: float = DEFAULT_SQUEEZE_MIN_RAD,
 ) -> dict[str, Any]:
     if not torch.cuda.is_available():
         raise RuntimeError("anchored BODex grasp synthesis requires CUDA")
@@ -224,13 +232,30 @@ def solve_sharpa_anchored_bodex(
         num_problems=int(seeds),
         device_cfg=device_cfg,
     )
-    optimizer = MultiStageOptimizer([BodexNewtonOpt(opt_cfg, rollouts, use_cuda_graph=False)], rollouts)
+    # Snapshot variant of the BODex optimizer: records the per-seed actions
+    # the moment the staged contact cost enters its final (distance=0) stage
+    # -- these become each record's "pregrasp" stage (BODex's save_qpos).
+    snapshot_progress = float(DEFAULT_CONTACT_STRATEGY["opt_progress"][-1])
+    newton_opt = SnapshotBodexNewtonOpt(
+        opt_cfg, rollouts, use_cuda_graph=False, snapshot_progress=snapshot_progress
+    )
+    optimizer = MultiStageOptimizer([newton_opt], rollouts)
     optimizer.update_num_problems(seeds)
     for rollout in rollouts:
         rollout.batch_size = seeds
     init_action = rollouts[0].get_initial_action(use_random=True)
     optimizer.reinitialize(init_action)
     result = optimizer.optimize(init_action)
+
+    pregrasp_result = newton_opt.pregrasp_actions
+    if pregrasp_result is None:
+        print(
+            "[anchored_bodex] WARNING: optimizer never reached snapshot progress "
+            f"{snapshot_progress}; using the final actions as pregrasp"
+        )
+        pregrasp_result = result
+    pregrasp_cpu = pregrasp_result.detach()
+    stage_clearance_checker = ClearanceChecker(asset, device_cfg)
 
     metrics = rollouts[0].compute_metrics_from_action(result, opt_progress=1.0)
     costs = metrics.costs_and_constraints.get_sum_cost(sum_horizon=True).detach()
@@ -301,13 +326,38 @@ def solve_sharpa_anchored_bodex(
         "demo_analysis": analysis.report,
     }
 
+    joint_limits = asset.config["joint_limits"]
+    full_joint_lower = np.asarray(
+        [joint_limits[name][0] for name in rollouts[0].full_joint_order], dtype=np.float64
+    )
+    full_joint_upper = np.asarray(
+        [joint_limits[name][1] for name in rollouts[0].full_joint_order], dtype=np.float64
+    )
+
+    def _expand_full(active_action: np.ndarray) -> np.ndarray:
+        active_action = active_action.copy()
+        active_action[3:7] = active_action[3:7] / max(np.linalg.norm(active_action[3:7]), 1e-9)
+        full = expand_active_action_to_full_joint_order(
+            active_action, rollouts[0].joint_names, rollouts[0].full_joint_order, rollouts[0].full_neutral_q
+        )
+        full[3:7] = full[3:7] / max(np.linalg.norm(full[3:7]), 1e-9)
+        return full
+
     def _record(seed_idx: int, rank: int, prefix: str) -> tuple[dict, Path]:
         optimized_action = result_cpu[seed_idx, 0].cpu().numpy().copy()
         optimized_action[3:7] = optimized_action[3:7] / max(np.linalg.norm(optimized_action[3:7]), 1e-9)
-        full_action = expand_active_action_to_full_joint_order(
-            optimized_action, rollouts[0].joint_names, rollouts[0].full_joint_order, rollouts[0].full_neutral_q
+        full_action = _expand_full(result_cpu[seed_idx, 0].cpu().numpy())
+        pregrasp_full = _expand_full(pregrasp_cpu[seed_idx, 0].cpu().numpy())
+        stages = compute_grasp_stages(
+            full_action,
+            pregrasp_full,
+            rollouts[0].full_joint_order,
+            full_joint_lower,
+            full_joint_upper,
+            stage_clearance_checker,
+            rollouts[0].contact_world,
+            squeeze_min_rad=squeeze_min_rad,
         )
-        full_action[3:7] = full_action[3:7] / max(np.linalg.norm(full_action[3:7]), 1e-9)
         record = {
             "ok": bool(success[seed_idx].item()),
             **guidance_common,
@@ -324,6 +374,18 @@ def solve_sharpa_anchored_bodex(
             "sequence_dir": str(sequence_dir),
             "action": full_action.astype(float).tolist(),
             "joint_names": rollouts[0].full_joint_order,
+            # Four-stage poses (see anchored_bodex/grasp_stages.py):
+            # raw_grasp = action as-is; pregrasp = mid-optimization snapshot
+            # (~1cm standoff stage); grasp = raw retreated out of SDF
+            # penetration but still in contact; squeeze = Articulation-BODex
+            # extrapolation past the contact grasp.
+            "stages": {
+                "pregrasp": stage_pose_dict(stages.pregrasp, rollouts[0].full_joint_order),
+                "raw_grasp": stage_pose_dict(stages.raw_grasp, rollouts[0].full_joint_order),
+                "grasp": stage_pose_dict(stages.grasp, rollouts[0].full_joint_order),
+                "squeeze": stage_pose_dict(stages.squeeze, rollouts[0].full_joint_order),
+            },
+            "stage_report": stages.report,
             "success": bool(success[seed_idx].item()),
             "successful_seed_count": successful_seed_count,
             "grasp_error_max": float(grasp_error_max[seed_idx].item()),

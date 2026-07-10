@@ -141,6 +141,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--afford-tau", type=float, default=0.3, help="Heatmap threshold defining the high-affordance region.")
     parser.add_argument("--rank-affordance-weight", type=float, default=1.0)
     parser.add_argument("--rank-pose-weight", type=float, default=0.5)
+    parser.add_argument("--squeeze-min", type=float, default=0.15, help="Flexion-only floor (rad) on the squeeze stage's per-joint extrapolation beyond the contact grasp.")
     parser.add_argument("--force-affordance", action="store_true", help="Recompute the per-sequence affordance cache.")
     parser.add_argument(
         "--auto-export-demo",
@@ -257,6 +258,7 @@ def main(argv: list[str] | None = None) -> int:
                 rank_affordance_weight=args.rank_affordance_weight,
                 rank_pose_weight=args.rank_pose_weight,
                 force_affordance=args.force_affordance,
+                squeeze_min_rad=args.squeeze_min,
             )
         except Exception as exc:
             solver_failures += 1

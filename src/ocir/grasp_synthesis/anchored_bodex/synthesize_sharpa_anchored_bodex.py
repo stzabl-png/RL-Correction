@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -23,6 +24,77 @@ from ocir.sim.control_client import request_json, server_is_running, submit_job
 REPO_ROOT = Path(__file__).resolve().parents[4]
 BACKEND_NAME = "curobo_v2_anchored_bodex"
 VIS_TASK_NAME = "anchored_grasp_visualization"
+DEFAULT_DEMO_MANIFEST = Path(os.environ.get("OCIR_DATA_ROOT", "/data/users/hangkes2/OCIR")).expanduser() / "processed_data/dex_ycb/manifests/selected_5_sequences.json"
+
+
+def _sequence_meta(sequence_dir: Path) -> dict:
+    meta_path = sequence_dir / "sequence.json"
+    return json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
+
+
+def _demo_artifact_available(sequence_dir: Path) -> bool:
+    meta = _sequence_meta(sequence_dir)
+    explicit = meta.get("human_demo")
+    if explicit is not None:
+        path = Path(explicit)
+        path = path if path.is_absolute() else sequence_dir / path
+        return path.exists()
+    return (sequence_dir / "human_demo.npz").exists()
+
+
+def _jobs_sequence_root(jobs: list[Path]) -> Path:
+    parents = {Path(job).parent for job in jobs}
+    if len(parents) != 1:
+        raise ValueError(f"cannot auto-export DexYCB demos for sequence dirs from multiple roots: {sorted(map(str, parents))}")
+    return next(iter(parents))
+
+
+def _demo_manifest_path(args: argparse.Namespace, sequences_root: Path) -> Path:
+    if args.demo_manifest is not None:
+        return args.demo_manifest.expanduser()
+    from ocir.dexycb.export_grasp_sequences import default_manifest_for_sequences_root
+
+    inferred = default_manifest_for_sequences_root(sequences_root)
+    if inferred.exists():
+        return inferred
+    return DEFAULT_DEMO_MANIFEST
+
+
+def ensure_human_demos(jobs: list[Path], args: argparse.Namespace) -> None:
+    if not args.auto_export_demo:
+        return
+    missing = [Path(job) for job in jobs if not _demo_artifact_available(Path(job))]
+    if not missing:
+        return
+
+    from ocir.dexycb.export_grasp_sequences import (
+        export_sequence_demo,
+        infer_data_root_from_sequences_root,
+        localize_manifest_paths,
+    )
+    from ocir.dexycb.labels import load_manifest, sequence_by_id
+
+    sequences_root = _jobs_sequence_root(missing)
+    manifest_path = _demo_manifest_path(args, sequences_root)
+    manifest = load_manifest(manifest_path)
+    local_data_root = infer_data_root_from_sequences_root(sequences_root)
+    if local_data_root is not None:
+        manifest = localize_manifest_paths(manifest, local_data_root)
+
+    names = ", ".join(sequence_dir.name for sequence_dir in missing)
+    print(
+        f"OCIR_ANCHORED_BODEX exporting missing DexYCB human demos for {len(missing)} sequence(s): {names}",
+        flush=True,
+    )
+    print(f"OCIR_ANCHORED_BODEX demo manifest={manifest_path} sequences_root={sequences_root}", flush=True)
+    for sequence_dir in missing:
+        sequence = sequence_by_id(manifest, sequence_dir.name)
+        export_sequence_demo(manifest, sequence, sequences_root, bool(args.force_demo_export))
+
+    still_missing = [Path(job) for job in jobs if not _demo_artifact_available(Path(job))]
+    if still_missing:
+        names = ", ".join(sequence_dir.name for sequence_dir in still_missing)
+        raise FileNotFoundError(f"DexYCB demo export did not produce usable human_demo metadata for: {names}")
 
 
 def run_standalone_visualization(params: dict) -> bool:
@@ -70,6 +142,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rank-affordance-weight", type=float, default=1.0)
     parser.add_argument("--rank-pose-weight", type=float, default=0.5)
     parser.add_argument("--force-affordance", action="store_true", help="Recompute the per-sequence affordance cache.")
+    parser.add_argument(
+        "--auto-export-demo",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Run the DexYCB human-demo exporter for sequence dirs with no usable human_demo metadata.",
+    )
+    parser.add_argument(
+        "--demo-manifest",
+        type=Path,
+        default=None,
+        help="DexYCB selected-subset manifest used for automatic human_demo export. Defaults to the manifest next to --sequences-root, then OCIR_DATA_ROOT.",
+    )
+    parser.add_argument("--force-demo-export", action=argparse.BooleanOptionalAction, default=False)
     # Isaac visualization (same plumbing as the pure-BODex CLI).
     parser.add_argument("--isaac-visualize", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--isaac-visualize-failed", action=argparse.BooleanOptionalAction, default=True)
@@ -134,6 +219,12 @@ def main(argv: list[str] | None = None) -> int:
         if not jobs:
             print(f"no sequence directories found under {args.sequences_root}", file=sys.stderr)
             return 2
+
+    try:
+        ensure_human_demos(jobs, args)
+    except Exception as exc:
+        print(f"OCIR_ANCHORED_BODEX failed to auto-export DexYCB human demos: {exc}", file=sys.stderr, flush=True)
+        return 2
 
     summaries = []
     failed_visualizations = 0

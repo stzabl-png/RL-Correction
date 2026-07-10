@@ -839,14 +839,16 @@ def register_sim_tasks(registry) -> None:
         normalize=normalize_visualization_args,
         description="Visualize a synthesized floating-hand grasp pose with the object in Isaac Sim.",
     )
-    # The anchored-BODex variant registers through this module (the server's
-    # default --task-module) so a hot-reloading persistent server exposes it
-    # without a restart; reload keeps its source fresh across job submissions.
+    # The anchored-BODex variant and the grasp-trajectory physics simulation
+    # register through this module (the server's default --task-module) so a
+    # hot-reloading persistent server exposes them without a restart; reload
+    # keeps their source fresh across job submissions.
     import importlib
 
-    from ocir.isaac import visualize_anchored_grasp
+    from ocir.isaac import simulate_grasp_traj, visualize_anchored_grasp
 
     importlib.reload(visualize_anchored_grasp).register_anchored_task(registry)
+    importlib.reload(simulate_grasp_traj).register_sim_tasks(registry)
 
 
 def main() -> int:

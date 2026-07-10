@@ -1,0 +1,100 @@
+wrist:
+  r:
+  - - 0.04360260546055682
+    - 0.11866841353641697
+    - 0.9919761188787768
+  - - 0.9985668166923818
+    - 0.025667208254961545
+    - -0.046962825950308956
+  - - -0.03103426167792035
+    - 0.9926021368348684
+    - -0.11737918279218006
+  t:
+  - -0.03262196277916132
+  - 0.00775627186398478
+  - -0.003584810440181076
+keypoint_map:
+- mano_joint: 4
+  link: right_thumb_fingertip
+  offset:
+  - 0.0
+  - 0.0
+  - 0.0
+  weight: 1.0
+- mano_joint: 8
+  link: right_index_fingertip
+  offset:
+  - 0.0
+  - 0.0
+  - 0.0
+  weight: 1.0
+- mano_joint: 12
+  link: right_middle_fingertip
+  offset:
+  - 0.0
+  - 0.0
+  - 0.0
+  weight: 1.0
+- mano_joint: 16
+  link: right_ring_fingertip
+  offset:
+  - 0.0
+  - 0.0
+  - 0.0
+  weight: 1.0
+- mano_joint: 20
+  link: right_pinky_fingertip
+  offset:
+  - 0.0
+  - 0.0
+  - 0.0
+  weight: 1.0
+- mano_joint: 3
+  link: right_thumb_PP
+  offset:
+  - 0.017
+  - 0.0
+  - -0.002
+  weight: 0.3
+- mano_joint: 6
+  link: right_index_PP
+  offset:
+  - 0.023
+  - -0.001
+  - -0.001
+  weight: 0.3
+- mano_joint: 10
+  link: right_middle_PP
+  offset:
+  - 0.019
+  - 0.0
+  - -0.001
+  weight: 0.3
+- mano_joint: 14
+  link: right_ring_PP
+  offset:
+  - 0.022
+  - 0.0
+  - -0.001
+  weight: 0.3
+- mano_joint: 18
+  link: right_pinky_PP
+  offset:
+  - 0.024
+  - 0.0
+  - -0.001
+  weight: 0.3
+calibration_report:
+  per_point_residual_mm:
+    right_thumb_fingertip<-mano4: 16.992968429206318
+    right_index_fingertip<-mano8: 30.159411163736216
+    right_middle_fingertip<-mano12: 7.33077420133823
+    right_ring_fingertip<-mano16: 6.0473217288501
+    right_pinky_fingertip<-mano20: 37.17624143924971
+    right_thumb_PP<-mano3: 15.562407944375508
+    right_index_PP<-mano6: 33.990720412865436
+    right_middle_PP<-mano10: 40.86174690826994
+    right_ring_PP<-mano14: 31.027574119688463
+    right_pinky_PP<-mano18: 16.020073509092228
+  mean_residual_mm: 23.516923985667216
+  max_residual_mm: 40.86174690826994

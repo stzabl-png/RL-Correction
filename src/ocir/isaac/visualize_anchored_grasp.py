@@ -169,6 +169,41 @@ def render_hand(stage, asset, action: np.ndarray, world_from_object: np.ndarray,
     return reports
 
 
+def stage_action_from_record(stage_dict: dict, joint_order: list[str]) -> np.ndarray:
+    """One record ``stages`` entry -> full 29-D action [pos, quat_wxyz, joints]."""
+
+    return np.concatenate(
+        [
+            np.asarray(stage_dict["position"], dtype=float),
+            np.asarray(stage_dict["orientation"], dtype=float),
+            np.asarray([stage_dict["joints"][name] for name in joint_order], dtype=float),
+        ]
+    )
+
+
+def compose_stage_grid(row_paths: list[tuple[str, Path]], out_path: Path) -> Path:
+    """Stack per-stage 1x3 composites into one labeled 4x3 grid image."""
+
+    import cv2
+
+    rows = []
+    max_width = 0
+    for name, path in row_paths:
+        image = cv2.imread(str(path))
+        if image is None:
+            continue
+        cv2.putText(image, name, (18, 110), cv2.FONT_HERSHEY_SIMPLEX, 1.6, (0, 0, 0), 8, cv2.LINE_AA)
+        cv2.putText(image, name, (18, 110), cv2.FONT_HERSHEY_SIMPLEX, 1.6, (60, 220, 255), 3, cv2.LINE_AA)
+        rows.append(image)
+        max_width = max(max_width, image.shape[1])
+    padded = [
+        cv2.copyMakeBorder(img, 0, 0, 0, max_width - img.shape[1], cv2.BORDER_CONSTANT, value=(30, 30, 30))
+        for img in rows
+    ]
+    cv2.imwrite(str(out_path), np.concatenate(padded, axis=0))
+    return out_path
+
+
 def _sequence_npz(sequence_dir: Path, key: str, default_name: str) -> Path | None:
     meta_path = sequence_dir / "sequence.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
@@ -309,14 +344,30 @@ def visualize_anchored_grasp(app, args: argparse.Namespace, progress=None) -> di
             )
             anchor_report = {"enabled": True, "mesh_count": len(ghost_mesh_reports), "opacity": float(args.anchor_opacity)}
 
-    # --- Optimized grasp hand ---------------------------------------------
+    # --- Optimized grasp hand(s) ------------------------------------------
+    # Records with four-stage poses (see anchored_bodex/grasp_stages.py) get
+    # one hand instance per stage under /World/StageHands/<name>; the saved
+    # screenshot becomes a 4x3 grid (stages x orthogonal views). Records
+    # without stages keep the single-hand 1x3 behavior.
     phase("building optimized grasp hand")
     hand_material = add_material(stage, "/World/Materials/SharpaHand", (0.82, 0.84, 0.88))
     elastomer_material = add_material(stage, "/World/Materials/SharpaElastomer", (0.08, 0.36, 0.85))
-    hand_mesh_reports = render_hand(
-        stage, asset, action, world_from_object, "/World/SharpaHand",
-        {"hand": hand_material, "elastomer": elastomer_material},
-    )
+    hand_materials = {"hand": hand_material, "elastomer": elastomer_material}
+    stage_defs = grasp.get("stages") or {}
+    stage_order = [name for name in ("pregrasp", "raw_grasp", "grasp", "squeeze") if name in stage_defs]
+    stage_hand_reports: dict[str, list[dict]] = {}
+    if stage_order:
+        joint_order = list(asset.config["joint_order"])
+        for name in stage_order:
+            stage_hand_reports[name] = render_hand(
+                stage, asset, stage_action_from_record(stage_defs[name], joint_order),
+                world_from_object, f"/World/StageHands/{name}", hand_materials,
+            )
+        hand_mesh_reports = stage_hand_reports.get("grasp") or stage_hand_reports[stage_order[-1]]
+    else:
+        hand_mesh_reports = render_hand(
+            stage, asset, action, world_from_object, "/World/SharpaHand", hand_materials,
+        )
 
     phase("framing camera")
     object_points = np.concatenate([points_world, vertices], axis=0)
@@ -354,9 +405,27 @@ def visualize_anchored_grasp(app, args: argparse.Namespace, progress=None) -> di
     for prim_path in photo_hidden_prims:
         set_prim_visibility(stage, prim_path, False)
 
-    screenshot, camera_report = capture_orthogonal_composite(
-        app, camera, camera_prim_path, cam_target, cam_radius, args, out_dir, "isaac_anchored_grasp"
-    )
+    if stage_order:
+        # One 1x3 row per stage (only that stage's hand visible), stacked
+        # into a labeled 4x3 grid.
+        row_paths: list[tuple[str, Path]] = []
+        camera_report: dict = {}
+        for name in stage_order:
+            for other in stage_order:
+                set_prim_visibility(stage, f"/World/StageHands/{other}", other == name)
+            row_path, camera_report = capture_orthogonal_composite(
+                app, camera, camera_prim_path, cam_target, cam_radius, args, out_dir, f"stage_{name}"
+            )
+            row_paths.append((name, Path(row_path)))
+        screenshot = compose_stage_grid(row_paths, out_dir / "isaac_anchored_grasp.png")
+        # Interactive/exported scene: show only the contact grasp by default
+        # (the other stage hands stay toggleable).
+        for other in stage_order:
+            set_prim_visibility(stage, f"/World/StageHands/{other}", other == "grasp")
+    else:
+        screenshot, camera_report = capture_orthogonal_composite(
+            app, camera, camera_prim_path, cam_target, cam_radius, args, out_dir, "isaac_anchored_grasp"
+        )
 
     for prim_path in photo_hidden_prims:
         set_prim_visibility(stage, prim_path, True)
@@ -389,6 +458,7 @@ def visualize_anchored_grasp(app, args: argparse.Namespace, progress=None) -> di
         "demo_hand": demo_report,
         "anchor_hand": anchor_report,
         "hand_mesh_count": len(hand_mesh_reports),
+        "stage_hands": {name: len(reports) for name, reports in stage_hand_reports.items()},
         "table": table_report,
         "camera": camera_report,
         "world_from_object": world_from_object.astype(float).tolist(),

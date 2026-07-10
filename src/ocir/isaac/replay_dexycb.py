@@ -373,16 +373,59 @@ def capture_camera_png(app, camera, path: Path) -> None:
 
 
 def write_video(frame_paths: list[Path], out_path: Path, fps: int) -> bool:
-    import cv2
+    """Encode the captured PNG frames as an H.264 mp4 (via ffmpeg, the only
+    reliably available H.264 encoder -- OpenCV builds usually ship without
+    one). Falls back to OpenCV (avc1, then mp4v) if ffmpeg is missing."""
 
     if not frame_paths:
         return False
+
+    import shutil
+    import subprocess
+    import tempfile
+
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg:
+        frame_duration = 1.0 / float(fps)
+        with tempfile.NamedTemporaryFile("w", suffix="_frames.txt", delete=False) as handle:
+            for path in frame_paths:
+                handle.write(f"file '{Path(path).resolve()}'\n")
+                handle.write(f"duration {frame_duration:.6f}\n")
+            # concat demuxer convention: repeat the last file so its duration applies
+            handle.write(f"file '{Path(frame_paths[-1]).resolve()}'\n")
+            list_path = handle.name
+        try:
+            result = subprocess.run(
+                [
+                    ffmpeg, "-y", "-loglevel", "error",
+                    "-f", "concat", "-safe", "0", "-i", list_path,
+                    "-vsync", "vfr",
+                    "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",  # yuv420p needs even dims
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                    "-movflags", "+faststart",
+                    str(out_path),
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                return True
+            print(f"OCIR_ISAAC ffmpeg H.264 encode failed ({result.stderr.strip()}); falling back to OpenCV", flush=True)
+        finally:
+            Path(list_path).unlink(missing_ok=True)
+
+    import cv2
+
     first = cv2.imread(str(frame_paths[0]))
     if first is None:
         return False
     height, width = first.shape[:2]
-    writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*"mp4v"), float(fps), (width, height))
-    if not writer.isOpened():
+    writer = None
+    for fourcc in ("avc1", "mp4v"):
+        writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*fourcc), float(fps), (width, height))
+        if writer.isOpened():
+            break
+    if writer is None or not writer.isOpened():
         return False
     for path in frame_paths:
         image = cv2.imread(str(path))

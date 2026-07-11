@@ -103,21 +103,16 @@ class GuidanceWeights:
     pose_anneal_end: float = 0.6
     afford_decay: tuple[float, float] = (0.6, 0.8)
     #: Asymmetric non-penetration penalty over ALL hand collision spheres
-    #: (relu(-signed_distance)^2, summed). The base staged cost's distance
-    #: term is a SYMMETRIC (dist - target)^2, which is indifferent between
-    #: overshooting into the mesh and stopping at the surface -- this term
-    #: supplies the missing asymmetry. Like the other guidance terms it is
-    #: SCHEDULED, but in the opposite direction: zero through stage 0 and
-    #: linearly ramped in across ``pene_ramp`` (the stage-1 window), reaching
-    #: full weight exactly when the contact schedule enters its final
-    #: (distance=0) stage. Stages 0-1 hold the contact points at a 2cm/1cm
-    #: standoff anyway, so an active penalty there is redundant "stay out"
-    #: pressure that instead fights the pose prior sphere-by-sphere (each
-    #: penetrating sphere pushed along its own SDF normal), contorting the
-    #: hand into the weird basins the rest of the run then refines. Stage 2
-    #: is the only stage where the symmetric term genuinely needs the
-    #: asymmetry, so that is the only stage with the full weight.
-    w_pene: float = 900.0
+    #: (relu(-signed_distance)^2, summed). DISABLED by default (weight 0):
+    #: with the force-closure QP energy live in every stage
+    #: (rollout.ANCHORED_CONTACT_STRATEGY), the staged contact-distance term
+    #: plus the QP's own contact geometry keep the hand at the surface, and
+    #: the penalty's per-sphere SDF pushes were contorting poses. When
+    #: enabled (``--penetration-weight`` > 0) it is scheduled opposite the
+    #: other guidance terms: zero through stage 0, linearly ramped in across
+    #: ``pene_ramp`` (the stage-1 window), full weight in the final
+    #: (distance=0) stage only.
+    w_pene: float = 0.0
     pene_ramp: tuple[float, float] = (0.6, 0.8)
     #: Pairwise sphere-vs-sphere self-collision energy (relu(min_dist -
     #: center_dist)^2, summed over non-adjacent sphere pairs). Unlike every
@@ -133,7 +128,7 @@ class GuidanceWeights:
         *,
         w_afford: float = 20.0,
         pose_scale: float = 1.0,
-        w_pene: float = 900.0,
+        w_pene: float = 0.0,
         w_selfcol: float = 1000.0,
     ) -> "GuidanceWeights":
         stages = list(contact_strategy["opt_progress"])

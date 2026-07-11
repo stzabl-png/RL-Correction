@@ -148,7 +148,7 @@ def solve_sharpa_anchored_bodex(
     rank_pose_weight: float = 0.5,
     force_affordance: bool = False,
     squeeze_min_rad: float = DEFAULT_SQUEEZE_MIN_RAD,
-    penetration_weight: float = 900.0,
+    penetration_weight: float = 0.0,
     selfcollision_weight: float = 1000.0,
     contact_clearance_m: float = DEFAULT_CONTACT_CLEARANCE_M,
 ) -> dict[str, Any]:

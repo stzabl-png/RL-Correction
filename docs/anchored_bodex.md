@@ -96,14 +96,21 @@ scripts/run_grasp_synthesis_conda.sh \
   fingertip/pad contact spheres toward the high-heatmap region
   (`--affordance-weight`, `--afford-tau`, decayed over stages 1->2), and an
   **asymmetric non-penetration penalty** (`--penetration-weight`, default
-  3000): `relu(-signed_distance)^2` summed over ALL 37 hand collision
+  900): `relu(-signed_distance)^2` summed over ALL 37 hand collision
   spheres (their own all-sphere FK, differentiable through the exact SDF
   gradient). The base staged cost's distance term is a symmetric
   `(dist - target)^2` that is indifferent between stopping at the surface
-  and overshooting into the mesh; this term supplies the missing asymmetry,
-  and being relu-gated it stays inert (zero cost, zero gradient) whenever
-  the hand is clear -- it never fights the contact schedule. Empirically it
-  cuts the converged pose's penetration from ~5-6mm to under 1mm.
+  and overshooting into the mesh; this term supplies the missing asymmetry.
+  Unlike the other guidance terms it is ramped **in**, not out: zero through
+  stage 0, linearly increased across stage 1, full weight only in the final
+  distance=0 stage. Stages 0-1 hold the contact points at a 2cm/1cm standoff
+  anyway, so a penalty there is redundant "stay out" pressure that instead
+  fights the pose prior sphere-by-sphere (each penetrating sphere pushed
+  along its own SDF normal), contorting the hand into weird basins the rest
+  of the run then merely refines -- stage 2 is the only stage where the
+  symmetric term genuinely needs the asymmetry. Empirically the penalty cuts
+  the converged pose's penetration from ~5-6mm to the low single millimeters
+  (the `grasp`/`squeeze` stages below absorb whatever remains).
 - **Success is unchanged**: strict success is still pure force-closure +
   contact distance. Similarity only affects *ranking* among successful seeds
   (`--rank-affordance-weight`, `--rank-pose-weight`) and is reported in the

@@ -100,14 +100,22 @@ class GuidanceWeights:
     pose_anneal_end: float = 0.6
     afford_decay: tuple[float, float] = (0.6, 0.8)
     #: Asymmetric non-penetration penalty over ALL hand collision spheres
-    #: (relu(-signed_distance)^2, summed). Constant across stages -- the relu
-    #: makes it inert while the hand is clear of the object, so it never
-    #: fights the staged contact schedule; it only biases the contact-making
-    #: equilibrium to the non-penetrating side. The base staged cost's
-    #: distance term is a SYMMETRIC (dist - target)^2, which is indifferent
-    #: between overshooting into the mesh and stopping at the surface -- this
-    #: term supplies the missing asymmetry.
-    w_pene: float = 3000.0
+    #: (relu(-signed_distance)^2, summed). The base staged cost's distance
+    #: term is a SYMMETRIC (dist - target)^2, which is indifferent between
+    #: overshooting into the mesh and stopping at the surface -- this term
+    #: supplies the missing asymmetry. Like the other guidance terms it is
+    #: SCHEDULED, but in the opposite direction: zero through stage 0 and
+    #: linearly ramped in across ``pene_ramp`` (the stage-1 window), reaching
+    #: full weight exactly when the contact schedule enters its final
+    #: (distance=0) stage. Stages 0-1 hold the contact points at a 2cm/1cm
+    #: standoff anyway, so an active penalty there is redundant "stay out"
+    #: pressure that instead fights the pose prior sphere-by-sphere (each
+    #: penetrating sphere pushed along its own SDF normal), contorting the
+    #: hand into the weird basins the rest of the run then refines. Stage 2
+    #: is the only stage where the symmetric term genuinely needs the
+    #: asymmetry, so that is the only stage with the full weight.
+    w_pene: float = 900.0
+    pene_ramp: tuple[float, float] = (0.6, 0.8)
 
     @classmethod
     def from_contact_strategy(
@@ -116,7 +124,7 @@ class GuidanceWeights:
         *,
         w_afford: float = 20.0,
         pose_scale: float = 1.0,
-        w_pene: float = 3000.0,
+        w_pene: float = 900.0,
     ) -> "GuidanceWeights":
         stages = list(contact_strategy["opt_progress"])
         stage1 = float(stages[1]) if len(stages) > 1 else 0.6
@@ -128,7 +136,17 @@ class GuidanceWeights:
             pose_anneal_end=stage1,
             afford_decay=(stage1, stage2),
             w_pene=float(w_pene),
+            pene_ramp=(stage1, stage2),
         )
+
+    def pene_weight(self, opt_progress: float) -> float:
+        start, end = self.pene_ramp
+        p = float(opt_progress)
+        if p <= start:
+            return 0.0
+        if p >= end:
+            return self.w_pene
+        return self.w_pene * (p - start) / max(end - start, 1e-9)
 
     def pose_prior_weight(self, opt_progress: float) -> float:
         if self.pose_anneal_end <= 0:

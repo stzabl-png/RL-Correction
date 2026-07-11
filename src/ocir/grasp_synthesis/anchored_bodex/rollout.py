@@ -9,7 +9,7 @@ is a frozen reference port and is never modified) that:
   ``BodexGraspCost`` / ``QPEnergy`` (both are shape-driven);
 - takes its initial actions from an :class:`AnchoredSeedGenerator` (retargeted
   human contact-frame poses) instead of object-surface sampling;
-- adds two guidance costs on top of the exact BODex staged cost:
+- adds three guidance costs on top of the exact BODex staged cost:
 
   - ``human_pose_prior``: per-seed deviation from that seed's own un-relaxed
     retargeted anchor (position, sign-invariant quaternion, joints), annealed
@@ -20,6 +20,10 @@ is a frozen reference port and is never modified) that:
     contact points sidesteps the stage-0-only custom-backward gradient path;
     since the BODex distance term pins spheres to the surface anyway, the two
     coincide at convergence. Decayed to zero across stages 1 -> 2.
+  - ``penetration_penalty``: asymmetric all-sphere non-penetration energy,
+    ramped IN across stage 1 and at full weight only in the final
+    distance=0 stage -- the one stage where the symmetric contact-distance
+    term needs the asymmetry (see ``GuidanceWeights``).
 """
 
 from __future__ import annotations
@@ -335,8 +339,9 @@ class AnchoredBodexRollout:
             d2 = torch.cdist(centers, self.afford_points.view(1, -1, 3).expand(b, -1, -1)).min(dim=-1).values ** 2
             out["affordance_attraction"] = self.weights.w_afford * w_afford * d2.mean(dim=-1)
 
-        if self._pene_checker is not None:
-            out["penetration_penalty"] = self.weights.w_pene * self._penetration_cost(flat_action)
+        w_pene = self.weights.pene_weight(opt_progress) if self._pene_checker is not None else 0.0
+        if w_pene > 0.0:
+            out["penetration_penalty"] = w_pene * self._penetration_cost(flat_action)
         return out
 
     def _penetration_cost(self, flat_action: torch.Tensor) -> torch.Tensor:

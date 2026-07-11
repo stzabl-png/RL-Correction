@@ -33,6 +33,7 @@ from ocir.grasp_synthesis.anchored_bodex.guidance import (
     select_contact_points,
 )
 from ocir.grasp_synthesis.anchored_bodex.grasp_stages import (
+    DEFAULT_CONTACT_CLEARANCE_M,
     DEFAULT_SQUEEZE_MIN_RAD,
     SnapshotBodexNewtonOpt,
     compute_grasp_stages,
@@ -147,6 +148,8 @@ def solve_sharpa_anchored_bodex(
     rank_pose_weight: float = 0.5,
     force_affordance: bool = False,
     squeeze_min_rad: float = DEFAULT_SQUEEZE_MIN_RAD,
+    penetration_weight: float = 3000.0,
+    contact_clearance_m: float = DEFAULT_CONTACT_CLEARANCE_M,
 ) -> dict[str, Any]:
     if not torch.cuda.is_available():
         raise RuntimeError("anchored BODex grasp synthesis requires CUDA")
@@ -195,7 +198,10 @@ def solve_sharpa_anchored_bodex(
         else None
     )
     weights = GuidanceWeights.from_contact_strategy(
-        DEFAULT_CONTACT_STRATEGY, w_afford=affordance_weight, pose_scale=pose_weight
+        DEFAULT_CONTACT_STRATEGY,
+        w_afford=affordance_weight,
+        pose_scale=pose_weight,
+        w_pene=penetration_weight,
     )
 
     pts = np.asarray(surface.points_object_frame, dtype=np.float32)
@@ -314,6 +320,7 @@ def solve_sharpa_anchored_bodex(
             "pose_anneal_end": float(weights.pose_anneal_end),
             "afford_decay": list(weights.afford_decay),
             "afford_tau": float(afford_tau),
+            "penetration_weight": float(weights.w_pene),
         },
         "seed_params": {
             "relax_flexion": float(relax_flexion),
@@ -357,6 +364,7 @@ def solve_sharpa_anchored_bodex(
             stage_clearance_checker,
             rollouts[0].contact_world,
             squeeze_min_rad=squeeze_min_rad,
+            contact_clearance_m=contact_clearance_m,
         )
         record = {
             "ok": bool(success[seed_idx].item()),

@@ -142,6 +142,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rank-affordance-weight", type=float, default=1.0)
     parser.add_argument("--rank-pose-weight", type=float, default=0.5)
     parser.add_argument("--squeeze-min", type=float, default=0.15, help="Flexion-only floor (rad) on the squeeze stage's per-joint extrapolation beyond the contact grasp.")
+    parser.add_argument("--penetration-weight", type=float, default=3000.0, help="Weight of the asymmetric all-sphere non-penetration energy (relu(-sdf)^2 summed); 0 disables it.")
+    parser.add_argument("--contact-clearance", type=float, default=0.002, help="SDF clearance (m) the grasp stage keeps from the object surface (contact force comes from squeeze, not from a zero-clearance commanded pose).")
     parser.add_argument("--force-affordance", action="store_true", help="Recompute the per-sequence affordance cache.")
     parser.add_argument(
         "--auto-export-demo",
@@ -259,6 +261,8 @@ def main(argv: list[str] | None = None) -> int:
                 rank_pose_weight=args.rank_pose_weight,
                 force_affordance=args.force_affordance,
                 squeeze_min_rad=args.squeeze_min,
+                penetration_weight=args.penetration_weight,
+                contact_clearance_m=args.contact_clearance,
             )
         except Exception as exc:
             solver_failures += 1

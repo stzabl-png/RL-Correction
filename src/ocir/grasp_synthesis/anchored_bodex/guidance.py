@@ -99,10 +99,24 @@ class GuidanceWeights:
     w_pose: tuple[float, float, float] = (300.0, 30.0, 3.0)  # pos, rot, joints
     pose_anneal_end: float = 0.6
     afford_decay: tuple[float, float] = (0.6, 0.8)
+    #: Asymmetric non-penetration penalty over ALL hand collision spheres
+    #: (relu(-signed_distance)^2, summed). Constant across stages -- the relu
+    #: makes it inert while the hand is clear of the object, so it never
+    #: fights the staged contact schedule; it only biases the contact-making
+    #: equilibrium to the non-penetrating side. The base staged cost's
+    #: distance term is a SYMMETRIC (dist - target)^2, which is indifferent
+    #: between overshooting into the mesh and stopping at the surface -- this
+    #: term supplies the missing asymmetry.
+    w_pene: float = 3000.0
 
     @classmethod
     def from_contact_strategy(
-        cls, contact_strategy: dict, *, w_afford: float = 20.0, pose_scale: float = 1.0
+        cls,
+        contact_strategy: dict,
+        *,
+        w_afford: float = 20.0,
+        pose_scale: float = 1.0,
+        w_pene: float = 3000.0,
     ) -> "GuidanceWeights":
         stages = list(contact_strategy["opt_progress"])
         stage1 = float(stages[1]) if len(stages) > 1 else 0.6
@@ -113,6 +127,7 @@ class GuidanceWeights:
             w_pose=tuple(pose_scale * w for w in base.w_pose),
             pose_anneal_end=stage1,
             afford_decay=(stage1, stage2),
+            w_pene=float(w_pene),
         )
 
     def pose_prior_weight(self, opt_progress: float) -> float:

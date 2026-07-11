@@ -43,6 +43,7 @@ from curobo._src.rollout.metrics import CostCollection, CostsAndConstraints, Rol
 from ocir.grasp_synthesis.assets import load_sharpa_wave_right
 from ocir.grasp_synthesis.anchored_bodex.guidance import GuidanceWeights
 from ocir.grasp_synthesis.anchored_bodex.seed_generator import AnchoredSeedGenerator
+from ocir.grasp_synthesis.clearance import ClearanceChecker
 from ocir.grasp_synthesis.bodex_curobo_v2.contact_world import SingleObjectContactWorld
 from ocir.grasp_synthesis.bodex_curobo_v2.grasp_cost import BodexGraspCost, BodexGraspCostConfig
 from ocir.grasp_synthesis.bodex_curobo_v2.grasp_energy import normalize_vector
@@ -185,6 +186,20 @@ class AnchoredBodexRollout:
             dtype=torch.bool,
         )
 
+        # All-sphere FK for the non-penetration penalty: the contact-subset
+        # kinematics above only covers the contact links, but penetration can
+        # happen anywhere on the hand (phalanges, palm bulk). ClearanceChecker
+        # brings its own all-sphere-link Kinematics; its sphere positions are
+        # differentiable through FK, and get_sphere_contact_pdn's backward
+        # carries the exact SDF gradient for the distance term.
+        self._pene_checker = ClearanceChecker(self.asset, self.device_cfg) if self.weights.w_pene > 0.0 else None
+        self._pene_expand_idx = torch.tensor(
+            [self.full_joint_order.index(name) for name in self.joint_names],
+            device=self.device_cfg.device,
+            dtype=torch.long,
+        )
+        self._pene_perturb_placeholder = self.device_cfg.to_device(np.zeros((1, 1, 3), dtype=np.float32))
+
     @property
     def action_dim(self) -> int:
         return 7 + len(self.joint_names)
@@ -319,7 +334,33 @@ class AnchoredBodexRollout:
             centers = robot_spheres[:, 0, self._afford_mask, :3]  # (b, n_masked, 3)
             d2 = torch.cdist(centers, self.afford_points.view(1, -1, 3).expand(b, -1, -1)).min(dim=-1).values ** 2
             out["affordance_attraction"] = self.weights.w_afford * w_afford * d2.mean(dim=-1)
+
+        if self._pene_checker is not None:
+            out["penetration_penalty"] = self.weights.w_pene * self._penetration_cost(flat_action)
         return out
+
+    def _penetration_cost(self, flat_action: torch.Tensor) -> torch.Tensor:
+        """Asymmetric non-penetration energy over ALL hand collision spheres:
+        sum(relu(-signed_distance)^2), meters^2. Zero whenever the hand is
+        clear of the object, so it never competes with the staged contact
+        schedule -- it only forbids the overshoot INTO the mesh that the
+        symmetric distance term is indifferent to."""
+
+        b = flat_action.shape[0]
+        n_full = len(self.full_joint_order)
+        full_q = torch.zeros((b, n_full), device=flat_action.device, dtype=flat_action.dtype)
+        full_q.index_copy_(1, self._pene_expand_idx, flat_action[:, 7:])
+        full_actions = torch.cat([flat_action[:, :7], full_q], dim=-1)
+
+        centers = self._pene_checker.sphere_world_positions(full_actions)  # (b, N, 3)
+        n_spheres = centers.shape[1]
+        radii = self._pene_checker.radii.view(1, n_spheres, 1).expand(b, n_spheres, 1)
+        spheres = torch.cat([centers, radii], dim=-1)
+        _, distance, _, _, _ = self.contact_world.get_sphere_contact_pdn(
+            spheres, None, self._pene_perturb_placeholder, env_query_idx=None
+        )
+        penetration = torch.relu(-distance)  # (b, N) depth in meters
+        return (penetration**2).sum(dim=-1)
 
     def _costs_and_constraints(self, state: JointState, opt_progress: float = 0.0) -> CostsAndConstraints:
         action = state.position

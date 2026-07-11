@@ -239,9 +239,11 @@ def solve_sharpa_anchored_bodex(
         device_cfg=device_cfg,
     )
     # Snapshot variant of the BODex optimizer: records the per-seed actions
-    # the moment the staged contact cost enters its final (distance=0) stage
-    # -- these become each record's "pregrasp" stage (BODex's save_qpos).
-    snapshot_progress = float(DEFAULT_CONTACT_STRATEGY["opt_progress"][-1])
+    # the moment the staged contact cost enters its middle (1cm-standoff)
+    # stage -- i.e. the end of phase 0, the pose optimized under the initial
+    # ~2cm-standoff target. These become each record's "pregrasp" stage
+    # (BODex's save_qpos), the loosest of the three staged targets.
+    snapshot_progress = float(DEFAULT_CONTACT_STRATEGY["opt_progress"][1])
     newton_opt = SnapshotBodexNewtonOpt(
         opt_cfg, rollouts, use_cuda_graph=False, snapshot_progress=snapshot_progress
     )

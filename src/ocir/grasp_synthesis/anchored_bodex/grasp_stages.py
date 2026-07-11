@@ -6,12 +6,13 @@ Every written grasp record carries four wrist+finger poses instead of one:
   penetrates the object by several mm (the staged contact cost's final
   target distance is 0 and the optimizer overshoots into the SDF).
 - ``pregrasp``: the mid-optimization snapshot taken the moment the staged
-  contact cost enters its final (distance = 0) stage -- i.e. the pose
-  optimized under the previous ~1cm-standoff target. This reproduces
-  BODex's own ``save_qpos``/``mid_result`` mechanism; since the optimizer
-  loop lives in the frozen ``bodex_curobo_v2`` module, the snapshot is taken
-  by *subclassing* its optimizer core (:class:`SnapshotBodexNewtonOpt`),
-  never by modifying it.
+  contact cost enters its middle (1cm-standoff) stage -- i.e. the pose
+  optimized under the initial ~2cm-standoff target, the loosest of the three
+  staged targets and the end of the optimizer's first (force-closure-scored)
+  phase. This reproduces BODex's own ``save_qpos``/``mid_result`` mechanism;
+  since the optimizer loop lives in the frozen ``bodex_curobo_v2`` module,
+  the snapshot is taken by *subclassing* its optimizer core
+  (:class:`SnapshotBodexNewtonOpt`), never by modifying it.
 - ``grasp``: the raw grasp retreated along the pregrasp -> raw_grasp
   interpolation path (lerp position/joints + slerp orientation) to the
   largest fraction whose full-hand SDF clearance is still >=

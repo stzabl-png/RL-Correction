@@ -209,7 +209,8 @@ Design iterations in chronological order, with the observed result of each
 the three available DexYCB sequences 20200709_151724 (wood block),
 20200709_142123 (potted meat can), 20200709_150949 (mug), all with
 `failed_grasp` records from anchored-BODex (their grasp poses penetrate the
-object by 5-13mm -- the recurring root cause below).
+object by 5-13mm -- the recurring root cause below, fixed at the source in
+v15).
 
 ### v1 -- initial implementation (2026-07-09)
 
@@ -438,6 +439,46 @@ stable, without hand-object pass-through or pinch-ejection. Per-step
 `finger_track.npz` now stores desired, governed, and actual joint positions to
 make future controller regressions directly measurable.
 
+### v15 -- in-optimization non-penetration penalty + shy-of-contact stages (2026-07-11)
+
+Following a comparison against UltraDexGrasp (InternRobotics; a BODex +
+cuRobo rollout pipeline), two root-cause fixes moved into anchored-BODex
+itself:
+
+- **Non-penetration energy in the optimizer** (`--penetration-weight`,
+  default 3000): `relu(-sdf)^2` summed over all 37 hand collision spheres,
+  differentiable through the exact SDF gradient, added as a guidance cost
+  (frozen `bodex_curobo_v2` untouched). The staged cost's symmetric
+  `(dist-target)^2` term was indifferent between stopping at the surface
+  and overshooting into it; UltraDexGrasp's upstream BODex serializes a
+  `pene_error` field our port never had. **Result: converged-pose
+  penetration fell from -5.6/-12.6/-4.8mm to under -1.3mm on every top-8
+  record of all three sequences** -- the defect that motivated the entire
+  downstream repair chain (v5 wrist back-off, v7 stage retreat) is now
+  fixed at the source.
+- **Grasp stage kept shy of contact** (`--contact-clearance`, 2mm) and
+  **squeeze delta taken from the full raw-pregrasp closing motion** (was
+  grasp-pregrasp, which collapses to the flat floor when the retreat lands
+  on the snapshot), adopting UltraDexGrasp's stance that the tightest
+  converged pose is a force direction, not a configuration to physically
+  reach. When the whole pregrasp->raw path sits inside the margin (now
+  common), the pregrasp snapshot itself becomes the commanded grasp.
+  Trajectory generation skips cuRobo for the now-frequently-degenerate
+  sub-2mm pregrasp->grasp leg (`interp_short`).
+
+**Result: geometry fixed at the cause; outcomes unchanged.** All three
+sequences run stably (contact drive error 0.028-0.039rad) but none lifts:
+the wood block is knocked over during the step-in. A seeded margin
+ablation (0.5mm vs 2mm contact clearance -- deterministic, identical
+optimization) produced **bit-identical** physics metrics, proving the
+knock-over happens before the differing close targets matter; the margin
+is not the blocker. Two residual leads: (a) still 0 strictly-successful
+seeds -- the fingertip-on-top block grasps lack force closure regardless
+of penetration; (b) ranking can now surface poor-force-closure seeds
+(142123's top-3 have grasp_error ~1.09 while ranks 3+ sit at ~0.035)
+because `rank_score` mixes similarity terms -- grasp-error-aware ranking
+is a cheap next candidate.
+
 ### Tooling (2026-07-10, commits 3da7b95 + 3946a12)
 
 Videos encoded H.264/yuv420p via ffmpeg; console output reduced to progress
@@ -445,9 +486,15 @@ lines + one core-metrics summary (full diagnostics stay in `report.json`).
 
 ### Known bottleneck / next candidates
 
-- All three test records are `failed_grasp` outputs whose synthesized poses
-  penetrate the object; sustained lifts most likely require
+- All three test records remain `failed_grasp` outputs (0 strictly
+  successful seeds). Since v15 their poses no longer meaningfully penetrate
+  the object (sub-millimeter), so the residual blocker is force-closure
+  quality itself -- fingertip-on-top grasps of the tall block knock it over
+  during the step-in; sustained lifts most likely require
   strictly-successful upstream grasp records.
+- Ranking mixes similarity terms into `rank_score` and can promote
+  poor-force-closure seeds over much better ones (see v15) --
+  grasp-error-aware ranking is a cheap next candidate.
 - Deferred structural option: a compliant 6-DOF *driven* wrist (MagicSim
   `SharpaWaveFloating` gains) instead of tensor-API root teleports, so the
   wrist yields on contact conflict rather than forcing penetration.

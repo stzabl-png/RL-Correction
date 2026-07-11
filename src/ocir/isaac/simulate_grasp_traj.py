@@ -217,7 +217,7 @@ def setup_hand_articulation_root(stage, ref_path: str) -> str:
     return str(root_prim.GetPath())
 
 
-def high_friction_material(stage, root_path: str, mat_path: str, *, static_friction: float, dynamic_friction: float, restitution: float = 0.0, combine_mode: str = "multiply") -> dict:
+def high_friction_material(stage, root_path: str, mat_path: str, *, static_friction: float, dynamic_friction: float, restitution: float = 0.0, combine_mode: str = "multiply", link_suffixes: tuple[str, ...] | None = None) -> dict:
     from pxr import PhysxSchema, Usd, UsdGeom, UsdPhysics, UsdShade
 
     if not stage.GetPrimAtPath(mat_path).IsValid():
@@ -233,10 +233,22 @@ def high_friction_material(stage, root_path: str, mat_path: str, *, static_frict
         PhysxSchema.PhysxMaterialAPI.Apply(mat_prim)
     PhysxSchema.PhysxMaterialAPI(mat_prim).CreateFrictionCombineModeAttr().Set(combine_mode)
 
+    def _link_name(mesh_prim) -> str | None:
+        cur = mesh_prim
+        while cur and cur.IsValid():
+            if cur.HasAPI(UsdPhysics.RigidBodyAPI):
+                return cur.GetName()
+            cur = cur.GetParent()
+        return None
+
     root = stage.GetPrimAtPath(root_path)
     bound_paths: list[str] = []
     for prim in Usd.PrimRange(root):
         if prim.IsA(UsdGeom.Mesh) and prim.HasAPI(UsdPhysics.CollisionAPI):
+            if link_suffixes is not None:
+                link = _link_name(prim)
+                if link is None or not link.endswith(link_suffixes):
+                    continue
             UsdShade.MaterialBindingAPI(prim).Bind(
                 UsdShade.Material(mat_prim), bindingStrength=UsdShade.Tokens.strongerThanDescendants, materialPurpose="physics"
             )
@@ -248,6 +260,7 @@ def high_friction_material(stage, root_path: str, mat_path: str, *, static_frict
         "restitution": float(restitution),
         "friction_combine_mode": combine_mode,
         "binding_strength": "strongerThanDescendants",
+        "link_suffixes": list(link_suffixes) if link_suffixes is not None else None,
         "bound_collider_count": len(bound_paths),
         "bound_collider_paths": bound_paths,
     }
@@ -870,21 +883,46 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
     phase("building hand")
     hand_usd_path = Path(args.hand_usd) if args.hand_usd else load_sharpa_wave_right(args.asset_config).usd_path
     hand_report = build_hand(stage, hand_usd_path, args)
-    # Friction follows the Articulation_Bodex reference: the high-friction
-    # material goes on the OBJECT only (the hand keeps its ordinary asset
-    # material) and the pair combine mode is "max", so the contact pair sees
-    # exactly --friction. The previous both-sides x multiply setup made the
-    # effective pair friction friction^2 (4.0), a plausible source of weird
-    # sticking/torquing on contact.
-    hand_friction_report = {
-        "material_path": None,
-        "bound_collider_count": 0,
-        "note": "hand keeps its ordinary asset material; object material combine mode 'max' sets the pair friction",
-    }
-    object_friction_report = high_friction_material(
-        stage, OBJECT_REF, "/World/Materials/ObjectFriction",
-        static_friction=args.friction, dynamic_friction=args.friction,
-        combine_mode=str(args.friction_combine_mode),
+    # Friction targets model the physical pairs, not a single knob. "pads"
+    # (default): the high-friction material goes on the 10 grasping-surface
+    # colliders only (the *_DP distals and *_elastomer fingertip pads -- the
+    # silicone parts); everything else (object, table, palm, phalanges) keeps
+    # the PhysX default 0.5/average, so pad-object contact sees --pad-friction
+    # via combine mode "max" while object-table and shell-object contact see a
+    # realistic 0.5. "object": the Articulation_Bodex-style setup -- the
+    # material goes on the OBJECT only and every pair the object touches
+    # (table included) sees --friction.
+    if str(args.friction_target) == "pads":
+        hand_friction_report = high_friction_material(
+            stage, HAND_REF, "/World/Materials/PadFriction",
+            static_friction=args.pad_friction, dynamic_friction=args.pad_friction,
+            combine_mode=str(args.friction_combine_mode),
+            link_suffixes=("_DP", "_elastomer"),
+        )
+        object_friction_report = {
+            "material_path": None,
+            "bound_collider_count": 0,
+            "note": "object keeps the PhysX default material (0.5/0.5, average); pad material combine mode sets the pad-object pair friction",
+        }
+        if hand_friction_report["bound_collider_count"] != 10:
+            log(
+                f"WARNING: expected 10 pad colliders (5x DP + 5x elastomer), bound "
+                f"{hand_friction_report['bound_collider_count']} -- pad friction may not cover the grasping surfaces"
+            )
+    else:
+        hand_friction_report = {
+            "material_path": None,
+            "bound_collider_count": 0,
+            "note": "hand keeps its ordinary asset material; object material combine mode sets the pair friction",
+        }
+        object_friction_report = high_friction_material(
+            stage, OBJECT_REF, "/World/Materials/ObjectFriction",
+            static_friction=args.friction, dynamic_friction=args.friction,
+            combine_mode=str(args.friction_combine_mode),
+        )
+    log(
+        f"friction target={args.friction_target}: hand colliders bound={hand_friction_report['bound_collider_count']}, "
+        f"object colliders bound={object_friction_report['bound_collider_count']}"
     )
     set_world_pose(stage, HAND_WRAP, all_pos_isaac[0], all_quat_isaac[0])
 
@@ -1145,8 +1183,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument("--object-mass", type=float, default=None)
     parser.add_argument("--object-density", type=float, default=700.0)
-    parser.add_argument("--friction", type=float, default=2.0, help="Static+dynamic friction of the OBJECT's physics material (the hand keeps its ordinary asset material; with combine mode 'max' the contact pair sees exactly this value).")
-    parser.add_argument("--friction-combine-mode", choices=["max", "multiply", "average", "min"], default="max", help="PhysX friction combine mode of the object material (reference setup: max).")
+    parser.add_argument("--friction-target", choices=["pads", "object"], default="pads", help="pads: bind the high-friction material to the 10 grasping-surface hand colliders (*_DP + *_elastomer) at --pad-friction; object and table keep the PhysX default 0.5. object: bind it to the object at --friction (Articulation_Bodex-style; every pair the object touches sees that value).")
+    parser.add_argument("--pad-friction", type=float, default=1.2, help="Static+dynamic friction of the fingertip pad material (friction target 'pads'); realistic for silicone elastomer on hard surfaces.")
+    parser.add_argument("--friction", type=float, default=2.0, help="Static+dynamic friction of the OBJECT's physics material (friction target 'object' only).")
+    parser.add_argument("--friction-combine-mode", choices=["max", "multiply", "average", "min"], default="max", help="PhysX friction combine mode of the bound material; 'max' outranks the default material's 'average', so the bound side's value wins the pair.")
     parser.add_argument("--joint-stiffness", type=float, default=80.0)
     parser.add_argument("--joint-damping", type=float, default=20.0)
     parser.add_argument("--joint-effort-profile", choices=["baked", "uniform"], default="baked", help="baked: use the asset's own per-joint drive maxForce limits (the BODex-tuned values shipped in the hand USD) in every segment; uniform: overwrite all joints with the --joint-max-force / --close-joint-max-force scalars (pre-tuned behavior).")

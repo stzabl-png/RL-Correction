@@ -56,6 +56,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--isaac-hand-usd", type=Path, default=None)
     parser.add_argument("--isaac-object-mass", type=float, default=None)
     parser.add_argument("--isaac-object-density", type=float, default=700.0)
+    parser.add_argument("--isaac-friction-target", choices=["pads", "object"], default="pads")
+    parser.add_argument("--isaac-pad-friction", type=float, default=1.2)
     parser.add_argument("--isaac-friction", type=float, default=2.0)
     parser.add_argument("--isaac-friction-combine-mode", choices=["max", "multiply", "average", "min"], default="max")
     parser.add_argument("--isaac-joint-stiffness", type=float, default=80.0)
@@ -145,6 +147,8 @@ def _simulation_params(args: argparse.Namespace, trajectory_dir: Path, out_dir: 
         "hand_usd": str(args.isaac_hand_usd) if args.isaac_hand_usd else None,
         "object_mass": args.isaac_object_mass,
         "object_density": args.isaac_object_density,
+        "friction_target": args.isaac_friction_target,
+        "pad_friction": args.isaac_pad_friction,
         "friction": args.isaac_friction,
         "friction_combine_mode": args.isaac_friction_combine_mode,
         "joint_stiffness": args.isaac_joint_stiffness,

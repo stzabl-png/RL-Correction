@@ -193,9 +193,14 @@ explicit regression comparison with `--no-contact-aware-finger-targets`.
 
 `--object-mass` (explicit override; known YCB objects use their published
 mass, otherwise mesh volume x `--object-density` 700 kg/m^3),
-`--friction` (2.0, object material only; the hand keeps its ordinary asset
-material) with `--friction-combine-mode` (`max`, so the contact pair sees
-exactly 2.0 -- the old both-sides multiply setup made it 4.0),
+`--friction-target` (`pads`: the high-friction material binds to the 10
+grasping-surface hand colliders only -- the `*_DP` distals and `*_elastomer`
+fingertip pads -- at `--pad-friction` 1.2, while the object, table, palm, and
+phalanges keep the PhysX default 0.5; `object` restores the v16
+Articulation_Bodex-style setup where `--friction` 2.0 binds to the object and
+every pair the object touches sees it) with `--friction-combine-mode` (`max`,
+so the bound material's value outranks the default material's `average` and
+wins the pair),
 `--joint-effort-profile` (`baked`),
 `--joint-stiffness/-damping/-max-force/-armature/-friction`
 (80/20/300/0.01/0.05; the force scalars apply under `uniform` only),
@@ -559,6 +564,29 @@ three failed-force-closure records lifts, consistent with the known
 bottleneck below. `report.json` now records `hand.joint_effort_profile` +
 `hand.resolved_max_efforts` and the hand/object friction material setup.
 
+### v17 -- per-pair realistic friction: pad-only material (2026-07-11)
+
+The v16 object-material setup had a scoping problem: a material's combine
+mode governs EVERY pair its collider participates in, so the object's
+2.0/`max` material also set object-table friction to 2.0 (up from the
+multiply-era 1.0) and gave the hard palm/phalanx shells the same grip as the
+silicone fingertips. v17 models the physical pairs instead
+(`--friction-target pads`, the new default): the high-friction material
+(1.2/1.2, restitution 0, combine `max`) binds to only the 10
+grasping-surface hand colliders -- the 5 `*_DP` distals and 5 `*_elastomer`
+fingertip pads, exactly the links whose BODex geometry v16 ported -- and
+nothing else carries a material. Resulting pair frictions: pad-object 1.2
+(realistic for silicone elastomer on hard surfaces, 4x margin over the
+synthesis QP's mu=0.3 force-closure cone), shell-object 0.5, object-table
+0.5 (PhysX default material, `average` combine). `--friction-target object`
+restores the v16 behavior with `--friction`. This is strictly harsher
+everywhere except the pad contact itself -- it measures synthesis quality
+more nakedly. Validation on the wood block (identical Stage A trajectory):
+exactly 10 colliders bound (report `hand_friction.bound_collider_paths`),
+run stable, and both contact metrics improved vs v16 (pre-carry disturbance
+4.0mm -> 2.7mm, max contact drive-target error 0.19 -> 0.04 rad); still no
+lift, as expected for a failed-force-closure record.
+
 ### Tooling (2026-07-10, commits 3da7b95 + 3946a12)
 
 Videos encoded H.264/yuv420p via ffmpeg; console output reduced to progress
@@ -568,8 +596,9 @@ lines + one core-metrics summary (full diagnostics stay in `report.json`).
 
 - All three test records remain `failed_grasp` outputs (0 strictly
   successful seeds). Since v15 their poses no longer meaningfully penetrate
-  the object (sub-millimeter), and as of v16 the physics stack is
-  reference-faithful (tuned colliders/efforts, pair friction exactly 2.0)
+  the object (sub-millimeter), and as of v16/v17 the physics stack is
+  reference-faithful and per-pair realistic (tuned colliders/efforts,
+  pad-object friction 1.2, everything else 0.5)
   with minimal on-contact disturbance -- the residual blocker is
   force-closure quality itself: none of the three grasps lifts under honest
   physics; sustained carries most likely require strictly-successful

@@ -1,7 +1,10 @@
 name: sharpa_wave_right
 side: right
 urdf_path: urdf/right_sharpa_wave/right_sharpa_wave.urdf
-usd_path: usd/right/right_sharpa_wave/right_sharpa_wave.usd
+# Derived asset (scripts/isaac/build_tuned_hand_usd.py): OCIR structure +
+# BODex distal/elastomer collider geometry, baked convexDecomposition and
+# 4mm/1mm contact/rest offsets, tuned per-joint drive maxForce limits.
+usd_path: usd/right/right_sharpa_wave_tuned/right_sharpa_wave_tuned.usd
 base_link: right_hand_C_MC
 ee_link: right_hand_C_MC
 joint_order:

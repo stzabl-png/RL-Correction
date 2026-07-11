@@ -143,9 +143,22 @@ Per-link velocity/depenetration caps and articulation solver iterations
 20/10 keep contact-heavy squeezes stable. Each `app.update()` advances sim
 time 1/60s, so `--sim-steps-per-frame 2` plays a 30fps trajectory in real
 time. During the close segment the finger drives are softened
-(`--close-joint-stiffness`/`--close-joint-max-force`) so an early-touching
-finger stalls instead of shoving the object; full gains return for
-squeeze/carry. During squeeze and carry, the contact-aware target
+(`--close-joint-stiffness`, and under the `uniform` effort profile
+`--close-joint-max-force`) so an early-touching finger stalls instead of
+shoving the object; full stiffness returns for squeeze/carry.
+
+**Per-joint effort limits** (`--joint-effort-profile`, default `baked`): the
+tuned hand USD ships BODex's per-joint drive `maxForce` limits (MCP 1.864,
+PIP/thumb-IP 0.638, DIP 0.189, pinky CMC 0.5285, thumb CMC 3.3 Nm). Under
+`baked` these are read from the asset and applied as the per-DOF effort
+vector in **every** segment -- at stiffness 80 an MCP saturates its cap at
+0.023 rad of error, so a blocked finger presses with a bounded, tuned force
+instead of the uniform 300 Nm cap shoving the object. `uniform` restores the
+pre-tuned scalar behavior (`--joint-max-force` 300 / `--close-joint-max-force`
+60) for regression comparisons. The resolved per-joint limits are recorded in
+`report.json` under `hand.resolved_max_efforts`.
+
+During squeeze and carry, the contact-aware target
 governor recomputes each position-drive target before every physics update
 and limits it to `--contact-target-lead-rad` (0.03rad) from that joint's
 actual position. A blocked finger therefore applies bounded virtual-spring
@@ -159,10 +172,18 @@ explicit regression comparison with `--no-contact-aware-finger-targets`.
   collision at `--sdf-resolution` (256). Convex decomposition (`convex`)
   bridges concavities, which wedges the object inside the closed hand's hull
   volume and makes it follow the hand ("suction") or pop out violently.
-- **Hand**: baked convex-hull colliders, inflated by `--hand-rest-offset`
-  (0.001m rest offset on every collider -- the "+1mm on the hand collision
-  mesh" physical-gripper calibration) so fingers never enter the
-  deep-penetration regime.
+- **Hand**: the default asset is the **derived tuned hand**
+  (`assets/robots/hands/sharpa_wave/usd/right/right_sharpa_wave_tuned/`,
+  built by `scripts/isaac/build_tuned_hand_usd.py`): OCIR's structure (22
+  DOFs, 33 bodies, palm root) with Articulation_Bodex's distal + elastomer
+  collision meshes (contact-shaped fingertip pads; the old asset's convex
+  *hulls* filled the pad concavities) and every collider baked as PhysX
+  `convexDecomposition` (minThickness 2mm, hullVertexLimit 64, maxConvexHulls
+  16) with 4mm contact / 1mm rest offsets. A `provenance.json` records source
+  hashes; rebuilding fails if a source USD changed. `--hand-rest-offset` is
+  now an explicit override only -- by default the baked offsets are kept.
+  `--hand-usd` swaps in an alternative asset (e.g. the old
+  `right_sharpa_wave/right_sharpa_wave.usd` for A/B runs).
 - **Debug mode**: `--carry-mode kinematic` turns the object into a pure
   visual prim (no collision) teleported along the reference trajectory,
   validating trajectory/frame-mapping geometry only
@@ -172,9 +193,13 @@ explicit regression comparison with `--no-contact-aware-finger-targets`.
 
 `--object-mass` (explicit override; known YCB objects use their published
 mass, otherwise mesh volume x `--object-density` 700 kg/m^3),
-`--friction` (2.0, both sides, multiply combine),
+`--friction` (2.0, object material only; the hand keeps its ordinary asset
+material) with `--friction-combine-mode` (`max`, so the contact pair sees
+exactly 2.0 -- the old both-sides multiply setup made it 4.0),
+`--joint-effort-profile` (`baked`),
 `--joint-stiffness/-damping/-max-force/-armature/-friction`
-(80/20/300/0.01/0.05), `--lift-threshold`/`--drop-threshold`
+(80/20/300/0.01/0.05; the force scalars apply under `uniform` only),
+`--lift-threshold`/`--drop-threshold`
 (0.02m/0.005m), `--tabletop-z` (0.0), `--time-steps-per-second` (120, PhysX
 substep rate, keep a multiple of 60), `--capture-every` (1),
 `--settle-steps` (60), `--video-fps` (trajectory fps),
@@ -479,6 +504,61 @@ of penetration; (b) ranking can now surface poor-force-closure seeds
 because `rank_score` mixes similarity terms -- grasp-error-aware ranking
 is a cheap next candidate.
 
+### v16 -- tuned hand asset: BODex colliders + baked per-joint efforts (2026-07-11)
+
+Two properties ported from the proven Articulation_Bodex reference hand,
+after auditing both USDs directly (pxr from the isaacsim `omni.usd.libs`
+extension, no Isaac boot):
+
+- **Derived tuned asset** (`scripts/isaac/build_tuned_hand_usd.py` ->
+  `assets/.../right_sharpa_wave_tuned/`): the audit showed both assets have
+  the SAME 26 collider links with identical local-to-link transforms; 16 are
+  geometry-identical and only differed in settings (ours plain `convexHull`,
+  no offsets -- hulls fill the fingertip-pad concavities), while the 5
+  distal + 5 elastomer meshes (the grasping surfaces) genuinely differ.
+  The build flattens our asset, swaps in the BODex pad geometry, and bakes
+  `convexDecomposition` (2mm minThickness / 64 hull verts / 16 hulls) with
+  4mm/1mm contact/rest offsets on all 26. `provenance.json` + `--verify`
+  audit (DOF/body/collider counts, settings, geometry hashes, tuned effort
+  values) guard regeneration. `--hand-rest-offset` became an explicit
+  override (default: keep baked offsets).
+- **Baked per-joint effort limits** (`--joint-effort-profile baked`,
+  default): the audit's second finding was that our USD already ships the
+  exact BODex-tuned per-joint `maxForce` values (MCP 1.864 / PIP 0.638 /
+  DIP 0.189 / pinky CMC 0.5285 / thumb CMC 3.3 Nm) -- the runtime simply
+  clobbered them with scalar 300 (60 during close). Now the tuned vector is
+  read from the asset and applied from the first close step through
+  squeeze/carry. **Free-space segments keep the scalar authority**: the
+  first attempt applied tuned caps in every segment and the mug sequence's
+  fast switch->pregrasp finger swing lagged >1 rad, sweeping the still-
+  closed fingers into the object (6.6m ejection during approach); caps are
+  for bounding contact forces, not free-space tracking. `uniform` restores
+  the old scalars for regression runs.
+
+Also in v16, the **friction setup now matches the reference**: the
+high-friction material (2.0/2.0, restitution 0) binds to the object only,
+the hand keeps its ordinary asset material, and the object material's
+combine mode is `max` (`--friction-combine-mode`) -- so the hand-object
+pair sees exactly 2.0. Previously BOTH sides carried 2.0 with `multiply`
+combine, giving an effective pair friction of 4.0: strong enough to torque
+the object around a single early fingertip contact, a plausible source of
+the weird on-contact motions.
+
+A/B on the three sequences (identical Stage A trajectories; old = old asset
++ uniform efforts + both-sides multiply friction, new = full v16): all runs
+stable, the mug ejection from the interim every-segment-caps attempt is
+eliminated, and pre-carry object disturbance and final object error improve
+or hold on every sequence (block: 3.7mm -> 1.8mm disturbance, 0.32 -> 0.24m
+final error; meat can: 0.36 -> 0.25m; mug: 0.13 -> 0.11m disturbance,
+0.24 -> 0.22m). One finding to be honest about: the old config "lifted" the
+wood block (3cm, sustained) -- that lift reproduced under the new
+asset/efforts but **disappeared with the friction fix**, i.e. it was an
+artifact of the unphysical 4.0 pair friction gluing the block to the
+fingertips, not a real grasp. Under reference-faithful physics none of the
+three failed-force-closure records lifts, consistent with the known
+bottleneck below. `report.json` now records `hand.joint_effort_profile` +
+`hand.resolved_max_efforts` and the hand/object friction material setup.
+
 ### Tooling (2026-07-10, commits 3da7b95 + 3946a12)
 
 Videos encoded H.264/yuv420p via ffmpeg; console output reduced to progress
@@ -488,10 +568,12 @@ lines + one core-metrics summary (full diagnostics stay in `report.json`).
 
 - All three test records remain `failed_grasp` outputs (0 strictly
   successful seeds). Since v15 their poses no longer meaningfully penetrate
-  the object (sub-millimeter), so the residual blocker is force-closure
-  quality itself -- fingertip-on-top grasps of the tall block knock it over
-  during the step-in; sustained lifts most likely require
-  strictly-successful upstream grasp records.
+  the object (sub-millimeter), and as of v16 the physics stack is
+  reference-faithful (tuned colliders/efforts, pair friction exactly 2.0)
+  with minimal on-contact disturbance -- the residual blocker is
+  force-closure quality itself: none of the three grasps lifts under honest
+  physics; sustained carries most likely require strictly-successful
+  upstream grasp records.
 - Ranking mixes similarity terms into `rank_score` and can promote
   poor-force-closure seeds over much better ones (see v15) --
   grasp-error-aware ranking is a cheap next candidate.

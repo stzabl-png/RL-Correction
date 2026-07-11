@@ -149,6 +149,7 @@ def solve_sharpa_anchored_bodex(
     force_affordance: bool = False,
     squeeze_min_rad: float = DEFAULT_SQUEEZE_MIN_RAD,
     penetration_weight: float = 900.0,
+    selfcollision_weight: float = 1000.0,
     contact_clearance_m: float = DEFAULT_CONTACT_CLEARANCE_M,
 ) -> dict[str, Any]:
     if not torch.cuda.is_available():
@@ -202,6 +203,7 @@ def solve_sharpa_anchored_bodex(
         w_afford=affordance_weight,
         pose_scale=pose_weight,
         w_pene=penetration_weight,
+        w_selfcol=selfcollision_weight,
     )
 
     pts = np.asarray(surface.points_object_frame, dtype=np.float32)
@@ -324,6 +326,7 @@ def solve_sharpa_anchored_bodex(
             "afford_tau": float(afford_tau),
             "penetration_weight": float(weights.w_pene),
             "penetration_ramp": list(weights.pene_ramp),
+            "selfcollision_weight": float(weights.w_selfcol),
         },
         "seed_params": {
             "relax_flexion": float(relax_flexion),

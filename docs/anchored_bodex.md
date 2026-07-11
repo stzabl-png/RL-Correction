@@ -111,6 +111,19 @@ scripts/run_grasp_synthesis_conda.sh \
   symmetric term genuinely needs the asymmetry. Empirically the penalty cuts
   the converged pose's penetration from ~5-6mm to the low single millimeters
   (the `grasp`/`squeeze` stages below absorb whatever remains).
+- **Self-collision** (`--selfcollision-weight`, default 1000): pairwise
+  sphere-vs-sphere overlap energy, `relu(min_dist - center_dist)^2` summed
+  over every pair of hand-collision spheres EXCEPT same-link spheres and
+  URDF-adjacent links (fingers/palm segments that share a joint surface and
+  are expected to sit close in most poses). Adjacency is derived once,
+  directly from the asset's own URDF joint tree (`build_self_collision_pairs`
+  in `guidance.py`) -- not reused from `bodex_curobo_v2`'s own
+  `self_collision_ignore` map, which is keyed to a finer virtual-link naming
+  scheme (`*_MCP_VL`, `*_elastomer`, ...) that doesn't correspond 1:1 to this
+  pipeline's coarser collision-sphere set. Unlike every other guidance term
+  this one is **not scheduled**: fingers must never interpenetrate each
+  other at any point in the optimization, so it is at full weight in all
+  three stages.
 - **Success is unchanged**: strict success is still pure force-closure +
   contact distance. Similarity only affects *ranking* among successful seeds
   (`--rank-affordance-weight`, `--rank-pose-weight`) and is reported in the

@@ -9,7 +9,7 @@ is a frozen reference port and is never modified) that:
   ``BodexGraspCost`` / ``QPEnergy`` (both are shape-driven);
 - takes its initial actions from an :class:`AnchoredSeedGenerator` (retargeted
   human contact-frame poses) instead of object-surface sampling;
-- adds three guidance costs on top of the exact BODex staged cost:
+- adds four guidance costs on top of the exact BODex staged cost:
 
   - ``human_pose_prior``: per-seed deviation from that seed's own un-relaxed
     retargeted anchor (position, sign-invariant quaternion, joints), annealed
@@ -24,6 +24,10 @@ is a frozen reference port and is never modified) that:
     ramped IN across stage 1 and at full weight only in the final
     distance=0 stage -- the one stage where the symmetric contact-distance
     term needs the asymmetry (see ``GuidanceWeights``).
+  - ``self_collision``: pairwise sphere-vs-sphere overlap energy between
+    non-adjacent hand links (fingers/palm), at full weight in every stage --
+    unlike the other terms, fingers must never interpenetrate each other at
+    any point in the optimization.
 """
 
 from __future__ import annotations
@@ -45,7 +49,7 @@ from curobo._src.types.robot import RobotCfg
 from curobo._src.rollout.metrics import CostCollection, CostsAndConstraints, RolloutMetrics, RolloutResult
 
 from ocir.grasp_synthesis.assets import load_sharpa_wave_right
-from ocir.grasp_synthesis.anchored_bodex.guidance import GuidanceWeights
+from ocir.grasp_synthesis.anchored_bodex.guidance import GuidanceWeights, build_self_collision_pairs
 from ocir.grasp_synthesis.anchored_bodex.seed_generator import AnchoredSeedGenerator
 from ocir.grasp_synthesis.clearance import ClearanceChecker
 from ocir.grasp_synthesis.bodex_curobo_v2.contact_world import SingleObjectContactWorld
@@ -190,19 +194,38 @@ class AnchoredBodexRollout:
             dtype=torch.bool,
         )
 
-        # All-sphere FK for the non-penetration penalty: the contact-subset
-        # kinematics above only covers the contact links, but penetration can
-        # happen anywhere on the hand (phalanges, palm bulk). ClearanceChecker
-        # brings its own all-sphere-link Kinematics; its sphere positions are
-        # differentiable through FK, and get_sphere_contact_pdn's backward
-        # carries the exact SDF gradient for the distance term.
-        self._pene_checker = ClearanceChecker(self.asset, self.device_cfg) if self.weights.w_pene > 0.0 else None
+        # All-sphere FK, shared by the non-penetration penalty and the
+        # self-collision cost below: the contact-subset kinematics above only
+        # covers the contact links, but both penetration and self-collision
+        # can happen anywhere on the hand (phalanges, palm bulk).
+        # ClearanceChecker brings its own all-sphere-link Kinematics; its
+        # sphere positions are differentiable through FK, and
+        # get_sphere_contact_pdn's backward carries the exact SDF gradient
+        # for the penetration distance term.
+        need_full_spheres = self.weights.w_pene > 0.0 or self.weights.w_selfcol > 0.0
+        self._pene_checker = ClearanceChecker(self.asset, self.device_cfg) if need_full_spheres else None
         self._pene_expand_idx = torch.tensor(
             [self.full_joint_order.index(name) for name in self.joint_names],
             device=self.device_cfg.device,
             dtype=torch.long,
         )
         self._pene_perturb_placeholder = self.device_cfg.to_device(np.zeros((1, 1, 3), dtype=np.float32))
+
+        # Self-collision: pairwise sphere-vs-sphere overlap between
+        # non-adjacent hand links, derived once from the asset's own URDF
+        # joint tree (see build_self_collision_pairs).
+        if self._pene_checker is not None and self.weights.w_selfcol > 0.0:
+            pairs_i, pairs_j = build_self_collision_pairs(
+                self.asset.urdf_path, list(self._pene_checker.sphere_link_names)
+            )
+            self._selfcol_i = torch.tensor(pairs_i, device=self.device_cfg.device, dtype=torch.long)
+            self._selfcol_j = torch.tensor(pairs_j, device=self.device_cfg.device, dtype=torch.long)
+            radii = self._pene_checker.radii
+            self._selfcol_min_dist = radii.index_select(0, self._selfcol_i) + radii.index_select(
+                0, self._selfcol_j
+            )
+        else:
+            self._selfcol_i = None
 
     @property
     def action_dim(self) -> int:
@@ -339,26 +362,35 @@ class AnchoredBodexRollout:
             d2 = torch.cdist(centers, self.afford_points.view(1, -1, 3).expand(b, -1, -1)).min(dim=-1).values ** 2
             out["affordance_attraction"] = self.weights.w_afford * w_afford * d2.mean(dim=-1)
 
-        w_pene = self.weights.pene_weight(opt_progress) if self._pene_checker is not None else 0.0
-        if w_pene > 0.0:
-            out["penetration_penalty"] = w_pene * self._penetration_cost(flat_action)
+        need_pene = self._pene_checker is not None and self.weights.pene_weight(opt_progress) > 0.0
+        need_selfcol = self._selfcol_i is not None
+        if need_pene or need_selfcol:
+            centers = self._full_sphere_centers(flat_action)
+            if need_pene:
+                out["penetration_penalty"] = self.weights.pene_weight(opt_progress) * self._penetration_cost(centers)
+            if need_selfcol:
+                out["self_collision"] = self.weights.w_selfcol * self._self_collision_cost(centers)
         return out
 
-    def _penetration_cost(self, flat_action: torch.Tensor) -> torch.Tensor:
-        """Asymmetric non-penetration energy over ALL hand collision spheres:
-        sum(relu(-signed_distance)^2), meters^2. Zero whenever the hand is
-        clear of the object, so it never competes with the staged contact
-        schedule -- it only forbids the overshoot INTO the mesh that the
-        symmetric distance term is indifferent to."""
+    def _full_sphere_centers(self, flat_action: torch.Tensor) -> torch.Tensor:
+        """(b, N, 3) world-frame centers of ALL hand collision spheres,
+        shared by the penetration and self-collision costs."""
 
         b = flat_action.shape[0]
         n_full = len(self.full_joint_order)
         full_q = torch.zeros((b, n_full), device=flat_action.device, dtype=flat_action.dtype)
         full_q.index_copy_(1, self._pene_expand_idx, flat_action[:, 7:])
         full_actions = torch.cat([flat_action[:, :7], full_q], dim=-1)
+        return self._pene_checker.sphere_world_positions(full_actions)
 
-        centers = self._pene_checker.sphere_world_positions(full_actions)  # (b, N, 3)
-        n_spheres = centers.shape[1]
+    def _penetration_cost(self, centers: torch.Tensor) -> torch.Tensor:
+        """Asymmetric non-penetration energy over ALL hand collision spheres:
+        sum(relu(-signed_distance)^2), meters^2. Zero whenever the hand is
+        clear of the object, so it never competes with the staged contact
+        schedule -- it only forbids the overshoot INTO the mesh that the
+        symmetric distance term is indifferent to."""
+
+        b, n_spheres = centers.shape[:2]
         radii = self._pene_checker.radii.view(1, n_spheres, 1).expand(b, n_spheres, 1)
         spheres = torch.cat([centers, radii], dim=-1)
         _, distance, _, _, _ = self.contact_world.get_sphere_contact_pdn(
@@ -366,6 +398,18 @@ class AnchoredBodexRollout:
         )
         penetration = torch.relu(-distance)  # (b, N) depth in meters
         return (penetration**2).sum(dim=-1)
+
+    def _self_collision_cost(self, centers: torch.Tensor) -> torch.Tensor:
+        """Pairwise sphere-vs-sphere self-collision energy:
+        sum(relu(min_dist - center_dist)^2) over non-adjacent hand-link
+        sphere pairs (see build_self_collision_pairs), meters^2. Zero for
+        any pair whose spheres are not touching."""
+
+        ci = centers.index_select(1, self._selfcol_i)  # (b, P, 3)
+        cj = centers.index_select(1, self._selfcol_j)
+        dist = (ci - cj).norm(dim=-1)  # (b, P)
+        overlap = torch.relu(self._selfcol_min_dist.view(1, -1) - dist)
+        return (overlap**2).sum(dim=-1)
 
     def _costs_and_constraints(self, state: JointState, opt_progress: float = 0.0) -> CostsAndConstraints:
         action = state.position

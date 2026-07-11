@@ -14,14 +14,20 @@ Every written grasp record carries four wrist+finger poses instead of one:
   never by modifying it.
 - ``grasp``: the raw grasp retreated along the pregrasp -> raw_grasp
   interpolation path (lerp position/joints + slerp orientation) to the
-  largest fraction whose full-hand SDF clearance is still >= 0 --
-  non-penetrating but still in contact. This is the pose a physical close
-  should actually reach.
+  largest fraction whose full-hand SDF clearance is still >=
+  ``contact_clearance_m`` (default 2mm) -- deliberately SHY of the contact
+  boundary, matching UltraDexGrasp's stance that the tightest converged
+  pose is never a configuration to physically reach. Actual contact force
+  comes from the squeeze stage's drives, not from commanding a
+  zero-clearance position (which also matches the simulation's summed
+  hand+object rest offsets).
 - ``squeeze``: Articulation-BODex extrapolation --
-  ``grasp + clamp(grasp - pregrasp, min=squeeze_min_rad)`` per joint, the
-  floor applied to flexion channels only (never abduction/adduction), so
-  joints that barely moved to reach contact (typically the thumb) still get
-  a minimum drive-through force request while joints that closed a lot get
+  ``grasp + clamp(raw_grasp - pregrasp, min=squeeze_min_rad)`` per joint:
+  the delta is the optimizer's OWN full closing motion (its intended force
+  direction, including the part the retreat removed), the floor applied to
+  flexion channels only (never abduction/adduction), so joints that barely
+  moved to reach contact (typically the thumb) still get a minimum
+  drive-through force request while joints that closed a lot get
   proportionally more.
 
 All poses are full 29-D actions ``[pos(3), quat_wxyz(4), joints(22)]`` in
@@ -43,6 +49,7 @@ from ocir.grasp_synthesis.bodex_curobo_v2.newton_opt import (
 from ocir.grasp_synthesis.clearance import ClearanceChecker
 
 DEFAULT_SQUEEZE_MIN_RAD = 0.15
+DEFAULT_CONTACT_CLEARANCE_M = 0.002
 
 
 class _SnapshotGradientOptCore(BodexProgressGradientOptCore):
@@ -143,6 +150,7 @@ def compute_grasp_stages(
     world,
     *,
     squeeze_min_rad: float = DEFAULT_SQUEEZE_MIN_RAD,
+    contact_clearance_m: float = DEFAULT_CONTACT_CLEARANCE_M,
     num_retreat_samples: int = 101,
 ) -> GraspStages:
     """Derive the retreated ``grasp`` and extrapolated ``squeeze`` stages
@@ -152,7 +160,9 @@ def compute_grasp_stages(
     raw_action = np.asarray(raw_action, dtype=np.float64).copy()
     pregrasp_action = np.asarray(pregrasp_action, dtype=np.float64).copy()
 
-    # -- Retreat: largest t on the pregrasp -> raw path with clearance >= 0 --
+    # -- Retreat: largest t on the pregrasp -> raw path whose clearance is
+    # still >= contact_clearance_m (shy of the contact boundary; squeeze
+    # supplies the actual contact force) --
     ts = np.linspace(0.0, 1.0, int(num_retreat_samples))
     path = np.stack([_interp_action(pregrasp_action, raw_action, float(t)) for t in ts], axis=0)
     clearances = (
@@ -162,21 +172,35 @@ def compute_grasp_stages(
         .cpu()
         .numpy()
     )
-    ok = np.where(clearances >= 0.0)[0]
+    ok = np.where(clearances >= float(contact_clearance_m))[0]
     if ok.size == 0:
-        print(
-            "[anchored_bodex] WARNING: even the pregrasp snapshot penetrates the object "
-            f"(clearance {clearances[0]:.4f} m); using it as the contact grasp anyway"
-        )
+        if clearances[0] >= 0.0:
+            # Expected with the in-optimization penetration penalty: the whole
+            # pregrasp -> raw path skims the surface inside the margin, so the
+            # snapshot itself becomes the commanded grasp (squeeze supplies
+            # the contact force) -- the UltraDexGrasp stance exactly.
+            print(
+                "[anchored_bodex] grasp stage = pregrasp snapshot "
+                f"(path clearance {clearances[0]:.4f}..{clearances[-1]:.4f} m, all under the "
+                f"{contact_clearance_m:.4f} m margin)"
+            )
+        else:
+            print(
+                "[anchored_bodex] WARNING: even the pregrasp snapshot penetrates the object "
+                f"(clearance {clearances[0]:.4f} m); using it as the contact grasp anyway"
+            )
         retreat_t = 0.0
         grasp_action = pregrasp_action.copy()
     else:
         retreat_t = float(ts[ok[-1]])
         grasp_action = path[ok[-1]].copy()
 
-    # -- Squeeze: Articulation-BODex extrapolation with a flexion-only floor --
+    # -- Squeeze: Articulation-BODex extrapolation with a flexion-only floor.
+    # The delta is the optimizer's FULL closing motion (raw - pregrasp), not
+    # (grasp - pregrasp): the retreat may have removed most of the latter,
+    # but the intended force direction is the whole pregrasp -> raw sweep. --
     flex_mask = relax_joint_mask(joint_order)
-    delta = grasp_action[7:] - pregrasp_action[7:]
+    delta = raw_action[7:] - pregrasp_action[7:]
     delta = np.where(flex_mask, np.clip(delta, squeeze_min_rad, None), delta)
     squeeze_action = grasp_action.copy()
     squeeze_action[7:] = np.clip(grasp_action[7:] + delta, joint_limits_lower, joint_limits_upper)
@@ -186,6 +210,7 @@ def compute_grasp_stages(
         "pregrasp_clearance_m": float(clearances[0]),
         "raw_grasp_clearance_m": float(clearances[-1]),
         "grasp_clearance_m": float(clearances[ok[-1]]) if ok.size else float(clearances[0]),
+        "contact_clearance_m": float(contact_clearance_m),
         "squeeze_min_rad": float(squeeze_min_rad),
         "wrist_retreat_m": float(np.linalg.norm(raw_action[:3] - grasp_action[:3])),
     }

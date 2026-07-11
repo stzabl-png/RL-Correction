@@ -328,6 +328,21 @@ class GraspTrajectoryGenerator:
         start-exclusive."""
 
         cfg = self.config
+        dist = float(np.linalg.norm(np.asarray(goal_pos) - np.asarray(start_pos)))
+
+        def _interp(name: str) -> tuple[tuple[np.ndarray, np.ndarray], str]:
+            n_steps = steps_for_leg(dist, seconds, cfg.fps, cfg.max_wrist_speed_mps)
+            pos, quat = polyline_wrist_trajectory(
+                np.stack([start_pos, goal_pos]), np.stack([start_quat, goal_quat]), n_steps, include_start=False
+            )
+            return (pos, quat), name
+
+        # With the in-optimization penetration penalty, the record's grasp
+        # stage frequently coincides with (or sits within a couple of mm of)
+        # the pregrasp snapshot -- building a full cuRobo planner for a
+        # sub-2mm move is pure overhead.
+        if dist < 0.002:
+            return _interp("interp_short")
         if cfg.planner == "curobo":
             try:
                 planner = TransitPlanner(
@@ -345,12 +360,7 @@ class GraspTrajectoryGenerator:
                 print("[grasp_traj] pregrasp->grasp leg: cuRobo found no plan (goal at contact boundary); interpolating")
             except Exception as exc:
                 print(f"[grasp_traj] pregrasp->grasp leg: cuRobo raised {exc!r}; interpolating")
-        dist = float(np.linalg.norm(np.asarray(goal_pos) - np.asarray(start_pos)))
-        n_steps = steps_for_leg(dist, seconds, cfg.fps, cfg.max_wrist_speed_mps)
-        pos, quat = polyline_wrist_trajectory(
-            np.stack([start_pos, goal_pos]), np.stack([start_quat, goal_quat]), n_steps, include_start=False
-        )
-        return (pos, quat), "interp"
+        return _interp("interp")
 
     def _resample_carry_object_poses(
         self,

@@ -41,7 +41,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from ocir.grasp_synthesis.assets import DEFAULT_SHARPA_WAVE_RIGHT_CONFIG, load_sharpa_wave_right
-from ocir.grasp_traj.trajectory_schema import SEGMENT_CARRY, GraspTrajectory
+from ocir.grasp_traj.trajectory_schema import SEGMENT_CARRY, SEGMENT_CLOSE, SEGMENT_SQUEEZE, GraspTrajectory
 from ocir.isaac.replay_dexycb import (
     DexYCBFrameMapper,
     capture_camera_png,
@@ -448,6 +448,13 @@ class HandArticulationDriver:
         controller.set_gains(kps=kps, kds=kds)
         controller.set_max_efforts(np.full(self.num_dofs, float(max_force), dtype=np.float32))
 
+    def joint_positions(self) -> np.ndarray:
+        """Return the driven finger-joint positions in trajectory order."""
+
+        return np.asarray(
+            self.articulation.get_joint_positions(joint_indices=self.dof_indices), dtype=np.float64
+        )
+
     def drive(
         self,
         pos: np.ndarray,
@@ -474,8 +481,29 @@ class HandArticulationDriver:
         )
 
     def max_joint_tracking_error(self, joint_targets_rad: np.ndarray) -> float:
-        actual = self.articulation.get_joint_positions(joint_indices=self.dof_indices)
-        return float(np.abs(np.asarray(actual, dtype=np.float64) - np.asarray(joint_targets_rad, dtype=np.float64)).max())
+        return float(np.abs(self.joint_positions() - np.asarray(joint_targets_rad, dtype=np.float64)).max())
+
+
+def govern_contact_targets(
+    desired_rad: np.ndarray, actual_rad: np.ndarray, max_target_lead_rad: float
+) -> tuple[np.ndarray, int]:
+    """Bound each finger drive target around its current physical position.
+
+    A synthesized squeeze pose is a force direction, not a configuration the
+    physics solver must reach through a rigid object.  Limiting the virtual
+    target's angular lead bounds the proportional spring load independently
+    for every joint: a blocked finger maintains preload while unblocked
+    fingers can continue closing on later frames.
+    """
+
+    desired = np.asarray(desired_rad, dtype=np.float64)
+    actual = np.asarray(actual_rad, dtype=np.float64)
+    lead = float(max_target_lead_rad)
+    if lead <= 0.0:
+        raise ValueError(f"max_target_lead_rad must be positive, got {lead}")
+    error = desired - actual
+    limited = np.abs(error) > lead
+    return actual + np.clip(error, -lead, lead), int(limited.sum())
 
 
 # ---------------------------------------------------------------------------
@@ -826,16 +854,20 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
     object_track: list[np.ndarray] = []
     frame_paths: list[Path] = []
     joint_error_per_step: list[float] = []
+    drive_target_error_per_step: list[float] = []
+    governed_joint_count_per_step: list[int] = []
     blowup_logged = False
 
     # Softened finger drives during the close segment: the close targets are
     # contact-projected but sphere-vs-hull geometry differences still leave a
     # few mm of commanded overlap, and full-strength drives turn that into a
-    # shove. Full gains are restored for squeeze/carry (the squeeze IS a
-    # force request).
-    from ocir.grasp_traj.trajectory_schema import SEGMENT_CLOSE
-
+    # shove. Full gains are restored for squeeze/carry, while the target
+    # governor below bounds their virtual spring displacement.
     compliant = None  # None until the first close step; then True/False
+    contact_segments = {SEGMENT_CLOSE, SEGMENT_SQUEEZE, SEGMENT_CARRY}
+    target_lead_rad = float(args.contact_target_lead_rad)
+    if bool(args.contact_aware_finger_targets) and target_lead_rad <= 0.0:
+        raise ValueError(f"--contact-target-lead-rad must be positive, got {target_lead_rad}")
     phase(f"simulating {traj.num_steps} steps")
     for t in range(traj.num_steps):
         in_close = bool(traj.segment[t] == SEGMENT_CLOSE)
@@ -849,19 +881,34 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
                 float(args.joint_stiffness), float(args.joint_damping), float(args.joint_max_force)
             )
             compliant = False
-        hand_driver.drive(
-            all_pos_isaac[t], all_quat_isaac[t], traj.finger_targets[t],
-            linear_velocity=lin_vel[t], angular_velocity=ang_vel[t],
-        )
+        desired_targets = traj.finger_targets[t]
+        driven_targets = desired_targets
+        governed_count = 0
         if args.carry_mode == CARRY_MODE_KINEMATIC:
             set_world_pose(stage, OBJECT_WRAP, obj_pos_isaac_all[t], obj_quat_isaac_all[t])
         for _ in range(int(args.sim_steps_per_frame)):
+            # Recompute the bounded virtual target at physics cadence. A
+            # target limited only once per trajectory frame can become far
+            # from a fast-moving joint after the first substep and inject the
+            # same large spring impulse the governor is intended to prevent.
+            if bool(args.contact_aware_finger_targets) and int(traj.segment[t]) in contact_segments:
+                driven_targets, substep_governed_count = govern_contact_targets(
+                    desired_targets, hand_driver.joint_positions(), target_lead_rad
+                )
+                governed_count = max(governed_count, substep_governed_count)
+            hand_driver.drive(
+                all_pos_isaac[t], all_quat_isaac[t], driven_targets,
+                linear_velocity=lin_vel[t], angular_velocity=ang_vel[t],
+            )
             app.update()
-        step_error = hand_driver.max_joint_tracking_error(traj.finger_targets[t])
+        step_error = hand_driver.max_joint_tracking_error(desired_targets)
+        drive_step_error = hand_driver.max_joint_tracking_error(driven_targets)
         joint_error_per_step.append(step_error)
-        if step_error > 1.0 and not blowup_logged:
+        drive_target_error_per_step.append(drive_step_error)
+        governed_joint_count_per_step.append(governed_count)
+        if drive_step_error > 1.0 and not blowup_logged:
             blowup_logged = True
-            log(f"WARNING: joint tracking error {step_error:.2f} rad at step {t} (segment {int(traj.segment[t])}) -- articulation destabilizing")
+            log(f"WARNING: drive-target error {drive_step_error:.2f} rad at step {t} (segment {int(traj.segment[t])}) -- articulation destabilizing")
         pos, _ = read_object_world_pose(stage)
         object_track.append(pos)
         if t % int(args.capture_every) == 0:
@@ -874,7 +921,12 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
         # Keep holding the final commanded pose: the hand is a floating-base
         # articulation, so it would free-fall under gravity the moment root
         # driving stops.
-        hand_driver.drive(all_pos_isaac[-1], all_quat_isaac[-1], traj.finger_targets[-1])
+        settle_targets = traj.finger_targets[-1]
+        if bool(args.contact_aware_finger_targets):
+            settle_targets, _ = govern_contact_targets(
+                settle_targets, hand_driver.joint_positions(), target_lead_rad
+            )
+        hand_driver.drive(all_pos_isaac[-1], all_quat_isaac[-1], settle_targets)
         if args.carry_mode == CARRY_MODE_KINEMATIC:
             set_world_pose(stage, OBJECT_WRAP, obj_pos_isaac_all[-1], obj_quat_isaac_all[-1])
         app.update()
@@ -917,7 +969,12 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
     if bool(args.hold_open):
         deadline = time.monotonic() + float(args.hold_open_seconds)
         while time.monotonic() < deadline:
-            hand_driver.drive(all_pos_isaac[-1], all_quat_isaac[-1], traj.finger_targets[-1])
+            hold_targets = traj.finger_targets[-1]
+            if bool(args.contact_aware_finger_targets):
+                hold_targets, _ = govern_contact_targets(
+                    hold_targets, hand_driver.joint_positions(), target_lead_rad
+                )
+            hand_driver.drive(all_pos_isaac[-1], all_quat_isaac[-1], hold_targets)
             if args.carry_mode == CARRY_MODE_KINEMATIC:
                 set_world_pose(stage, OBJECT_WRAP, obj_pos_isaac_all[-1], obj_quat_isaac_all[-1])
             app.update()
@@ -935,6 +992,16 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
         "time_steps_per_second": time_steps_per_second,
         "max_joint_tracking_error_rad": max(joint_error_per_step) if joint_error_per_step else None,
         "joint_tracking_error_per_step": [round(v, 4) for v in joint_error_per_step],
+        "contact_aware_finger_targets": bool(args.contact_aware_finger_targets),
+        "contact_target_lead_rad": target_lead_rad,
+        "max_drive_target_error_rad": max(drive_target_error_per_step) if drive_target_error_per_step else None,
+        "max_contact_drive_target_error_rad": max(
+            (error for error, segment in zip(drive_target_error_per_step, traj.segment) if int(segment) in contact_segments),
+            default=None,
+        ),
+        "drive_target_error_per_step": [round(v, 4) for v in drive_target_error_per_step],
+        "governed_joint_count_per_step": governed_joint_count_per_step,
+        "num_governed_steps": int(sum(count > 0 for count in governed_joint_count_per_step)),
         "object": {k: v for k, v in object_report.items() if k != "vertices_local"},
         "table": table_report,
         "hand": hand_report,
@@ -981,6 +1048,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--joint-friction", type=float, default=0.05)
     parser.add_argument("--close-joint-stiffness", type=float, default=20.0, help="Softened finger drive stiffness during the close segment.")
     parser.add_argument("--close-joint-max-force", type=float, default=60.0, help="Softened finger drive effort cap during the close segment.")
+    parser.add_argument("--contact-aware-finger-targets", action=argparse.BooleanOptionalAction, default=True, help="Bound finger position targets around the actual joints during close, squeeze, and carry so blocked fingers apply finite impedance instead of forcing the synthesized angle through the object.")
+    parser.add_argument("--contact-target-lead-rad", type=float, default=0.03, help="Maximum per-joint angular lead of a contact-phase drive target beyond the current physical joint position.")
     parser.add_argument("--convex-decomp-max-hulls", type=int, default=32)
     parser.add_argument("--object-collision", choices=["sdf", "convex"], default="sdf", help="Object collider type: exact SDF triangle mesh (concavities stay hollow) or convex decomposition.")
     parser.add_argument("--sdf-resolution", type=int, default=256)

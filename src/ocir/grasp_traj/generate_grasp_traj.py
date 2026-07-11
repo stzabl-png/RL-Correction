@@ -64,6 +64,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--isaac-joint-friction", type=float, default=0.05)
     parser.add_argument("--isaac-close-joint-stiffness", type=float, default=20.0)
     parser.add_argument("--isaac-close-joint-max-force", type=float, default=60.0)
+    parser.add_argument("--isaac-contact-aware-finger-targets", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--isaac-contact-target-lead-rad", type=float, default=0.03)
     parser.add_argument("--isaac-convex-decomp-max-hulls", type=int, default=32)
     parser.add_argument("--isaac-object-collision", choices=["sdf", "convex"], default="sdf")
     parser.add_argument("--isaac-sdf-resolution", type=int, default=256)
@@ -149,6 +151,8 @@ def _simulation_params(args: argparse.Namespace, trajectory_dir: Path, out_dir: 
         "joint_friction": args.isaac_joint_friction,
         "close_joint_stiffness": args.isaac_close_joint_stiffness,
         "close_joint_max_force": args.isaac_close_joint_max_force,
+        "contact_aware_finger_targets": args.isaac_contact_aware_finger_targets,
+        "contact_target_lead_rad": args.isaac_contact_target_lead_rad,
         "convex_decomp_max_hulls": args.isaac_convex_decomp_max_hulls,
         "object_collision": args.isaac_object_collision,
         "sdf_resolution": args.isaac_sdf_resolution,

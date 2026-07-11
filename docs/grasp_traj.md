@@ -145,7 +145,13 @@ time 1/60s, so `--sim-steps-per-frame 2` plays a 30fps trajectory in real
 time. During the close segment the finger drives are softened
 (`--close-joint-stiffness`/`--close-joint-max-force`) so an early-touching
 finger stalls instead of shoving the object; full gains return for
-squeeze/carry.
+squeeze/carry. During close, squeeze, and carry, the contact-aware target
+governor recomputes each position-drive target before every physics update
+and limits it to `--contact-target-lead-rad` (0.03rad) from that joint's
+actual position. A blocked finger therefore applies bounded virtual-spring
+preload while other fingers may continue closing; the unreachable synthesized
+squeeze angle is no longer forced through the object. Disable only for an
+explicit regression comparison with `--no-contact-aware-finger-targets`.
 
 ### Collision
 
@@ -171,7 +177,9 @@ mass, otherwise mesh volume x `--object-density` 700 kg/m^3),
 (80/20/300/0.01/0.05), `--lift-threshold`/`--drop-threshold`
 (0.02m/0.005m), `--tabletop-z` (0.0), `--time-steps-per-second` (120, PhysX
 substep rate, keep a multiple of 60), `--capture-every` (1),
-`--settle-steps` (60), `--video-fps` (trajectory fps).
+`--settle-steps` (60), `--video-fps` (trajectory fps),
+`--contact-aware-finger-targets` (on), and
+`--contact-target-lead-rad` (0.03rad).
 
 ### Outputs and diagnostics
 
@@ -183,8 +191,10 @@ with a `metrics` block: `lifted` (any carry step above `--lift-threshold`),
 `max_consecutive_lifted_steps` / `lifted_carry_fraction`, and
 `final_object_position_error_m` -- plus `max_joint_tracking_error_rad` /
 `joint_tracking_error_per_step` (drive-target vs. actual joint positions;
-values exploding past ~1 rad indicate solver instability, small fractions
-of a rad are normal contact stall). A `grasp_success: false` result is a
+these compare against the original synthesized trajectory and may be large
+when contact correctly stalls a finger). `max_contact_drive_target_error_rad`
+compares the bounded target actually sent to PhysX and is the relevant
+contact-controller stability diagnostic. A `grasp_success: false` result is a
 genuine, useful finding: it means the synthesized grasp does not hold the
 object under real physics (common for grasps that did not reach
 anchored-BODex's own strict force-closure success), not necessarily a
@@ -389,6 +399,26 @@ The failure therefore persists across contact-model, search-budget, and
 guidance ablations. The current defaults remain the human-guided contact
 subset pipeline; a proper improvement needs a new feasible-grasp objective,
 not threshold relaxation or a physics-side workaround.
+
+### v13 -- contact-aware finger impedance targets (2026-07-11)
+
+Finger drives previously received the full synthesized angle once per
+trajectory frame. A blocked finger could therefore retain a large position
+error for two physics updates, accumulating enough spring/depenetration energy
+to pass through the object or pinch-eject it. Close, squeeze, and carry now
+govern every joint independently before every physics update: the virtual
+position target stays within 0.03rad of the actual joint while preserving the
+trajectory target as the closing direction.
+
+The staged can, mug, and wood-block rollouts were regenerated and visually
+inspected. All three now show physical contact followed by pushing, tipping,
+or release instead of hand-object pass-through or object launch. Contact-phase
+targets were limited to 0.03rad when authored at each physics update; the
+post-update contact drive error remained below 0.03rad for the can and mug
+and peaked at 0.093rad while the wood block physically tipped. None of the
+failed upstream grasps was falsely reported as a successful retained lift.
+Leads of 0.06 and 0.09rad were rejected because they moved or destabilized
+the object without producing retention.
 
 ### Tooling (2026-07-10, commits 3da7b95 + 3946a12)
 

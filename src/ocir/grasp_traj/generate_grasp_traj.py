@@ -68,7 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--isaac-joint-friction", type=float, default=0.05)
     parser.add_argument("--isaac-close-joint-stiffness", type=float, default=20.0)
     parser.add_argument("--isaac-close-joint-max-force", type=float, default=60.0)
-    parser.add_argument("--isaac-contact-aware-finger-targets", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--isaac-contact-aware-finger-targets", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--isaac-contact-target-lead-rad", type=float, default=0.03)
     parser.add_argument("--isaac-convex-decomp-max-hulls", type=int, default=32)
     parser.add_argument("--isaac-object-collision", choices=["sdf", "convex"], default="sdf")

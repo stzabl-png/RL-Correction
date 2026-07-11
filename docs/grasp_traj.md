@@ -158,13 +158,20 @@ pre-tuned scalar behavior (`--joint-max-force` 300 / `--close-joint-max-force`
 60) for regression comparisons. The resolved per-joint limits are recorded in
 `report.json` under `hand.resolved_max_efforts`.
 
-During squeeze and carry, the contact-aware target
-governor recomputes each position-drive target before every physics update
-and limits it to `--contact-target-lead-rad` (0.03rad) from that joint's
-actual position. A blocked finger therefore applies bounded virtual-spring
-preload while other fingers may continue closing; the unreachable synthesized
-squeeze angle is no longer forced through the object. Disable only for an
-explicit regression comparison with `--no-contact-aware-finger-targets`.
+Finger drives target the synthesized stage poses directly: during squeeze
+and carry each joint holds the record's squeeze angle as its position-drive
+target, so a blocked joint presses persistently with its full tuned effort
+cap (the caps, not the target distance, bound the contact force -- an MCP
+saturates at 0.023 rad of error and the squeeze overdrive is >= 0.15 rad).
+The v13 contact-aware target governor (`--contact-aware-finger-targets`,
+now default OFF) is retained as an option: it recomputes each drive target
+before every physics update and limits it to `--contact-target-lead-rad`
+(0.03rad) from the joint's actual position, capping the spring load at
+stiffness x lead = 2.4 Nm. Under the baked effort profile that mainly
+throttles the thumb CMC (cap 3.3 Nm > 2.4) and lets governed joints back
+off under disturbance; it was essential when efforts were the uniform
+300 Nm scalar, but with tuned caps direct targeting is bounded-force
+anyway and grips strictly tighter.
 
 ### Collision
 
@@ -208,7 +215,7 @@ wins the pair),
 (0.02m/0.005m), `--tabletop-z` (0.0), `--time-steps-per-second` (120, PhysX
 substep rate, keep a multiple of 60), `--capture-every` (1),
 `--settle-steps` (60), `--video-fps` (trajectory fps),
-`--contact-aware-finger-targets` (on), and
+`--contact-aware-finger-targets` (off; see Hand physics), and
 `--contact-target-lead-rad` (0.03rad).
 
 ### Outputs and diagnostics
@@ -586,6 +593,23 @@ exactly 10 colliders bound (report `hand_friction.bound_collider_paths`),
 run stable, and both contact metrics improved vs v16 (pre-carry disturbance
 4.0mm -> 2.7mm, max contact drive-target error 0.19 -> 0.04 rad); still no
 lift, as expected for a failed-force-closure record.
+
+### v18 -- direct stage-pose targeting by default (2026-07-11)
+
+`--contact-aware-finger-targets` now defaults OFF: squeeze/carry drives
+target the synthesized squeeze pose directly instead of the governed
+current+0.03rad lead. Rationale: the v13 governor bounded spring load when
+efforts were the uniform 300 Nm scalar; under the baked per-joint caps
+(v16) contact force is bounded by the caps regardless of target error, so
+governing mostly threw away grip -- it throttled the thumb CMC (cap 3.3 Nm
+above the 80 x 0.03 = 2.4 Nm governed ceiling) and let saturated joints
+back off under disturbance instead of holding their caps. Validation on
+the wood block (same Stage A trajectory, v17 friction): stable, no
+blow-ups, slightly tighter grip (max carry lift 0.9mm -> 2.7mm) for
+slightly more close-phase disturbance (2.7mm -> 5.3mm); the held ~0.79 rad
+contact drive-target error is the squeeze overdrive doing its job, not a
+tracking fault. The governor remains available via
+`--contact-aware-finger-targets` for regression comparison.
 
 ### Tooling (2026-07-10, commits 3da7b95 + 3946a12)
 

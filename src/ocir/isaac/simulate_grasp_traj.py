@@ -856,6 +856,8 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
     joint_error_per_step: list[float] = []
     drive_target_error_per_step: list[float] = []
     governed_joint_count_per_step: list[int] = []
+    actual_joint_positions_per_step: list[np.ndarray] = []
+    driven_targets_per_step: list[np.ndarray] = []
     blowup_logged = False
 
     # Softened finger drives during the close segment: the close targets are
@@ -864,7 +866,11 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
     # shove. Full gains are restored for squeeze/carry, while the target
     # governor below bounds their virtual spring displacement.
     compliant = None  # None until the first close step; then True/False
-    contact_segments = {SEGMENT_CLOSE, SEGMENT_SQUEEZE, SEGMENT_CARRY}
+    # Close must retain its full (soft-gain) trajectory target so the fingers
+    # can traverse free space and actually reach the contact posture. The
+    # bounded virtual spring begins only once the trajectory enters squeeze,
+    # then remains active through carry.
+    governed_segments = {SEGMENT_SQUEEZE, SEGMENT_CARRY}
     target_lead_rad = float(args.contact_target_lead_rad)
     if bool(args.contact_aware_finger_targets) and target_lead_rad <= 0.0:
         raise ValueError(f"--contact-target-lead-rad must be positive, got {target_lead_rad}")
@@ -891,7 +897,7 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
             # target limited only once per trajectory frame can become far
             # from a fast-moving joint after the first substep and inject the
             # same large spring impulse the governor is intended to prevent.
-            if bool(args.contact_aware_finger_targets) and int(traj.segment[t]) in contact_segments:
+            if bool(args.contact_aware_finger_targets) and int(traj.segment[t]) in governed_segments:
                 driven_targets, substep_governed_count = govern_contact_targets(
                     desired_targets, hand_driver.joint_positions(), target_lead_rad
                 )
@@ -906,6 +912,8 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
         joint_error_per_step.append(step_error)
         drive_target_error_per_step.append(drive_step_error)
         governed_joint_count_per_step.append(governed_count)
+        actual_joint_positions_per_step.append(hand_driver.joint_positions())
+        driven_targets_per_step.append(np.asarray(driven_targets, dtype=np.float64).copy())
         if drive_step_error > 1.0 and not blowup_logged:
             blowup_logged = True
             log(f"WARNING: drive-target error {drive_step_error:.2f} rad at step {t} (segment {int(traj.segment[t])}) -- articulation destabilizing")
@@ -952,6 +960,14 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
         segment=np.asarray(traj.segment, dtype=np.int8),
         carry_mask=np.asarray(carry_mask, dtype=bool),
     )
+    np.savez_compressed(
+        out_dir / "finger_track.npz",
+        desired_position_rad=np.asarray(traj.finger_targets, dtype=np.float64),
+        driven_target_rad=np.asarray(driven_targets_per_step, dtype=np.float64),
+        actual_position_rad=np.asarray(actual_joint_positions_per_step, dtype=np.float64),
+        joint_order=np.asarray(traj.joint_order),
+        segment=np.asarray(traj.segment, dtype=np.int8),
+    )
 
     phase("capturing final screenshot")
     screenshot_path = out_dir / "screenshot.png"
@@ -996,7 +1012,11 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
         "contact_target_lead_rad": target_lead_rad,
         "max_drive_target_error_rad": max(drive_target_error_per_step) if drive_target_error_per_step else None,
         "max_contact_drive_target_error_rad": max(
-            (error for error, segment in zip(drive_target_error_per_step, traj.segment) if int(segment) in contact_segments),
+            (error for error, segment in zip(drive_target_error_per_step, traj.segment) if int(segment) in governed_segments),
+            default=None,
+        ),
+        "max_governed_drive_target_error_rad": max(
+            (error for error, segment in zip(drive_target_error_per_step, traj.segment) if int(segment) in governed_segments),
             default=None,
         ),
         "drive_target_error_per_step": [round(v, 4) for v in drive_target_error_per_step],
@@ -1048,7 +1068,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--joint-friction", type=float, default=0.05)
     parser.add_argument("--close-joint-stiffness", type=float, default=20.0, help="Softened finger drive stiffness during the close segment.")
     parser.add_argument("--close-joint-max-force", type=float, default=60.0, help="Softened finger drive effort cap during the close segment.")
-    parser.add_argument("--contact-aware-finger-targets", action=argparse.BooleanOptionalAction, default=True, help="Bound finger position targets around the actual joints during close, squeeze, and carry so blocked fingers apply finite impedance instead of forcing the synthesized angle through the object.")
+    parser.add_argument("--contact-aware-finger-targets", action=argparse.BooleanOptionalAction, default=True, help="Bound finger position targets around the actual joints during squeeze and carry so blocked fingers apply finite impedance instead of forcing the synthesized angle through the object; the soft-gain close remains unbounded so it can reach contact.")
     parser.add_argument("--contact-target-lead-rad", type=float, default=0.03, help="Maximum per-joint angular lead of a contact-phase drive target beyond the current physical joint position.")
     parser.add_argument("--convex-decomp-max-hulls", type=int, default=32)
     parser.add_argument("--object-collision", choices=["sdf", "convex"], default="sdf", help="Object collider type: exact SDF triangle mesh (concavities stay hollow) or convex decomposition.")

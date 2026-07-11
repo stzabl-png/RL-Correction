@@ -100,7 +100,7 @@ scripts/run_grasp_synthesis_conda.sh \
 pass `--grasp-json` directly. Key flags (defaults in parentheses):
 `--fps` (30), `--approach-seconds` (1.0, minimum lead time / plan duration),
 `--close-seconds` / `--squeeze-seconds` (0.3), `--final-close-seconds`
-(0.4), `--pregrasp-open-fraction` (1.0),
+(1.0), `--pregrasp-open-fraction` (1.0),
 `--approach-clearance` (0.003m, en-route clearance for the planned
 approach), `--open-clearance` (0.05m), `--open-horizon-seconds` (1.0),
 `--planner {curobo,linear}` (curobo, fail-closed),
@@ -145,7 +145,7 @@ time 1/60s, so `--sim-steps-per-frame 2` plays a 30fps trajectory in real
 time. During the close segment the finger drives are softened
 (`--close-joint-stiffness`/`--close-joint-max-force`) so an early-touching
 finger stalls instead of shoving the object; full gains return for
-squeeze/carry. During close, squeeze, and carry, the contact-aware target
+squeeze/carry. During squeeze and carry, the contact-aware target
 governor recomputes each position-drive target before every physics update
 and limits it to `--contact-target-lead-rad` (0.03rad) from that joint's
 actual position. A blocked finger therefore applies bounded virtual-spring
@@ -402,13 +402,14 @@ not threshold relaxation or a physics-side workaround.
 
 ### v13 -- contact-aware finger impedance targets (2026-07-11)
 
-Finger drives previously received the full synthesized angle once per
+Finger drives previously received the full synthesized squeeze angle once per
 trajectory frame. A blocked finger could therefore retain a large position
 error for two physics updates, accumulating enough spring/depenetration energy
-to pass through the object or pinch-eject it. Close, squeeze, and carry now
-govern every joint independently before every physics update: the virtual
-position target stays within 0.03rad of the actual joint while preserving the
-trajectory target as the closing direction.
+to pass through the object or pinch-eject it. Squeeze and carry now govern
+every joint independently before every physics update: the virtual position
+target stays within 0.03rad of the actual joint while preserving the
+trajectory target as the closing direction. The soft-gain close remains
+unbounded so the fingers can traverse free space and reach contact.
 
 The staged can, mug, and wood-block rollouts were regenerated and visually
 inspected. All three now show physical contact followed by pushing, tipping,
@@ -419,6 +420,23 @@ and peaked at 0.093rad while the wood block physically tipped. None of the
 failed upstream grasps was falsely reported as a successful retained lift.
 Leads of 0.06 and 0.09rad were rejected because they moved or destabilized
 the object without producing retention.
+
+### v14 -- restore full soft close before governed squeeze (2026-07-11)
+
+The initial v13 controller also governed the close segment. That prevented
+free-space joints from traversing quickly enough: the wood-block contact pose
+ended with 0.224rad maximum joint error and visibly open fingers. The soft-gain
+close now receives the full trajectory target; bounded impedance starts only
+at squeeze and remains active through carry. `--final-close-seconds` increased
+from 0.4s to 1.0s so the compliant drives can settle onto contact before the
+wrist begins carrying.
+
+With the corrected default, the wood-block close ended within 0.038rad of the
+recorded contact posture and achieved six consecutive lifted carry frames
+before the known failed grasp slipped. Can and mug remained non-retaining but
+stable, without hand-object pass-through or pinch-ejection. Per-step
+`finger_track.npz` now stores desired, governed, and actual joint positions to
+make future controller regressions directly measurable.
 
 ### Tooling (2026-07-10, commits 3da7b95 + 3946a12)
 

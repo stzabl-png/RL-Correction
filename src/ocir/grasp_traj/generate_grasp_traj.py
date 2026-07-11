@@ -43,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--open-clearance", type=float, default=0.05, help="SDF clearance (m) the WIDE-OPEN hand must have at the switch frame (the switch-frame search walks backward through the demo until satisfied).")
     parser.add_argument("--open-horizon-seconds", type=float, default=1.0, help="Duration of the smooth finger-opening ramp blended into the tail of the retarget replay, ending fully open at the switch frame.")
     parser.add_argument("--planner", choices=["curobo", "linear"], default="curobo", help="Planner for handoff -> repaired open-hand pregrasp. cuRobo uses the object mesh as a collision constraint and fails closed; linear is an explicit debug-only alternative.")
-    parser.add_argument("--final-close-seconds", type=float, default=0.4, help="Duration of the slow final close from the near-contact posture to the contact-projected posture.")
+    parser.add_argument("--final-close-seconds", type=float, default=1.0, help="Duration of the slow final close from the near-contact posture to the contact-projected posture.")
     parser.add_argument("--near-contact-margin", type=float, default=0.003, help="Clearance (m) of the near-contact posture that the fast close stage sweeps to before the slow final close.")
 
     parser.add_argument("--simulate", action=argparse.BooleanOptionalAction, default=True)

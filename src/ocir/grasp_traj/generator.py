@@ -66,7 +66,7 @@ class GraspTrajectoryConfig:
     open_clearance_m: float = 0.05
     open_horizon_seconds: float = 1.0
     planner: str = "curobo"  # or "linear"
-    final_close_seconds: float = 0.4
+    final_close_seconds: float = 1.0
     near_contact_margin_m: float = 0.003
 
     @property

@@ -354,11 +354,21 @@ def setup_hand_collision(stage, ref_path: str, *, min_thickness: float, hull_ver
     return count
 
 
-def setup_hand_drives(stage, ref_path: str, *, stiffness: float, damping: float, max_force: float, armature: float, joint_friction: float) -> int:
+def setup_hand_drives(
+    stage, ref_path: str, *, stiffness: float, damping: float, max_force: float, armature: float,
+    joint_friction: float, effort_profile: str = "baked",
+) -> tuple[int, dict[str, float]]:
+    """Configure finger drives. Under the ``baked`` effort profile the
+    asset's own per-joint ``maxForce`` values (the BODex-tuned limits shipped
+    in the USD) are READ and left in place; ``uniform`` overwrites them all
+    with the ``max_force`` scalar (the pre-tuned behavior). Returns the drive
+    count and the resolved ``{joint_name: maxForce}`` map."""
+
     from pxr import PhysxSchema, Usd, UsdPhysics
 
     root = stage.GetPrimAtPath(ref_path)
     n = 0
+    efforts: dict[str, float] = {}
     for prim in Usd.PrimRange(root):
         if prim.HasAPI(UsdPhysics.RigidBodyAPI):
             if not prim.HasAPI(PhysxSchema.PhysxRigidBodyAPI):
@@ -375,7 +385,24 @@ def setup_hand_drives(stage, ref_path: str, *, stiffness: float, damping: float,
             drive = UsdPhysics.DriveAPI.Apply(prim, "angular")
             (drive.GetStiffnessAttr() or drive.CreateStiffnessAttr()).Set(float(stiffness))
             (drive.GetDampingAttr() or drive.CreateDampingAttr()).Set(float(damping))
-            (drive.GetMaxForceAttr() or drive.CreateMaxForceAttr()).Set(float(max_force))
+            if effort_profile == "baked":
+                baked = drive.GetMaxForceAttr().Get() if drive.GetMaxForceAttr() else None
+                if baked is None:
+                    raise RuntimeError(
+                        f"joint {prim.GetName()} has no baked drive maxForce, but --joint-effort-profile=baked; "
+                        "use an asset with tuned limits (right_sharpa_wave_tuned) or pass --joint-effort-profile uniform"
+                    )
+                efforts[prim.GetName()] = float(baked)
+                # The tuned caps bound CONTACT forces; free-space tracking
+                # (retarget/approach, where fingers swing switch -> pregrasp
+                # fast) needs full authority or lagging fingers sweep through
+                # space the planner assumed clear. Author the scalar here;
+                # the tuned per-joint vector takes over at the first close
+                # step and stays for squeeze/carry.
+                (drive.GetMaxForceAttr() or drive.CreateMaxForceAttr()).Set(float(max_force))
+            else:
+                (drive.GetMaxForceAttr() or drive.CreateMaxForceAttr()).Set(float(max_force))
+                efforts[prim.GetName()] = float(max_force)
             (drive.GetTargetPositionAttr() or drive.CreateTargetPositionAttr()).Set(0.0)
             if not prim.HasAPI(PhysxSchema.PhysxJointAPI):
                 PhysxSchema.PhysxJointAPI.Apply(prim)
@@ -384,8 +411,8 @@ def setup_hand_drives(stage, ref_path: str, *, stiffness: float, damping: float,
             physx_joint.CreateArmatureAttr().Set(float(armature))
             physx_joint.CreateMaxJointVelocityAttr().Set(570.0)  # deg/s, ~10 rad/s
             n += 1
-    log(f"{ref_path}: configured {n} finger joint drives")
-    return n
+    log(f"{ref_path}: configured {n} finger joint drives (effort profile: {effort_profile})")
+    return n, efforts
 
 
 def quats_to_angular_velocities(quats_wxyz: np.ndarray, dt: float) -> np.ndarray:
@@ -416,7 +443,13 @@ class HandArticulationDriver:
     Must be constructed after the timeline is playing (the physics simulation
     view does not exist before that)."""
 
-    def __init__(self, articulation_root_path: str, joint_order: tuple[str, ...]):
+    def __init__(
+        self,
+        articulation_root_path: str,
+        joint_order: tuple[str, ...],
+        efforts_by_name: dict[str, float] | None = None,
+        fallback_max_force: float = 300.0,
+    ):
         from isaacsim.core.prims import SingleArticulation
 
         self.articulation = SingleArticulation(articulation_root_path)
@@ -427,6 +460,15 @@ class HandArticulationDriver:
             raise RuntimeError(f"trajectory joints not present in articulation DOFs: {missing} (DOFs: {dof_names})")
         self.dof_indices = np.asarray([dof_names.index(name) for name in joint_order], dtype=np.int32)
         self.num_dofs = len(dof_names)
+        # Per-DOF effort vector resolved from the drive-setup map (baked
+        # profile: the asset's own tuned per-joint limits; uniform: scalars).
+        efforts_by_name = efforts_by_name or {}
+        unmapped = [name for name in dof_names if name not in efforts_by_name]
+        if efforts_by_name and unmapped:
+            log(f"WARNING: DOFs without a resolved effort limit, using fallback {fallback_max_force}: {unmapped}")
+        self.effort_vector = np.asarray(
+            [float(efforts_by_name.get(name, fallback_max_force)) for name in dof_names], dtype=np.float32
+        )
         log(f"articulation view ready: {self.num_dofs} DOFs, driving {len(joint_order)} of them")
 
     def reset_joints(self, joint_positions_rad: np.ndarray) -> None:
@@ -437,16 +479,24 @@ class HandArticulationDriver:
             np.asarray(joint_positions_rad, dtype=np.float32), joint_indices=self.dof_indices
         )
 
-    def set_drive_strength(self, stiffness: float, damping: float, max_force: float) -> None:
+    def set_drive_strength(self, stiffness: float, damping: float, max_force: float | np.ndarray) -> None:
         """Set PD gains + effort cap on all driven finger joints at once
         (used to soften the fingers during the close segment so an early-
-        touching finger stalls against the object instead of shoving it)."""
+        touching finger stalls against the object instead of shoving it).
+        ``max_force`` may be a per-DOF vector (baked tuned limits) or a
+        scalar (uniform profile)."""
 
         controller = self.articulation.get_articulation_controller()
         kps = np.full(self.num_dofs, float(stiffness), dtype=np.float32)
         kds = np.full(self.num_dofs, float(damping), dtype=np.float32)
         controller.set_gains(kps=kps, kds=kds)
-        controller.set_max_efforts(np.full(self.num_dofs, float(max_force), dtype=np.float32))
+        if np.isscalar(max_force):
+            efforts = np.full(self.num_dofs, float(max_force), dtype=np.float32)
+        else:
+            efforts = np.asarray(max_force, dtype=np.float32)
+            if efforts.shape != (self.num_dofs,):
+                raise ValueError(f"max_force vector shape {efforts.shape} != ({self.num_dofs},)")
+        controller.set_max_efforts(efforts)
 
     def joint_positions(self) -> np.ndarray:
         """Return the driven finger-joint positions in trajectory order."""
@@ -628,23 +678,32 @@ def build_hand(stage, hand_usd_path: Path, args: argparse.Namespace) -> dict:
         min_thickness=0.002, hull_vertex_limit=64, max_convex_hulls=args.convex_decomp_max_hulls,
         contact_offset=0.004, rest_offset=0.001,
     )
-    offset_count = apply_hand_collision_offsets(
-        stage, HAND_REF,
-        contact_offset=float(args.hand_rest_offset) + 0.004,
-        rest_offset=float(args.hand_rest_offset),
-    )
-    drive_count = setup_hand_drives(
+    if args.hand_rest_offset is not None:
+        # Explicit override; None (the default) respects the offsets baked
+        # into the asset (4mm contact / 1mm rest on the tuned hand).
+        offset_count = apply_hand_collision_offsets(
+            stage, HAND_REF,
+            contact_offset=float(args.hand_rest_offset) + 0.004,
+            rest_offset=float(args.hand_rest_offset),
+        )
+    else:
+        offset_count = 0
+        log(f"{HAND_REF}: keeping the asset's baked collider contact/rest offsets")
+    drive_count, resolved_efforts = setup_hand_drives(
         stage, HAND_REF,
         stiffness=args.joint_stiffness, damping=args.joint_damping, max_force=args.joint_max_force,
         armature=args.joint_armature, joint_friction=args.joint_friction,
+        effort_profile=str(args.joint_effort_profile),
     )
     return {
         "deactivated_joints": deactivated_joints,
         "articulation_root": articulation_root,
         "collider_count": collider_count,
         "offset_collider_count": offset_count,
-        "hand_rest_offset_m": float(args.hand_rest_offset),
+        "hand_rest_offset_m": float(args.hand_rest_offset) if args.hand_rest_offset is not None else None,
         "drive_count": drive_count,
+        "joint_effort_profile": str(args.joint_effort_profile),
+        "resolved_max_efforts": {name: round(value, 6) for name, value in sorted(resolved_efforts.items())},
     }
 
 
@@ -811,11 +870,21 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
     phase("building hand")
     hand_usd_path = Path(args.hand_usd) if args.hand_usd else load_sharpa_wave_right(args.asset_config).usd_path
     hand_report = build_hand(stage, hand_usd_path, args)
-    hand_friction_report = high_friction_material(
-        stage, HAND_REF, "/World/Materials/HandFriction", static_friction=args.friction, dynamic_friction=args.friction
-    )
+    # Friction follows the Articulation_Bodex reference: the high-friction
+    # material goes on the OBJECT only (the hand keeps its ordinary asset
+    # material) and the pair combine mode is "max", so the contact pair sees
+    # exactly --friction. The previous both-sides x multiply setup made the
+    # effective pair friction friction^2 (4.0), a plausible source of weird
+    # sticking/torquing on contact.
+    hand_friction_report = {
+        "material_path": None,
+        "bound_collider_count": 0,
+        "note": "hand keeps its ordinary asset material; object material combine mode 'max' sets the pair friction",
+    }
     object_friction_report = high_friction_material(
-        stage, OBJECT_REF, "/World/Materials/ObjectFriction", static_friction=args.friction, dynamic_friction=args.friction
+        stage, OBJECT_REF, "/World/Materials/ObjectFriction",
+        static_friction=args.friction, dynamic_friction=args.friction,
+        combine_mode=str(args.friction_combine_mode),
     )
     set_world_pose(stage, HAND_WRAP, all_pos_isaac[0], all_quat_isaac[0])
 
@@ -829,8 +898,24 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
         app.update()
 
     phase("initializing hand articulation view")
-    hand_driver = HandArticulationDriver(hand_report["articulation_root"], traj.joint_order)
+    hand_driver = HandArticulationDriver(
+        hand_report["articulation_root"], traj.joint_order,
+        efforts_by_name=hand_report["resolved_max_efforts"],
+        fallback_max_force=float(args.joint_max_force),
+    )
     hand_driver.reset_joints(traj.finger_targets[0])
+    # Segment-dependent effort caps: under the baked profile the asset's
+    # tuned per-joint limits apply from the first CLOSE step onward (close,
+    # squeeze, carry -- every segment where finger-object contact is
+    # intended), never expanded back to the uniform scalars. The free-space
+    # retarget/approach segments keep the scalar --joint-max-force authority
+    # (authored in setup_hand_drives): with the tuned caps active there, the
+    # fast switch->pregrasp finger swing lags by >1 rad and the still-closed
+    # fingers sweep into the object (mug sequence: 6.6m ejection during
+    # approach).
+    baked_profile = str(args.joint_effort_profile) == "baked"
+    close_max_force = hand_driver.effort_vector if baked_profile else float(args.close_joint_max_force)
+    normal_max_force = hand_driver.effort_vector if baked_profile else float(args.joint_max_force)
 
     # Finite-difference root velocities: without them every set_world_pose is
     # a zero-velocity teleport and finger-object contacts never see the
@@ -879,12 +964,12 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
         in_close = bool(traj.segment[t] == SEGMENT_CLOSE)
         if in_close and compliant is not True:
             hand_driver.set_drive_strength(
-                float(args.close_joint_stiffness), float(args.joint_damping), float(args.close_joint_max_force)
+                float(args.close_joint_stiffness), float(args.joint_damping), close_max_force
             )
             compliant = True
         elif not in_close and compliant is True:
             hand_driver.set_drive_strength(
-                float(args.joint_stiffness), float(args.joint_damping), float(args.joint_max_force)
+                float(args.joint_stiffness), float(args.joint_damping), normal_max_force
             )
             compliant = False
         desired_targets = traj.finger_targets[t]
@@ -1060,20 +1145,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument("--object-mass", type=float, default=None)
     parser.add_argument("--object-density", type=float, default=700.0)
-    parser.add_argument("--friction", type=float, default=2.0)
+    parser.add_argument("--friction", type=float, default=2.0, help="Static+dynamic friction of the OBJECT's physics material (the hand keeps its ordinary asset material; with combine mode 'max' the contact pair sees exactly this value).")
+    parser.add_argument("--friction-combine-mode", choices=["max", "multiply", "average", "min"], default="max", help="PhysX friction combine mode of the object material (reference setup: max).")
     parser.add_argument("--joint-stiffness", type=float, default=80.0)
     parser.add_argument("--joint-damping", type=float, default=20.0)
-    parser.add_argument("--joint-max-force", type=float, default=300.0)
+    parser.add_argument("--joint-effort-profile", choices=["baked", "uniform"], default="baked", help="baked: use the asset's own per-joint drive maxForce limits (the BODex-tuned values shipped in the hand USD) in every segment; uniform: overwrite all joints with the --joint-max-force / --close-joint-max-force scalars (pre-tuned behavior).")
+    parser.add_argument("--joint-max-force", type=float, default=300.0, help="Uniform-profile effort cap outside close (also the fallback for DOFs missing a baked limit).")
     parser.add_argument("--joint-armature", type=float, default=0.01)
     parser.add_argument("--joint-friction", type=float, default=0.05)
     parser.add_argument("--close-joint-stiffness", type=float, default=20.0, help="Softened finger drive stiffness during the close segment.")
-    parser.add_argument("--close-joint-max-force", type=float, default=60.0, help="Softened finger drive effort cap during the close segment.")
+    parser.add_argument("--close-joint-max-force", type=float, default=60.0, help="Softened finger drive effort cap during the close segment (uniform profile only; baked keeps the tuned per-joint limits).")
     parser.add_argument("--contact-aware-finger-targets", action=argparse.BooleanOptionalAction, default=True, help="Bound finger position targets around the actual joints during squeeze and carry so blocked fingers apply finite impedance instead of forcing the synthesized angle through the object; the soft-gain close remains unbounded so it can reach contact.")
     parser.add_argument("--contact-target-lead-rad", type=float, default=0.03, help="Maximum per-joint angular lead of a contact-phase drive target beyond the current physical joint position.")
     parser.add_argument("--convex-decomp-max-hulls", type=int, default=32)
     parser.add_argument("--object-collision", choices=["sdf", "convex"], default="sdf", help="Object collider type: exact SDF triangle mesh (concavities stay hollow) or convex decomposition.")
     parser.add_argument("--sdf-resolution", type=int, default=256)
-    parser.add_argument("--hand-rest-offset", type=float, default=0.001, help="Rest offset (m) added to every hand collider, effectively inflating the hand collision surface.")
+    parser.add_argument("--hand-rest-offset", type=float, default=None, help="Explicit rest offset (m) override for every hand collider (contact offset becomes this + 4mm). Default: keep the offsets baked into the asset (4mm/1mm on the tuned hand).")
     parser.add_argument("--sim-steps-per-frame", type=int, default=2, help="app.update() calls per trajectory frame; each advances sim time 1/60s, so 2 matches a 30fps trajectory in real time.")
     parser.add_argument("--time-steps-per-second", type=float, default=120.0, help="PhysX substep rate; keep a multiple of 60.")
     parser.add_argument("--capture-every", type=int, default=1)

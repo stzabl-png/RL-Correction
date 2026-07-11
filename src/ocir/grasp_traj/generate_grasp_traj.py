@@ -57,8 +57,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--isaac-object-mass", type=float, default=None)
     parser.add_argument("--isaac-object-density", type=float, default=700.0)
     parser.add_argument("--isaac-friction", type=float, default=2.0)
+    parser.add_argument("--isaac-friction-combine-mode", choices=["max", "multiply", "average", "min"], default="max")
     parser.add_argument("--isaac-joint-stiffness", type=float, default=80.0)
     parser.add_argument("--isaac-joint-damping", type=float, default=20.0)
+    parser.add_argument("--isaac-joint-effort-profile", choices=["baked", "uniform"], default="baked")
     parser.add_argument("--isaac-joint-max-force", type=float, default=300.0)
     parser.add_argument("--isaac-joint-armature", type=float, default=0.01)
     parser.add_argument("--isaac-joint-friction", type=float, default=0.05)
@@ -69,7 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--isaac-convex-decomp-max-hulls", type=int, default=32)
     parser.add_argument("--isaac-object-collision", choices=["sdf", "convex"], default="sdf")
     parser.add_argument("--isaac-sdf-resolution", type=int, default=256)
-    parser.add_argument("--isaac-hand-rest-offset", type=float, default=0.001)
+    parser.add_argument("--isaac-hand-rest-offset", type=float, default=None, help="Explicit override; default keeps the asset's baked collider offsets.")
     parser.add_argument("--isaac-sim-steps-per-frame", type=int, default=2)
     parser.add_argument("--isaac-time-steps-per-second", type=float, default=120.0)
     parser.add_argument("--isaac-capture-every", type=int, default=1)
@@ -144,8 +146,10 @@ def _simulation_params(args: argparse.Namespace, trajectory_dir: Path, out_dir: 
         "object_mass": args.isaac_object_mass,
         "object_density": args.isaac_object_density,
         "friction": args.isaac_friction,
+        "friction_combine_mode": args.isaac_friction_combine_mode,
         "joint_stiffness": args.isaac_joint_stiffness,
         "joint_damping": args.isaac_joint_damping,
+        "joint_effort_profile": args.isaac_joint_effort_profile,
         "joint_max_force": args.isaac_joint_max_force,
         "joint_armature": args.isaac_joint_armature,
         "joint_friction": args.isaac_joint_friction,

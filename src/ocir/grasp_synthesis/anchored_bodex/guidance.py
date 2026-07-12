@@ -103,17 +103,15 @@ class GuidanceWeights:
     pose_anneal_end: float = 0.6
     afford_decay: tuple[float, float] = (0.6, 0.8)
     #: Asymmetric non-penetration penalty over ALL hand collision spheres
-    #: (relu(-signed_distance)^2, summed). DISABLED by default (weight 0):
-    #: with the force-closure QP energy live in every stage
-    #: (rollout.ANCHORED_CONTACT_STRATEGY), the staged contact-distance term
-    #: plus the QP's own contact geometry keep the hand at the surface, and
-    #: the penalty's per-sphere SDF pushes were contorting poses. When
-    #: enabled (``--penetration-weight`` > 0) it is scheduled opposite the
-    #: other guidance terms: zero through stage 0, linearly ramped in across
-    #: ``pene_ramp`` (the stage-1 window), full weight in the final
-    #: (distance=0) stage only.
-    w_pene: float = 0.0
-    pene_ramp: tuple[float, float] = (0.6, 0.8)
+    #: (relu(-signed_distance)^2, summed). Active during STAGE 0 only (the
+    #: ``pene_window`` progress interval): that is where the force-closure QP
+    #: and the annealing pose prior shape the grasp arrangement at the 2cm
+    #: standoff, and the penalty keeps that search out of the mesh so the
+    #: basin handed to the tracking stages is penetration-free. Stages 1-2
+    #: merely pull the frozen stage-0 contacts down to the surface, where a
+    #: live per-sphere SDF push would fight the tracking sphere-by-sphere.
+    w_pene: float = 900.0
+    pene_window: tuple[float, float] = (0.0, 0.6)
     #: Pairwise sphere-vs-sphere self-collision energy (relu(min_dist -
     #: center_dist)^2, summed over non-adjacent sphere pairs). Unlike every
     #: other guidance term this is NOT scheduled: fingers must never
@@ -128,7 +126,7 @@ class GuidanceWeights:
         *,
         w_afford: float = 20.0,
         pose_scale: float = 1.0,
-        w_pene: float = 0.0,
+        w_pene: float = 900.0,
         w_selfcol: float = 1000.0,
     ) -> "GuidanceWeights":
         stages = list(contact_strategy["opt_progress"])
@@ -141,18 +139,14 @@ class GuidanceWeights:
             pose_anneal_end=stage1,
             afford_decay=(stage1, stage2),
             w_pene=float(w_pene),
-            pene_ramp=(stage1, stage2),
+            pene_window=(0.0, stage1),
             w_selfcol=float(w_selfcol),
         )
 
     def pene_weight(self, opt_progress: float) -> float:
-        start, end = self.pene_ramp
+        start, end = self.pene_window
         p = float(opt_progress)
-        if p <= start:
-            return 0.0
-        if p >= end:
-            return self.w_pene
-        return self.w_pene * (p - start) / max(end - start, 1e-9)
+        return self.w_pene if start <= p <= end else 0.0
 
     def pose_prior_weight(self, opt_progress: float) -> float:
         if self.pose_anneal_end <= 0:

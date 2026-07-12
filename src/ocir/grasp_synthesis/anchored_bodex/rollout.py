@@ -9,11 +9,9 @@ is a frozen reference port and is never modified) that:
   ``BodexGraspCost`` / ``QPEnergy`` (both are shape-driven);
 - takes its initial actions from an :class:`AnchoredSeedGenerator` (retargeted
   human contact-frame poses) instead of object-surface sampling;
-- keeps the force-closure QP energy live in EVERY contact stage
-  (``ANCHORED_CONTACT_STRATEGY``: ``max_ge_stage: 2`` + sphere-query mode -1
-  throughout), where original BODex runs it in stage 0 only and tracks frozen
-  contact targets afterwards;
-- adds guidance costs on top of the exact BODex staged cost:
+- adds guidance costs on top of the exact BODex staged cost (which, as in
+  original BODex, runs the force-closure QP energy in stage 0 only and has
+  stages 1-2 track the contact targets frozen at the stage-0 switch):
 
   - ``human_pose_prior``: per-seed deviation from that seed's own un-relaxed
     retargeted anchor (position, sign-invariant quaternion, joints), annealed
@@ -24,10 +22,10 @@ is a frozen reference port and is never modified) that:
     contact points sidesteps the stage-0-only custom-backward gradient path;
     since the BODex distance term pins spheres to the surface anyway, the two
     coincide at convergence. Decayed to zero across stages 1 -> 2.
-  - ``penetration_penalty``: asymmetric all-sphere non-penetration energy.
-    DISABLED by default (``--penetration-weight`` 0); when enabled it is
-    ramped IN across stage 1 and at full weight only in the final
-    distance=0 stage (see ``GuidanceWeights``).
+  - ``penetration_penalty``: asymmetric all-sphere non-penetration energy,
+    active during STAGE 0 only -- it keeps the force-closure/pose-prior
+    search at the 2cm standoff out of the mesh; the tracking stages run
+    without it (see ``GuidanceWeights``).
   - ``self_collision``: pairwise sphere-vs-sphere overlap energy between
     non-adjacent hand links (fingers/palm), at full weight in every stage --
     unlike the other terms, fingers must never interpenetrate each other at
@@ -72,21 +70,6 @@ from ocir.grasp_synthesis.bodex_curobo_v2.solver import (
     transform_points,
 )
 from ocir.grasp_synthesis.object_surface import ObjectSurface
-
-#: Anchored variant of BODex's staged contact strategy. Original BODex runs
-#: the force-closure QP energy only in stage 0 (``max_ge_stage: 0``) and
-#: switches to gradient-carrying frozen-target tracking (query mode 0) for
-#: stages 1-2. Here the QP energy stays live in ALL stages, so the contact
-#: query must stay in mode -1 (sphere query, gradients flow through the
-#: sphere positions) throughout: mode 0 caches its contact points/normals
-#: DETACHED and only the loss_wo_ge reprojection re-attaches gradients, so
-#: mode 0 + the QP energy would be gradient-dead under the pure-autograd
-#: Newton optimizer. Stage standoffs (2cm/1cm/0) are unchanged.
-ANCHORED_CONTACT_STRATEGY = {
-    **DEFAULT_CONTACT_STRATEGY,
-    "contact_query_mode": [-1, -1, -1],
-    "max_ge_stage": 2,
-}
 
 
 @dataclass
@@ -195,7 +178,7 @@ class AnchoredBodexRollout:
             contact_mesh_idx=list(range(len(self.contact_link_names))),
             world_coll_checker=self.contact_world,
             finger_num=len(self.contact_points),
-            contact_strategy=dict(ANCHORED_CONTACT_STRATEGY),
+            contact_strategy=dict(DEFAULT_CONTACT_STRATEGY),
         )
         self.grasp_cost = BodexGraspCost(cfg)
         # Fresh instance for exact final metrics (same rationale as the

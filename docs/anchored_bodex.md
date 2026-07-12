@@ -90,28 +90,22 @@ scripts/run_grasp_synthesis_conda.sh \
   actually touched the object, and the force-closure QP's pressure
   constraints are regenerated for that subset (`--no-contact-subset`
   restores all 11).
-- **Force closure in every stage** (`ANCHORED_CONTACT_STRATEGY` in
-  `rollout.py`): original BODex runs the force-closure QP energy only in
-  stage 0 (`max_ge_stage: 0`) and has stages 1-2 track contact targets
-  frozen at the stage-0 switch. The anchored variant keeps the QP energy
-  live in all three stages (`max_ge_stage: 2`), so the contact arrangement
-  keeps being scored and corrected for force closure while the standoff
-  shrinks 2cm -> 1cm -> 0. This requires keeping the gradient-carrying
-  sphere contact query (mode -1) in every stage: BODex's mode-0 mesh query
-  caches its contact points/normals detached, which would make the QP
-  energy gradient-dead under the pure-autograd Newton optimizer.
-- **Guidance energies** (on top of the otherwise-unchanged BODex staged
-  cost): an annealed pose prior toward each seed's anchor (`--pose-weight`,
-  zero by the stage-0->1 contact switch), an affordance attraction pulling
+- **Guidance energies** (on top of the unchanged BODex staged cost, which
+  as in original BODex runs the force-closure QP energy in stage 0 only and
+  has stages 1-2 track the contact targets frozen at the stage-0 switch):
+  an annealed pose prior toward each seed's anchor (`--pose-weight`, zero by
+  the stage-0->1 contact switch), an affordance attraction pulling
   fingertip/pad contact spheres toward the high-heatmap region
   (`--affordance-weight`, `--afford-tau`, decayed over stages 1->2), and an
-  **asymmetric non-penetration penalty** (`--penetration-weight`,
-  **disabled by default**, weight 0): `relu(-signed_distance)^2` summed over
-  ALL 37 hand collision spheres. With the QP live in every stage the staged
-  contact-distance term keeps the hand at the surface on its own, and the
-  penalty's per-sphere SDF pushes were observed to contort poses; when
-  enabled it is ramped **in**, not out -- zero through stage 0, linear
-  across stage 1, full weight only in the final distance=0 stage.
+  **asymmetric non-penetration penalty** (`--penetration-weight`, default
+  900): `relu(-signed_distance)^2` summed over ALL 37 hand collision
+  spheres (their own all-sphere FK, differentiable through the exact SDF
+  gradient). Active during **stage 0 only**: that is where the QP and the
+  annealing pose prior shape the contact arrangement at the 2cm standoff,
+  and the penalty keeps that search out of the mesh so the basin handed to
+  the tracking stages is penetration-free. Stages 1-2 merely pull the
+  frozen stage-0 contacts down to the surface, where a live per-sphere SDF
+  push would fight the tracking sphere-by-sphere.
 - **Self-collision** (`--selfcollision-weight`, default 1000): pairwise
   sphere-vs-sphere overlap energy, `relu(min_dist - center_dist)^2` summed
   over every pair of hand-collision spheres EXCEPT same-link spheres and

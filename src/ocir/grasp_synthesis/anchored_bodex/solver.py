@@ -148,7 +148,7 @@ def solve_sharpa_anchored_bodex(
     rank_pose_weight: float = 0.5,
     force_affordance: bool = False,
     squeeze_min_rad: float = DEFAULT_SQUEEZE_MIN_RAD,
-    penetration_weight: float = 0.0,
+    penetration_weight: float = 900.0,
     selfcollision_weight: float = 1000.0,
     contact_clearance_m: float = DEFAULT_CONTACT_CLEARANCE_M,
 ) -> dict[str, Any]:
@@ -325,7 +325,7 @@ def solve_sharpa_anchored_bodex(
             "afford_decay": list(weights.afford_decay),
             "afford_tau": float(afford_tau),
             "penetration_weight": float(weights.w_pene),
-            "penetration_ramp": list(weights.pene_ramp),
+            "penetration_window": list(weights.pene_window),
             "selfcollision_weight": float(weights.w_selfcol),
         },
         "seed_params": {

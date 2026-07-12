@@ -325,7 +325,7 @@ def solve_sharpa_anchored_bodex(
             "afford_decay": list(weights.afford_decay),
             "afford_tau": float(afford_tau),
             "penetration_weight": float(weights.w_pene),
-            "penetration_window": list(weights.pene_window),
+            "penetration_ramp": list(weights.pene_ramp),
             "selfcollision_weight": float(weights.w_selfcol),
         },
         "seed_params": {

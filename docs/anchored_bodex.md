@@ -100,12 +100,22 @@ scripts/run_grasp_synthesis_conda.sh \
   **asymmetric non-penetration penalty** (`--penetration-weight`, default
   900): `relu(-signed_distance)^2` summed over ALL 37 hand collision
   spheres (their own all-sphere FK, differentiable through the exact SDF
-  gradient). Active during **stage 0 only**: that is where the QP and the
-  annealing pose prior shape the contact arrangement at the 2cm standoff,
-  and the penalty keeps that search out of the mesh so the basin handed to
-  the tracking stages is penetration-free. Stages 1-2 merely pull the
-  frozen stage-0 contacts down to the surface, where a live per-sphere SDF
-  push would fight the tracking sphere-by-sphere.
+  gradient). The base staged cost's distance term is a symmetric
+  `(dist - target)^2` that is indifferent between stopping at the surface
+  and overshooting into the mesh; this term supplies the missing asymmetry.
+  It is ramped **in**, not out: zero through stage 0, linearly increased
+  across stage 1, full weight only in the final distance=0 stage. This
+  schedule won a three-way trial on the three test sequences. Active in
+  stage 0 it fights the pose prior / QP sphere-by-sphere and contorts the
+  pose -- the stage-0-only variant left 2 of 3 pregrasp snapshots
+  penetrating (down to -11mm on the mug) *despite* the penalty being on,
+  and its unguarded stages 1-2 let the raw grasp dive 5-10mm into the
+  mesh, forcing the grasp stage onto penetrating fallbacks. A variant
+  keeping the force-closure QP live in all three stages (with no penalty)
+  was also tried and dropped. Under the ramp schedule the raw grasp
+  converges essentially penetration-free (<2mm), all three grasp stages
+  retreat cleanly to the +2mm margin, and the resulting records produced
+  the first sustained lift under reference-faithful physics.
 - **Self-collision** (`--selfcollision-weight`, default 1000): pairwise
   sphere-vs-sphere overlap energy, `relu(min_dist - center_dist)^2` summed
   over every pair of hand-collision spheres EXCEPT same-link spheres and

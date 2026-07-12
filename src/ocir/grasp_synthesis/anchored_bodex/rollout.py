@@ -23,9 +23,10 @@ is a frozen reference port and is never modified) that:
     since the BODex distance term pins spheres to the surface anyway, the two
     coincide at convergence. Decayed to zero across stages 1 -> 2.
   - ``penetration_penalty``: asymmetric all-sphere non-penetration energy,
-    active during STAGE 0 only -- it keeps the force-closure/pose-prior
-    search at the 2cm standoff out of the mesh; the tracking stages run
-    without it (see ``GuidanceWeights``).
+    ramped IN across stage 1 and at full weight only in the final
+    distance=0 stage -- the one stage where the symmetric contact-distance
+    term needs the asymmetry (see ``GuidanceWeights`` for why the
+    alternative schedules measured worse).
   - ``self_collision``: pairwise sphere-vs-sphere overlap energy between
     non-adjacent hand links (fingers/palm), at full weight in every stage --
     unlike the other terms, fingers must never interpenetrate each other at

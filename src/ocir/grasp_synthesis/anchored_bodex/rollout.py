@@ -86,6 +86,11 @@ class AnchoredBodexRollout:
     afford_points: torch.Tensor | None        # (M, 3) high-affordance points
     weights: GuidanceWeights = field(default_factory=GuidanceWeights)
     opt_iters: int = 500
+    #: Overrides only the first (grasp/force-closure) entry of original
+    #: BODex's [grasp, dist, regu] weight triple (``DEFAULT_WEIGHT[0]``,
+    #: 100 in original BODex and the pure pipeline); dist/regu stay at
+    #: their original values.
+    force_closure_weight: float = DEFAULT_WEIGHT[0]
 
     def __post_init__(self):
         self.asset = load_sharpa_wave_right()
@@ -165,7 +170,7 @@ class AnchoredBodexRollout:
         self.object_gravity_center = center_obj
         self.object_obb_length = extent
         cfg = BodexGraspCostConfig(
-            weight=list(DEFAULT_WEIGHT),
+            weight=[self.force_closure_weight, DEFAULT_WEIGHT[1], DEFAULT_WEIGHT[2]],
             device_cfg=self.device_cfg,
             task_dict=dict(DEFAULT_TASK_DICT),
             ge_param={

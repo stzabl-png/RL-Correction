@@ -85,37 +85,49 @@ scripts/run_grasp_synthesis_conda.sh \
   jittered (`--jitter-pos/--jitter-rot-deg/--jitter-joint`). Seed #0 is the
   unjittered grasp-frame pose. Each seed keeps its un-relaxed retargeted pose
   as its *anchor*.
-- **Contact points**: the active subset of the 11 Sharpa contact points is
-  selected per sequence from which human hand parts (fingertips/pads/palm)
-  actually touched the object, and the force-closure QP's pressure
-  constraints are regenerated for that subset (`--no-contact-subset`
-  restores all 11).
+- **Contact points**: all 11 Sharpa contact points stay active by default,
+  same as the pure pipeline, so the force-closure QP can recruit opposition
+  the human demo did not exhibit. `--contact-subset` opts back in to the
+  human-guided restriction: the active subset is selected per sequence from
+  which human hand parts (fingertips/pads/palm) actually touched the object,
+  and the QP's pressure constraints are regenerated for that subset.
+- **Force-closure weight** (`--force-closure-weight`, default **500**,
+  original BODex/pure pipeline: 100): overrides only the first entry of
+  original BODex's `[grasp, dist, regu]` staged-cost weight triple (still
+  `[?, 1000, 10]` otherwise); this is an optimization-time weight on the
+  stage-0-only QP energy cost, pulling the optimizer harder toward low
+  grasp energy while contact targets are still being negotiated -- it does
+  **not** change the pass/fail success threshold itself (`grasp_error` is
+  computed independent of any weight; `compute_success` checks
+  `grasp_error_max <= 0.001` regardless).
 - **Guidance energies** (on top of the unchanged BODex staged cost, which
   as in original BODex runs the force-closure QP energy in stage 0 only and
   has stages 1-2 track the contact targets frozen at the stage-0 switch):
-  an annealed pose prior toward each seed's anchor (`--pose-weight`, zero by
-  the stage-0->1 contact switch), an affordance attraction pulling
-  fingertip/pad contact spheres toward the high-heatmap region
-  (`--affordance-weight`, `--afford-tau`, decayed over stages 1->2), and an
-  **asymmetric non-penetration penalty** (`--penetration-weight`, default
-  900): `relu(-signed_distance)^2` summed over ALL 37 hand collision
-  spheres (their own all-sphere FK, differentiable through the exact SDF
-  gradient). The base staged cost's distance term is a symmetric
-  `(dist - target)^2` that is indifferent between stopping at the surface
-  and overshooting into the mesh; this term supplies the missing asymmetry.
-  It is ramped **in**, not out: zero through stage 0, linearly increased
-  across stage 1, full weight only in the final distance=0 stage. This
-  schedule won a three-way trial on the three test sequences. Active in
-  stage 0 it fights the pose prior / QP sphere-by-sphere and contorts the
-  pose -- the stage-0-only variant left 2 of 3 pregrasp snapshots
-  penetrating (down to -11mm on the mug) *despite* the penalty being on,
-  and its unguarded stages 1-2 let the raw grasp dive 5-10mm into the
-  mesh, forcing the grasp stage onto penetrating fallbacks. A variant
-  keeping the force-closure QP live in all three stages (with no penalty)
-  was also tried and dropped. Under the ramp schedule the raw grasp
-  converges essentially penetration-free (<2mm), all three grasp stages
-  retreat cleanly to the +2mm margin, and the resulting records produced
-  the first sustained lift under reference-faithful physics.
+  an annealed pose prior toward each seed's anchor (`--pose-weight`, default
+  **0.0 -- disabled**; when enabled, anneals to zero by the stage-0->1
+  contact switch) -- note this only controls the optimization-time pull
+  toward the anchor pose; seeds themselves are still generated from the
+  human demo's retargeted contact frames regardless of this weight -- an
+  affordance attraction pulling fingertip/pad contact spheres toward the
+  high-heatmap region (`--affordance-weight`, `--afford-tau`, decayed over
+  stages 1->2), and an **asymmetric non-penetration penalty**
+  (`--penetration-weight`, default **0.0 -- disabled**): `relu(-signed_distance)^2`
+  summed over ALL 37 hand collision spheres (their own all-sphere FK,
+  differentiable through the exact SDF gradient). The base staged cost's
+  distance term is a symmetric `(dist - target)^2` that is indifferent
+  between stopping at the surface and overshooting into the mesh; this term
+  supplies the missing asymmetry when enabled. Its schedule (when nonzero) is
+  ramped **in**, not out: zero through stage 0, linearly increased across
+  stage 1, full weight only in the final distance=0 stage -- this schedule
+  won a three-way trial on the three test sequences (see git history for the
+  trial writeup). Active in stage 0 it fights the pose prior / QP
+  sphere-by-sphere and contorts the pose; a variant keeping the
+  force-closure QP live in all three stages (with no penalty) was also
+  tried and dropped. Both `--pose-weight` and `--penetration-weight` default
+  to 0 now: a stronger pose prior was found to pull finger geometry back
+  into penetrating retarget anchors on hard cases (the anchor pose itself
+  can penetrate by a few mm, and stage 0 has no penetration penalty by
+  construction to counter it). Pass a positive value to re-enable either.
 - **Self-collision** (`--selfcollision-weight`, default 1000): pairwise
   sphere-vs-sphere overlap energy, `relu(min_dist - center_dist)^2` summed
   over every pair of hand-collision spheres EXCEPT same-link spheres and

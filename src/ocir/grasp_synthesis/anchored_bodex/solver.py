@@ -141,16 +141,17 @@ def solve_sharpa_anchored_bodex(
     jitter_rot_deg: float = 10.0,
     jitter_joint: float = 0.08,
     affordance_weight: float = 20.0,
-    pose_weight: float = 1.0,
-    contact_subset: bool = True,
+    pose_weight: float = 0.0,
+    contact_subset: bool = False,
     afford_tau: float = DEFAULT_AFFORD_TAU,
     rank_affordance_weight: float = 1.0,
     rank_pose_weight: float = 0.5,
     force_affordance: bool = False,
     squeeze_min_rad: float = DEFAULT_SQUEEZE_MIN_RAD,
-    penetration_weight: float = 900.0,
+    penetration_weight: float = 0.0,
     selfcollision_weight: float = 1000.0,
     contact_clearance_m: float = DEFAULT_CONTACT_CLEARANCE_M,
+    force_closure_weight: float = 500.0,
 ) -> dict[str, Any]:
     if not torch.cuda.is_available():
         raise RuntimeError("anchored BODex grasp synthesis requires CUDA")
@@ -221,6 +222,7 @@ def solve_sharpa_anchored_bodex(
         afford_points=afford_points,
         weights=weights,
         opt_iters=opt_iters,
+        force_closure_weight=force_closure_weight,
     )
     rollouts = [AnchoredBodexRollout(**rollout_cfg), AnchoredBodexRollout(**rollout_cfg)]
 
@@ -319,6 +321,7 @@ def solve_sharpa_anchored_bodex(
         "pressure_constraints_used": [[list(g), c] for g, c in pressure_constraints],
         "contact_subset_enabled": bool(contact_subset),
         "guidance_weights": {
+            "force_closure_weight": float(force_closure_weight),
             "affordance_weight": float(weights.w_afford),
             "pose_weights": list(weights.w_pose),
             "pose_anneal_end": float(weights.pose_anneal_end),

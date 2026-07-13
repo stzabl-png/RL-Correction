@@ -50,6 +50,9 @@ from ocir.grasp_traj.trajectory_schema import (
 CARRY_START_GRASP_FRAME = "grasp_frame"
 CARRY_START_PICKUP_FRAME = "pickup_frame"
 
+CARRY_STYLE_VERTICAL_LIFT = "vertical_lift"
+CARRY_STYLE_DEMO = "demo"
+
 
 @dataclass
 class GraspTrajectoryConfig:
@@ -60,6 +63,23 @@ class GraspTrajectoryConfig:
     pregrasp_open_fraction: float = 1.0
     squeeze_delta: float = 0.15
     approach_clearance_m: float = 0.003
+    #: ``vertical_lift``: after the squeeze (and settle hold) the wrist rises
+    #: straight up (world +z) by ``carry_lift_height_m`` and holds -- the
+    #: simplified pick task. ``demo``: follow the recorded human carry
+    #: trajectory (the original behavior).
+    carry_style: str = CARRY_STYLE_VERTICAL_LIFT
+    #: Post-squeeze hold (wrist parked, squeeze targets held) letting the
+    #: physics contacts settle before any load transfer; appended to the
+    #: squeeze segment.
+    settle_seconds: float = 1.0
+    carry_lift_height_m: float = 0.20
+    carry_lift_seconds: float = 2.0
+    #: Hold at the top of the vertical lift (sustained-lift evidence).
+    carry_hold_seconds: float = 1.0
+    #: DexYCB manifest for the camera->world extrinsics that define "up" in
+    #: the camera frame (vertical_lift only). None: auto-resolve next to the
+    #: sequences root, falling back to the Stage B default manifest.
+    dexycb_manifest: str | None = None
     carry_start: str = CARRY_START_GRASP_FRAME
     max_wrist_speed_mps: float = 0.25
     carry_blend_seconds: float = 0.3
@@ -92,6 +112,52 @@ def _remap_by_name(values: np.ndarray, source_names: list[str], target_names: li
         raise KeyError(f"joint names {missing} not present in source names {source_names}")
     idx = [index[name] for name in target_names]
     return values[..., idx]
+
+
+def world_up_in_camera(sequence_dir: Path, manifest_path: str | Path | None = None) -> tuple[np.ndarray, dict]:
+    """World +z (up, opposite gravity) expressed in the sequence's camera
+    frame, unit norm.
+
+    Uses the same DexYCB apriltag-extrinsics frame mapper Stage B maps the
+    trajectory with (``ocir.isaac.replay_dexycb`` is import-safe without an
+    Isaac runtime), so "vertical" authored here is exactly world-vertical in
+    the simulation. Fails closed when the manifest or sequence entry cannot
+    be found -- the cameras are tilted down at the table, so no camera-axis
+    fallback is acceptably close.
+    """
+
+    from ocir.isaac.replay_dexycb import DEFAULT_MANIFEST, load_dexycb_frame_mapper
+
+    sequence_dir = Path(sequence_dir)
+    seq_meta = json.loads((sequence_dir / "sequence.json").read_text(encoding="utf-8"))
+    sequence_id = str(seq_meta.get("sequence_id") or sequence_dir.name)
+    candidates = (
+        [Path(manifest_path)]
+        if manifest_path is not None
+        else [
+            sequence_dir.resolve().parents[1] / "manifests" / "selected_5_sequences.json",
+            Path(DEFAULT_MANIFEST),
+        ]
+    )
+    manifest_file = next((c for c in candidates if c.is_file()), None)
+    if manifest_file is None:
+        raise FileNotFoundError(
+            f"no DexYCB manifest found for the camera->world extrinsics (tried {[str(c) for c in candidates]}); "
+            "pass --dexycb-manifest, or use --carry-style demo which needs no world frame"
+        )
+    manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+    entry = next((s for s in manifest.get("sequences", []) if s.get("sequence_id") == sequence_id), None)
+    if entry is None:
+        raise KeyError(f"sequence_id {sequence_id!r} not found in manifest {manifest_file}")
+    mapper = load_dexycb_frame_mapper(manifest, entry)
+    up = np.asarray(mapper.rotation, dtype=np.float64).T @ np.array([0.0, 0.0, 1.0])
+    up = up / np.linalg.norm(up)
+    return up, {
+        "manifest": str(manifest_file),
+        "camera": mapper.camera,
+        "extrinsics": mapper.extrinsics,
+        "world_up_camera": up.tolist(),
+    }
 
 
 class GraspTrajectoryGenerator:
@@ -707,42 +773,100 @@ class GraspTrajectoryGenerator:
 
         grasp_root_tf = pos_quat_to_matrix(grasp_pos, grasp_quat)
 
-        # --- Segment c: carry, following the recorded object trajectory ----
+        static_obj_pos0, static_obj_quat0 = matrix_to_pos_quat(static_object_pose[None])
+        static_obj_pos0, static_obj_quat0 = static_obj_pos0[0], static_obj_quat0[0]
+
+        # --- Settle hold: park the wrist at the squeeze-end pose with the
+        # squeeze targets held so the physics contacts converge before any
+        # load transfer (appended to the squeeze segment: same drive gains,
+        # and the carry-only lift metrics stay unpolluted). ---
+        settle_steps = int(round(self.config.settle_seconds * self.config.fps))
+        if settle_steps > 0:
+            _append(
+                np.tile(hand_pos_chunks[-1][-1][None], (settle_steps, 1)),
+                np.tile(hand_quat_chunks[-1][-1][None], (settle_steps, 1)),
+                np.tile(squeeze_joints[None], (settle_steps, 1)),
+                np.tile(static_obj_pos0[None], (settle_steps, 1)),
+                np.tile(static_obj_quat0[None], (settle_steps, 1)),
+                SEGMENT_SQUEEZE, settle_steps,
+            )
+
+        # --- Segment c: carry ------------------------------------------------
         carry_frame = (
             analysis.grasp_frame_index
             if self.config.carry_start == CARRY_START_GRASP_FRAME
             else analysis.pickup_frame_index
         )
-        carry_indices = demo.valid_indices[demo.valid_indices >= carry_frame]
-        carry_resample_report: dict = {"raw_steps": 0, "resampled_steps": 0}
-        if carry_indices.size:
-            obj_pose_cam = demo.object_pose_camera[carry_indices]
-            obj_pos_cam, obj_quat_cam = matrix_to_pos_quat(obj_pose_cam)
-            obj_pos_cam, obj_quat_cam, carry_resample_report = self._resample_carry_object_poses(
-                obj_pos_cam, obj_quat_cam, grasp_root_tf
-            )
-            obj_pose_cam = pos_quat_to_matrix(obj_pos_cam, obj_quat_cam)
-            hand_pose_cam = obj_pose_cam @ grasp_root_tf[None]
-            hand_pos_cam, hand_quat_cam = matrix_to_pos_quat(hand_pose_cam)
-            # Ease out of the squeeze-end pose: segment b froze the object at
-            # its switch-frame pose, while carry follows the live recording,
-            # so without a blend the boundary has a visible pose jump.
-            n_blend = max(1, int(round(self.config.carry_blend_seconds * self.config.fps)))
-            hand_pos_cam, hand_quat_cam = blend_into_trajectory(
-                hand_pos_chunks[-1][-1], hand_quat_chunks[-1][-1], hand_pos_cam, hand_quat_cam, n_blend
-            )
-            steps_before_final_cap = int(hand_pos_cam.shape[0])
-            hand_pos_cam, hand_quat_cam, obj_pos_cam, obj_quat_cam = self._cap_synchronized_pose_speed(
-                hand_pos_cam, hand_quat_cam, obj_pos_cam, obj_quat_cam
-            )
-            actual_step = np.linalg.norm(np.diff(hand_pos_cam, axis=0), axis=1)
-            carry_resample_report["steps_before_boundary_speed_cap"] = steps_before_final_cap
-            carry_resample_report["steps_after_boundary_speed_cap"] = int(hand_pos_cam.shape[0])
-            carry_resample_report["max_hand_speed_after_boundary_blend_mps"] = (
-                float(actual_step.max() * self.config.fps) if actual_step.size else 0.0
-            )
-            joints_carry = np.tile(squeeze_joints[None], (hand_pos_cam.shape[0], 1))
-            _append(hand_pos_cam, hand_quat_cam, joints_carry, obj_pos_cam, obj_quat_cam, SEGMENT_CARRY, hand_pos_cam.shape[0])
+        carry_report: dict = {"carry_style": self.config.carry_style, "settle_steps": settle_steps}
+        if self.config.carry_style == CARRY_STYLE_VERTICAL_LIFT:
+            # Straight world-vertical lift from the squeeze-end pose (fixed
+            # orientation, squeeze finger targets), then a hold at the top.
+            # The cosine ease starts and ends at zero velocity, so there is no
+            # boundary blend and no jerk at lift-off; its peak speed is
+            # (pi/2) * height / duration, kept under the wrist speed cap by
+            # growing the step count.
+            up_cam, up_report = world_up_in_camera(sequence_dir, self.config.dexycb_manifest)
+            n_lift = max(1, int(round(self.config.carry_lift_seconds * self.config.fps)))
+            if self.config.max_wrist_speed_mps > 0:
+                n_lift = max(n_lift, int(np.ceil(
+                    (np.pi / 2.0) * self.config.carry_lift_height_m * self.config.fps
+                    / self.config.max_wrist_speed_mps
+                )))
+            n_hold = int(round(self.config.carry_hold_seconds * self.config.fps))
+            alpha = (1.0 - np.cos(np.pi * np.arange(1, n_lift + 1) / n_lift)) / 2.0
+            alpha = np.concatenate([alpha, np.ones(n_hold)])
+            offsets = alpha[:, None] * self.config.carry_lift_height_m * up_cam[None]
+            hand_pos_cam = hand_pos_chunks[-1][-1][None] + offsets
+            hand_quat_cam = np.tile(hand_quat_chunks[-1][-1][None], (alpha.size, 1))
+            obj_pos_cam = static_obj_pos0[None] + offsets
+            obj_quat_cam = np.tile(static_obj_quat0[None], (alpha.size, 1))
+            joints_carry = np.tile(squeeze_joints[None], (alpha.size, 1))
+            _append(hand_pos_cam, hand_quat_cam, joints_carry, obj_pos_cam, obj_quat_cam, SEGMENT_CARRY, alpha.size)
+            carry_report.update({
+                "lift_steps": int(n_lift),
+                "hold_steps": int(n_hold),
+                "lift_height_m": float(self.config.carry_lift_height_m),
+                "peak_wrist_speed_mps": float(
+                    (np.pi / 2.0) * self.config.carry_lift_height_m * self.config.fps / n_lift
+                ),
+                **up_report,
+            })
+        else:
+            # Follow the recorded human carry trajectory (object-relative).
+            carry_indices = demo.valid_indices[demo.valid_indices >= carry_frame]
+            carry_resample_report: dict = {"raw_steps": 0, "resampled_steps": 0}
+            if carry_indices.size:
+                obj_pose_cam = demo.object_pose_camera[carry_indices]
+                obj_pos_cam, obj_quat_cam = matrix_to_pos_quat(obj_pose_cam)
+                obj_pos_cam, obj_quat_cam, carry_resample_report = self._resample_carry_object_poses(
+                    obj_pos_cam, obj_quat_cam, grasp_root_tf
+                )
+                obj_pose_cam = pos_quat_to_matrix(obj_pos_cam, obj_quat_cam)
+                hand_pose_cam = obj_pose_cam @ grasp_root_tf[None]
+                hand_pos_cam, hand_quat_cam = matrix_to_pos_quat(hand_pose_cam)
+                # Ease out of the squeeze-end pose: segment b froze the object at
+                # its switch-frame pose, while carry follows the live recording,
+                # so without a blend the boundary has a visible pose jump.
+                n_blend = max(1, int(round(self.config.carry_blend_seconds * self.config.fps)))
+                hand_pos_cam, hand_quat_cam = blend_into_trajectory(
+                    hand_pos_chunks[-1][-1], hand_quat_chunks[-1][-1], hand_pos_cam, hand_quat_cam, n_blend
+                )
+                steps_before_final_cap = int(hand_pos_cam.shape[0])
+                hand_pos_cam, hand_quat_cam, obj_pos_cam, obj_quat_cam = self._cap_synchronized_pose_speed(
+                    hand_pos_cam, hand_quat_cam, obj_pos_cam, obj_quat_cam
+                )
+                actual_step = np.linalg.norm(np.diff(hand_pos_cam, axis=0), axis=1)
+                carry_resample_report["steps_before_boundary_speed_cap"] = steps_before_final_cap
+                carry_resample_report["steps_after_boundary_speed_cap"] = int(hand_pos_cam.shape[0])
+                carry_resample_report["max_hand_speed_after_boundary_blend_mps"] = (
+                    float(actual_step.max() * self.config.fps) if actual_step.size else 0.0
+                )
+                joints_carry = np.tile(squeeze_joints[None], (hand_pos_cam.shape[0], 1))
+                _append(hand_pos_cam, hand_quat_cam, joints_carry, obj_pos_cam, obj_quat_cam, SEGMENT_CARRY, hand_pos_cam.shape[0])
+            carry_report.update({
+                "num_carry_frames": int(carry_indices.size),
+                "carry_resample": carry_resample_report,
+            })
 
         traj = GraspTrajectory(
             hand_pos_camera=np.concatenate(hand_pos_chunks, axis=0),
@@ -767,6 +891,11 @@ class GraspTrajectoryGenerator:
                     "pregrasp_open_fraction": self.config.pregrasp_open_fraction,
                     "squeeze_delta": self.config.squeeze_delta,
                     "approach_clearance_m": self.config.approach_clearance_m,
+                    "carry_style": self.config.carry_style,
+                    "settle_seconds": self.config.settle_seconds,
+                    "carry_lift_height_m": self.config.carry_lift_height_m,
+                    "carry_lift_seconds": self.config.carry_lift_seconds,
+                    "carry_hold_seconds": self.config.carry_hold_seconds,
                     "carry_start": self.config.carry_start,
                     "max_wrist_speed_mps": self.config.max_wrist_speed_mps,
                     "carry_blend_seconds": self.config.carry_blend_seconds,
@@ -782,9 +911,7 @@ class GraspTrajectoryGenerator:
                 "object_name": grasp_record.get("object_name"),
                 "object_mesh": str(surface.object_mesh_path),
                 "num_retarget_frames": int(retarget_frames.size) if retarget_frames.size else 0,
-                "num_carry_frames": int(carry_indices.size) if carry_indices.size else 0,
-                "num_carry_steps": int(carry_resample_report["resampled_steps"]),
-                "carry_resample": carry_resample_report,
+                "carry": carry_report,
             },
         )
         return traj

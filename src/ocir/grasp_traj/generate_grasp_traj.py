@@ -37,6 +37,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--pregrasp-open-fraction", type=float, default=1.0, help="How wide the fingers open before the final reach: 1.0 scales all flexion joints to 0 rad (fully open), 0.0 keeps the grasp posture.")
     parser.add_argument("--squeeze-delta", type=float, default=0.15)
     parser.add_argument("--approach-clearance", type=float, default=0.003, help="Minimum all-sphere clearance for the direct planned approach, including the open-hand pregrasp endpoint.")
+    parser.add_argument("--carry-style", choices=["vertical_lift", "demo"], default="vertical_lift", help="vertical_lift: after squeeze+settle, raise the wrist straight up (world +z) by --carry-lift-height and hold. demo: follow the recorded human carry trajectory.")
+    parser.add_argument("--settle-seconds", type=float, default=1.0, help="Post-squeeze hold (wrist parked, squeeze targets held) letting the contacts settle before the carry; appended to the squeeze segment.")
+    parser.add_argument("--carry-lift-height", type=float, default=0.20, help="Vertical lift height (m), carry style 'vertical_lift'.")
+    parser.add_argument("--carry-lift-seconds", type=float, default=2.0, help="Duration of the vertical lift (cosine-eased; steps grow if its peak speed would exceed --max-wrist-speed).")
+    parser.add_argument("--carry-hold-seconds", type=float, default=1.0, help="Hold at the top of the vertical lift.")
+    parser.add_argument("--dexycb-manifest", type=Path, default=None, help="DexYCB manifest for the camera->world extrinsics defining 'up' (carry style 'vertical_lift'). Default: auto-resolve next to the sequences root, then the Stage B default manifest.")
     parser.add_argument("--carry-start", choices=["grasp_frame", "pickup_frame"], default="grasp_frame")
     parser.add_argument("--max-wrist-speed", type=float, default=0.25, help="Cap on wrist speed (m/s) in the synthetic approach/close segments; step counts grow beyond the seconds-based defaults when a leg would exceed it.")
     parser.add_argument("--carry-blend-seconds", type=float, default=0.3, help="Blend duration easing the hand from the squeeze-end pose onto the recorded carry trajectory.")
@@ -230,6 +236,12 @@ def main(argv: list[str] | None = None) -> int:
         pregrasp_open_fraction=args.pregrasp_open_fraction,
         squeeze_delta=args.squeeze_delta,
         approach_clearance_m=args.approach_clearance,
+        carry_style=args.carry_style,
+        settle_seconds=args.settle_seconds,
+        carry_lift_height_m=args.carry_lift_height,
+        carry_lift_seconds=args.carry_lift_seconds,
+        carry_hold_seconds=args.carry_hold_seconds,
+        dexycb_manifest=str(args.dexycb_manifest) if args.dexycb_manifest else None,
         carry_start=args.carry_start,
         max_wrist_speed_mps=args.max_wrist_speed,
         carry_blend_seconds=args.carry_blend_seconds,

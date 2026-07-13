@@ -2,10 +2,11 @@
 
 Turns one synthesized anchored-BODex grasp into a full manipulation --
 approach from the human video demo, retarget the hand along the way, close
-and squeeze onto the grasp pose, then carry the object along its recorded
-trajectory -- and renders it as a video in Isaac Sim **with real PhysX
-physics** on the object (gravity, collision, a table, tuned friction), not
-just kinematic replay.
+and squeeze onto the grasp pose, let the contacts settle, then carry: by
+default a straight vertical 20cm lift (the simplified pick task), or the
+object's recorded demo trajectory (`--carry-style demo`) -- and renders it
+as a video in Isaac Sim **with real PhysX physics** on the object (gravity,
+collision, a table, tuned friction), not just kinematic replay.
 
 ## Two-stage architecture
 
@@ -77,13 +78,32 @@ The generated trajectory is labeled per step with one of five segments
    some grasps. Fingers then close in place to the contact-grasp posture
    (`--final-close-seconds`), and squeeze ramps to the record's squeeze
    stage (a bounded drive-force request past contact).
-6. **Carry.** The wrist follows `object_pose_camera(t) @ grasp_root_tf`
-   (recorded object trajectory composed with the rigid hand-to-object
-   transform at the CONTACT grasp pose), blended out of the squeeze-end pose
-   over `--carry-blend-seconds`; the recorded object trajectory is densified
-   wherever the composed hand motion would exceed `--max-wrist-speed`, so a
-   fast recorded carry cannot yank a marginal friction grasp loose. The
-   object is carried by contact friction alone.
+6. **Settle.** After the squeeze ramp the wrist parks at the squeeze-end
+   pose with the squeeze targets held for `--settle-seconds` so the physics
+   contacts converge before any load transfer (appended to the squeeze
+   segment: same drive gains, and the carry-only lift metrics stay clean).
+7. **Carry** (`--carry-style`, default `vertical_lift`):
+   - `vertical_lift`: the wrist rises straight up (world +z) by
+     `--carry-lift-height` over `--carry-lift-seconds` with a cosine ease
+     (zero boundary velocity, so no squeeze->carry blend or jerk; peak speed
+     `pi/2 * height/duration`, kept under `--max-wrist-speed` by growing the
+     step count), then holds for `--carry-hold-seconds`. Orientation and
+     finger targets stay at their squeeze values. The simplified pick task:
+     it removes the demo-path mismatch that was measured yanking grasps
+     loose at carry entry (the demo object pose at the carry-start frame
+     sits 2-5cm from where the simulated object actually rests). "Up" in
+     the camera frame comes from the same DexYCB apriltag extrinsics Stage
+     B's frame mapper uses (`--dexycb-manifest`; auto-resolved next to the
+     sequences root, then the Stage B default manifest; fails closed if
+     missing -- the cameras are tilted, so no axis-aligned fallback is
+     close).
+   - `demo`: the original behavior -- the wrist follows
+     `object_pose_camera(t) @ grasp_root_tf` (recorded object trajectory
+     composed with the rigid hand-to-object transform at the CONTACT grasp
+     pose), blended out of the squeeze-end pose over
+     `--carry-blend-seconds`; the recorded object trajectory is densified
+     wherever the composed hand motion would exceed `--max-wrist-speed`.
+     The object is carried by contact friction alone.
 
 ### Stage A CLI
 
@@ -104,9 +124,13 @@ pass `--grasp-json` directly. Key flags (defaults in parentheses):
 `--approach-clearance` (0.003m, en-route clearance for the planned
 approach), `--open-clearance` (0.05m), `--open-horizon-seconds` (1.0),
 `--planner {curobo,linear}` (curobo, fail-closed),
-`--max-wrist-speed` (0.25 m/s),
-`--carry-blend-seconds` (0.3), `--carry-start {grasp_frame,pickup_frame}`
-(grasp_frame). `--squeeze-delta` (0.15 rad) and `--near-contact-margin`
+`--max-wrist-speed` (0.25 m/s), `--settle-seconds` (1.0),
+`--carry-style {vertical_lift,demo}` (vertical_lift),
+`--carry-lift-height` (0.20m) / `--carry-lift-seconds` (2.0) /
+`--carry-hold-seconds` (1.0) / `--dexycb-manifest` (auto) for the vertical
+lift, `--carry-blend-seconds` (0.3) and
+`--carry-start {grasp_frame,pickup_frame}` (grasp_frame) for the demo
+carry. `--squeeze-delta` (0.15 rad) and `--near-contact-margin`
 (0.003m) only apply to legacy records without stages. Writes
 `trajectory.npz` (per-step hand/object pos+quat, finger targets, segment
 labels) + `trajectory.json` (switch frame, clearance/transit/stage report,

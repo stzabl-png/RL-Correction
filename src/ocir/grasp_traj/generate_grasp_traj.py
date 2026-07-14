@@ -62,10 +62,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--isaac-hand-usd", type=Path, default=None)
     parser.add_argument("--isaac-object-mass", type=float, default=None)
     parser.add_argument("--isaac-object-density", type=float, default=700.0)
-    parser.add_argument("--isaac-friction-target", choices=["pads", "object"], default="pads")
+    parser.add_argument("--isaac-friction-target", choices=["both", "hand", "pads", "object"], default="both")
+    parser.add_argument("--isaac-hand-friction", type=float, default=2.0, help="Friction of every hand collider (friction target 'hand').")
     parser.add_argument("--isaac-pad-friction", type=float, default=1.2)
-    parser.add_argument("--isaac-friction", type=float, default=2.0)
-    parser.add_argument("--isaac-friction-combine-mode", choices=["max", "multiply", "average", "min"], default="max")
+    parser.add_argument("--isaac-friction", type=float, default=3.0, help="Friction of the shared material (targets 'both' and 'object').")
+    parser.add_argument("--isaac-friction-combine-mode", choices=["max", "multiply", "average", "min"], default="multiply")
     parser.add_argument("--isaac-joint-stiffness", type=float, default=80.0)
     parser.add_argument("--isaac-joint-damping", type=float, default=20.0)
     parser.add_argument("--isaac-joint-effort-profile", choices=["baked", "uniform"], default="baked")
@@ -77,9 +78,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--isaac-contact-aware-finger-targets", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--isaac-contact-target-lead-rad", type=float, default=0.03)
     parser.add_argument("--isaac-convex-decomp-max-hulls", type=int, default=32)
-    parser.add_argument("--isaac-object-collision", choices=["sdf", "convex"], default="sdf")
+    parser.add_argument("--isaac-object-collision", choices=["sdf", "convex"], default="convex")
     parser.add_argument("--isaac-sdf-resolution", type=int, default=256)
     parser.add_argument("--isaac-hand-rest-offset", type=float, default=None, help="Explicit override; default keeps the asset's baked collider offsets.")
+    parser.add_argument("--isaac-hand-self-collisions", action=argparse.BooleanOptionalAction, default=True, help="PhysX self-collision between the hand's own links. Default on.")
     parser.add_argument("--isaac-sim-steps-per-frame", type=int, default=2)
     parser.add_argument("--isaac-time-steps-per-second", type=float, default=120.0)
     parser.add_argument("--isaac-capture-every", type=int, default=1)
@@ -154,6 +156,7 @@ def _simulation_params(args: argparse.Namespace, trajectory_dir: Path, out_dir: 
         "object_mass": args.isaac_object_mass,
         "object_density": args.isaac_object_density,
         "friction_target": args.isaac_friction_target,
+        "hand_friction": args.isaac_hand_friction,
         "pad_friction": args.isaac_pad_friction,
         "friction": args.isaac_friction,
         "friction_combine_mode": args.isaac_friction_combine_mode,
@@ -171,6 +174,7 @@ def _simulation_params(args: argparse.Namespace, trajectory_dir: Path, out_dir: 
         "object_collision": args.isaac_object_collision,
         "sdf_resolution": args.isaac_sdf_resolution,
         "hand_rest_offset": args.isaac_hand_rest_offset,
+        "hand_self_collisions": args.isaac_hand_self_collisions,
         "sim_steps_per_frame": args.isaac_sim_steps_per_frame,
         "time_steps_per_second": args.isaac_time_steps_per_second,
         "capture_every": args.isaac_capture_every,

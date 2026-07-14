@@ -154,22 +154,28 @@ scripts/run_isaacsim_conda.sh scripts/isaac/simulate_grasp_traj.py \
 
 ### Hand physics
 
-The Sharpa Wave USD's palm link is rigidly fixed to the world by a
-zero-offset `PhysicsFixedJoint` (`root_joint`). The simulation deactivates
-that joint, applies `ArticulationRootAPI` at runtime (the asset's own copy
-lives in an authoring layer outside the loaded USD's stack), and drives the
-resulting **floating-base articulation** through the PhysX tensor API
-(`SingleArticulation`): root pose + finite-difference root velocities every
-step, finger joints on PD position drives (radians). Reduced-coordinate
-solving means links physically cannot separate -- unlike teleporting
-authored USD transforms, which this Isaac version does not reliably honor.
-Per-link velocity/depenetration caps and articulation solver iterations
-20/10 keep contact-heavy squeezes stable. Each `app.update()` advances sim
-time 1/60s, so `--sim-steps-per-frame 2` plays a 30fps trajectory in real
-time. During the close segment the finger drives are softened
-(`--close-joint-stiffness`, and under the `uniform` effort profile
-`--close-joint-max-force`) so an early-touching finger stalls instead of
-shoving the object; full stiffness returns for squeeze/carry.
+The hand asset is the **Articulation_Bodex tuned Sharpa USD**
+(`assets/robots/hands/sharpa_wave/usd/right/bodex_reference/sharpa_right_tuned_instanceable.usd`,
+routed through `sharpa_wave_right.yml`): a pure 22-DOF floating-base
+articulation -- the source asset's palm world-anchor and passive 6-DOF
+virtual base chain were stripped from the file itself (see its
+`provenance.json` for source/modified hashes). The simulation drives it
+through the PhysX tensor API (`SingleArticulation`): every physics substep
+sets the root pose -- **interpolated along the trajectory between frames**
+(linear position + slerp orientation), so the root advances in step with
+its finite-difference velocities instead of re-teleporting to the same
+frame pose each substep -- plus the finger joints on PD position drives
+(radians). Reduced-coordinate solving means links physically cannot
+separate -- unlike teleporting authored USD transforms, which this Isaac
+version does not reliably honor. Per-link velocity/depenetration caps and
+articulation solver iterations 20/10 keep contact-heavy squeezes stable.
+Each `app.update()` advances sim time 1/60s, so `--sim-steps-per-frame 2`
+plays a 30fps trajectory in real time. During the close segment the finger
+drives are softened (`--close-joint-stiffness`, and under the `uniform`
+effort profile `--close-joint-max-force`) so an early-touching finger
+stalls instead of shoving the object; full stiffness returns for
+squeeze/carry. Hand link self-collision is on by default
+(`--hand-self-collisions`).
 
 **Per-joint effort limits** (`--joint-effort-profile`, default `baked`): the
 tuned hand USD ships BODex's per-joint drive `maxForce` limits (MCP 1.864,
@@ -199,40 +205,48 @@ anyway and grips strictly tighter.
 
 ### Collision
 
-- **Object**: `--object-collision sdf` (default) -- exact SDF triangle-mesh
-  collision at `--sdf-resolution` (256). Convex decomposition (`convex`)
-  bridges concavities, which wedges the object inside the closed hand's hull
-  volume and makes it follow the hand ("suction") or pop out violently.
-- **Hand**: the default asset is the **derived tuned hand**
-  (`assets/robots/hands/sharpa_wave/usd/right/right_sharpa_wave_tuned/`,
-  built by `scripts/isaac/build_tuned_hand_usd.py`): OCIR's structure (22
-  DOFs, 33 bodies, palm root) with Articulation_Bodex's distal + elastomer
-  collision meshes (contact-shaped fingertip pads; the old asset's convex
-  *hulls* filled the pad concavities) and every collider baked as PhysX
-  `convexDecomposition` (minThickness 2mm, hullVertexLimit 64, maxConvexHulls
-  16) with 4mm contact / 1mm rest offsets. A `provenance.json` records source
-  hashes; rebuilding fails if a source USD changed. `--hand-rest-offset` is
-  now an explicit override only -- by default the baked offsets are kept.
-  `--hand-usd` swaps in an alternative asset (e.g. the old
+- **Object**: `--object-collision convex` (default) -- convex decomposition
+  (minThickness 2mm, hullVertexLimit 64, hull count
+  `--convex-decomp-max-hulls` 32), matching the reference validators. `sdf`
+  is the optional alternative: exact SDF triangle-mesh collision at
+  `--sdf-resolution` (256), keeping concavities (a mug's opening/handle)
+  hollow where hulls would bridge them. 4mm contact / 1mm rest offsets and
+  a `--contact-slop` 0.2 penetration deadband (suppresses resting-contact
+  jitter/creep; 0 disables) in either case.
+- **Hand**: all 26 collider meshes are **baked into the asset** as PhysX
+  `convexDecomposition` (minThickness 2mm, hullVertexLimit 64,
+  maxConvexHulls 16) with 4mm contact / 1mm rest offsets; the runtime only
+  counts them (hard error if an asset ships none). `--hand-rest-offset` is
+  an explicit override only -- by default the baked offsets are kept.
+  `--hand-usd` swaps in an alternative asset (e.g. the old URDF-import
   `right_sharpa_wave/right_sharpa_wave.usd` for A/B runs).
+- **Hand-table collision is filtered out by default**
+  (`--hand-table-collision` to re-enable) via UsdPhysics collision groups,
+  as in the reference validator: the trajectory may skim the tabletop and
+  palm/finger scraping only injects contact noise. The object still
+  collides with both hand and table.
 - **Debug mode**: `--carry-mode kinematic` turns the object into a pure
   visual prim (no collision) teleported along the reference trajectory,
   validating trajectory/frame-mapping geometry only
   (`final_object_position_error_m` should be exactly 0).
 
+### Friction
+
+`--friction-target both` (default, the `ref/sharpa_tabletop.py` setup): ONE
+material at `--friction` (3.0, restitution 0) binds to all 26 hand colliders
+AND the object, with `--friction-combine-mode multiply` -- the hand-object
+pair therefore sees `friction^2` (an effective 9.0 supergrip) while
+object-table sees `friction x 0.5`. `--friction-target object` is the
+Articulation_Bodex `open_by_handle`-style alternative: the material binds to
+the object only, and every pair the object touches (table included) sees
+`--friction`.
+
 ### Other Stage B flags
 
 `--object-mass` (explicit override; known YCB objects use their published
 mass, otherwise mesh volume x `--object-density` 700 kg/m^3),
-`--friction-target` (`pads`: the high-friction material binds to the 10
-grasping-surface hand colliders only -- the `*_DP` distals and `*_elastomer`
-fingertip pads -- at `--pad-friction` 1.2, while the object, table, palm, and
-phalanges keep the PhysX default 0.5; `object` restores the v16
-Articulation_Bodex-style setup where `--friction` 2.0 binds to the object and
-every pair the object touches sees it) with `--friction-combine-mode` (`max`,
-so the bound material's value outranks the default material's `average` and
-wins the pair),
-`--joint-effort-profile` (`baked`),
+`--gravity` (9.81 m/s^2; the reference validator uses 30 as a ~3g stress
+load), `--joint-effort-profile` (`baked`),
 `--joint-stiffness/-damping/-max-force/-armature/-friction`
 (80/20/300/0.01/0.05; the force scalars apply under `uniform` only),
 `--lift-threshold`/`--drop-threshold`
@@ -635,6 +649,45 @@ contact drive-target error is the squeeze overdrive doing its job, not a
 tracking fault. The governor remains available via
 `--contact-aware-finger-targets` for regression comparison.
 
+### v19 -- Articulation_Bodex asset verbatim + reference-validator physics (2026-07-12 -- 2026-07-14)
+
+The simulation setup was aligned with the proven reference validator
+`ref/sharpa_tabletop.py` (Articulation_Bodex), replacing the v16-v18
+per-pair-realistic experiments:
+
+- **Hand asset replaced outright** (commits c4b297b + 901c59d): the default
+  is now Articulation_Bodex's own tuned USD, copied verbatim to
+  `bodex_reference/sharpa_right_tuned_instanceable.usd` and then stripped
+  in-file of its palm world-anchor joint and passive 6-DOF virtual base
+  chain (13 prims) -- a pure 22-DOF floating-base hand with the tuned
+  colliders, offsets, and per-joint effort limits baked in. The v16 derived
+  asset (`right_sharpa_wave_tuned/`) and its build script were removed as
+  superseded.
+- **Friction = reference recipe**: one 3.0/3.0 material, combine `multiply`,
+  bound to all 26 hand colliders AND the object (`--friction-target both`,
+  default) -- effective hand-object pair friction 9.0. The v17 pad-only and
+  whole-hand modes were removed; `object` remains as the A/B alternative.
+  The transient compliant-fingertip-material experiment was removed too:
+  the hand is fully rigid.
+- **Object collision default = convex decomposition** (the reference's
+  choice); SDF became the explicit alternative. Object gains the
+  reference's `contactSlopCoefficient` 0.2 (`--contact-slop`) penetration
+  deadband against resting-contact jitter.
+- **Hand-table collision filtered by default** via UsdPhysics collision
+  groups (`--hand-table-collision` re-enables), exactly the reference's
+  ground-hand mechanism.
+- **Gravity parameterized** (`--gravity`, default 9.81; the reference's 30
+  m/s^2 stress load is one flag away). Hand self-collision on by default.
+- **Live-view shake fixed**: the root was re-teleported to the same frame
+  pose every physics substep while carrying forward velocity -- a 60Hz
+  sawtooth, visible in the live viewport but hidden in recorded videos by
+  fixed-phase per-frame capture. The commanded root pose now interpolates
+  across substeps (linear position + slerp orientation) toward the next
+  frame, consistent with the finite-difference velocities.
+- Dead code removed with the new asset: runtime hand-collision rebuilding
+  (baked colliders are now required), runtime virtual-chain deactivation,
+  and duplicate report keys.
+
 ### Tooling (2026-07-10, commits 3da7b95 + 3946a12)
 
 Videos encoded H.264/yuv420p via ffmpeg; console output reduced to progress
@@ -644,13 +697,19 @@ lines + one core-metrics summary (full diagnostics stay in `report.json`).
 
 - All three test records remain `failed_grasp` outputs (0 strictly
   successful seeds). Since v15 their poses no longer meaningfully penetrate
-  the object (sub-millimeter), and as of v16/v17 the physics stack is
-  reference-faithful and per-pair realistic (tuned colliders/efforts,
-  pad-object friction 1.2, everything else 0.5)
-  with minimal on-contact disturbance -- the residual blocker is
-  force-closure quality itself: none of the three grasps lifts under honest
-  physics; sustained carries most likely require strictly-successful
-  upstream grasp records.
+  the object (sub-millimeter), and as of v19 the physics stack mirrors the
+  proven reference validator (its exact hand asset, friction recipe,
+  collision settings, contact slop) -- the residual blocker is force-closure
+  quality itself: at published object masses none of the three grasps
+  lifts; sustained carries most likely require strictly-successful upstream
+  grasp records. (At a 0.01kg mass override the wood-block sequence has
+  achieved a sustained lift, so the acquisition mechanics work.)
+- The finger drive gains remain the largest deliberate divergence from the
+  reference: USD angular drive units are per-degree, so our raw
+  `--joint-stiffness` 80 is ~4600 Nm/rad effective versus the reference's
+  soft per-joint table (~14 Nm/rad at the MCPs, shipped baked in the
+  asset but overwritten by `setup_hand_drives`). Adopting the baked
+  stiffness/damping is the obvious next experiment.
 - Ranking mixes similarity terms into `rank_score` and can promote
   poor-force-closure seeds over much better ones (see v15) --
   grasp-error-aware ranking is a cheap next candidate.

@@ -1,10 +1,11 @@
 name: sharpa_wave_right
 side: right
 urdf_path: urdf/right_sharpa_wave/right_sharpa_wave.urdf
-# Derived asset (scripts/isaac/build_tuned_hand_usd.py): OCIR structure +
-# BODex distal/elastomer collider geometry, baked convexDecomposition and
-# 4mm/1mm contact/rest offsets, tuned per-joint drive maxForce limits.
-usd_path: usd/right/right_sharpa_wave_tuned/right_sharpa_wave_tuned.usd
+# Articulation_Bodex tuned hand (see bodex_reference/provenance.json), with
+# the palm world-anchor and passive 6-DOF virtual base chain removed from the
+# file: a pure 22-DOF floating-base hand. Baked convexDecomposition colliders,
+# 4mm/1mm contact/rest offsets, tuned per-joint drive gains/effort limits.
+usd_path: usd/right/bodex_reference/sharpa_right_tuned_instanceable.usd
 base_link: right_hand_C_MC
 ee_link: right_hand_C_MC
 joint_order:

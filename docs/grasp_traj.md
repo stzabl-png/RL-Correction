@@ -155,20 +155,32 @@ scripts/run_isaacsim_conda.sh scripts/isaac/simulate_grasp_traj.py \
 
 ### Hand physics
 
-The hand asset is the **Articulation_Bodex tuned Sharpa USD, verbatim**
-(`assets/robots/hands/sharpa_wave/usd/right/bodex_reference/sharpa_right_tuned_instanceable.usd`,
-routed through `sharpa_wave_right.yml`; `provenance.json` records the source
-hash): 22 finger DOFs plus the asset's own palm world-anchor
-`PhysicsFixedJoint` and passive 6-DOF virtual base chain, making the hand a
-**fixed-base articulation**. The simulation drives it exactly like the
-reference validator (`ref/sharpa_tabletop.py`), by **kinematic anchor
-transport**: each trajectory frame rewrites the `/World/Hand` wrapper
-Xform's translate/orient ops, the palm anchor follows the wrapper, and the
-whole hand teleports rigidly -- there are no root dynamics to stabilize and
-no root velocities to command. Articulation solver iterations are 20/10 and
-hand link self-collision is on by default (`--hand-self-collisions`). Each
-`app.update()` advances sim time 1/60s, so `--sim-steps-per-frame 2` plays
-a 30fps trajectory in real time.
+The hand asset is a **thin overlay**
+(`assets/robots/hands/sharpa_wave/usd/right/bodex_reference/sharpa_right_tuned_thumbfilter.usda`,
+routed through `sharpa_wave_right.yml`) over the **verbatim Articulation_Bodex
+tuned Sharpa USD** (`sharpa_right_tuned_instanceable.usd`; `provenance.json`
+records the source hash): 22 finger DOFs plus the asset's own palm
+world-anchor `PhysicsFixedJoint` and passive 6-DOF virtual base chain, making
+the hand a **fixed-base articulation**. The overlay adds exactly one opinion:
+a `PhysicsFilteredPairsAPI` exempting the `right_thumb_MC` <->
+`right_hand_C_MC` (palm) collision pair. Those two links are two joints apart
+through the collider-less `right_thumb_CMC_VL` virtual link, so PhysX's
+automatic adjacent-body filter misses them, and their designed 1.2-5.6mm
+clearance (measured on the true collision STLs across the working range) is
+consumed by convex-decomposition bulge plus the baked 1mm+1mm rest offsets --
+without the exemption, enabling self-collision seizes the thumb CMC joints in
+a permanent contact wedge. No other pair is filtered. The simulation drives
+the hand exactly like the reference validator (`ref/sharpa_tabletop.py`), by
+**kinematic anchor transport**: each trajectory frame rewrites the
+`/World/Hand` wrapper Xform's translate/orient ops, the palm anchor follows
+the wrapper, and the whole hand teleports rigidly -- there are no root
+dynamics to stabilize and no root velocities to command. Articulation solver
+iterations are 20/10 and hand link self-collision is on by default
+(`--hand-self-collisions`; note both the vendor asset and Articulation_Bodex
+bake `enabledSelfCollisions=False` -- the runtime flag overrides it, made
+safe by the overlay's thumb exemption). Each `app.update()` advances sim
+time 1/60s, so `--sim-steps-per-frame 2` plays a 30fps trajectory in real
+time.
 
 **Finger drives**: the reference's per-joint soft PD table
 (`SHARPA_PER_JOINT_DRIVES` in the sim module -- MCP 14/2.6, PIP 4.5/0.9,

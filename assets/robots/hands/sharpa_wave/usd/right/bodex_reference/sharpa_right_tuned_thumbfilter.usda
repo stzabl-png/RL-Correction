@@ -1,0 +1,18 @@
+#usda 1.0
+(
+    defaultPrim = "right_sharpa_wave"
+    doc = "Thin overlay over the verbatim Articulation_Bodex tuned Sharpa right hand (sharpa_right_tuned_instanceable.usd, see provenance.json). Adds exactly ONE opinion: a PhysicsFilteredPairsAPI on right_thumb_MC exempting its collision against right_hand_C_MC (palm). Rationale: the two links are two joints apart through the collider-less right_thumb_CMC_VL virtual link, so PhysX's automatic adjacent-body filter misses the pair; their true mesh clearance is only 1.2-5.6mm across the working range (measured 2026-07-15), which convex-decomposition bulge plus the baked 1mm+1mm rest offsets turn into a permanent contact wedge that seizes the thumb CMC joints whenever articulation self-collision is enabled. The vendor asset and Articulation_Bodex both ship enabledSelfCollisions=False; this overlay makes self-collision ON usable. No other pair is filtered."
+)
+
+def "right_sharpa_wave" (
+    prepend references = @./sharpa_right_tuned_instanceable.usd@
+)
+{
+    over "right_thumb_MC" (
+        prepend apiSchemas = ["PhysicsFilteredPairsAPI"]
+    )
+    {
+        prepend rel physics:filteredPairs = </right_sharpa_wave/right_hand_C_MC>
+    }
+}
+

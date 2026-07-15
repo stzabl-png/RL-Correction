@@ -1,11 +1,16 @@
 name: sharpa_wave_right
 side: right
 urdf_path: urdf/right_sharpa_wave/right_sharpa_wave.urdf
-# Articulation_Bodex tuned hand, verbatim (see bodex_reference/provenance.json):
-# 22 finger DOFs, palm world-anchor FixedJoint + passive 6-DOF virtual base
+# Thin overlay (sharpa_right_tuned_thumbfilter.usda) over the verbatim
+# Articulation_Bodex tuned hand (see bodex_reference/provenance.json): 22
+# finger DOFs, palm world-anchor FixedJoint + passive 6-DOF virtual base
 # chain baked in, baked convexDecomposition colliders with 4mm/1mm
-# contact/rest offsets, tuned per-joint drive gains/effort limits.
-usd_path: usd/right/bodex_reference/sharpa_right_tuned_instanceable.usd
+# contact/rest offsets, tuned per-joint drive gains/effort limits. The
+# overlay adds exactly ONE opinion: a filtered collision pair
+# right_thumb_MC <-> right_hand_C_MC (palm), whose designed 1.2-5.6mm
+# clearance the collider approximation + rest offsets otherwise turn into a
+# permanent wedge that seizes the thumb CMC when self-collision is enabled.
+usd_path: usd/right/bodex_reference/sharpa_right_tuned_thumbfilter.usda
 base_link: right_hand_C_MC
 ee_link: right_hand_C_MC
 joint_order:

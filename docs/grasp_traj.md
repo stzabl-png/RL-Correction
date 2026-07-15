@@ -45,10 +45,11 @@ The generated trajectory is labeled per step with one of five segments
    the FULLY OPEN hand clears the object by `--open-clearance` (default 5cm,
    checked against the object SDF with all 37 hand collision spheres) and
    precedes the demo's first hand-object contact frame.
-3. **Stage poses come from the record.** Four-stage records (see
-   [anchored_bodex.md](anchored_bodex.md#four-stage-grasp-poses)) already
-   carry `pregrasp` / `grasp` (contact-retreated) / `squeeze` poses computed
-   at synthesis time, and the generator consumes them directly
+3. **Stage poses come from the record.** Stage records (see
+   [anchored_bodex.md](anchored_bodex.md#three-stage-grasp-poses)) already
+   carry `pregrasp` (opened clear of the object) / `grasp` (the fully
+   optimized action, possibly slightly penetrating) / `squeeze` poses
+   computed at synthesis time, and the generator consumes them directly
    (`uses_record_stages: true` in the report). Legacy single-action records
    fall back to the generator's own repair: wrist back-off along the
    approach axis until the open hand clears (`wrist_backoff_m`) plus a

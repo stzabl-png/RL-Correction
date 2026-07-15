@@ -126,7 +126,7 @@ scripts/run_grasp_synthesis_conda.sh \
   **final** grasp's penetration but by construction cannot clean the stage-0
   `pregrasp` snapshot (captured at `opt_progress == 0.6`, before the ramp) --
   that is handled geometrically by the pregrasp finger opening
-  (`--pregrasp-clearance`, see the four-stage table). `--pose-weight` still defaults to **0**: a
+  (`--pregrasp-clearance`, see the three-stage table). `--pose-weight` still defaults to **0**: a
   stronger pose prior was found to pull finger geometry back into penetrating
   retarget anchors on hard cases. Pass a positive value to re-enable it.
 - **Self-collision** (`--selfcollision-weight`, default 1000): pairwise
@@ -148,25 +148,24 @@ scripts/run_grasp_synthesis_conda.sh \
   records (`affordance_coverage`, `pose_similarity`, `anchor_frame_id`,
   `rank_score`, `retarget_report`, ...).
 
-## Four-stage grasp poses
+## Three-stage grasp poses
 
-Every grasp record carries a `stages` dict with four wrist+finger poses
+Every grasp record carries a `stages` dict with three wrist+finger poses
 (`grasp_stages.py`; each stage is `{position, orientation (wxyz),
 joints {name: rad}}` in the object canonical frame), so downstream consumers
 (the `grasp_traj` pipeline) never have to repair or invent poses themselves:
 
 | Stage | Origin |
 | --- | --- |
-| `raw_grasp` | The fully optimized final action, unmodified (identical to the record's `action`). Usually penetrates the object by several mm. |
-| `pregrasp` | Mid-optimization snapshot taken the moment the staged contact cost enters its middle (1cm-standoff) stage -- i.e. the pose optimized under the initial ~2cm-standoff target (the end of the optimizer's first, force-closure-scored phase). Reproduces BODex's own `save_qpos`/`mid_result` mechanism by *subclassing* the frozen optimizer core (`SnapshotBodexNewtonOpt`), never modifying it. Because the snapshot precedes the penetration-penalty ramp it frequently sits inside the object (object-dependent, some seeds 5-18mm deep), so it is **opened out of collision in joint space**: the wrist pose is kept exactly as optimized (it is the approach pose the trajectory is built around) and only the flexion channels (`_FE`/`_PIP`/`_DIP`/`_IP`) are scaled toward 0 rad -- spread/AA frozen, with one exception: at the thumb CMC the roles swap (`thumb_CMC_FE` frozen, since zeroing it sweeps the whole thumb column ~90 deg; `thumb_CMC_AA` opened instead, moving the thumb sideways off the object) -- to the smallest opening fraction whose full-hand SDF clearance reaches `--pregrasp-clearance` (default 5mm). Caps at the fully open hand with a warning when the wrist pose itself is too close (no finger motion can fix a penetrating palm). The squeeze delta is computed from the *un-opened* snapshot, so the opening never inflates the squeeze extrapolation. `stage_report` records `pregrasp_snapshot_clearance_m` (before opening), `pregrasp_open_fraction`, and the achieved `pregrasp_clearance_m`. |
-| `grasp` | `raw_grasp` retreated along the pregrasp -> raw interpolation path to the largest fraction whose full-hand SDF clearance (all 37 collision spheres) is still >= `--contact-clearance` (2mm): deliberately SHY of the contact boundary -- the tightest converged pose is never a configuration to physically reach (UltraDexGrasp's stance); contact force comes from squeeze. Since the `pregrasp` end of the path is now opened clear of the object, a valid retreat point at the contact margin always exists (unless the pregrasp opening itself hit the fully-open cap, in which case the pregrasp pose is reused). |
-| `squeeze` | Articulation-BODex extrapolation: `grasp + clamp(raw_grasp - snapshot, min=--squeeze-min)` per joint (snapshot = the pregrasp *before* its joint-space opening) -- the delta is the optimizer's FULL closing motion (its intended force direction, including whatever the retreats removed), the 0.15 rad floor applied to flexion channels only (never abduction/adduction), clamped to joint limits. A bounded drive-force request past contact. |
+| `pregrasp` | Mid-optimization snapshot taken the moment the staged contact cost enters its middle (1cm-standoff) stage -- i.e. the pose optimized under the initial ~2cm-standoff target (the end of the optimizer's first, force-closure-scored phase). Reproduces BODex's own `save_qpos`/`mid_result` mechanism by *subclassing* the frozen optimizer core (`SnapshotBodexNewtonOpt`), never modifying it. Because the snapshot precedes the penetration-penalty ramp it frequently sits inside the object (object-dependent, some seeds 5-18mm deep), so it is **opened out of collision in joint space**: the wrist pose is kept exactly as optimized (it is the approach pose the trajectory is built around) and only the flexion channels (`_FE`/`_PIP`/`_DIP`/`_IP`) plus **both thumb-CMC DoFs** (`thumb_CMC_AA` opens alongside `thumb_CMC_FE`, so the whole thumb column can move off the object) are scaled toward 0 rad -- the remaining spread/AA channels frozen -- to the smallest opening fraction whose full-hand SDF clearance reaches `--pregrasp-clearance` (default 5mm). Caps at the fully open hand with a warning when the wrist pose itself is too close (no finger motion can fix a penetrating palm). The squeeze delta is computed from the *un-opened* snapshot, so the opening never inflates the squeeze extrapolation. `stage_report` records `pregrasp_snapshot_clearance_m` (before opening), `pregrasp_open_fraction`, and the achieved `pregrasp_clearance_m`. |
+| `grasp` | The fully optimized final action, unmodified (identical to the record's `action`). Usually still slightly penetrates the object (the staged cost's final target distance is 0; the penetration penalty bounds but does not eliminate the overshoot) -- the simulation's soft per-joint drives absorb the overlap as contact force. `stage_report` records its `grasp_clearance_m`. |
+| `squeeze` | Articulation-BODex extrapolation: `grasp + clamp(grasp - snapshot, min=--squeeze-min)` per joint (snapshot = the pregrasp *before* its joint-space opening) -- the delta is the optimizer's FULL closing motion (its intended force direction), the 0.15 rad floor applied to flexion channels only (never abduction/adduction), clamped to joint limits. A bounded drive-force request past contact. |
 
-`stage_report` records the retreat fraction and the SDF clearance of each
-stage. The Isaac visualization renders records with stages as a **4x3 grid**
-(one labeled row per stage x front/side/top orthogonal views); the exported
-`scene.usd` contains all four stage hands with only `grasp` visible by
-default (the rest are toggleable).
+`stage_report` records the SDF clearance of each stage. The Isaac
+visualization renders records with stages as a **3x3 grid** (one labeled row
+per stage x front/side/top orthogonal views; legacy records with a separate
+`raw_grasp` render 4 rows); the exported `scene.usd` contains all stage
+hands with only `grasp` visible by default (the rest are toggleable).
 
 ## Visualization
 
@@ -179,10 +178,11 @@ ghost of the retargeted anchor pose next to the optimized grasp -- all
 present in the interactive/exported scene (`scene.usd`, toggleable there),
 but the **saved screenshot** deliberately shows only the object, the grasp
 hand, and the human demo point cloud (the ghost hand and affordance heatmap
-are hidden just for that capture, then restored). For four-stage records
-the screenshot is a labeled **4x3 grid** (pregrasp / raw_grasp / grasp /
-squeeze rows x front/side/top views, individual rows also saved as
-`stage_<name>.png`); records without stages keep the single 1x3 composite.
+are hidden just for that capture, then restored). For stage records the
+screenshot is a labeled grid (pregrasp / grasp / squeeze rows x
+front/side/top views -- legacy records add a raw_grasp row -- individual
+rows also saved as `stage_<name>.png`); records without stages keep the
+single 1x3 composite.
 Same two modes as the base visualizer (see
 [Isaac Sim infrastructure](isaac_sim.md)); extra flags:
 `--show-affordance/--show-demo-hand/--show-anchor-hand`, `--anchor-opacity`,

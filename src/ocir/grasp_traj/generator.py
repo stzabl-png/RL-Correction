@@ -522,10 +522,11 @@ class GraspTrajectoryGenerator:
         grasp_joints_full = _remap_by_name(action[7:], record_joint_order, self.joint_order)
         grasp_joints_full = self._clamp(grasp_joints_full)
 
-        # Four-stage records (anchored_bodex/grasp_stages.py) carry pregrasp /
-        # grasp (contact-retreated) / squeeze poses computed at synthesis
-        # time; when present they replace this generator's own wrist/finger
-        # contact projection entirely.
+        # Stage records (anchored_bodex/grasp_stages.py) carry pregrasp
+        # (opened clear of the object) / grasp (the fully optimized action,
+        # possibly slightly penetrating) / squeeze poses computed at
+        # synthesis time; when present they replace this generator's own
+        # wrist/finger contact projection entirely.
         record_stages = grasp_record.get("stages") or None
 
         def _stage_action(name: str) -> np.ndarray:
@@ -626,8 +627,8 @@ class GraspTrajectoryGenerator:
 
         if record_stages is not None:
             # --- Stage-driven segment b (retarget handoff -> planned transit
-            # to the synthesized PREGRASP pose -> close through the contact
-            # GRASP pose -> SQUEEZE), all poses from the record. ---
+            # to the synthesized PREGRASP pose -> close through the GRASP
+            # pose -> SQUEEZE), all poses from the record. ---
             stage_pregrasp = _stage_action("pregrasp")
             stage_grasp = _stage_action("grasp")
             stage_squeeze = _stage_action("squeeze")
@@ -665,13 +666,12 @@ class GraspTrajectoryGenerator:
             # 1. step-in: preapproach -> pregrasp wrist while the fingers
             #    blend wide-open -> synthesized pregrasp posture
             #    (Articulation_Bodex's step-in);
-            # 2. wrist pregrasp -> contact-grasp pose (cuRobo with the fingers
-            #    locked at the pregrasp posture when it finds a plan; this leg
-            #    ends essentially at the contact boundary, where planning to a
-            #    near-zero-clearance goal is EXPECTED to fail sometimes, so a
-            #    straight interpolation is the designed fallback, not an
-            #    error);
-            # 3. fingers pregrasp -> contact-grasp posture, in place.
+            # 2. wrist pregrasp -> grasp pose (cuRobo with the fingers locked
+            #    at the pregrasp posture when it finds a plan; the grasp pose
+            #    is the raw optimized action and may slightly penetrate, so
+            #    planning to it is EXPECTED to fail often -- the straight
+            #    interpolation is the designed fallback, not an error);
+            # 3. fingers pregrasp -> grasp posture, in place.
             close1_steps = steps_for_leg(
                 float(np.linalg.norm(pre_pos - preapproach_pos)),
                 self.config.close_seconds, self.config.fps, self.config.max_wrist_speed_mps,

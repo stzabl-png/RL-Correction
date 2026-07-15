@@ -16,11 +16,14 @@ Every written grasp record carries four wrist+finger poses instead of one:
   is captured at ``opt_progress == 0.6`` where the in-optimization penetration
   penalty has not yet ramped in, so it frequently penetrates the object
   (measured: object-dependent, some seeds 5-18mm inside). It is therefore
-  *retreated along the palm approach axis* -- the whole hand translated
-  straight back, joints frozen -- to the smallest backoff whose full-hand SDF
-  clearance reaches ``pregrasp_clearance_m`` (default 5mm). The result is a
-  guaranteed collision-free pre-grasp pose; only the wrist position moves, so
-  the squeeze delta (``raw_grasp - pregrasp`` joints, below) is unchanged.
+  *opened out of collision in joint space*: the wrist pose is kept EXACTLY
+  as optimized (it is the approach pose the whole trajectory is built
+  around) and only the flexion channels (``_FE``/``_PIP``/``_DIP``/``_IP``)
+  are scaled toward 0 rad -- spread/AA channels frozen -- to the smallest
+  opening fraction whose full-hand SDF clearance reaches
+  ``pregrasp_clearance_m`` (default 5mm). The squeeze delta below is
+  computed from the UN-opened snapshot so this retreat never inflates the
+  squeeze extrapolation.
 - ``grasp``: the raw grasp retreated along the pregrasp -> raw_grasp
   interpolation path (lerp position/joints + slerp orientation) to the
   largest fraction whose full-hand SDF clearance is still >=
@@ -31,13 +34,13 @@ Every written grasp record carries four wrist+finger poses instead of one:
   zero-clearance position (which also matches the simulation's summed
   hand+object rest offsets).
 - ``squeeze``: Articulation-BODex extrapolation --
-  ``grasp + clamp(raw_grasp - pregrasp, min=squeeze_min_rad)`` per joint:
-  the delta is the optimizer's OWN full closing motion (its intended force
-  direction, including the part the retreat removed), the floor applied to
-  flexion channels only (never abduction/adduction), so joints that barely
-  moved to reach contact (typically the thumb) still get a minimum
-  drive-through force request while joints that closed a lot get
-  proportionally more.
+  ``grasp + clamp(raw_grasp - snapshot, min=squeeze_min_rad)`` per joint
+  (snapshot = the pregrasp BEFORE the joint-space opening above): the delta
+  is the optimizer's OWN full closing motion (its intended force direction,
+  including the part the retreats removed), the floor applied to flexion
+  channels only (never abduction/adduction), so joints that barely moved to
+  reach contact (typically the thumb) still get a minimum drive-through
+  force request while joints that closed a lot get proportionally more.
 
 All poses are full 29-D actions ``[pos(3), quat_wxyz(4), joints(22)]`` in
 the object canonical frame, full asset joint order.
@@ -59,16 +62,11 @@ from ocir.grasp_synthesis.clearance import ClearanceChecker
 
 DEFAULT_SQUEEZE_MIN_RAD = 0.15
 DEFAULT_CONTACT_CLEARANCE_M = 0.002
-#: Target SDF clearance for the retreated pregrasp pose. Deliberately larger
+#: Target SDF clearance for the opened pregrasp pose. Deliberately larger
 #: than the grasp's contact clearance: the pregrasp is an approach pose that
 #: must sit comfortably clear of the object, not skim it.
 DEFAULT_PREGRASP_CLEARANCE_M = 0.005
-#: Palm-frame approach axis; ``-(R @ axis)`` is the world-frame direction that
-#: backs the wrist away from the object (matches grasp_traj's
-#: PALM_APPROACH_AXIS_LOCAL and _project_wrist_pose).
-_PALM_APPROACH_AXIS_LOCAL = np.asarray([1.0, 0.0, 0.0])
-_DEFAULT_MAX_PREGRASP_BACKOFF_M = 0.06
-_PREGRASP_BACKOFF_STEP_M = 0.002
+_PREGRASP_OPEN_SAMPLES = 101
 
 
 class _SnapshotGradientOptCore(BodexProgressGradientOptCore):
@@ -129,43 +127,30 @@ class SnapshotBodexNewtonOpt(BodexNewtonOpt):
         return self._core.snapshot_actions
 
 
-def _wxyz_to_matrix(quat: np.ndarray) -> np.ndarray:
-    """Single wxyz quaternion -> 3x3 rotation matrix (same convention as
-    grasp_traj.trajectory_schema.quat_wxyz_to_matrix; kept local so the
-    synthesis package carries no dependency on the trajectory package)."""
-
-    w, x, y, z = np.asarray(quat, dtype=np.float64) / max(np.linalg.norm(quat), 1e-12)
-    return np.asarray(
-        [
-            [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
-            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
-            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
-        ],
-        dtype=np.float64,
-    )
-
-
-def _retreat_pregrasp(
+def _open_pregrasp(
     pregrasp_action: np.ndarray,
+    flex_mask: np.ndarray,
     clearance_checker: ClearanceChecker,
     world,
     *,
     clearance_target_m: float,
-    max_backoff_m: float,
-    step_m: float,
+    num_samples: int = _PREGRASP_OPEN_SAMPLES,
 ) -> tuple[np.ndarray, float, float, float]:
-    """Back the pregrasp wrist straight along the palm approach axis (joints
-    frozen) to the smallest offset whose full-hand SDF clearance reaches
-    ``clearance_target_m``. Returns ``(retreated_action, backoff_m,
-    snapshot_clearance_m, retreated_clearance_m)``; caps at ``max_backoff_m``
-    with a warning if even that does not clear."""
+    """Open the pregrasp's flexion joints toward 0 rad -- wrist pose and
+    spread/AA channels completely frozen -- to the smallest opening fraction
+    ``t`` (``joints = snapshot + t * (open_target - snapshot)``, where the
+    open target zeroes the flexion channels only) whose full-hand SDF
+    clearance reaches ``clearance_target_m``. Returns ``(opened_action,
+    open_fraction, snapshot_clearance_m, opened_clearance_m)``; caps at the
+    fully open hand with a warning if even that does not clear (e.g. the
+    palm itself penetrates -- no finger motion can fix that)."""
 
-    back_dir = -(_wxyz_to_matrix(pregrasp_action[3:7]) @ _PALM_APPROACH_AXIS_LOCAL)
-    offsets = np.arange(0.0, max_backoff_m + 1e-9, step_m)
-    pos = pregrasp_action[:3][None] + offsets[:, None] * back_dir[None]
-    quat = np.tile(pregrasp_action[3:7][None], (offsets.size, 1))
-    joints = np.tile(pregrasp_action[7:][None], (offsets.size, 1))
-    actions = np.concatenate([pos, quat, joints], axis=-1).astype(np.float32)
+    joints = pregrasp_action[7:]
+    open_target = np.where(flex_mask, 0.0, joints)
+    ts = np.linspace(0.0, 1.0, int(num_samples))
+    joints_path = joints[None] + ts[:, None] * (open_target - joints)[None]
+    pose = np.tile(pregrasp_action[:7][None], (ts.size, 1))
+    actions = np.concatenate([pose, joints_path], axis=-1).astype(np.float32)
     clearances = (
         clearance_checker.compute_clearances(clearance_checker.device_cfg.to_device(actions), world)
         .cpu()
@@ -175,20 +160,21 @@ def _retreat_pregrasp(
     ok = np.where(clearances >= float(clearance_target_m))[0]
     if ok.size == 0:
         print(
-            "[anchored_bodex] WARNING: pregrasp snapshot still penetrates after backing the wrist "
-            f"off {max_backoff_m:.3f} m (clearance {clearances[-1]:.4f} m); using the cap"
+            "[anchored_bodex] WARNING: pregrasp still penetrates even with the fingers fully "
+            f"open (clearance {clearances[-1]:.4f} m); the wrist pose itself is too close -- "
+            "using the fully open hand"
         )
-        idx = int(offsets.size - 1)
+        idx = int(ts.size - 1)
     else:
         idx = int(ok[0])
         if idx > 0:
             print(
-                f"[anchored_bodex] pregrasp wrist backed off {offsets[idx] * 1000:.0f} mm to clear "
+                f"[anchored_bodex] pregrasp fingers opened {ts[idx]:.2f} of the way to clear "
                 f"the object (snapshot {snapshot_clearance:.4f} m -> {float(clearances[idx]):.4f} m)"
             )
-    retreated = pregrasp_action.copy()
-    retreated[:3] = pos[idx]
-    return retreated, float(offsets[idx]), snapshot_clearance, float(clearances[idx])
+    opened = pregrasp_action.copy()
+    opened[7:] = joints_path[idx]
+    return opened, float(ts[idx]), snapshot_clearance, float(clearances[idx])
 
 
 def _slerp_wxyz(q1: np.ndarray, q2: np.ndarray, t: float) -> np.ndarray:
@@ -241,19 +227,19 @@ def compute_grasp_stages(
 
     raw_action = np.asarray(raw_action, dtype=np.float64).copy()
     pregrasp_snapshot = np.asarray(pregrasp_action, dtype=np.float64).copy()
+    flex_mask = relax_joint_mask(joint_order)
 
-    # -- Pregrasp retreat: the stage-0 snapshot is captured before the
-    # penetration penalty ramps in and frequently sits inside the object;
-    # back the wrist straight along the palm approach axis (joints frozen) to
-    # a guaranteed-clear pre-grasp pose. Only the wrist position moves, so the
-    # squeeze delta below (raw - pregrasp joints) is unaffected. --
-    pregrasp_action, pregrasp_backoff_m, snapshot_clearance_m, _ = _retreat_pregrasp(
+    # -- Pregrasp opening: the stage-0 snapshot is captured before the
+    # penetration penalty ramps in and frequently sits inside the object.
+    # The wrist pose is kept EXACTLY as optimized (it is the approach pose
+    # the trajectory is built around); only the flexion channels are opened
+    # toward 0 rad until the whole hand clears the object. --
+    pregrasp_action, pregrasp_open_t, snapshot_clearance_m, _ = _open_pregrasp(
         pregrasp_snapshot,
+        flex_mask,
         clearance_checker,
         world,
         clearance_target_m=pregrasp_clearance_m,
-        max_backoff_m=_DEFAULT_MAX_PREGRASP_BACKOFF_M,
-        step_m=_PREGRASP_BACKOFF_STEP_M,
     )
 
     # -- Retreat: largest t on the pregrasp -> raw path whose clearance is
@@ -292,11 +278,12 @@ def compute_grasp_stages(
         grasp_action = path[ok[-1]].copy()
 
     # -- Squeeze: Articulation-BODex extrapolation with a flexion-only floor.
-    # The delta is the optimizer's FULL closing motion (raw - pregrasp), not
-    # (grasp - pregrasp): the retreat may have removed most of the latter,
-    # but the intended force direction is the whole pregrasp -> raw sweep. --
-    flex_mask = relax_joint_mask(joint_order)
-    delta = raw_action[7:] - pregrasp_action[7:]
+    # The delta is the optimizer's FULL closing motion (raw - snapshot), not
+    # (grasp - pregrasp): the retreats may have removed most of the latter,
+    # but the intended force direction is the whole snapshot -> raw sweep.
+    # Computed from the UN-opened snapshot so the pregrasp opening above
+    # never inflates the squeeze extrapolation. --
+    delta = raw_action[7:] - pregrasp_snapshot[7:]
     delta = np.where(flex_mask, np.clip(delta, squeeze_min_rad, None), delta)
     squeeze_action = grasp_action.copy()
     squeeze_action[7:] = np.clip(grasp_action[7:] + delta, joint_limits_lower, joint_limits_upper)
@@ -304,7 +291,7 @@ def compute_grasp_stages(
     report = {
         "retreat_fraction": retreat_t,
         "pregrasp_snapshot_clearance_m": snapshot_clearance_m,
-        "pregrasp_backoff_m": pregrasp_backoff_m,
+        "pregrasp_open_fraction": pregrasp_open_t,
         "pregrasp_clearance_target_m": float(pregrasp_clearance_m),
         "pregrasp_clearance_m": float(clearances[0]),
         "raw_grasp_clearance_m": float(clearances[-1]),

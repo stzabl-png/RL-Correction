@@ -395,11 +395,11 @@ def solve_sharpa_anchored_bodex(
             "action": full_action.astype(float).tolist(),
             "joint_names": rollouts[0].full_joint_order,
             # Four-stage poses (see anchored_bodex/grasp_stages.py):
-            # raw_grasp = action as-is; pregrasp = stage-0 snapshot retreated
-            # along the approach axis to a collision-free pre-grasp pose;
-            # grasp = raw retreated out of SDF penetration but still in
-            # contact; squeeze = Articulation-BODex extrapolation past the
-            # contact grasp.
+            # raw_grasp = action as-is; pregrasp = stage-0 snapshot with the
+            # flexion joints opened until the hand clears the object (wrist
+            # pose untouched); grasp = raw retreated out of SDF penetration
+            # but still in contact; squeeze = Articulation-BODex
+            # extrapolation past the contact grasp.
             "stages": {
                 "pregrasp": stage_pose_dict(stages.pregrasp, rollouts[0].full_joint_order),
                 "raw_grasp": stage_pose_dict(stages.raw_grasp, rollouts[0].full_joint_order),

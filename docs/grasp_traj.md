@@ -154,54 +154,43 @@ scripts/run_isaacsim_conda.sh scripts/isaac/simulate_grasp_traj.py \
 
 ### Hand physics
 
-The hand asset is the **Articulation_Bodex tuned Sharpa USD**
+The hand asset is the **Articulation_Bodex tuned Sharpa USD, verbatim**
 (`assets/robots/hands/sharpa_wave/usd/right/bodex_reference/sharpa_right_tuned_instanceable.usd`,
-routed through `sharpa_wave_right.yml`): a pure 22-DOF floating-base
-articulation -- the source asset's palm world-anchor and passive 6-DOF
-virtual base chain were stripped from the file itself (see its
-`provenance.json` for source/modified hashes). The simulation drives it
-through the PhysX tensor API (`SingleArticulation`): every physics substep
-sets the root pose -- **interpolated along the trajectory between frames**
-(linear position + slerp orientation), so the root advances in step with
-its finite-difference velocities instead of re-teleporting to the same
-frame pose each substep -- plus the finger joints on PD position drives
-(radians). Reduced-coordinate solving means links physically cannot
-separate -- unlike teleporting authored USD transforms, which this Isaac
-version does not reliably honor. Per-link velocity/depenetration caps and
-articulation solver iterations 20/10 keep contact-heavy squeezes stable.
-Each `app.update()` advances sim time 1/60s, so `--sim-steps-per-frame 2`
-plays a 30fps trajectory in real time. During the close segment the finger
-drives are softened (`--close-joint-stiffness`, and under the `uniform`
-effort profile `--close-joint-max-force`) so an early-touching finger
-stalls instead of shoving the object; full stiffness returns for
-squeeze/carry. Hand link self-collision is on by default
-(`--hand-self-collisions`).
+routed through `sharpa_wave_right.yml`; `provenance.json` records the source
+hash): 22 finger DOFs plus the asset's own palm world-anchor
+`PhysicsFixedJoint` and passive 6-DOF virtual base chain, making the hand a
+**fixed-base articulation**. The simulation drives it exactly like the
+reference validator (`ref/sharpa_tabletop.py`), by **kinematic anchor
+transport**: each trajectory frame rewrites the `/World/Hand` wrapper
+Xform's translate/orient ops, the palm anchor follows the wrapper, and the
+whole hand teleports rigidly -- there are no root dynamics to stabilize and
+no root velocities to command. Articulation solver iterations are 20/10 and
+hand link self-collision is on by default (`--hand-self-collisions`). Each
+`app.update()` advances sim time 1/60s, so `--sim-steps-per-frame 2` plays
+a 30fps trajectory in real time.
 
-**Per-joint effort limits** (`--joint-effort-profile`, default `baked`): the
-tuned hand USD ships BODex's per-joint drive `maxForce` limits (MCP 1.864,
-PIP/thumb-IP 0.638, DIP 0.189, pinky CMC 0.5285, thumb CMC 3.3 Nm). Under
-`baked` these are read from the asset and applied as the per-DOF effort
-vector in **every** segment -- at stiffness 80 an MCP saturates its cap at
-0.023 rad of error, so a blocked finger presses with a bounded, tuned force
-instead of the uniform 300 Nm cap shoving the object. `uniform` restores the
-pre-tuned scalar behavior (`--joint-max-force` 300 / `--close-joint-max-force`
-60) for regression comparisons. The resolved per-joint limits are recorded in
+**Finger drives**: the reference's per-joint soft PD table
+(`SHARPA_PER_JOINT_DRIVES` in the sim module -- MCP 14/2.6, PIP 4.5/0.9,
+DIP 2.0/0.45, thumb CMC_FE 26/5, pinky CMC 3/0.7 Nm/rad, converted to USD's
+per-degree drive units at authoring), with `maxForce` equal to the asset's
+baked tuned effort limits (MCP 1.864, PIP/thumb-IP 0.638, DIP 0.189, pinky
+CMC 0.5285, thumb CMC 3.3 Nm), armature `--joint-armature` 0.001, joint
+friction `--joint-friction` 0.0. Soft gains keep contact joints out of
+permanent force saturation; the caps, not the gains, bound the grip. The
+same gains apply in every segment (no close-phase softening -- the gains
+are already soft). Targets are commanded the reference way: writing
+`drive:angular:physics:targetPosition` (degrees) on the joint prims each
+step; a `SingleArticulation` view is kept only for joint-state readback and
+the initial joint teleport. Resolved per-joint caps are recorded in
 `report.json` under `hand.resolved_max_efforts`.
 
 Finger drives target the synthesized stage poses directly: during squeeze
 and carry each joint holds the record's squeeze angle as its position-drive
-target, so a blocked joint presses persistently with its full tuned effort
-cap (the caps, not the target distance, bound the contact force -- an MCP
-saturates at 0.023 rad of error and the squeeze overdrive is >= 0.15 rad).
+target, so a blocked joint presses persistently up to its tuned effort cap.
 The v13 contact-aware target governor (`--contact-aware-finger-targets`,
-now default OFF) is retained as an option: it recomputes each drive target
+default OFF) is retained as an option: it recomputes each drive target
 before every physics update and limits it to `--contact-target-lead-rad`
-(0.03rad) from the joint's actual position, capping the spring load at
-stiffness x lead = 2.4 Nm. Under the baked effort profile that mainly
-throttles the thumb CMC (cap 3.3 Nm > 2.4) and lets governed joints back
-off under disturbance; it was essential when efforts were the uniform
-300 Nm scalar, but with tuned caps direct targeting is bounded-force
-anyway and grips strictly tighter.
+(0.03rad) from the joint's actual position.
 
 ### Collision
 
@@ -246,9 +235,9 @@ the object only, and every pair the object touches (table included) sees
 `--object-mass` (explicit override; known YCB objects use their published
 mass, otherwise mesh volume x `--object-density` 700 kg/m^3),
 `--gravity` (9.81 m/s^2; the reference validator uses 30 as a ~3g stress
-load), `--joint-effort-profile` (`baked`),
-`--joint-stiffness/-damping/-max-force/-armature/-friction`
-(80/20/300/0.01/0.05; the force scalars apply under `uniform` only),
+load), `--joint-armature`/`--joint-friction` (0.001/0.0, the reference
+drive-table values; stiffness/damping/effort caps come from the per-joint
+table and are not CLI-tunable),
 `--lift-threshold`/`--drop-threshold`
 (0.02m/0.005m), `--tabletop-z` (0.0), `--time-steps-per-second` (120, PhysX
 substep rate, keep a multiple of 60), `--capture-every` (1),
@@ -688,6 +677,34 @@ per-pair-realistic experiments:
   (baked colliders are now required), runtime virtual-chain deactivation,
   and duplicate report keys.
 
+### v20 -- reference driving method: anchored transport + soft per-joint drives (2026-07-14)
+
+The hand and finger driving switched to the reference validator's exact
+method, replacing floating-base tensor-API driving:
+
+- **Asset restored to the pristine BODex USD** (verbatim copy, source md5
+  091f0b9d...): the palm world-anchor `FixedJoint` and passive 6-DOF
+  virtual chain are baked back in (v19 had stripped them for floating-base
+  driving). The hand is a fixed-base articulation again.
+- **Wrist = kinematic anchor transport**: the `/World/Hand` wrapper Xform
+  is rewritten once per trajectory frame and the anchor follows it. No root
+  velocities, no substep pose interpolation, no per-link stability caps --
+  an anchored wrist cannot sag, wobble, or need re-pinning, which also
+  removes the residual contact-driven rotational jitter of the floating
+  method.
+- **Fingers = reference soft per-joint drive table**
+  (`SHARPA_PER_JOINT_DRIVES`: MCP 14/2.6 ... thumb CMC 26/5 Nm/rad,
+  x pi/180 into USD per-degree units; maxForce = baked tuned caps; armature
+  0.001, friction 0.0), commanded by `drive:angular:physics:targetPosition`
+  writes in degrees. This closes the last big divergence from the
+  reference: the previous 80/20 gains were ~4600 Nm/rad effective while
+  authored (per-degree units) and left contact joints permanently
+  force-saturated. Segment-based gain switching, the `uniform` effort
+  profile, and `--joint-stiffness/-damping/-max-force/--close-*` flags were
+  removed with it.
+- The `SingleArticulation` view remains read-only (joint-state metrics,
+  initial joint teleport, the optional target governor).
+
 ### Tooling (2026-07-10, commits 3da7b95 + 3946a12)
 
 Videos encoded H.264/yuv420p via ffmpeg; console output reduced to progress
@@ -697,19 +714,15 @@ lines + one core-metrics summary (full diagnostics stay in `report.json`).
 
 - All three test records remain `failed_grasp` outputs (0 strictly
   successful seeds). Since v15 their poses no longer meaningfully penetrate
-  the object (sub-millimeter), and as of v19 the physics stack mirrors the
-  proven reference validator (its exact hand asset, friction recipe,
-  collision settings, contact slop) -- the residual blocker is force-closure
-  quality itself: at published object masses none of the three grasps
-  lifts; sustained carries most likely require strictly-successful upstream
-  grasp records. (At a 0.01kg mass override the wood-block sequence has
-  achieved a sustained lift, so the acquisition mechanics work.)
-- The finger drive gains remain the largest deliberate divergence from the
-  reference: USD angular drive units are per-degree, so our raw
-  `--joint-stiffness` 80 is ~4600 Nm/rad effective versus the reference's
-  soft per-joint table (~14 Nm/rad at the MCPs, shipped baked in the
-  asset but overwritten by `setup_hand_drives`). Adopting the baked
-  stiffness/damping is the obvious next experiment.
+  the object (sub-millimeter), and as of v20 the physics stack mirrors the
+  proven reference validator end to end: its exact hand asset, driving
+  method (anchored transport + soft per-joint drives), friction recipe,
+  collision settings, and contact slop. The residual blocker is
+  force-closure quality itself: sustained carries most likely require
+  strictly-successful upstream grasp records. Remaining deliberate
+  differences from the reference: gravity 9.81 vs its 30 m/s^2 stress
+  load, per-sequence object masses vs its fixed 0.5 kg, and the trajectory
+  task itself vs its staged batch protocol with retrieval-force probes.
 - Ranking mixes similarity terms into `rank_score` and can promote
   poor-force-closure seeds over much better ones (see v15) --
   grasp-error-aware ranking is a cheap next candidate.

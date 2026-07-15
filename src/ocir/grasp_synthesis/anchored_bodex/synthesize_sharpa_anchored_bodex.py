@@ -142,10 +142,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rank-affordance-weight", type=float, default=1.0)
     parser.add_argument("--rank-pose-weight", type=float, default=0.5)
     parser.add_argument("--squeeze-min", type=float, default=0.15, help="Flexion-only floor (rad) on the squeeze stage's per-joint extrapolation beyond the contact grasp.")
-    parser.add_argument("--penetration-weight", type=float, default=0.0, help="Full weight of the asymmetric all-sphere non-penetration energy (relu(-sdf)^2 summed); 0 disables it (default). When enabled: zero through stage 0, linearly ramped in across stage 1, full only in the final distance=0 stage (the one place the symmetric contact term needs the asymmetry).")
+    parser.add_argument("--penetration-weight", type=float, default=900.0, help="Full weight of the asymmetric all-sphere non-penetration energy (relu(-sdf)^2 summed); 0 disables it. Default 900: zero through stage 0, linearly ramped in across stage 1, full only in the final distance=0 stage (the one place the symmetric contact term needs the asymmetry). Softens final-grasp penetration but by construction cannot clean the stage-0 pregrasp snapshot -- see --pregrasp-clearance for that.")
     parser.add_argument("--selfcollision-weight", type=float, default=1000.0, help="Weight of the pairwise sphere-vs-sphere self-collision energy between non-adjacent hand links (relu(min_dist-dist)^2 summed); 0 disables it. Unlike the other guidance costs this is at full weight in every optimization stage.")
     parser.add_argument("--force-closure-weight", type=float, default=500.0, help="Optimization-time weight of the force-closure QP energy (stage 0 only -- the QP is dormant in stages 1-2). Overrides only the first entry of original BODex's [grasp, dist, regu] weight triple (100 in original BODex and the pure pipeline); dist (1000) and regu (10) stay unchanged. Does not change the pass/fail success threshold itself (grasp_error is weight-independent); a higher weight only pulls the optimizer harder toward low grasp energy during stage 0.")
     parser.add_argument("--contact-clearance", type=float, default=0.002, help="SDF clearance (m) the grasp stage keeps from the object surface (contact force comes from squeeze, not from a zero-clearance commanded pose).")
+    parser.add_argument("--pregrasp-clearance", type=float, default=0.005, help="SDF clearance (m) the pregrasp stage is retreated to: the stage-0 snapshot is backed straight along the palm approach axis (joints frozen) until the whole hand clears the object by this margin, guaranteeing a collision-free pre-grasp pose (the penetration penalty cannot, since the snapshot precedes its ramp).")
     parser.add_argument("--force-affordance", action="store_true", help="Recompute the per-sequence affordance cache.")
     parser.add_argument(
         "--auto-export-demo",
@@ -266,6 +267,7 @@ def main(argv: list[str] | None = None) -> int:
                 penetration_weight=args.penetration_weight,
                 selfcollision_weight=args.selfcollision_weight,
                 contact_clearance_m=args.contact_clearance,
+                pregrasp_clearance_m=args.pregrasp_clearance,
                 force_closure_weight=args.force_closure_weight,
             )
         except Exception as exc:

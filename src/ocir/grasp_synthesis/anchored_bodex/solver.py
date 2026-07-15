@@ -34,6 +34,7 @@ from ocir.grasp_synthesis.anchored_bodex.guidance import (
 )
 from ocir.grasp_synthesis.anchored_bodex.grasp_stages import (
     DEFAULT_CONTACT_CLEARANCE_M,
+    DEFAULT_PREGRASP_CLEARANCE_M,
     DEFAULT_SQUEEZE_MIN_RAD,
     SnapshotBodexNewtonOpt,
     compute_grasp_stages,
@@ -148,9 +149,10 @@ def solve_sharpa_anchored_bodex(
     rank_pose_weight: float = 0.5,
     force_affordance: bool = False,
     squeeze_min_rad: float = DEFAULT_SQUEEZE_MIN_RAD,
-    penetration_weight: float = 0.0,
+    penetration_weight: float = 900.0,
     selfcollision_weight: float = 1000.0,
     contact_clearance_m: float = DEFAULT_CONTACT_CLEARANCE_M,
+    pregrasp_clearance_m: float = DEFAULT_PREGRASP_CLEARANCE_M,
     force_closure_weight: float = 500.0,
 ) -> dict[str, Any]:
     if not torch.cuda.is_available():
@@ -374,6 +376,7 @@ def solve_sharpa_anchored_bodex(
             rollouts[0].contact_world,
             squeeze_min_rad=squeeze_min_rad,
             contact_clearance_m=contact_clearance_m,
+            pregrasp_clearance_m=pregrasp_clearance_m,
         )
         record = {
             "ok": bool(success[seed_idx].item()),
@@ -392,10 +395,11 @@ def solve_sharpa_anchored_bodex(
             "action": full_action.astype(float).tolist(),
             "joint_names": rollouts[0].full_joint_order,
             # Four-stage poses (see anchored_bodex/grasp_stages.py):
-            # raw_grasp = action as-is; pregrasp = mid-optimization snapshot
-            # (~1cm standoff stage); grasp = raw retreated out of SDF
-            # penetration but still in contact; squeeze = Articulation-BODex
-            # extrapolation past the contact grasp.
+            # raw_grasp = action as-is; pregrasp = stage-0 snapshot retreated
+            # along the approach axis to a collision-free pre-grasp pose;
+            # grasp = raw retreated out of SDF penetration but still in
+            # contact; squeeze = Articulation-BODex extrapolation past the
+            # contact grasp.
             "stages": {
                 "pregrasp": stage_pose_dict(stages.pregrasp, rollouts[0].full_joint_order),
                 "raw_grasp": stage_pose_dict(stages.raw_grasp, rollouts[0].full_joint_order),

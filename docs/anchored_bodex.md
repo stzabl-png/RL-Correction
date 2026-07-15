@@ -111,23 +111,24 @@ scripts/run_grasp_synthesis_conda.sh \
   affordance attraction pulling fingertip/pad contact spheres toward the
   high-heatmap region (`--affordance-weight`, `--afford-tau`, decayed over
   stages 1->2), and an **asymmetric non-penetration penalty**
-  (`--penetration-weight`, default **0.0 -- disabled**): `relu(-signed_distance)^2`
+  (`--penetration-weight`, default **900**): `relu(-signed_distance)^2`
   summed over ALL 37 hand collision spheres (their own all-sphere FK,
   differentiable through the exact SDF gradient). The base staged cost's
   distance term is a symmetric `(dist - target)^2` that is indifferent
   between stopping at the surface and overshooting into the mesh; this term
-  supplies the missing asymmetry when enabled. Its schedule (when nonzero) is
-  ramped **in**, not out: zero through stage 0, linearly increased across
-  stage 1, full weight only in the final distance=0 stage -- this schedule
-  won a three-way trial on the three test sequences (see git history for the
-  trial writeup). Active in stage 0 it fights the pose prior / QP
-  sphere-by-sphere and contorts the pose; a variant keeping the
-  force-closure QP live in all three stages (with no penalty) was also
-  tried and dropped. Both `--pose-weight` and `--penetration-weight` default
-  to 0 now: a stronger pose prior was found to pull finger geometry back
-  into penetrating retarget anchors on hard cases (the anchor pose itself
-  can penetrate by a few mm, and stage 0 has no penetration penalty by
-  construction to counter it). Pass a positive value to re-enable either.
+  supplies the missing asymmetry. Its schedule is ramped **in**, not out:
+  zero through stage 0, linearly increased across stage 1, full weight only
+  in the final distance=0 stage -- this schedule won a three-way trial on the
+  three test sequences (see git history for the trial writeup). Active in
+  stage 0 it fights the pose prior / QP sphere-by-sphere and contorts the
+  pose; a variant keeping the force-closure QP live in all three stages (with
+  no penalty) was also tried and dropped. Note this penalty softens the
+  **final** grasp's penetration but by construction cannot clean the stage-0
+  `pregrasp` snapshot (captured at `opt_progress == 0.6`, before the ramp) --
+  that is handled geometrically by the pregrasp retreat (`--pregrasp-clearance`,
+  see the four-stage table). `--pose-weight` still defaults to **0**: a
+  stronger pose prior was found to pull finger geometry back into penetrating
+  retarget anchors on hard cases. Pass a positive value to re-enable it.
 - **Self-collision** (`--selfcollision-weight`, default 1000): pairwise
   sphere-vs-sphere overlap energy, `relu(min_dist - center_dist)^2` summed
   over every pair of hand-collision spheres EXCEPT same-link spheres and
@@ -157,8 +158,8 @@ joints {name: rad}}` in the object canonical frame), so downstream consumers
 | Stage | Origin |
 | --- | --- |
 | `raw_grasp` | The fully optimized final action, unmodified (identical to the record's `action`). Usually penetrates the object by several mm. |
-| `pregrasp` | Mid-optimization snapshot taken the moment the staged contact cost enters its middle (1cm-standoff) stage -- i.e. the pose optimized under the initial ~2cm-standoff target (the end of the optimizer's first, force-closure-scored phase). Reproduces BODex's own `save_qpos`/`mid_result` mechanism by *subclassing* the frozen optimizer core (`SnapshotBodexNewtonOpt`), never modifying it. |
-| `grasp` | `raw_grasp` retreated along the pregrasp -> raw interpolation path to the largest fraction whose full-hand SDF clearance (all 37 collision spheres) is still >= `--contact-clearance` (2mm): deliberately SHY of the contact boundary -- the tightest converged pose is never a configuration to physically reach (UltraDexGrasp's stance); contact force comes from squeeze. When the whole path sits inside the margin, the pregrasp snapshot itself becomes the grasp. |
+| `pregrasp` | Mid-optimization snapshot taken the moment the staged contact cost enters its middle (1cm-standoff) stage -- i.e. the pose optimized under the initial ~2cm-standoff target (the end of the optimizer's first, force-closure-scored phase). Reproduces BODex's own `save_qpos`/`mid_result` mechanism by *subclassing* the frozen optimizer core (`SnapshotBodexNewtonOpt`), never modifying it. Because the snapshot precedes the penetration-penalty ramp it frequently sits inside the object (object-dependent, some seeds 5-18mm deep), so it is **retreated straight along the palm approach axis** (joints frozen; only the wrist position moves) to the smallest backoff whose full-hand SDF clearance reaches `--pregrasp-clearance` (default 5mm) -- a guaranteed collision-free pre-grasp pose. `stage_report` records `pregrasp_snapshot_clearance_m` (before retreat), `pregrasp_backoff_m`, and the achieved `pregrasp_clearance_m`. |
+| `grasp` | `raw_grasp` retreated along the pregrasp -> raw interpolation path to the largest fraction whose full-hand SDF clearance (all 37 collision spheres) is still >= `--contact-clearance` (2mm): deliberately SHY of the contact boundary -- the tightest converged pose is never a configuration to physically reach (UltraDexGrasp's stance); contact force comes from squeeze. Since the `pregrasp` end of the path is now retreated clear of the object, a valid retreat point at the contact margin always exists (unless the pregrasp retreat itself hit its backoff cap, in which case the pregrasp pose is reused). |
 | `squeeze` | Articulation-BODex extrapolation: `grasp + clamp(raw_grasp - pregrasp, min=--squeeze-min)` per joint -- the delta is the optimizer's FULL closing motion (its intended force direction, including whatever the retreat removed), the 0.15 rad floor applied to flexion channels only (never abduction/adduction), clamped to joint limits. A bounded drive-force request past contact. |
 
 `stage_report` records the retreat fraction and the SDF clearance of each

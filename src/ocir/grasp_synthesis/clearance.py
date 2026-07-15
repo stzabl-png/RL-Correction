@@ -123,10 +123,12 @@ class ClearanceChecker:
         world_centers = (root_rot.unsqueeze(1) @ base_frame_centers.unsqueeze(-1)).squeeze(-1) + root_pos.unsqueeze(1)
         return world_centers
 
-    def compute_clearances(self, actions: torch.Tensor, world: SingleObjectContactWorld) -> torch.Tensor:
-        """actions: (F, 7+J). Returns (F,) min signed distance (sphere surface
-        to object surface) over all 37 spheres per frame -- positive = clear,
-        negative = penetrating."""
+    def compute_sphere_clearances(self, actions: torch.Tensor, world: SingleObjectContactWorld) -> torch.Tensor:
+        """actions: (F, 7+J). Returns (F, N) signed distance (sphere surface to
+        object surface) for every one of the N hand spheres -- positive =
+        clear, negative = penetrating. ``compute_clearances`` is the
+        min-over-spheres reduction of this; callers that need a per-finger or
+        per-sphere reduction (e.g. the pregrasp opening) use this directly."""
 
         centers = self.sphere_world_positions(actions)  # (F,N,3)
         f, n = centers.shape[:2]
@@ -136,7 +138,14 @@ class ClearanceChecker:
         _, distance, _, _, _ = world.get_sphere_contact_pdn(
             contact_robot_sphere, None, perturb, env_query_idx=None
         )
-        return distance.min(dim=-1).values
+        return distance
+
+    def compute_clearances(self, actions: torch.Tensor, world: SingleObjectContactWorld) -> torch.Tensor:
+        """actions: (F, 7+J). Returns (F,) min signed distance (sphere surface
+        to object surface) over all 37 spheres per frame -- positive = clear,
+        negative = penetrating."""
+
+        return self.compute_sphere_clearances(actions, world).min(dim=-1).values
 
     def min_clearance_m(self, action: torch.Tensor | np.ndarray, world: SingleObjectContactWorld) -> float:
         action_t = action if isinstance(action, torch.Tensor) else self.device_cfg.to_device(np.asarray(action, dtype=np.float32))

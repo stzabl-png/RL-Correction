@@ -13,15 +13,18 @@ Every written grasp record carries three wrist+finger poses instead of one:
   is captured at ``opt_progress == 0.6`` where the in-optimization penetration
   penalty has not yet ramped in, so it frequently penetrates the object
   (measured: object-dependent, some seeds 5-18mm inside). It is therefore
-  *opened out of collision in joint space*: the wrist pose is kept EXACTLY
-  as optimized (it is the approach pose the whole trajectory is built
-  around) and only the ``_pregrasp_open_mask`` channels are scaled toward
-  0 rad -- the flexion channels (``_FE``/``_PIP``/``_DIP``/``_IP``) plus
-  BOTH thumb-CMC DoFs (``thumb_CMC_AA`` opens alongside ``thumb_CMC_FE``);
-  the remaining spread/AA channels frozen -- to the smallest opening
-  fraction whose full-hand SDF clearance reaches ``pregrasp_clearance_m``
-  (default 5mm). The squeeze delta below is computed from the UN-opened
-  snapshot so this opening never inflates the squeeze extrapolation.
+  *opened out of collision in joint space, per finger*: the wrist pose is
+  kept EXACTLY as optimized (it is the approach pose the whole trajectory is
+  built around) and each finger's ``_pregrasp_open_mask`` channels -- the
+  flexion channels (``_FE``/``_PIP``/``_DIP``/``_IP``) plus BOTH thumb-CMC
+  DoFs (``thumb_CMC_AA`` opens alongside ``thumb_CMC_FE``); the remaining
+  spread/AA channels frozen -- are scaled toward 0 rad *only as far as that
+  finger needs* to clear the object by ``pregrasp_clearance_m`` (default
+  5mm). Each finger is searched independently against only the spheres it
+  moves; the palm is ignored (no joint opens it), so a finger that already
+  clears keeps its grasp posture and a penetrating palm never splays the
+  fingers. The squeeze delta below is computed from the UN-opened snapshot
+  so this opening never inflates the squeeze extrapolation.
 - ``grasp``: the fully optimized final action, unmodified (identical to the
   record's ``action``). Usually still slightly penetrates the object (the
   staged contact cost's final target distance is 0; the in-optimization
@@ -59,6 +62,18 @@ DEFAULT_SQUEEZE_MIN_RAD = 0.15
 #: must sit comfortably clear of the object, not skim it.
 DEFAULT_PREGRASP_CLEARANCE_M = 0.005
 _PREGRASP_OPEN_SAMPLES = 101
+
+
+_FINGERS = ("thumb", "index", "middle", "ring", "pinky")
+
+
+def _finger_of(name: str) -> str | None:
+    """Finger a joint/link name belongs to, or None for the palm base."""
+
+    for finger in _FINGERS:
+        if finger in name:
+            return finger
+    return None
 
 
 def _pregrasp_open_mask(joint_order: list[str]) -> np.ndarray:
@@ -137,51 +152,98 @@ class SnapshotBodexNewtonOpt(BodexNewtonOpt):
 def _open_pregrasp(
     pregrasp_action: np.ndarray,
     open_mask: np.ndarray,
+    joint_order: list[str],
     clearance_checker: ClearanceChecker,
     world,
     *,
     clearance_target_m: float,
     num_samples: int = _PREGRASP_OPEN_SAMPLES,
-) -> tuple[np.ndarray, float, float, float]:
-    """Open the pregrasp's ``open_mask`` joints toward 0 rad -- wrist pose
-    and all other channels completely frozen -- to the smallest opening
-    fraction ``t`` (``joints = snapshot + t * (open_target - snapshot)``,
-    where the open target zeroes the masked channels only) whose full-hand
-    SDF clearance reaches ``clearance_target_m``. Returns ``(opened_action,
-    open_fraction, snapshot_clearance_m, opened_clearance_m)``; caps at the
-    fully open hand with a warning if even that does not clear (e.g. the
-    palm itself penetrates -- no finger motion can fix that)."""
+) -> tuple[np.ndarray, dict[str, float], float, float]:
+    """Open the pregrasp out of collision, **per finger**: each finger's own
+    ``open_mask`` joints are scaled toward 0 rad -- wrist pose and every other
+    finger frozen -- only as far as that finger needs to clear the object.
+
+    Each finger is searched independently (the wrist is fixed, so opening one
+    finger cannot move another's spheres): for finger F we sweep only F's
+    open-mask joints from the snapshot toward 0, reduce the SDF clearance over
+    **only the spheres F actually moves** (identified from the sweep, so a
+    metacarpal that a frozen CMC leaves in place is excluded), and take the
+    smallest fraction whose min clearance reaches ``clearance_target_m``.
+    Palm spheres never enter any finger's reduction (no joint opens them), so
+    a penetrating palm -- a wrist-placement problem -- does not force the
+    fingers open. Fingers that already clear stay at their grasp values.
+
+    Returns ``(opened_action, {finger: open_fraction}, snapshot_clearance_m,
+    opened_clearance_m)`` where the two clearances are the min over all
+    openable spheres, before and after."""
 
     joints = pregrasp_action[7:]
-    open_target = np.where(open_mask, 0.0, joints)
-    ts = np.linspace(0.0, 1.0, int(num_samples))
-    joints_path = joints[None] + ts[:, None] * (open_target - joints)[None]
-    pose = np.tile(pregrasp_action[:7][None], (ts.size, 1))
-    actions = np.concatenate([pose, joints_path], axis=-1).astype(np.float32)
-    clearances = (
-        clearance_checker.compute_clearances(clearance_checker.device_cfg.to_device(actions), world)
-        .cpu()
-        .numpy()
-    )
-    snapshot_clearance = float(clearances[0])
-    ok = np.where(clearances >= float(clearance_target_m))[0]
-    if ok.size == 0:
-        print(
-            "[anchored_bodex] WARNING: pregrasp still penetrates even with the fingers fully "
-            f"open (clearance {clearances[-1]:.4f} m); the wrist pose itself is too close -- "
-            "using the fully open hand"
-        )
-        idx = int(ts.size - 1)
-    else:
-        idx = int(ok[0])
-        if idx > 0:
-            print(
-                f"[anchored_bodex] pregrasp fingers opened {ts[idx]:.2f} of the way to clear "
-                f"the object (snapshot {snapshot_clearance:.4f} m -> {float(clearances[idx]):.4f} m)"
-            )
+    joint_finger = [_finger_of(name) for name in joint_order]
+    device = clearance_checker.device_cfg
+
     opened = pregrasp_action.copy()
-    opened[7:] = joints_path[idx]
-    return opened, float(ts[idx]), snapshot_clearance, float(clearances[idx])
+    open_fractions: dict[str, float] = {}
+    movable_any = np.zeros(len(clearance_checker.sphere_link_names), dtype=bool)
+    ts = np.linspace(0.0, 1.0, int(num_samples))
+
+    for finger in _FINGERS:
+        jidx = np.asarray(
+            [i for i in range(len(joint_order)) if joint_finger[i] == finger and open_mask[i]],
+            dtype=int,
+        )
+        if jidx.size == 0:
+            open_fractions[finger] = 0.0
+            continue
+        # Sweep: only this finger's joints scale toward 0; all else frozen.
+        path = np.tile(pregrasp_action[None], (ts.size, 1)).astype(np.float64)
+        path[:, 7 + jidx] = joints[jidx][None] * (1.0 - ts[:, None])
+        sph = (
+            clearance_checker.compute_sphere_clearances(
+                device.to_device(path.astype(np.float32)), world
+            )
+            .cpu()
+            .numpy()
+        )  # (num_samples, N)
+        # Spheres this finger actually moves (their clearance varies across the
+        # sweep); kinematically these are exactly F's descendant spheres.
+        moved = sph.std(axis=0) > 1e-6
+        movable_any |= moved
+        cols = np.where(moved)[0]
+        if cols.size == 0:
+            open_fractions[finger] = 0.0
+            continue
+        finger_clear = sph[:, cols].min(axis=1)
+        ok = np.where(finger_clear >= float(clearance_target_m))[0]
+        if ok.size == 0:
+            idx = int(ts.size - 1)
+            print(
+                f"[anchored_bodex] WARNING: {finger} finger cannot clear the object even fully "
+                f"open (best {finger_clear[-1]:.4f} m); likely a wrist-placement problem -- using "
+                "fully open"
+            )
+        else:
+            idx = int(ok[0])
+            if idx > 0:
+                print(
+                    f"[anchored_bodex] {finger} finger opened {ts[idx]:.2f} of the way to clear "
+                    f"the object ({finger_clear[0]:.4f} m -> {finger_clear[idx]:.4f} m)"
+                )
+        open_fractions[finger] = float(ts[idx])
+        opened[7 + jidx] = joints[jidx] * (1.0 - ts[idx])
+
+    # Report clearance over the openable spheres only (palm excluded), before
+    # and after -- a whole-hand min that a frozen penetrating palm can't skew.
+    def _movable_min(action: np.ndarray) -> float:
+        sph = (
+            clearance_checker.compute_sphere_clearances(
+                device.to_device(action[None].astype(np.float32)), world
+            )
+            .cpu()
+            .numpy()[0]
+        )
+        return float(sph[movable_any].min()) if movable_any.any() else float(sph.min())
+
+    return opened, open_fractions, _movable_min(pregrasp_action), _movable_min(opened)
 
 
 @dataclass(frozen=True)
@@ -215,12 +277,13 @@ def compute_grasp_stages(
     # -- Pregrasp opening: the stage-0 snapshot is captured before the
     # penetration penalty ramps in and frequently sits inside the object.
     # The wrist pose is kept EXACTLY as optimized (it is the approach pose
-    # the trajectory is built around); only the _pregrasp_open_mask channels
-    # (flexion + both thumb-CMC DoFs) are opened toward 0 rad until the
-    # whole hand clears the object. --
-    pregrasp_opened, pregrasp_open_t, snapshot_clearance_m, pregrasp_clearance = _open_pregrasp(
+    # the trajectory is built around); each finger's _pregrasp_open_mask
+    # channels (flexion + both thumb-CMC DoFs) are opened toward 0 rad,
+    # per-finger, only as far as that finger needs to clear the object. --
+    pregrasp_opened, pregrasp_open_fractions, snapshot_clearance_m, pregrasp_clearance = _open_pregrasp(
         pregrasp_snapshot,
         _pregrasp_open_mask(joint_order),
+        joint_order,
         clearance_checker,
         world,
         clearance_target_m=pregrasp_clearance_m,
@@ -239,7 +302,8 @@ def compute_grasp_stages(
 
     report = {
         "pregrasp_snapshot_clearance_m": snapshot_clearance_m,
-        "pregrasp_open_fraction": pregrasp_open_t,
+        "pregrasp_open_fractions": {k: float(v) for k, v in pregrasp_open_fractions.items()},
+        "pregrasp_open_fraction_max": float(max(pregrasp_open_fractions.values(), default=0.0)),
         "pregrasp_clearance_target_m": float(pregrasp_clearance_m),
         "pregrasp_clearance_m": float(pregrasp_clearance),
         "grasp_clearance_m": float(grasp_clearance_m),

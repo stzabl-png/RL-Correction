@@ -65,14 +65,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--isaac-friction-target", choices=["both", "object"], default="both")
     parser.add_argument("--isaac-friction", type=float, default=3.0, help="Friction of the bound material.")
     parser.add_argument("--isaac-friction-combine-mode", choices=["max", "multiply", "average", "min"], default="multiply")
-    parser.add_argument("--isaac-joint-stiffness", type=float, default=80.0)
-    parser.add_argument("--isaac-joint-damping", type=float, default=20.0)
-    parser.add_argument("--isaac-joint-effort-profile", choices=["baked", "uniform"], default="baked")
-    parser.add_argument("--isaac-joint-max-force", type=float, default=300.0)
-    parser.add_argument("--isaac-joint-armature", type=float, default=0.01)
-    parser.add_argument("--isaac-joint-friction", type=float, default=0.05)
-    parser.add_argument("--isaac-close-joint-stiffness", type=float, default=20.0)
-    parser.add_argument("--isaac-close-joint-max-force", type=float, default=60.0)
+    parser.add_argument("--isaac-joint-armature", type=float, default=0.001, help="Finger joint armature (reference drive-table default); gains/effort caps come from the per-joint table in the sim module.")
+    parser.add_argument("--isaac-joint-friction", type=float, default=0.0)
     parser.add_argument("--isaac-contact-aware-finger-targets", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--isaac-contact-target-lead-rad", type=float, default=0.03)
     parser.add_argument("--isaac-convex-decomp-max-hulls", type=int, default=32)
@@ -159,14 +153,8 @@ def _simulation_params(args: argparse.Namespace, trajectory_dir: Path, out_dir: 
         "friction_target": args.isaac_friction_target,
         "friction": args.isaac_friction,
         "friction_combine_mode": args.isaac_friction_combine_mode,
-        "joint_stiffness": args.isaac_joint_stiffness,
-        "joint_damping": args.isaac_joint_damping,
-        "joint_effort_profile": args.isaac_joint_effort_profile,
-        "joint_max_force": args.isaac_joint_max_force,
         "joint_armature": args.isaac_joint_armature,
         "joint_friction": args.isaac_joint_friction,
-        "close_joint_stiffness": args.isaac_close_joint_stiffness,
-        "close_joint_max_force": args.isaac_close_joint_max_force,
         "contact_aware_finger_targets": args.isaac_contact_aware_finger_targets,
         "contact_target_lead_rad": args.isaac_contact_target_lead_rad,
         "convex_decomp_max_hulls": args.isaac_convex_decomp_max_hulls,

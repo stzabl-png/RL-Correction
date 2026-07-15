@@ -2,27 +2,30 @@
 """Play a generated grasp trajectory back in Isaac Sim with real PhysX physics.
 
 The hand USD (the Articulation_Bodex tuned Sharpa asset, see
-``assets/robots/hands/sharpa_wave/usd/right/bodex_reference/``) is a pure
-22-DOF **floating-base articulation**: baked convexDecomposition colliders,
-4mm/1mm contact/rest offsets, and BODex-tuned per-joint drive effort limits.
-It is driven through the PhysX tensor API
-(``isaacsim.core.prims.SingleArticulation``): every physics substep sets the
-root pose (interpolated along the trajectory between frames) plus
-finite-difference root velocities, while the finger joints track PD position
-targets in radians (``ArticulationAction``). Driving through the articulation
-view keeps the joints solved in reduced coordinates -- links physically
-cannot separate -- unlike teleporting authored USD transforms, which this
-PhysX version does not reliably honor for articulations. The object is a
-dynamic rigid body resting on a static table (hand-table collision filtered
-out by default, as in the reference validator), gravity on. Renders a video
-and writes lift/grasp metrics to ``report.json``.
+``assets/robots/hands/sharpa_wave/usd/right/bodex_reference/``) is a 22-DOF
+articulation with baked convexDecomposition colliders, 4mm/1mm contact/rest
+offsets, and BODex-tuned per-joint drive effort limits. It is driven the way
+the reference validator ``ref/sharpa_tabletop.py`` drives it (**kinematic
+anchor transport**): the asset's palm link ships anchored to the world by a
+zero-offset ``PhysicsFixedJoint``, making the hand a fixed-base
+articulation whose anchor follows the ``/World/Hand`` wrapper Xform -- each trajectory frame simply rewrites the
+wrapper's translate/orient ops and the whole hand teleports rigidly with no
+root dynamics to stabilize. Finger joints run soft per-joint PD drives (the
+reference's tuned stiffness/damping table, effort caps = the asset's baked
+tuned limits) and are commanded by writing
+``drive:angular:physics:targetPosition`` (degrees) on the joint prims. A
+``SingleArticulation`` view is kept only for reading joint states and the
+initial joint teleport. The object is a dynamic rigid body resting on a
+static table (hand-table collision filtered out by default, as in the
+reference), gravity on. Renders a video and writes lift/grasp metrics to
+``report.json``.
 
 Reuses ``ocir.isaac.replay_dexycb``'s DexYCB camera-frame-to-Isaac-world
 mapping and video/camera helpers. The physics recipe (friction 3.0/3.0
 multiply on hand AND object, contact slop 0.2, convex-decomposition object
-collision, hand-table collision groups) follows the proven reference
-validator ``ref/sharpa_tabletop.py`` (Articulation_Bodex); the articulation
-solver iteration counts come from MagicSim's floating Sharpa hand config
+collision, hand-table collision groups, per-joint soft drives) follows
+``ref/sharpa_tabletop.py`` (Articulation_Bodex); the articulation solver
+iteration counts come from MagicSim's floating Sharpa hand config
 (``SharpaWaveFloating.py``).
 """
 
@@ -45,7 +48,6 @@ if str(REPO_ROOT) not in sys.path:
 from ocir.grasp_synthesis.assets import DEFAULT_SHARPA_WAVE_RIGHT_CONFIG, load_sharpa_wave_right
 from ocir.grasp_traj.trajectory_schema import (
     SEGMENT_CARRY,
-    SEGMENT_CLOSE,
     SEGMENT_SQUEEZE,
     GraspTrajectory,
     quat_wxyz_to_matrix,
@@ -79,6 +81,38 @@ ARTICULATION_SOLVER_POSITION_ITERATIONS = 20
 ARTICULATION_SOLVER_VELOCITY_ITERATIONS = 10
 
 RAD_TO_DEG = 180.0 / np.pi
+
+#: The reference validator's per-joint finger drive table
+#: (ref/sharpa_tabletop.py SHARPA_PER_JOINT_DRIVE_OVERRIDES): soft
+#: stiffness/damping in N*m/rad and N*m*s/rad -- converted to USD's
+#: per-degree angular drive units at authoring time -- with maxForce equal to
+#: the asset's baked tuned effort limits. Soft gains keep contact joints out
+#: of permanent force saturation; the caps, not the gains, bound the grip.
+SHARPA_PER_JOINT_DRIVES: dict[str, tuple[float, float, float]] = {
+    # joint: (stiffness Nm/rad, damping Nms/rad, max_force Nm)
+    "right_index_MCP_FE": (14.0, 2.6, 1.8639999628067017),
+    "right_index_MCP_AA": (7.0, 1.6, 1.8639999628067017),
+    "right_index_PIP": (4.5, 0.9, 0.6380000114440918),
+    "right_index_DIP": (2.0, 0.45, 0.18936899304389954),
+    "right_thumb_CMC_FE": (26.0, 5.0, 3.299999952316284),
+    "right_thumb_CMC_AA": (14.0, 3.0, 3.299999952316284),
+    "right_thumb_MCP_FE": (17.0, 3.3, 1.8639999628067017),
+    "right_thumb_MCP_AA": (8.5, 2.0, 1.8639999628067017),
+    "right_thumb_IP": (5.5, 1.1, 0.6380000114440918),
+    "right_middle_MCP_FE": (14.0, 2.6, 1.8639999628067017),
+    "right_middle_MCP_AA": (7.0, 1.6, 1.8639999628067017),
+    "right_middle_PIP": (4.5, 0.9, 0.6380000114440918),
+    "right_middle_DIP": (2.0, 0.45, 0.18936899304389954),
+    "right_ring_MCP_FE": (14.0, 2.6, 1.8639999628067017),
+    "right_ring_MCP_AA": (7.0, 1.6, 1.8639999628067017),
+    "right_ring_PIP": (4.5, 0.9, 0.6380000114440918),
+    "right_ring_DIP": (2.0, 0.45, 0.18936899304389954),
+    "right_pinky_CMC": (3.0, 0.7, 0.5285000205039978),
+    "right_pinky_MCP_FE": (14.0, 2.6, 1.8639999628067017),
+    "right_pinky_MCP_AA": (7.0, 1.6, 1.8639999628067017),
+    "right_pinky_PIP": (4.5, 0.9, 0.6380000114440918),
+    "right_pinky_DIP": (2.0, 0.45, 0.18936899304389954),
+}
 
 CARRY_MODE_FRICTION = "friction"
 CARRY_MODE_KINEMATIC = "kinematic"
@@ -162,35 +196,26 @@ def setup_physics_scene(stage, *, time_steps_per_second: float, gravity: float =
     physx_scene.CreateGpuTotalAggregatePairsCapacityAttr().Set(aggregate_pairs_capacity)
 
 
-def deactivate_hand_root_joint(stage, ref_path: str) -> list[str]:
-    """Find and deactivate any joint that anchors the hand to the world (an
-    empty ``physics:body0`` relationship). The default asset ships
-    floating-base (its palm anchor was stripped from the file), so this is a
-    no-op there; it remains as a safety net for ``--hand-usd`` overrides
-    that still carry a world anchor. With no anchor the hand is a
-    floating-base articulation whose root pose can be set through the PhysX
-    tensor API every substep (see ``HandArticulationDriver``). Nothing is
-    marked kinematic: a kinematic link inside a live articulation
-    destabilizes the solver (links visibly separate, fingers jitter).
-
-    Logs (and returns) whatever it finds; never assumes silently."""
+def find_hand_world_anchor(stage, ref_path: str) -> str:
+    """Locate the joint that anchors the hand to the world (an empty
+    ``physics:body0`` relationship -- the pristine BODex asset ships a
+    zero-offset ``PhysicsFixedJoint`` on the palm link, making the hand a
+    fixed-base articulation). The anchor follows the hand's wrapper Xform,
+    so teleporting the wrapper transports the whole hand rigidly -- the
+    reference validator's driving method. Hard-fails on an asset without an
+    anchor; returns the joint path."""
 
     from pxr import Usd, UsdPhysics
 
     root = stage.GetPrimAtPath(ref_path)
-    deactivated: list[str] = []
     for prim in Usd.PrimRange(root):
-        if not prim.IsA(UsdPhysics.Joint):
-            continue
-        joint = UsdPhysics.Joint(prim)
-        if len(joint.GetBody0Rel().GetTargets()) == 0:
-            prim.SetActive(False)
-            deactivated.append(str(prim.GetPath()))
-    if deactivated:
-        log(f"deactivated world-anchoring joint(s) under {ref_path}: {deactivated}")
-    else:
-        log(f"{ref_path}: no world-anchoring joint found (asset ships floating-base)")
-    return deactivated
+        if prim.IsA(UsdPhysics.Joint) and len(UsdPhysics.Joint(prim).GetBody0Rel().GetTargets()) == 0:
+            log(f"world-anchor joint: {prim.GetPath()}")
+            return str(prim.GetPath())
+    raise RuntimeError(
+        f"{ref_path}: no world-anchoring joint (empty body0) found; wrapper-teleport "
+        "driving needs the anchored asset (bodex_reference, shipped with its palm FixedJoint)"
+    )
 
 
 def setup_hand_articulation_root(stage, ref_path: str, *, self_collisions: bool = True) -> str:
@@ -341,123 +366,88 @@ def count_hand_colliders(stage, ref_path: str) -> int:
     return count
 
 
-def setup_hand_drives(
-    stage, ref_path: str, *, stiffness: float, damping: float, max_force: float, armature: float,
-    joint_friction: float, effort_profile: str = "baked",
-) -> tuple[int, dict[str, float]]:
-    """Configure finger drives. Under the ``baked`` effort profile the
-    asset's own per-joint ``maxForce`` values (the BODex-tuned limits shipped
-    in the USD) are READ and left in place; ``uniform`` overwrites them all
-    with the ``max_force`` scalar (the pre-tuned behavior). Returns the drive
-    count and the resolved ``{joint_name: maxForce}`` map."""
+def setup_hand_drives(stage, ref_path: str, *, armature: float, joint_friction: float) -> tuple[int, dict[str, float]]:
+    """Author the reference validator's per-joint soft PD drives
+    (``SHARPA_PER_JOINT_DRIVES``) on every revolute finger joint. Gains are
+    tabled in N*m/rad and converted to USD's per-degree angular drive units
+    here (the reference's ``HAND_ANGULAR_GAINS_IN_RADIANS`` conversion);
+    ``maxForce`` is written from the table (equal to the asset's baked tuned
+    effort limits). Rigid-body properties and the asset's per-joint velocity
+    limits are left untouched, as in the reference. Joints not in the table
+    (the asset's passive virtual-chain joints) are skipped. Returns the
+    drive count and the resolved ``{joint_name: maxForce}`` map."""
 
     from pxr import PhysxSchema, Usd, UsdPhysics
 
+    deg_scale = np.pi / 180.0  # Nm/rad -> USD per-degree drive units
     root = stage.GetPrimAtPath(ref_path)
     n = 0
+    skipped: list[str] = []
     efforts: dict[str, float] = {}
     for prim in Usd.PrimRange(root):
-        if prim.HasAPI(UsdPhysics.RigidBodyAPI):
-            if not prim.HasAPI(PhysxSchema.PhysxRigidBodyAPI):
-                PhysxSchema.PhysxRigidBodyAPI.Apply(prim)
-            # Stability caps (reference values): without them, finger drives
-            # squeezing into a heavy or kinematic (infinite-mass) object build
-            # up unbounded depenetration/joint velocities and the articulation
-            # explodes.
-            rb_api = PhysxSchema.PhysxRigidBodyAPI(prim)
-            rb_api.CreateMaxDepenetrationVelocityAttr().Set(2.0)
-            rb_api.CreateMaxLinearVelocityAttr().Set(4.0)
-            rb_api.CreateMaxAngularVelocityAttr().Set(4.0 * RAD_TO_DEG)  # attr is in deg/s
-        if prim.IsA(UsdPhysics.RevoluteJoint):
-            drive = UsdPhysics.DriveAPI.Apply(prim, "angular")
-            (drive.GetStiffnessAttr() or drive.CreateStiffnessAttr()).Set(float(stiffness))
-            (drive.GetDampingAttr() or drive.CreateDampingAttr()).Set(float(damping))
-            if effort_profile == "baked":
-                baked = drive.GetMaxForceAttr().Get() if drive.GetMaxForceAttr() else None
-                if baked is None:
-                    raise RuntimeError(
-                        f"joint {prim.GetName()} has no baked drive maxForce, but --joint-effort-profile=baked; "
-                        "use an asset with tuned limits (bodex_reference) or pass --joint-effort-profile uniform"
-                    )
-                efforts[prim.GetName()] = float(baked)
-                # The tuned caps bound CONTACT forces; free-space tracking
-                # (retarget/approach, where fingers swing switch -> pregrasp
-                # fast) needs full authority or lagging fingers sweep through
-                # space the planner assumed clear. Author the scalar here;
-                # the tuned per-joint vector takes over at the first close
-                # step and stays for squeeze/carry.
-                (drive.GetMaxForceAttr() or drive.CreateMaxForceAttr()).Set(float(max_force))
-            else:
-                (drive.GetMaxForceAttr() or drive.CreateMaxForceAttr()).Set(float(max_force))
-                efforts[prim.GetName()] = float(max_force)
-            (drive.GetTargetPositionAttr() or drive.CreateTargetPositionAttr()).Set(0.0)
-            if not prim.HasAPI(PhysxSchema.PhysxJointAPI):
-                PhysxSchema.PhysxJointAPI.Apply(prim)
-            physx_joint = PhysxSchema.PhysxJointAPI(prim)
-            physx_joint.CreateJointFrictionAttr().Set(float(joint_friction))
-            physx_joint.CreateArmatureAttr().Set(float(armature))
-            physx_joint.CreateMaxJointVelocityAttr().Set(570.0)  # deg/s, ~10 rad/s
-            n += 1
-    log(f"{ref_path}: configured {n} finger joint drives (effort profile: {effort_profile})")
+        if not prim.IsA(UsdPhysics.RevoluteJoint):
+            continue
+        name = prim.GetName()
+        if name not in SHARPA_PER_JOINT_DRIVES:
+            skipped.append(name)
+            continue
+        stiffness, damping, max_force = SHARPA_PER_JOINT_DRIVES[name]
+        drive = UsdPhysics.DriveAPI.Apply(prim, "angular")
+        (drive.GetStiffnessAttr() or drive.CreateStiffnessAttr()).Set(float(stiffness) * deg_scale)
+        (drive.GetDampingAttr() or drive.CreateDampingAttr()).Set(float(damping) * deg_scale)
+        (drive.GetMaxForceAttr() or drive.CreateMaxForceAttr()).Set(float(max_force))
+        target_attr = drive.GetTargetPositionAttr() or drive.CreateTargetPositionAttr()
+        if not target_attr.HasAuthoredValueOpinion():
+            target_attr.Set(0.0)
+        if not prim.HasAPI(PhysxSchema.PhysxJointAPI):
+            PhysxSchema.PhysxJointAPI.Apply(prim)
+        physx_joint = PhysxSchema.PhysxJointAPI(prim)
+        physx_joint.CreateJointFrictionAttr().Set(float(joint_friction))
+        physx_joint.CreateArmatureAttr().Set(float(armature))
+        efforts[name] = float(max_force)
+        n += 1
+    if skipped:
+        log(f"{ref_path}: left {len(skipped)} passive revolute joint(s) undriven: {skipped}")
+    log(f"{ref_path}: configured {n} finger joint drives (reference per-joint soft gains)")
     return n, efforts
 
 
-def quats_to_angular_velocities(quats_wxyz: np.ndarray, dt: float) -> np.ndarray:
-    """(T,4) wxyz -> (T,3) world-frame angular velocities by finite
-    differences (angle-axis of the relative rotation over dt); last row 0."""
+def collect_finger_target_attrs(stage, ref_path: str, joint_order: tuple[str, ...]) -> list:
+    """Resolve each driven joint's ``drive:angular:physics:targetPosition``
+    attribute once (in ``joint_order``), so the main loop can command the
+    fingers by plain attribute writes -- the reference validator's control
+    path."""
 
-    quats = np.asarray(quats_wxyz, dtype=np.float64)
-    omega = np.zeros((quats.shape[0], 3), dtype=np.float64)
-    for t in range(quats.shape[0] - 1):
-        r0 = quat_wxyz_to_matrix(quats[t])
-        r1 = quat_wxyz_to_matrix(quats[t + 1])
-        rel = r1 @ r0.T
-        cos_angle = np.clip((np.trace(rel) - 1.0) / 2.0, -1.0, 1.0)
-        angle = float(np.arccos(cos_angle))
-        if angle < 1e-8:
-            continue
-        axis = np.array([rel[2, 1] - rel[1, 2], rel[0, 2] - rel[2, 0], rel[1, 0] - rel[0, 1]])
-        axis = axis / (2.0 * np.sin(angle))
-        omega[t] = axis * (angle / float(dt))
-    return omega
+    from pxr import Usd, UsdPhysics
 
-
-def slerp_wxyz(q0: np.ndarray, q1: np.ndarray, frac: float) -> np.ndarray:
-    """Spherical linear interpolation between two wxyz quaternions along the
-    shorter arc. Falls back to normalized lerp when the two are nearly
-    parallel (sin(theta) -> 0)."""
-
-    a = np.asarray(q0, dtype=np.float64)
-    b = np.asarray(q1, dtype=np.float64)
-    a = a / np.linalg.norm(a)
-    b = b / np.linalg.norm(b)
-    dot = float(np.dot(a, b))
-    if dot < 0.0:  # shorter arc
-        b = -b
-        dot = -dot
-    if dot > 0.9995:  # nearly parallel
-        out = a + float(frac) * (b - a)
-        return out / np.linalg.norm(out)
-    theta0 = np.arccos(dot)
-    sin0 = np.sin(theta0)
-    s0 = np.sin((1.0 - float(frac)) * theta0) / sin0
-    s1 = np.sin(float(frac) * theta0) / sin0
-    return s0 * a + s1 * b
+    root = stage.GetPrimAtPath(ref_path)
+    by_name = {}
+    for prim in Usd.PrimRange(root):
+        if prim.IsA(UsdPhysics.RevoluteJoint) and prim.GetName() in joint_order:
+            by_name[prim.GetName()] = prim.GetAttribute("drive:angular:physics:targetPosition")
+    missing = [name for name in joint_order if name not in by_name or not by_name[name].IsValid()]
+    if missing:
+        raise RuntimeError(f"trajectory joints without a drive targetPosition attribute: {missing}")
+    return [by_name[name] for name in joint_order]
 
 
-class HandArticulationDriver:
-    """Drives the floating-base hand articulation through the PhysX tensor
-    API: root pose + root velocities + finger PD position targets (radians).
-    Must be constructed after the timeline is playing (the physics simulation
-    view does not exist before that)."""
+def write_finger_targets(target_attrs: list, targets_rad: np.ndarray) -> None:
+    """Write finger drive position targets (USD angular drives take degrees)."""
 
-    def __init__(
-        self,
-        articulation_root_path: str,
-        joint_order: tuple[str, ...],
-        efforts_by_name: dict[str, float] | None = None,
-        fallback_max_force: float = 300.0,
-    ):
+    values = np.asarray(targets_rad, dtype=np.float64) * RAD_TO_DEG
+    for attr, value in zip(target_attrs, values):
+        attr.Set(float(value))
+
+
+class HandJointReader:
+    """Read-only ``SingleArticulation`` view over the hand: joint-state
+    readback for metrics/the target governor, plus the one-time initial
+    joint teleport. The hand itself is DRIVEN through USD (wrapper Xform
+    teleports + drive targetPosition writes), not through this view. Must be
+    constructed after the timeline is playing (the physics simulation view
+    does not exist before that)."""
+
+    def __init__(self, articulation_root_path: str, joint_order: tuple[str, ...]):
         from isaacsim.core.prims import SingleArticulation
 
         self.articulation = SingleArticulation(articulation_root_path)
@@ -467,17 +457,7 @@ class HandArticulationDriver:
         if missing:
             raise RuntimeError(f"trajectory joints not present in articulation DOFs: {missing} (DOFs: {dof_names})")
         self.dof_indices = np.asarray([dof_names.index(name) for name in joint_order], dtype=np.int32)
-        self.num_dofs = len(dof_names)
-        # Per-DOF effort vector resolved from the drive-setup map (baked
-        # profile: the asset's own tuned per-joint limits; uniform: scalars).
-        efforts_by_name = efforts_by_name or {}
-        unmapped = [name for name in dof_names if name not in efforts_by_name]
-        if efforts_by_name and unmapped:
-            log(f"WARNING: DOFs without a resolved effort limit, using fallback {fallback_max_force}: {unmapped}")
-        self.effort_vector = np.asarray(
-            [float(efforts_by_name.get(name, fallback_max_force)) for name in dof_names], dtype=np.float32
-        )
-        log(f"articulation view ready: {self.num_dofs} DOFs, driving {len(joint_order)} of them")
+        log(f"articulation view ready: {len(dof_names)} DOFs, reading {len(joint_order)} of them")
 
     def reset_joints(self, joint_positions_rad: np.ndarray) -> None:
         """Teleport joints to the given positions (start of playback, so the
@@ -487,55 +467,11 @@ class HandArticulationDriver:
             np.asarray(joint_positions_rad, dtype=np.float32), joint_indices=self.dof_indices
         )
 
-    def set_drive_strength(self, stiffness: float, damping: float, max_force: float | np.ndarray) -> None:
-        """Set PD gains + effort cap on all driven finger joints at once
-        (used to soften the fingers during the close segment so an early-
-        touching finger stalls against the object instead of shoving it).
-        ``max_force`` may be a per-DOF vector (baked tuned limits) or a
-        scalar (uniform profile)."""
-
-        controller = self.articulation.get_articulation_controller()
-        kps = np.full(self.num_dofs, float(stiffness), dtype=np.float32)
-        kds = np.full(self.num_dofs, float(damping), dtype=np.float32)
-        controller.set_gains(kps=kps, kds=kds)
-        if np.isscalar(max_force):
-            efforts = np.full(self.num_dofs, float(max_force), dtype=np.float32)
-        else:
-            efforts = np.asarray(max_force, dtype=np.float32)
-            if efforts.shape != (self.num_dofs,):
-                raise ValueError(f"max_force vector shape {efforts.shape} != ({self.num_dofs},)")
-        controller.set_max_efforts(efforts)
-
     def joint_positions(self) -> np.ndarray:
         """Return the driven finger-joint positions in trajectory order."""
 
         return np.asarray(
             self.articulation.get_joint_positions(joint_indices=self.dof_indices), dtype=np.float64
-        )
-
-    def drive(
-        self,
-        pos: np.ndarray,
-        quat_wxyz: np.ndarray,
-        joint_targets_rad: np.ndarray,
-        *,
-        linear_velocity: np.ndarray | None = None,
-        angular_velocity: np.ndarray | None = None,
-    ) -> None:
-        from isaacsim.core.utils.types import ArticulationAction
-
-        self.articulation.set_world_pose(position=np.asarray(pos, dtype=np.float32), orientation=np.asarray(quat_wxyz, dtype=np.float32))
-        self.articulation.set_linear_velocity(
-            np.zeros(3, dtype=np.float32) if linear_velocity is None else np.asarray(linear_velocity, dtype=np.float32)
-        )
-        self.articulation.set_angular_velocity(
-            np.zeros(3, dtype=np.float32) if angular_velocity is None else np.asarray(angular_velocity, dtype=np.float32)
-        )
-        self.articulation.apply_action(
-            ArticulationAction(
-                joint_positions=np.asarray(joint_targets_rad, dtype=np.float32),
-                joint_indices=self.dof_indices,
-            )
         )
 
     def max_joint_tracking_error(self, joint_targets_rad: np.ndarray) -> float:
@@ -707,7 +643,7 @@ def build_hand(stage, hand_usd_path: Path, args: argparse.Namespace) -> dict:
         if prim.IsInstanceable():
             prim.SetInstanceable(False)
 
-    deactivated_joints = deactivate_hand_root_joint(stage, HAND_REF)
+    anchor_joint = find_hand_world_anchor(stage, HAND_REF)
     articulation_root = setup_hand_articulation_root(
         stage, HAND_REF, self_collisions=args.hand_self_collisions
     )
@@ -724,20 +660,17 @@ def build_hand(stage, hand_usd_path: Path, args: argparse.Namespace) -> dict:
         offset_count = 0
         log(f"{HAND_REF}: keeping the asset's baked collider contact/rest offsets")
     drive_count, resolved_efforts = setup_hand_drives(
-        stage, HAND_REF,
-        stiffness=args.joint_stiffness, damping=args.joint_damping, max_force=args.joint_max_force,
-        armature=args.joint_armature, joint_friction=args.joint_friction,
-        effort_profile=str(args.joint_effort_profile),
+        stage, HAND_REF, armature=args.joint_armature, joint_friction=args.joint_friction
     )
     return {
-        "deactivated_joints": deactivated_joints,
+        "world_anchor_joint": anchor_joint,
         "articulation_root": articulation_root,
         "self_collisions": bool(args.hand_self_collisions),
         "collider_count": collider_count,
         "offset_collider_count": offset_count,
         "hand_rest_offset_m": float(args.hand_rest_offset) if args.hand_rest_offset is not None else None,
         "drive_count": drive_count,
-        "joint_effort_profile": str(args.joint_effort_profile),
+        "drive_profile": "sharpa_reference_per_joint",
         "resolved_max_efforts": {name: round(value, 6) for name, value in sorted(resolved_efforts.items())},
     }
 
@@ -944,6 +877,10 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
         f"object colliders bound={object_friction_report['bound_collider_count']}"
     )
     set_world_pose(stage, HAND_WRAP, all_pos_isaac[0], all_quat_isaac[0])
+    finger_target_attrs = collect_finger_target_attrs(stage, HAND_REF, traj.joint_order)
+    # Author the first frame's finger targets before physics parses the
+    # stage, so the warmup updates don't pull the fingers toward zero.
+    write_finger_targets(finger_target_attrs, traj.finger_targets[0])
 
     phase("framing camera")
     camera, camera_report = make_record_camera(stage, args, center=(bbox_min + bbox_max) / 2.0, bbox_min=bbox_min, bbox_max=bbox_max)
@@ -955,45 +892,17 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
         app.update()
 
     phase("initializing hand articulation view")
-    hand_driver = HandArticulationDriver(
-        hand_report["articulation_root"], traj.joint_order,
-        efforts_by_name=hand_report["resolved_max_efforts"],
-        fallback_max_force=float(args.joint_max_force),
-    )
-    hand_driver.reset_joints(traj.finger_targets[0])
-    # Segment-dependent effort caps: under the baked profile the asset's
-    # tuned per-joint limits apply from the first CLOSE step onward (close,
-    # squeeze, carry -- every segment where finger-object contact is
-    # intended), never expanded back to the uniform scalars. The free-space
-    # retarget/approach segments keep the scalar --joint-max-force authority
-    # (authored in setup_hand_drives): with the tuned caps active there, the
-    # fast switch->pregrasp finger swing lags by >1 rad and the still-closed
-    # fingers sweep into the object (mug sequence: 6.6m ejection during
-    # approach).
-    baked_profile = str(args.joint_effort_profile) == "baked"
-    close_max_force = hand_driver.effort_vector if baked_profile else float(args.close_joint_max_force)
-    normal_max_force = hand_driver.effort_vector if baked_profile else float(args.joint_max_force)
+    hand_reader = HandJointReader(hand_report["articulation_root"], traj.joint_order)
+    hand_reader.reset_joints(traj.finger_targets[0])
 
-    # Finite-difference root velocities: without them every set_world_pose is
-    # a zero-velocity teleport and finger-object contacts never see the
-    # wrist's true motion (friction can't carry the object). Each app.update()
-    # advances sim time by exactly 1/60 s, so the dt these velocities must be
-    # consistent with is the SIMULATED time per trajectory frame -- not
-    # traj.dt -- or the root overshoots its own teleports every frame and
-    # pumps energy into the articulation. The per-substep pose is INTERPOLATED
-    # from pos[t] toward pos[t+1] (see the inner loop) so the teleport advances
-    # along the path in step with this velocity instead of snapping back to a
-    # fixed pos[t] each substep (which showed up as a ~60Hz vertical shake in
-    # the live view and injected a velocity kick into every live contact).
+    # Each app.update() advances sim time by exactly 1/60 s regardless of the
+    # PhysX substep rate, so --sim-steps-per-frame sets the playback speed.
     sim_dt_per_frame = int(args.sim_steps_per_frame) / 60.0
     if abs(sim_dt_per_frame - float(traj.dt)) > 1e-6:
         log(
             f"WARNING: simulated dt per frame ({sim_dt_per_frame:.4f}s) != trajectory dt "
             f"({traj.dt:.4f}s); playback speed scales by {float(traj.dt) / sim_dt_per_frame:.2f}x"
         )
-    lin_vel = np.zeros_like(all_pos_isaac)
-    lin_vel[:-1] = np.diff(all_pos_isaac, axis=0) / sim_dt_per_frame
-    ang_vel = quats_to_angular_velocities(all_quat_isaac, sim_dt_per_frame)
 
     carry_mask = traj.segment == SEGMENT_CARRY
     resting_z = float(obj_pos_isaac_all[0, 2])
@@ -1006,74 +915,45 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
     driven_targets_per_step: list[np.ndarray] = []
     blowup_logged = False
 
-    # Softened finger drives during the close segment: the close targets are
-    # contact-projected but sphere-vs-hull geometry differences still leave a
-    # few mm of commanded overlap, and full-strength drives turn that into a
-    # shove. Full gains are restored for squeeze/carry.
-    close_gains_active = None  # None until the first close step; then True/False
-    # Close must retain its full (soft-gain) trajectory target so the fingers
-    # can traverse free space and actually reach the contact posture. The
-    # bounded virtual spring begins only once the trajectory enters squeeze,
-    # then remains active through carry.
+    # The bounded virtual-spring governor (optional, default off) begins only
+    # once the trajectory enters squeeze, then remains active through carry;
+    # close keeps its full trajectory target so the fingers can traverse free
+    # space and actually reach the contact posture.
     governed_segments = {SEGMENT_SQUEEZE, SEGMENT_CARRY}
     target_lead_rad = float(args.contact_target_lead_rad)
     if bool(args.contact_aware_finger_targets) and target_lead_rad <= 0.0:
         raise ValueError(f"--contact-target-lead-rad must be positive, got {target_lead_rad}")
     phase(f"simulating {traj.num_steps} steps")
     for t in range(traj.num_steps):
-        in_close = bool(traj.segment[t] == SEGMENT_CLOSE)
-        if in_close and close_gains_active is not True:
-            hand_driver.set_drive_strength(
-                float(args.close_joint_stiffness), float(args.joint_damping), close_max_force
-            )
-            close_gains_active = True
-        elif not in_close and close_gains_active is True:
-            hand_driver.set_drive_strength(
-                float(args.joint_stiffness), float(args.joint_damping), normal_max_force
-            )
-            close_gains_active = False
         desired_targets = traj.finger_targets[t]
         driven_targets = desired_targets
         governed_count = 0
+        # Reference-style kinematic anchor transport: rewrite the wrapper
+        # Xform once per trajectory frame; the palm's world-anchor joint
+        # follows it and carries the whole hand rigidly.
+        set_world_pose(stage, HAND_WRAP, all_pos_isaac[t], all_quat_isaac[t])
         if args.carry_mode == CARRY_MODE_KINEMATIC:
             set_world_pose(stage, OBJECT_WRAP, obj_pos_isaac_all[t], obj_quat_isaac_all[t])
-        # Advance the commanded root pose ACROSS the substeps (pos[t] ->
-        # pos[t+1]) rather than re-teleporting to pos[t] every substep. The
-        # substep displacement (Delta/N) then matches what lin_vel[t] would
-        # carry over one substep, so the teleport re-anchors against gravity
-        # sag without ever snapping backwards. Last frame holds its own pose.
-        t_next = min(t + 1, traj.num_steps - 1)
-        pos0, pos1 = all_pos_isaac[t], all_pos_isaac[t_next]
-        quat0, quat1 = all_quat_isaac[t], all_quat_isaac[t_next]
-        n_sub = int(args.sim_steps_per_frame)
-        for k in range(n_sub):
-            frac = (k + 1) / n_sub
-            sub_pos = pos0 + (pos1 - pos0) * frac
-            sub_quat = slerp_wxyz(quat0, quat1, frac)
-            # Recompute the bounded virtual target at physics cadence. A
-            # target limited only once per trajectory frame can become far
-            # from a fast-moving joint after the first substep and inject the
-            # same large spring impulse the governor is intended to prevent.
+        for _ in range(int(args.sim_steps_per_frame)):
+            # The governor (if on) is recomputed at physics cadence so a
+            # fast-moving joint can't outrun a once-per-frame bound.
             if bool(args.contact_aware_finger_targets) and int(traj.segment[t]) in governed_segments:
                 driven_targets, substep_governed_count = govern_contact_targets(
-                    desired_targets, hand_driver.joint_positions(), target_lead_rad
+                    desired_targets, hand_reader.joint_positions(), target_lead_rad
                 )
                 governed_count = max(governed_count, substep_governed_count)
-            hand_driver.drive(
-                sub_pos, sub_quat, driven_targets,
-                linear_velocity=lin_vel[t], angular_velocity=ang_vel[t],
-            )
+            write_finger_targets(finger_target_attrs, driven_targets)
             app.update()
-        step_error = hand_driver.max_joint_tracking_error(desired_targets)
-        drive_step_error = hand_driver.max_joint_tracking_error(driven_targets)
+        step_error = hand_reader.max_joint_tracking_error(desired_targets)
+        drive_step_error = hand_reader.max_joint_tracking_error(driven_targets)
         joint_error_per_step.append(step_error)
         drive_target_error_per_step.append(drive_step_error)
         governed_joint_count_per_step.append(governed_count)
-        actual_joint_positions_per_step.append(hand_driver.joint_positions())
+        actual_joint_positions_per_step.append(hand_reader.joint_positions())
         driven_targets_per_step.append(np.asarray(driven_targets, dtype=np.float64).copy())
         if drive_step_error > 1.0 and not blowup_logged:
             blowup_logged = True
-            log(f"WARNING: drive-target error {drive_step_error:.2f} rad at step {t} (segment {int(traj.segment[t])}) -- articulation destabilizing")
+            log(f"NOTE: drive-target lag {drive_step_error:.2f} rad at step {t} (segment {int(traj.segment[t])}) -- expected under soft reference gains when contact stalls a joint")
         pos, _ = read_object_world_pose(stage)
         object_track.append(pos)
         if t % int(args.capture_every) == 0:
@@ -1082,16 +962,17 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
             frame_paths.append(frame_path)
 
     phase(f"settling ({args.settle_steps} steps)")
+    # The anchored hand holds the final wrapper pose on its own; keep the
+    # finger targets commanded so the grip stays loaded while the object
+    # settles.
+    set_world_pose(stage, HAND_WRAP, all_pos_isaac[-1], all_quat_isaac[-1])
     for _ in range(int(args.settle_steps)):
-        # Keep holding the final commanded pose: the hand is a floating-base
-        # articulation, so it would free-fall under gravity the moment root
-        # driving stops.
         settle_targets = traj.finger_targets[-1]
         if bool(args.contact_aware_finger_targets):
             settle_targets, _ = govern_contact_targets(
-                settle_targets, hand_driver.joint_positions(), target_lead_rad
+                settle_targets, hand_reader.joint_positions(), target_lead_rad
             )
-        hand_driver.drive(all_pos_isaac[-1], all_quat_isaac[-1], settle_targets)
+        write_finger_targets(finger_target_attrs, settle_targets)
         if args.carry_mode == CARRY_MODE_KINEMATIC:
             set_world_pose(stage, OBJECT_WRAP, obj_pos_isaac_all[-1], obj_quat_isaac_all[-1])
         app.update()
@@ -1143,9 +1024,9 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
             hold_targets = traj.finger_targets[-1]
             if bool(args.contact_aware_finger_targets):
                 hold_targets, _ = govern_contact_targets(
-                    hold_targets, hand_driver.joint_positions(), target_lead_rad
+                    hold_targets, hand_reader.joint_positions(), target_lead_rad
                 )
-            hand_driver.drive(all_pos_isaac[-1], all_quat_isaac[-1], hold_targets)
+            write_finger_targets(finger_target_attrs, hold_targets)
             if args.carry_mode == CARRY_MODE_KINEMATIC:
                 set_world_pose(stage, OBJECT_WRAP, obj_pos_isaac_all[-1], obj_quat_isaac_all[-1])
             app.update()
@@ -1212,14 +1093,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--friction-target", choices=["both", "object"], default="both", help="both (ref/sharpa_tabletop.py setup): bind ONE material at --friction to all 26 hand colliders AND the object, so the hand-object pair multiplies to friction^2. object: the object only, at --friction (Articulation_Bodex open_by_handle-style; every pair the object touches, table included, sees it).")
     parser.add_argument("--friction", type=float, default=3.0, help="Static+dynamic friction of the bound material.")
     parser.add_argument("--friction-combine-mode", choices=["max", "multiply", "average", "min"], default="multiply", help="PhysX friction combine mode of the bound material; multiply/max both outrank the default material's 'average', so the bound side wins any pair against an unbound collider.")
-    parser.add_argument("--joint-stiffness", type=float, default=80.0)
-    parser.add_argument("--joint-damping", type=float, default=20.0)
-    parser.add_argument("--joint-effort-profile", choices=["baked", "uniform"], default="baked", help="baked: use the asset's own per-joint drive maxForce limits (the BODex-tuned values shipped in the hand USD) in every segment; uniform: overwrite all joints with the --joint-max-force / --close-joint-max-force scalars (pre-tuned behavior).")
-    parser.add_argument("--joint-max-force", type=float, default=300.0, help="Uniform-profile effort cap outside close (also the fallback for DOFs missing a baked limit).")
-    parser.add_argument("--joint-armature", type=float, default=0.01)
-    parser.add_argument("--joint-friction", type=float, default=0.05)
-    parser.add_argument("--close-joint-stiffness", type=float, default=20.0, help="Softened finger drive stiffness during the close segment.")
-    parser.add_argument("--close-joint-max-force", type=float, default=60.0, help="Softened finger drive effort cap during the close segment (uniform profile only; baked keeps the tuned per-joint limits).")
+    parser.add_argument("--joint-armature", type=float, default=0.001, help="Finger joint armature; default matches the reference drive table. Stiffness/damping/effort caps come from the per-joint SHARPA_PER_JOINT_DRIVES table and are not CLI-tunable.")
+    parser.add_argument("--joint-friction", type=float, default=0.0, help="Finger joint friction; default matches the reference drive table.")
     parser.add_argument("--contact-aware-finger-targets", action=argparse.BooleanOptionalAction, default=False, help="Bound finger position targets around the actual joints during squeeze and carry so blocked fingers apply finite impedance instead of holding the synthesized angle through the object. Default off: the baked per-joint effort caps already bound contact forces, and direct targeting of the synthesized squeeze pose lets every joint hold its full tuned authority.")
     parser.add_argument("--contact-target-lead-rad", type=float, default=0.03, help="Maximum per-joint angular lead of a contact-phase drive target beyond the current physical joint position.")
     parser.add_argument("--convex-decomp-max-hulls", type=int, default=32, help="Hull ceiling for the object's convex decomposition (the hand's colliders are baked into its asset).")

@@ -2,7 +2,5 @@
  "source": "/home/hangkes2/OCIR/third_party/Articulation_Bodex/assets/hands/sharpa_right_tuned_instanceable.usd",
  "source_md5": "091f0b9d332f4915ca8e51bbf5091740",
  "copy_md5": "091f0b9d332f4915ca8e51bbf5091740",
- "note": "Derived from the Articulation_Bodex tuned Sharpa right hand (source_md5 = pristine copy).",
- "modified": "Removed the passive 6-DOF virtual base chain (base_root, right_root_1..5, right_{x,y,z,roll,pitch,yaw}_joint) and the palm world-anchor FixedJoint: the asset ships as a pure 22-DOF floating-base hand. All 26 baked colliders, offsets, and tuned drive gains/effort limits untouched.",
- "modified_md5": "9421a966198ef2d242a06425f4e79e06"
+ "note": "Verbatim copy of the Articulation_Bodex tuned Sharpa right hand: 22 finger DOFs plus the palm world-anchor FixedJoint (right_hand_C_MC/FixedJoint) and the passive 6-DOF virtual base chain (base_root, right_root_1..5), 26 baked convexDecomposition colliders with 4mm/1mm offsets, tuned per-joint drive gains and effort limits. The simulation drives the hand exactly like the reference validator: wrapper Xform teleports carry the anchored articulation, fingers via drive targetPosition writes."
 }

@@ -37,6 +37,9 @@ Limitation" note for that remaining gap.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import json
+import os
 from pathlib import Path
 import time
 import xml.etree.ElementTree as ET
@@ -238,6 +241,65 @@ def _normalize_vertices(vertices: np.ndarray) -> tuple[np.ndarray, np.ndarray, f
     return normalized, center, norm_scale
 
 
+def _coacd_cache_path(mesh_path: Path) -> Path:
+    """Cache file for a mesh's CoACD parts, saved next to the mesh itself so
+    every pipeline touching the same object reuses one decomposition."""
+
+    return mesh_path.with_name(mesh_path.stem + "_coacd_parts.npz")
+
+
+def _load_cached_coacd_parts(cache_path: Path, mesh_md5: str, kwargs_key: str) -> list[np.ndarray] | None:
+    """Cached per-part vertex arrays (original mesh frame, unscaled), or None
+    when the cache is missing, unreadable, or stale (mesh content or CoACD
+    parameters changed since it was written)."""
+
+    if not cache_path.exists():
+        return None
+    try:
+        with np.load(cache_path, allow_pickle=False) as data:
+            if str(data["mesh_md5"]) != mesh_md5 or str(data["coacd_kwargs"]) != kwargs_key:
+                print(
+                    f"OCIR_BODEX_CUROBO_V2 coacd: cache {cache_path.name} is stale "
+                    "(mesh or parameters changed); re-decomposing",
+                    flush=True,
+                )
+                return None
+            return [
+                np.asarray(data[f"part_{i}"], dtype=np.float64)
+                for i in range(int(data["num_parts"]))
+            ]
+    except Exception as exc:
+        print(
+            f"OCIR_BODEX_CUROBO_V2 coacd: unreadable cache {cache_path.name} ({exc}); re-decomposing",
+            flush=True,
+        )
+        return None
+
+
+def _save_coacd_parts(cache_path: Path, mesh_md5: str, kwargs_key: str, parts: list[np.ndarray]) -> None:
+    """Write the cache atomically (temp file + rename); failure to write --
+    e.g. a read-only object folder -- is a warning, never an error."""
+
+    try:
+        payload = {
+            "mesh_md5": mesh_md5,
+            "coacd_kwargs": kwargs_key,
+            "num_parts": len(parts),
+        }
+        for i, verts in enumerate(parts):
+            payload[f"part_{i}"] = verts.astype(np.float64)
+        # Ends in .npz so np.savez does not append another suffix.
+        tmp_path = cache_path.with_name(f"{cache_path.stem}.tmp{os.getpid()}.npz")
+        np.savez(tmp_path, **payload)
+        os.replace(tmp_path, cache_path)
+        print(f"OCIR_BODEX_CUROBO_V2 coacd: cached decomposition -> {cache_path}", flush=True)
+    except Exception as exc:
+        print(
+            f"OCIR_BODEX_CUROBO_V2 coacd: WARNING could not write cache {cache_path} ({exc})",
+            flush=True,
+        )
+
+
 def _coacd_convex_parts(mesh_path: Path, scale: np.ndarray, **coacd_kwargs) -> list[np.ndarray]:
     """Convex-decompose a mesh with CoACD, returning per-part vertex arrays.
 
@@ -246,27 +308,49 @@ def _coacd_convex_parts(mesh_path: Path, scale: np.ndarray, **coacd_kwargs) -> l
     normalization -- then through the caller-supplied URDF/asset ``scale`` --
     so callers receive parts in the same frame ``_load_convex_hull`` would
     have used for a single whole-mesh hull.
+
+    Decompositions are cached on disk next to the mesh
+    (``<stem>_coacd_parts.npz``, keyed by mesh content hash + CoACD
+    parameters) and reused by every pipeline that touches the same object --
+    grasp synthesis constructs two contact worlds per run and the trajectory
+    generator a third, so without the cache the same object is decomposed
+    three times per sequence. Cached parts are stored in the original mesh
+    frame (normalization undone, caller ``scale`` NOT applied) so one cache
+    entry serves any caller scale.
     """
 
-    mesh = trimesh.load(str(mesh_path), force="mesh", process=False)
-    vertices = np.asarray(mesh.vertices, dtype=np.float64)
-    faces = np.asarray(mesh.faces, dtype=np.int32)
+    kwargs_key = json.dumps(coacd_kwargs, sort_keys=True, default=repr)
+    mesh_md5 = hashlib.md5(mesh_path.read_bytes()).hexdigest()
+    cache_path = _coacd_cache_path(mesh_path)
 
-    normalized_vertices, center, norm_scale = _normalize_vertices(vertices)
+    restored_parts = _load_cached_coacd_parts(cache_path, mesh_md5, kwargs_key)
+    if restored_parts is not None:
+        print(
+            f"OCIR_BODEX_CUROBO_V2 coacd: reusing cached decomposition {cache_path.name} "
+            f"({len(restored_parts)} parts)",
+            flush=True,
+        )
+    else:
+        mesh = trimesh.load(str(mesh_path), force="mesh", process=False)
+        vertices = np.asarray(mesh.vertices, dtype=np.float64)
+        faces = np.asarray(mesh.faces, dtype=np.int32)
 
-    print(f"OCIR_BODEX_CUROBO_V2 coacd: decomposing {mesh_path.name} ...", flush=True)
-    t0 = time.time()
-    parts = coacd.run_coacd(coacd.Mesh(normalized_vertices, faces), **coacd_kwargs)
-    print(
-        f"OCIR_BODEX_CUROBO_V2 coacd: {mesh_path.name} -> {len(parts)} parts in {time.time() - t0:.1f}s",
-        flush=True,
-    )
+        normalized_vertices, center, norm_scale = _normalize_vertices(vertices)
 
-    part_vertices = []
-    for part_verts, _part_faces in parts:
-        restored = np.asarray(part_verts, dtype=np.float64) * norm_scale + center[None, :]
-        part_vertices.append(restored * scale.reshape(1, 3))
-    return part_vertices
+        print(f"OCIR_BODEX_CUROBO_V2 coacd: decomposing {mesh_path.name} ...", flush=True)
+        t0 = time.time()
+        parts = coacd.run_coacd(coacd.Mesh(normalized_vertices, faces), **coacd_kwargs)
+        print(
+            f"OCIR_BODEX_CUROBO_V2 coacd: {mesh_path.name} -> {len(parts)} parts in {time.time() - t0:.1f}s",
+            flush=True,
+        )
+        restored_parts = [
+            np.asarray(part_verts, dtype=np.float64) * norm_scale + center[None, :]
+            for part_verts, _part_faces in parts
+        ]
+        _save_coacd_parts(cache_path, mesh_md5, kwargs_key, restored_parts)
+
+    return [part * scale.reshape(1, 3) for part in restored_parts]
 
 
 def _load_convex_parts(mesh_path: Path, scale: np.ndarray, **coacd_kwargs) -> list["coal.ConvexBase"]:

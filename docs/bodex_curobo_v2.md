@@ -24,7 +24,14 @@ sequence directory (object mesh) -> solve_sharpa_bodex() -> grasp_*.json / summa
   `src/ocir/grasp_synthesis/bodex_curobo_v2/` for the exact staging.
 - **Object meshes are convex-decomposed** with `coacd`
   (normalize -> decompose -> rescale; `_coacd_convex_parts` in
-  `contact_world.py`) for contact evaluation. Hand links use a single
+  `contact_world.py`) for contact evaluation. The decomposition is **cached
+  on disk next to the object mesh** (`<stem>_coacd_parts.npz`, keyed by mesh
+  content hash + CoACD parameters, invalidated automatically when either
+  changes) and reused by every pipeline touching the same object -- grasp
+  synthesis constructs two contact worlds per run and the trajectory
+  generator a third, so a sequence's object is decomposed once ever instead
+  of three times per run. Cache write failures (read-only object folder)
+  degrade to a warning + in-memory decomposition. Hand links use a single
   whole-mesh convex hull each (see Limitations).
 - **Seeding**: root poses sampled around the object from surface
   points/bounding geometry, joints from a canonical open posture

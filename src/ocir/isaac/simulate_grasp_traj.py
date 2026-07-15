@@ -82,35 +82,6 @@ ARTICULATION_SOLVER_VELOCITY_ITERATIONS = 10
 
 RAD_TO_DEG = 180.0 / np.pi
 
-#: Per-joint velocity ceiling (rad/s) authored on every finger drive. Nothing
-#: in a grasp legitimately spins a finger faster than a couple of rad/s; this
-#: cap turns any residual teleport-impulse energy into a bounded lag instead
-#: of a free-spinning "windmill" that tunnels through the joint limits.
-DEFAULT_JOINT_MAX_VELOCITY_RAD_S = 10.0
-
-
-def _lerp(a: np.ndarray, b: np.ndarray, t: float) -> np.ndarray:
-    return np.asarray(a, dtype=np.float64) * (1.0 - t) + np.asarray(b, dtype=np.float64) * t
-
-
-def _slerp_wxyz(q1: np.ndarray, q2: np.ndarray, t: float) -> np.ndarray:
-    """Shortest-path slerp between two wxyz quaternions at parameter t."""
-
-    q1 = np.asarray(q1, dtype=np.float64)
-    q2 = np.asarray(q2, dtype=np.float64)
-    q1 = q1 / max(np.linalg.norm(q1), 1e-12)
-    q2 = q2 / max(np.linalg.norm(q2), 1e-12)
-    dot = float(np.dot(q1, q2))
-    if dot < 0.0:
-        q2, dot = -q2, -dot
-    if dot > 0.9995:
-        out = q1 + t * (q2 - q1)
-        return out / max(np.linalg.norm(out), 1e-12)
-    theta0 = np.arccos(min(dot, 1.0))
-    q2_orth = q2 - q1 * dot
-    q2_orth = q2_orth / max(np.linalg.norm(q2_orth), 1e-12)
-    return q1 * np.cos(theta0 * t) + q2_orth * np.sin(theta0 * t)
-
 #: The reference validator's per-joint finger drive table
 #: (ref/sharpa_tabletop.py SHARPA_PER_JOINT_DRIVE_OVERRIDES): soft
 #: stiffness/damping in N*m/rad and N*m*s/rad -- converted to USD's
@@ -395,20 +366,16 @@ def count_hand_colliders(stage, ref_path: str) -> int:
     return count
 
 
-def setup_hand_drives(
-    stage, ref_path: str, *, armature: float, joint_friction: float, max_joint_velocity_rad: float
-) -> tuple[int, dict[str, float]]:
+def setup_hand_drives(stage, ref_path: str, *, armature: float, joint_friction: float) -> tuple[int, dict[str, float]]:
     """Author the reference validator's per-joint soft PD drives
     (``SHARPA_PER_JOINT_DRIVES``) on every revolute finger joint. Gains are
     tabled in N*m/rad and converted to USD's per-degree angular drive units
     here (the reference's ``HAND_ANGULAR_GAINS_IN_RADIANS`` conversion);
     ``maxForce`` is written from the table (equal to the asset's baked tuned
-    effort limits). A per-joint velocity ceiling
-    (``max_joint_velocity_rad``, rad/s -> USD deg/s) is authored so a stray
-    contact/teleport impulse produces bounded lag instead of a free-spinning
-    windmill through the joint limits. Joints not in the table (the asset's
-    passive virtual-chain joints) are skipped. Returns the drive count and
-    the resolved ``{joint_name: maxForce}`` map."""
+    effort limits). Rigid-body properties and the asset's per-joint velocity
+    limits are left untouched, as in the reference. Joints not in the table
+    (the asset's passive virtual-chain joints) are skipped. Returns the
+    drive count and the resolved ``{joint_name: maxForce}`` map."""
 
     from pxr import PhysxSchema, Usd, UsdPhysics
 
@@ -437,10 +404,6 @@ def setup_hand_drives(
         physx_joint = PhysxSchema.PhysxJointAPI(prim)
         physx_joint.CreateJointFrictionAttr().Set(float(joint_friction))
         physx_joint.CreateArmatureAttr().Set(float(armature))
-        if max_joint_velocity_rad > 0.0:
-            # USD angular maxJointVelocity is per-degree, same as the drive
-            # units (cf. the object's CreateMaxAngularVelocityAttr below).
-            physx_joint.CreateMaxJointVelocityAttr().Set(float(max_joint_velocity_rad) * RAD_TO_DEG)
         efforts[name] = float(max_force)
         n += 1
     if skipped:
@@ -498,15 +461,10 @@ class HandJointReader:
 
     def reset_joints(self, joint_positions_rad: np.ndarray) -> None:
         """Teleport joints to the given positions (start of playback, so the
-        drives don't have to swing from the asset's zero pose first) and zero
-        their velocities, so any velocity accumulated during the warm-up
-        updates does not survive into the first playback step."""
+        drives don't have to swing from the asset's zero pose first)."""
 
         self.articulation.set_joint_positions(
             np.asarray(joint_positions_rad, dtype=np.float32), joint_indices=self.dof_indices
-        )
-        self.articulation.set_joint_velocities(
-            np.zeros(len(self.dof_indices), dtype=np.float32), joint_indices=self.dof_indices
         )
 
     def joint_positions(self) -> np.ndarray:
@@ -702,8 +660,7 @@ def build_hand(stage, hand_usd_path: Path, args: argparse.Namespace) -> dict:
         offset_count = 0
         log(f"{HAND_REF}: keeping the asset's baked collider contact/rest offsets")
     drive_count, resolved_efforts = setup_hand_drives(
-        stage, HAND_REF, armature=args.joint_armature, joint_friction=args.joint_friction,
-        max_joint_velocity_rad=float(args.joint_max_velocity),
+        stage, HAND_REF, armature=args.joint_armature, joint_friction=args.joint_friction
     )
     return {
         "world_anchor_joint": anchor_joint,
@@ -714,7 +671,6 @@ def build_hand(stage, hand_usd_path: Path, args: argparse.Namespace) -> dict:
         "hand_rest_offset_m": float(args.hand_rest_offset) if args.hand_rest_offset is not None else None,
         "drive_count": drive_count,
         "drive_profile": "sharpa_reference_per_joint",
-        "joint_max_velocity_rad_s": float(args.joint_max_velocity),
         "resolved_max_efforts": {name: round(value, 6) for name, value in sorted(resolved_efforts.items())},
     }
 
@@ -967,37 +923,18 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
     target_lead_rad = float(args.contact_target_lead_rad)
     if bool(args.contact_aware_finger_targets) and target_lead_rad <= 0.0:
         raise ValueError(f"--contact-target-lead-rad must be positive, got {target_lead_rad}")
-    n_substeps = max(1, int(args.sim_steps_per_frame))
     phase(f"simulating {traj.num_steps} steps")
     for t in range(traj.num_steps):
         desired_targets = traj.finger_targets[t]
         driven_targets = desired_targets
         governed_count = 0
-        # Reference-style kinematic anchor transport: the wrapper Xform is
-        # rewritten and the palm's world-anchor joint follows it, carrying
-        # the hand rigidly. The wrist pose is interpolated ACROSS the physics
-        # substeps (lerp position + slerp orientation from the previous
-        # frame's pose) rather than teleported once per frame: a single large
-        # anchor jump is resolved impulsively by PhysX and injects a huge base
-        # velocity that whips the soft-driven fingers past their limits, so
-        # each substep advances the anchor only a fraction of the frame delta.
-        prev_pos = all_pos_isaac[t - 1] if t > 0 else all_pos_isaac[0]
-        prev_quat = all_quat_isaac[t - 1] if t > 0 else all_quat_isaac[0]
-        for s in range(n_substeps):
-            frac = (s + 1) / n_substeps
-            set_world_pose(
-                stage, HAND_WRAP,
-                _lerp(prev_pos, all_pos_isaac[t], frac),
-                _slerp_wxyz(prev_quat, all_quat_isaac[t], frac),
-            )
-            if args.carry_mode == CARRY_MODE_KINEMATIC:
-                prev_obj_pos = obj_pos_isaac_all[t - 1] if t > 0 else obj_pos_isaac_all[0]
-                prev_obj_quat = obj_quat_isaac_all[t - 1] if t > 0 else obj_quat_isaac_all[0]
-                set_world_pose(
-                    stage, OBJECT_WRAP,
-                    _lerp(prev_obj_pos, obj_pos_isaac_all[t], frac),
-                    _slerp_wxyz(prev_obj_quat, obj_quat_isaac_all[t], frac),
-                )
+        # Reference-style kinematic anchor transport: rewrite the wrapper
+        # Xform once per trajectory frame; the palm's world-anchor joint
+        # follows it and carries the whole hand rigidly.
+        set_world_pose(stage, HAND_WRAP, all_pos_isaac[t], all_quat_isaac[t])
+        if args.carry_mode == CARRY_MODE_KINEMATIC:
+            set_world_pose(stage, OBJECT_WRAP, obj_pos_isaac_all[t], obj_quat_isaac_all[t])
+        for _ in range(int(args.sim_steps_per_frame)):
             # The governor (if on) is recomputed at physics cadence so a
             # fast-moving joint can't outrun a once-per-frame bound.
             if bool(args.contact_aware_finger_targets) and int(traj.segment[t]) in governed_segments:
@@ -1158,7 +1095,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--friction-combine-mode", choices=["max", "multiply", "average", "min"], default="multiply", help="PhysX friction combine mode of the bound material; multiply/max both outrank the default material's 'average', so the bound side wins any pair against an unbound collider.")
     parser.add_argument("--joint-armature", type=float, default=0.001, help="Finger joint armature; default matches the reference drive table. Stiffness/damping/effort caps come from the per-joint SHARPA_PER_JOINT_DRIVES table and are not CLI-tunable.")
     parser.add_argument("--joint-friction", type=float, default=0.0, help="Finger joint friction; default matches the reference drive table.")
-    parser.add_argument("--joint-max-velocity", type=float, default=DEFAULT_JOINT_MAX_VELOCITY_RAD_S, help="Per-joint velocity ceiling (rad/s) authored on every finger drive; bounds teleport/contact impulses so a joint cannot windmill through its limits. 0 disables the cap.")
     parser.add_argument("--contact-aware-finger-targets", action=argparse.BooleanOptionalAction, default=False, help="Bound finger position targets around the actual joints during squeeze and carry so blocked fingers apply finite impedance instead of holding the synthesized angle through the object. Default off: the baked per-joint effort caps already bound contact forces, and direct targeting of the synthesized squeeze pose lets every joint hold its full tuned authority.")
     parser.add_argument("--contact-target-lead-rad", type=float, default=0.03, help="Maximum per-joint angular lead of a contact-phase drive target beyond the current physical joint position.")
     parser.add_argument("--convex-decomp-max-hulls", type=int, default=32, help="Hull ceiling for the object's convex decomposition (the hand's colliders are baked into its asset).")

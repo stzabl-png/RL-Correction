@@ -162,22 +162,13 @@ hash): 22 finger DOFs plus the asset's own palm world-anchor
 `PhysicsFixedJoint` and passive 6-DOF virtual base chain, making the hand a
 **fixed-base articulation**. The simulation drives it exactly like the
 reference validator (`ref/sharpa_tabletop.py`), by **kinematic anchor
-transport**: the `/World/Hand` wrapper Xform's translate/orient ops are
-rewritten, the palm anchor follows the wrapper, and the whole hand moves
-rigidly -- there are no root dynamics to stabilize and no root velocities to
-command. The wrist pose is **interpolated across the physics substeps**
-(lerp position + slerp orientation from the previous frame's pose) rather
-than teleported once per frame: a single large anchor jump is resolved
-impulsively by PhysX and injects a huge base velocity that whips the
-soft-driven fingers past their joint limits (windmilling), so each substep
-advances the anchor only a fraction of the frame delta. As a hard backstop,
-every finger drive also carries a per-joint velocity ceiling
-(`--joint-max-velocity`, default 10 rad/s), which turns any residual impulse
-into bounded lag instead of free spin. Articulation solver iterations are
-20/10, hand link self-collision is on by default (`--hand-self-collisions`),
-and the initial joint reset zeros joint velocities so warm-up energy does
-not leak into playback. Each `app.update()` advances sim time 1/60s, so
-`--sim-steps-per-frame 2` plays a 30fps trajectory in real time.
+transport**: each trajectory frame rewrites the `/World/Hand` wrapper
+Xform's translate/orient ops, the palm anchor follows the wrapper, and the
+whole hand teleports rigidly -- there are no root dynamics to stabilize and
+no root velocities to command. Articulation solver iterations are 20/10 and
+hand link self-collision is on by default (`--hand-self-collisions`). Each
+`app.update()` advances sim time 1/60s, so `--sim-steps-per-frame 2` plays
+a 30fps trajectory in real time.
 
 **Finger drives**: the reference's per-joint soft PD table
 (`SHARPA_PER_JOINT_DRIVES` in the sim module -- MCP 14/2.6, PIP 4.5/0.9,

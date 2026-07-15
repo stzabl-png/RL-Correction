@@ -18,8 +18,11 @@ Every written grasp record carries four wrist+finger poses instead of one:
   (measured: object-dependent, some seeds 5-18mm inside). It is therefore
   *opened out of collision in joint space*: the wrist pose is kept EXACTLY
   as optimized (it is the approach pose the whole trajectory is built
-  around) and only the flexion channels (``_FE``/``_PIP``/``_DIP``/``_IP``)
-  are scaled toward 0 rad -- spread/AA channels frozen -- to the smallest
+  around) and only the ``_pregrasp_open_mask`` channels are scaled toward
+  0 rad -- the flexion channels (``_FE``/``_PIP``/``_DIP``/``_IP``), except
+  at the thumb CMC where the roles swap: ``thumb_CMC_FE`` stays frozen
+  (zeroing it sweeps the whole thumb column ~90 deg) and ``thumb_CMC_AA``
+  opens instead; all remaining spread/AA channels frozen -- to the smallest
   opening fraction whose full-hand SDF clearance reaches
   ``pregrasp_clearance_m`` (default 5mm). The squeeze delta below is
   computed from the UN-opened snapshot so this retreat never inflates the
@@ -67,6 +70,26 @@ DEFAULT_CONTACT_CLEARANCE_M = 0.002
 #: must sit comfortably clear of the object, not skim it.
 DEFAULT_PREGRASP_CLEARANCE_M = 0.005
 _PREGRASP_OPEN_SAMPLES = 101
+
+
+def _pregrasp_open_mask(joint_order: list[str]) -> np.ndarray:
+    """Channels the pregrasp clearance search opens toward 0 rad: the flexion
+    channels, EXCEPT at the thumb CMC where the roles are swapped -- flexion
+    (``thumb_CMC_FE``) is frozen (zeroing it sweeps the whole thumb column
+    ~90 deg into a pose no human pregrasp uses) and abduction
+    (``thumb_CMC_AA``) is opened instead, moving the thumb sideways off the
+    object while the column keeps its grasp orientation (user decision,
+    2026-07-15). Distinct from ``relax_joint_mask`` on purpose: that mask
+    also drives the squeeze stage's flexion-only floor and the seed
+    relaxation, whose semantics are unchanged."""
+
+    mask = relax_joint_mask(joint_order)
+    for i, name in enumerate(joint_order):
+        if name.endswith("thumb_CMC_FE"):
+            mask[i] = False
+        elif name.endswith("thumb_CMC_AA"):
+            mask[i] = True
+    return mask
 
 
 class _SnapshotGradientOptCore(BodexProgressGradientOptCore):
@@ -129,24 +152,24 @@ class SnapshotBodexNewtonOpt(BodexNewtonOpt):
 
 def _open_pregrasp(
     pregrasp_action: np.ndarray,
-    flex_mask: np.ndarray,
+    open_mask: np.ndarray,
     clearance_checker: ClearanceChecker,
     world,
     *,
     clearance_target_m: float,
     num_samples: int = _PREGRASP_OPEN_SAMPLES,
 ) -> tuple[np.ndarray, float, float, float]:
-    """Open the pregrasp's flexion joints toward 0 rad -- wrist pose and
-    spread/AA channels completely frozen -- to the smallest opening fraction
-    ``t`` (``joints = snapshot + t * (open_target - snapshot)``, where the
-    open target zeroes the flexion channels only) whose full-hand SDF
-    clearance reaches ``clearance_target_m``. Returns ``(opened_action,
+    """Open the pregrasp's ``open_mask`` joints toward 0 rad -- wrist pose
+    and all other channels completely frozen -- to the smallest opening
+    fraction ``t`` (``joints = snapshot + t * (open_target - snapshot)``,
+    where the open target zeroes the masked channels only) whose full-hand
+    SDF clearance reaches ``clearance_target_m``. Returns ``(opened_action,
     open_fraction, snapshot_clearance_m, opened_clearance_m)``; caps at the
     fully open hand with a warning if even that does not clear (e.g. the
     palm itself penetrates -- no finger motion can fix that)."""
 
     joints = pregrasp_action[7:]
-    open_target = np.where(flex_mask, 0.0, joints)
+    open_target = np.where(open_mask, 0.0, joints)
     ts = np.linspace(0.0, 1.0, int(num_samples))
     joints_path = joints[None] + ts[:, None] * (open_target - joints)[None]
     pose = np.tile(pregrasp_action[:7][None], (ts.size, 1))
@@ -232,11 +255,12 @@ def compute_grasp_stages(
     # -- Pregrasp opening: the stage-0 snapshot is captured before the
     # penetration penalty ramps in and frequently sits inside the object.
     # The wrist pose is kept EXACTLY as optimized (it is the approach pose
-    # the trajectory is built around); only the flexion channels are opened
-    # toward 0 rad until the whole hand clears the object. --
+    # the trajectory is built around); only the _pregrasp_open_mask channels
+    # (flexion, with the thumb-CMC FE/AA swap) are opened toward 0 rad until
+    # the whole hand clears the object. --
     pregrasp_action, pregrasp_open_t, snapshot_clearance_m, _ = _open_pregrasp(
         pregrasp_snapshot,
-        flex_mask,
+        _pregrasp_open_mask(joint_order),
         clearance_checker,
         world,
         clearance_target_m=pregrasp_clearance_m,

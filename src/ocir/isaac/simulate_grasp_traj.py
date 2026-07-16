@@ -35,6 +35,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
 import time
 
@@ -1023,6 +1024,12 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
     video_path = out_dir / "video.mp4"
     video_fps = float(args.video_fps) if args.video_fps else traj.fps
     video_ok = write_video(frame_paths, video_path, fps=int(round(video_fps)))
+    # The per-frame PNGs are only intermediate input to the video encode;
+    # once video.mp4 exists they are hundreds of redundant files next to it,
+    # so drop the frames/ dir. Kept only when the encode failed (so the
+    # frames remain recoverable for debugging).
+    if video_ok:
+        shutil.rmtree(frames_dir, ignore_errors=True)
 
     phase("exporting stage")
     stage_path = out_dir / "scene.usd"

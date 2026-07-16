@@ -130,7 +130,7 @@ def solve_sharpa_anchored_bodex(
     out_dir: Path,
     object_mesh: Path | None = None,
     seeds: int = 20,
-    top_k: int = 8,
+    top_k: int = 5,
     opt_iters: int = 500,
     seed: int = 0,
     grasp_threshold: float = DEFAULT_GRASP_THRESHOLD,
@@ -150,7 +150,7 @@ def solve_sharpa_anchored_bodex(
     force_affordance: bool = False,
     squeeze_min_rad: float = DEFAULT_SQUEEZE_MIN_RAD,
     squeeze_overclose_rad: float = DEFAULT_SQUEEZE_OVERCLOSE_RAD,
-    penetration_weight: float = 900.0,
+    penetration_weight: float = 0.0,
     selfcollision_weight: float = 1000.0,
     pregrasp_clearance_m: float = DEFAULT_PREGRASP_CLEARANCE_M,
     force_closure_weight: float = 500.0,
@@ -306,7 +306,7 @@ def solve_sharpa_anchored_bodex(
     )
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    for pattern in ("grasp_*.json", "failed_grasp_*.json"):
+    for pattern in ("grasp_pose_*.json", "grasp_*.json", "failed_grasp_*.json"):
         for path in out_dir.glob(pattern):
             path.unlink()
 
@@ -361,7 +361,7 @@ def solve_sharpa_anchored_bodex(
         full[3:7] = full[3:7] / max(np.linalg.norm(full[3:7]), 1e-9)
         return full
 
-    def _record(seed_idx: int, rank: int, prefix: str) -> tuple[dict, Path]:
+    def _record(seed_idx: int, rank: int) -> tuple[dict, Path]:
         optimized_action = result_cpu[seed_idx, 0].cpu().numpy().copy()
         optimized_action[3:7] = optimized_action[3:7] / max(np.linalg.norm(optimized_action[3:7]), 1e-9)
         full_action = _expand_full(result_cpu[seed_idx, 0].cpu().numpy())
@@ -426,14 +426,17 @@ def solve_sharpa_anchored_bodex(
             "optimized_joint_names": rollouts[0].joint_names,
             "passive_joint_names": rollouts[0].passive_joint_names,
         }
-        path = out_dir / f"{prefix}_{rank:03d}.json"
+        # 1-indexed ``grasp_pose_N`` -- ranked best-first, same naming whether
+        # or not any seed cleared the strict success threshold (the summary
+        # still records success per record and overall).
+        path = out_dir / f"grasp_pose_{rank + 1}.json"
         path.write_text(json.dumps(record, indent=2), encoding="utf-8")
         return record, path
 
-    def _write_records(order: list[int], prefix: str) -> list[dict]:
+    def _write_records(order: list[int]) -> list[dict]:
         entries = []
         for rank, seed_idx in enumerate(order):
-            _, path = _record(int(seed_idx), rank, prefix)
+            _, path = _record(int(seed_idx), rank)
             entries.append(
                 {
                     "rank": int(rank),
@@ -460,7 +463,7 @@ def solve_sharpa_anchored_bodex(
 
     if successful_seed_count == 0:
         failed_order = list(np.argsort(scores)[: min(int(top_k), int(seeds))])
-        top_failed_grasps = _write_records(failed_order, "failed_grasp")
+        top_failed_grasps = _write_records(failed_order)
         summary = {
             "ok": False,
             **summary_common,
@@ -479,7 +482,7 @@ def solve_sharpa_anchored_bodex(
     candidate_indices = np.flatnonzero(success_np)
     candidate_scores = scores[candidate_indices]
     order = list(candidate_indices[np.argsort(candidate_scores)[: min(int(top_k), len(candidate_indices))]])
-    top_grasps = _write_records(order, "grasp")
+    top_grasps = _write_records(order)
 
     best = json.loads(Path(top_grasps[0]["grasp_json"]).read_text(encoding="utf-8"))
     summary = {

@@ -2,18 +2,20 @@
 Isaac Sim physics-simulation submission (Stage B).
 
 Fail-closed on CUDA availability (trajectory generation needs the same
-grasp-synthesis backend as ``synthesize_sharpa_anchored_bodex.py``). Reads a
-single grasp record (given directly, or resolved from a synthesis output
-dir's ``summary.json``) plus its sequence directory, writes
-``trajectory.npz``/``.json`` to ``--out-dir``, and -- unless ``--no-simulate``
--- submits it to Isaac Sim (persistent server or standalone) via
-``ocir.isaac.simulate_grasp_traj``.
+grasp-synthesis backend as ``synthesize_sharpa_anchored_bodex.py``). With
+``--synthesis-out-dir`` it runs EVERY ranked grasp pose in that object's
+synthesis dir (``grasp_pose_N.json``), writing each into its own
+``<out-dir>/<pose>/`` subfolder; with an explicit ``--grasp-json`` it runs
+that single record into ``--out-dir``. Each writes ``trajectory.npz``/``.json``
+and -- unless ``--no-simulate`` -- submits it to Isaac Sim (persistent server
+or standalone) via ``ocir.isaac.simulate_grasp_traj``.
 """
 
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import re
 import subprocess
 import sys
 import traceback
@@ -22,11 +24,37 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 VIS_TASK_NAME = "grasp_traj_simulation"
 
 
+def _pose_index(path: Path) -> int:
+    match = re.search(r"(\d+)", path.stem)
+    return int(match.group(1)) if match else 0
+
+
+def discover_grasp_records(synthesis_out_dir: Path) -> list[Path]:
+    """All ranked grasp-pose records in a synthesis output dir, best-first.
+
+    Primary naming is ``grasp_pose_N.json`` (1-indexed, rank order). Falls
+    back to the legacy ``grasp_NNN`` / ``failed_grasp_NNN`` names so older
+    synthesis dirs still resolve."""
+
+    directory = Path(synthesis_out_dir)
+    records = sorted(directory.glob("grasp_pose_*.json"), key=_pose_index)
+    if not records:
+        records = sorted(
+            set(directory.glob("grasp_[0-9]*.json")) | set(directory.glob("failed_grasp_*.json")),
+            key=_pose_index,
+        )
+    if not records:
+        raise FileNotFoundError(
+            f"no grasp-pose records (grasp_pose_*.json) under {directory}; run grasp synthesis first"
+        )
+    return records
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sequence-dir", type=Path, default=None, help="Sequence directory (human_demo.npz, object mesh, ...). Required unless --check-only.")
     parser.add_argument("--grasp-json", type=Path, default=None, help="A specific grasp record. Mutually exclusive with --synthesis-out-dir.")
-    parser.add_argument("--synthesis-out-dir", type=Path, default=None, help="A per-sequence synthesis output dir; the record is resolved from its summary.json (grasp_json, else failed_grasp_json).")
+    parser.add_argument("--synthesis-out-dir", type=Path, default=None, help="A per-object synthesis output dir. ALL its ranked grasp poses (grasp_pose_N.json) are run, each into its own <out-dir>/grasp_pose_N/ subfolder. Mutually exclusive with --grasp-json (which runs a single record into --out-dir).")
     parser.add_argument("--asset-config", type=Path, default=None)
     parser.add_argument("--out-dir", type=Path, default=None, help="Required unless --check-only.")
 
@@ -36,6 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--squeeze-seconds", type=float, default=0.3)
     parser.add_argument("--pregrasp-open-fraction", type=float, default=1.0, help="How wide the fingers open before the final reach: 1.0 scales all flexion joints to 0 rad (fully open), 0.0 keeps the grasp posture.")
     parser.add_argument("--squeeze-delta", type=float, default=0.15)
+    parser.add_argument("--held-finger-pose", choices=["grasp", "squeeze"], default="grasp", help="Finger pose held through the squeeze segment, settle, and carry. grasp (default): enforce the record's GRASP joints -- no drive-through past contact. squeeze: hold the synthesized (overclosed) squeeze pose. Grasp synthesis is unaffected either way.")
     parser.add_argument("--approach-clearance", type=float, default=0.003, help="Minimum all-sphere clearance for the direct planned approach, including the open-hand pregrasp endpoint.")
     parser.add_argument("--carry-style", choices=["vertical_lift", "demo"], default="vertical_lift", help="vertical_lift: after squeeze+settle, raise the wrist straight up (world +z) by --carry-lift-height and hold. demo: follow the recorded human carry trajectory.")
     parser.add_argument("--settle-seconds", type=float, default=1.0, help="Post-squeeze hold (wrist parked, squeeze targets held) letting the contacts settle before the carry; appended to the squeeze segment.")
@@ -78,7 +107,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--isaac-hand-self-collisions", action=argparse.BooleanOptionalAction, default=True, help="PhysX self-collision between the hand's own links. Default on.")
     parser.add_argument("--isaac-hand-table-collision", action=argparse.BooleanOptionalAction, default=False, help="Hand-table contact pairs; default off (collision-group filtered, as in the reference validator).")
     parser.add_argument("--isaac-sim-steps-per-frame", type=int, default=2)
-    parser.add_argument("--isaac-time-steps-per-second", type=float, default=120.0)
+    parser.add_argument("--isaac-time-steps-per-second", type=float, default=180.0)
     parser.add_argument("--isaac-gravity", type=float, default=9.81, help="Gravity magnitude (m/s^2); default 9.81 (realistic weight), the reference uses 30 as a stress load.")
     parser.add_argument("--isaac-contact-slop", type=float, default=0.2, help="Object contactSlopCoefficient; default 0.2 matches the reference, 0 disables.")
     parser.add_argument("--isaac-capture-every", type=int, default=1)
@@ -216,11 +245,26 @@ def main(argv: list[str] | None = None) -> int:
         resolve_grasp_record,
     )
 
+    # Resolve the record list. An explicit --grasp-json is a single run into
+    # --out-dir; a --synthesis-out-dir runs ALL of that object's ranked grasp
+    # poses, each into its own <out-dir>/<record_stem>/ subfolder (same object
+    # output folder).
     try:
-        grasp_json_path = resolve_grasp_record(args.synthesis_out_dir, args.grasp_json)
-        record = load_grasp_record(grasp_json_path)
+        if args.grasp_json is not None:
+            jobs = [(resolve_grasp_record(None, args.grasp_json), args.out_dir)]
+        elif args.synthesis_out_dir is not None:
+            records = discover_grasp_records(args.synthesis_out_dir)
+            jobs = [(rec, args.out_dir / rec.stem) for rec in records]
+            print(
+                f"OCIR_GRASP_TRAJ running all {len(jobs)} grasp pose(s) from {args.synthesis_out_dir} "
+                f"into {args.out_dir}/<pose>",
+                flush=True,
+            )
+        else:
+            print("provide --grasp-json or --synthesis-out-dir", file=sys.stderr, flush=True)
+            return 2
     except Exception as exc:
-        print(f"OCIR_GRASP_TRAJ failed to resolve/load grasp record: {exc}", file=sys.stderr, flush=True)
+        print(f"OCIR_GRASP_TRAJ failed to resolve grasp records: {exc}", file=sys.stderr, flush=True)
         return 2
 
     asset = load_sharpa_wave_right(args.asset_config)
@@ -231,6 +275,7 @@ def main(argv: list[str] | None = None) -> int:
         squeeze_seconds=args.squeeze_seconds,
         pregrasp_open_fraction=args.pregrasp_open_fraction,
         squeeze_delta=args.squeeze_delta,
+        held_finger_pose=args.held_finger_pose,
         approach_clearance_m=args.approach_clearance,
         carry_style=args.carry_style,
         settle_seconds=args.settle_seconds,
@@ -250,51 +295,57 @@ def main(argv: list[str] | None = None) -> int:
         self_clearance_decay_seconds=args.self_clearance_decay_seconds,
     )
     device_cfg = DeviceCfg(device=torch.device("cuda:0"), dtype=torch.float32)
+    generator = GraspTrajectoryGenerator(asset, config, device_cfg)
 
-    print(f"OCIR_GRASP_TRAJ generating trajectory for {args.sequence_dir} from {grasp_json_path}", flush=True)
-    try:
-        generator = GraspTrajectoryGenerator(asset, config, device_cfg)
-        trajectory = generator.generate(args.sequence_dir, record)
-    except Exception as exc:
-        print(f"OCIR_GRASP_TRAJ generation failed: {exc}", file=sys.stderr, flush=True)
-        traceback.print_exc()
-        return 1
+    def _run_one(grasp_json_path: Path, out_dir: Path) -> bool:
+        print(f"OCIR_GRASP_TRAJ generating trajectory for {args.sequence_dir} from {grasp_json_path}", flush=True)
+        try:
+            record = load_grasp_record(grasp_json_path)
+            trajectory = generator.generate(args.sequence_dir, record)
+        except Exception as exc:
+            print(f"OCIR_GRASP_TRAJ generation failed for {grasp_json_path.name}: {exc}", file=sys.stderr, flush=True)
+            traceback.print_exc()
+            return False
 
-    args.out_dir.mkdir(parents=True, exist_ok=True)
-    trajectory.save(args.out_dir)
-    print(
-        f"OCIR_GRASP_TRAJ wrote trajectory.npz/.json to {args.out_dir} "
-        f"(num_steps={trajectory.num_steps}, switch_frame_index={trajectory.switch_frame_index}, "
-        f"clearance_satisfied={trajectory.clearance_report.get('clearance_satisfied')})",
-        flush=True,
-    )
+        out_dir.mkdir(parents=True, exist_ok=True)
+        trajectory.save(out_dir)
+        print(
+            f"OCIR_GRASP_TRAJ wrote trajectory.npz/.json to {out_dir} "
+            f"(num_steps={trajectory.num_steps}, switch_frame_index={trajectory.switch_frame_index}, "
+            f"clearance_satisfied={trajectory.clearance_report.get('clearance_satisfied')})",
+            flush=True,
+        )
 
-    if not args.simulate:
-        return 0
+        if not args.simulate:
+            return True
 
-    sim_out_dir = args.out_dir / "isaac_sim"
-    params = _simulation_params(args, args.out_dir, sim_out_dir)
-    if args.isaac_mode == "standalone":
-        ok = run_standalone_simulation(params)
-    else:
-        ok, response = submit_simulation_job(params, args.control_host, args.control_port, args.isaac_request_timeout)
-        if ok:
-            # The full report (incl. per-step diagnostics) lives in
-            # <sim_out_dir>/report.json; only surface the core outcome here.
-            report = response.get("summary") if isinstance(response.get("summary"), dict) else response
-            metrics = report.get("metrics", {}) if isinstance(report, dict) else {}
-            print(
-                "OCIR_GRASP_TRAJ simulation done: "
-                f"grasp_success={metrics.get('grasp_success')} lifted={metrics.get('lifted')} "
-                f"sustained={metrics.get('sustained_lift')} dropped={metrics.get('object_dropped')} "
-                f"max_lift_m={metrics.get('max_lift_m')} "
-                f"final_object_position_error_m={metrics.get('final_object_position_error_m')} "
-                f"(full report: {sim_out_dir / 'report.json'})",
-                flush=True,
-            )
-    if not ok:
-        print("OCIR_GRASP_TRAJ Isaac simulation failed or was skipped.", file=sys.stderr, flush=True)
-        return 1
+        sim_out_dir = out_dir / "isaac_sim"
+        params = _simulation_params(args, out_dir, sim_out_dir)
+        if args.isaac_mode == "standalone":
+            ok = run_standalone_simulation(params)
+        else:
+            ok, response = submit_simulation_job(params, args.control_host, args.control_port, args.isaac_request_timeout)
+            if ok:
+                # The full report (incl. per-step diagnostics) lives in
+                # <sim_out_dir>/report.json; only surface the core outcome here.
+                report = response.get("summary") if isinstance(response.get("summary"), dict) else response
+                metrics = report.get("metrics", {}) if isinstance(report, dict) else {}
+                print(
+                    f"OCIR_GRASP_TRAJ simulation done ({out_dir.name}): "
+                    f"grasp_success={metrics.get('grasp_success')} lifted={metrics.get('lifted')} "
+                    f"sustained={metrics.get('sustained_lift')} dropped={metrics.get('object_dropped')} "
+                    f"max_lift_m={metrics.get('max_lift_m')} "
+                    f"final_object_position_error_m={metrics.get('final_object_position_error_m')} "
+                    f"(full report: {sim_out_dir / 'report.json'})",
+                    flush=True,
+                )
+        if not ok:
+            print(f"OCIR_GRASP_TRAJ Isaac simulation failed or was skipped for {out_dir.name}.", file=sys.stderr, flush=True)
+        return ok
+
+    n_ok = sum(1 for grasp_json_path, out_dir in jobs if _run_one(grasp_json_path, out_dir))
+    print(f"OCIR_GRASP_TRAJ finished {n_ok}/{len(jobs)} grasp pose(s) for {args.sequence_dir}", flush=True)
+    return 0 if n_ok == len(jobs) else 1
     return 0
 
 

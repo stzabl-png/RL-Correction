@@ -54,6 +54,9 @@ CARRY_START_PICKUP_FRAME = "pickup_frame"
 CARRY_STYLE_VERTICAL_LIFT = "vertical_lift"
 CARRY_STYLE_DEMO = "demo"
 
+HELD_POSE_GRASP = "grasp"
+HELD_POSE_SQUEEZE = "squeeze"
+
 
 @dataclass
 class GraspTrajectoryConfig:
@@ -63,6 +66,13 @@ class GraspTrajectoryConfig:
     squeeze_seconds: float = 0.3
     pregrasp_open_fraction: float = 1.0
     squeeze_delta: float = 0.15
+    #: Finger pose held through the squeeze segment, settle, and carry.
+    #: ``grasp`` (default): hold the record's GRASP pose -- no drive-through
+    #: past contact; the grasp joints are enforced for the whole carry.
+    #: ``squeeze``: hold the record's synthesized (overclosed) SQUEEZE pose.
+    #: The synthesis records still carry both poses either way; this only
+    #: selects which the trajectory targets.
+    held_finger_pose: str = HELD_POSE_GRASP
     approach_clearance_m: float = 0.003
     #: ``vertical_lift``: after the squeeze (and settle hold) the wrist rises
     #: straight up (world +z) by ``carry_lift_height_m`` and holds -- the
@@ -668,7 +678,14 @@ class GraspTrajectoryGenerator:
             pre_pos, pre_quat, pre_joints = stage_pregrasp[:3], stage_pregrasp[3:7], stage_pregrasp[7:]
             grasp_pos, grasp_quat = stage_grasp[:3], stage_grasp[3:7]
             grasp_stage_joints = stage_grasp[7:]
-            squeeze_joints = stage_squeeze[7:]
+            # The pose held through squeeze/settle/carry: the GRASP joints by
+            # default (no drive-through past contact), or the synthesized
+            # SQUEEZE joints. The record carries both regardless.
+            squeeze_joints = (
+                grasp_stage_joints
+                if self.config.held_finger_pose == HELD_POSE_GRASP
+                else stage_squeeze[7:]
+            )
 
             # The wide-open hand cannot necessarily BE at the pregrasp wrist
             # (that pose is only clear with its own near-closed joints), so
@@ -768,6 +785,11 @@ class GraspTrajectoryGenerator:
                 world, grasp_pos, grasp_quat, pregrasp_joints, grasp_joints_full,
                 self.config.near_contact_margin_m,
             )
+            # Default: hold the contact (grasp) pose through squeeze/carry --
+            # no drive-through past contact. ``squeeze`` keeps the extrapolated
+            # squeeze pose assigned above.
+            if self.config.held_finger_pose == HELD_POSE_GRASP:
+                squeeze_joints = contact_joints
             clearance_report = {
                 **clearance_report,
                 "grasp_pose_clearance_m": grasp_pose_clearance,
@@ -1013,6 +1035,7 @@ class GraspTrajectoryGenerator:
                     "squeeze_seconds": self.config.squeeze_seconds,
                     "pregrasp_open_fraction": self.config.pregrasp_open_fraction,
                     "squeeze_delta": self.config.squeeze_delta,
+                    "held_finger_pose": self.config.held_finger_pose,
                     "approach_clearance_m": self.config.approach_clearance_m,
                     "carry_style": self.config.carry_style,
                     "settle_seconds": self.config.settle_seconds,

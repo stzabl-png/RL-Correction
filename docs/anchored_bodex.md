@@ -11,7 +11,7 @@ success exactly as in the pure pipeline.
 
 ```text
 sequence directory (object mesh + human_demo.npz)
-    -> solve_sharpa_anchored_bodex() -> grasp_*.json / summary.json (+ affordance.npz cache)
+    -> solve_sharpa_anchored_bodex() -> grasp_pose_N.json / summary.json (+ affordance.npz cache)
 ```
 
 ## Modules
@@ -71,7 +71,7 @@ scripts/run_grasp_synthesis_conda.sh \
   scripts/grasp_synthesis/synthesize_sharpa_anchored_bodex.py \
   --sequence-dir /path/to/sequences/<sequence_id> \
   --out-dir /path/to/output_root \
-  --seeds 40 --top-k 8 --opt-iters 500
+  --seeds 40 --top-k 5 --opt-iters 500
 ```
 
 ## How it differs from the pure pipeline
@@ -111,22 +111,24 @@ scripts/run_grasp_synthesis_conda.sh \
   affordance attraction pulling fingertip/pad contact spheres toward the
   high-heatmap region (`--affordance-weight`, `--afford-tau`, decayed over
   stages 1->2), and an **asymmetric non-penetration penalty**
-  (`--penetration-weight`, default **900**): `relu(-signed_distance)^2`
+  (`--penetration-weight`, default **0 = off**): `relu(-signed_distance)^2`
   summed over ALL 37 hand collision spheres (their own all-sphere FK,
   differentiable through the exact SDF gradient). The base staged cost's
   distance term is a symmetric `(dist - target)^2` that is indifferent
   between stopping at the surface and overshooting into the mesh; this term
-  supplies the missing asymmetry. Its schedule is ramped **in**, not out:
-  zero through stage 0, linearly increased across stage 1, full weight only
-  in the final distance=0 stage -- this schedule won a three-way trial on the
-  three test sequences (see git history for the trial writeup). Active in
-  stage 0 it fights the pose prior / QP sphere-by-sphere and contorts the
-  pose; a variant keeping the force-closure QP live in all three stages (with
-  no penalty) was also tried and dropped. Note this penalty softens the
-  **final** grasp's penetration but by construction cannot clean the stage-0
-  `pregrasp` snapshot (captured at `opt_progress == 0.6`, before the ramp) --
-  that is handled geometrically by the pregrasp finger opening
-  (`--pregrasp-clearance`, see the three-stage table). `--pose-weight` still defaults to **0**: a
+  supplies the missing asymmetry. Its schedule (when enabled) is ramped
+  **in**, not out: zero through stage 0, linearly increased across stage 1,
+  full weight only in the final distance=0 stage. **As of 2026-07-16 it is
+  disabled by default** (weight 0), so the penalty is off in stages 1 and 2
+  and the final grasp is free to close deeper into the object -- the
+  simulation's soft per-joint drives absorb the overlap as contact force.
+  Set `--penetration-weight 900` to re-enable it (the previous default; it
+  won a three-way schedule trial on the three test sequences -- see git
+  history). Even when enabled it can only soften the **final** grasp's
+  penetration, never the stage-0 `pregrasp` snapshot (captured at
+  `opt_progress == 0.6`, before the ramp); that is handled geometrically by
+  the pregrasp finger opening (`--pregrasp-clearance`, see the three-stage
+  table). `--pose-weight` still defaults to **0**: a
   stronger pose prior was found to pull finger geometry back into penetrating
   retarget anchors on hard cases. Pass a positive value to re-enable it.
 - **Self-collision** (`--selfcollision-weight`, default 1000): pairwise
@@ -148,6 +150,15 @@ scripts/run_grasp_synthesis_conda.sh \
   records (`affordance_coverage`, `pose_similarity`, `anchor_frame_id`,
   `rank_score`, `retarget_report`, ...).
 
+## Output records
+
+The top `--top-k` (default **5**) ranked poses are written best-first as
+`grasp_pose_1.json` .. `grasp_pose_N.json` -- one uniform naming whether or
+not any seed cleared the strict success threshold (each record and the
+`summary.json` still carry the per-record and overall `success` flags; the
+summary's `grasp_json` / `failed_grasp_json` point at `grasp_pose_1.json`).
+`grasp_traj`'s `--synthesis-out-dir` runs all of them.
+
 ## Three-stage grasp poses
 
 Every grasp record carries a `stages` dict with three wrist+finger poses
@@ -158,7 +169,7 @@ joints {name: rad}}` in the object canonical frame), so downstream consumers
 | Stage | Origin |
 | --- | --- |
 | `pregrasp` | Mid-optimization snapshot taken the moment the staged contact cost enters its middle (1cm-standoff) stage -- i.e. the pose optimized under the initial ~2cm-standoff target (the end of the optimizer's first, force-closure-scored phase). Reproduces BODex's own `save_qpos`/`mid_result` mechanism by *subclassing* the frozen optimizer core (`SnapshotBodexNewtonOpt`), never modifying it. Because the snapshot precedes the penetration-penalty ramp it frequently sits inside the object (object-dependent, some seeds 5-18mm deep), so it is **opened out of collision in joint space, per finger**: the wrist pose is kept exactly as optimized (it is the approach pose the trajectory is built around) and each finger's flexion channels (`_FE`/`_PIP`/`_DIP`/`_IP`) plus, for the thumb, **both thumb-CMC DoFs** (`thumb_CMC_AA` opens alongside `thumb_CMC_FE`; the remaining spread/AA channels frozen) are scaled toward 0 rad **only as far as that finger needs** to clear the object by `--pregrasp-clearance` (default 5mm). Each finger is searched independently against just the spheres it actually moves (the wrist is fixed, so opening one finger can't move another's; a metacarpal a frozen CMC leaves in place is excluded automatically), and the **palm is ignored** -- no joint opens it, so a finger that already clears keeps its grasp posture and a penetrating palm (a wrist-placement problem, warned about) never splays the fingers. A finger that can't clear even fully open is capped and warned. The squeeze delta is computed from the *un-opened* snapshot, so the opening never inflates the squeeze extrapolation. `stage_report` records `pregrasp_snapshot_clearance_m` (before opening), the per-finger `pregrasp_open_fractions` (and `pregrasp_open_fraction_max`), and the achieved `pregrasp_clearance_m` (both clearances are the min over openable spheres, palm excluded). |
-| `grasp` | The fully optimized final action, unmodified (identical to the record's `action`). Usually still slightly penetrates the object (the staged cost's final target distance is 0; the penetration penalty bounds but does not eliminate the overshoot) -- the simulation's soft per-joint drives absorb the overlap as contact force. `stage_report` records its `grasp_clearance_m`. |
+| `grasp` | The fully optimized final action, unmodified (identical to the record's `action`). Penetrates the object (the staged cost's final target distance is 0 and, with `--penetration-weight` 0 by default, nothing opposes overshoot) -- the simulation's soft per-joint drives absorb the overlap as contact force. `stage_report` records its `grasp_clearance_m`. |
 | `squeeze` | Articulation-BODex drive-through baked into the pose. Only the **wrapping/press joints** move -- MCP flexion (`_FE`, incl. thumb CMC-FE and MCP-FE), `_PIP`, and thumb `_IP`; the fingertip `_DIP` joints and all abduction/spread hold their grasp posture (driving the distal-most joint deeper only rolls the fingertip off a convex surface for negligible force). Each driven joint is `grasp + clamp(grasp - snapshot, min=--squeeze-min) + --squeeze-overclose` (snapshot = the pregrasp *before* its joint-space opening, so the delta is the optimizer's FULL closing motion; the 0.15 rad floor gives barely-moved joints -- typically the thumb -- a minimum drive-through, and the fixed 0.2 rad overclose keeps a blocked finger past the sim drives' cap-saturation band (`maxForce/stiffness` = 0.10-0.14 rad) so grip force does not decay to zero as it reaches the pose). Clamped to joint limits. The overclose is baked here, not applied in the simulator, so the record's squeeze pose is the true deep target. `stage_report` records `squeeze_overclose_rad`, `squeeze_drive_channels`, and any `squeeze_limit_clamped_joints`. |
 
 `stage_report` records the SDF clearance of each stage. The Isaac

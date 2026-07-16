@@ -140,9 +140,11 @@ scripts/run_grasp_synthesis_conda.sh \
   --out-dir /path/to/grasp_traj_output/<sequence_id>
 ```
 
-`--synthesis-out-dir` resolves the grasp record from that dir's
-`summary.json` (`grasp_json` on success, else `failed_grasp_json`) -- or
-pass `--grasp-json` directly. Key flags (defaults in parentheses):
+`--synthesis-out-dir` runs **every** ranked grasp pose in that object's
+synthesis dir (`grasp_pose_N.json`, best-first), writing each into its own
+`<out-dir>/grasp_pose_N/` subfolder (trajectory + `isaac_sim/report.json` +
+video per pose). Pass `--grasp-json` instead to run a single record into
+`--out-dir` directly. Key flags (defaults in parentheses):
 `--fps` (30), `--approach-seconds` (1.0, minimum lead time / plan duration),
 `--close-seconds` / `--squeeze-seconds` (0.3), `--final-close-seconds`
 (1.0), `--pregrasp-open-fraction` (1.0),
@@ -223,19 +225,27 @@ step; a `SingleArticulation` view is kept only for joint-state readback and
 the initial joint teleport. Resolved per-joint caps are recorded in
 `report.json` under `hand.resolved_max_efforts`.
 
-During squeeze and carry the finger drives command the record's squeeze
-pose directly -- the simulator does no target rewriting. The grip-force
-drive-through is **baked into that squeeze pose at synthesis time**
-(`grasp_stages.compute_grasp_stages`, see [`anchored_bodex.md`](anchored_bodex.md)):
-only the wrapping/press joints (MCP-FE incl. thumb, PIP, thumb IP -- NOT the
-fingertip DIPs or spread) are deepened to `grasp + clamp(closing, min=0.15)
-+ 0.2 rad`, so a blocked finger stalls ~0.35 rad short of its target, well
-past the soft drives' cap-saturation band (`maxForce/stiffness` =
-0.10-0.14 rad), and holds its effort cap instead of decaying to zero as it
-reaches the pose. Because it is a fixed pose (not a target chasing the
-measured joints), a free finger simply closes to it and stops -- no ratchet.
-The trajectory ramps grasp -> squeeze over the squeeze segment (~0.3 s) as
-usual, and the settle/carry/hold phases hold that same deep pose.
+The finger pose held through the squeeze segment, settle, and carry is
+selected by `--held-finger-pose` (Stage A):
+
+- **`grasp` (default)**: the drives target the record's **grasp** joints for
+  the whole squeeze/settle/carry -- no drive-through past contact. Grip force
+  is whatever the soft-capped drives produce holding the grasp posture
+  against the object.
+- **`squeeze`**: the drives target the record's synthesized (overclosed)
+  **squeeze** pose instead. That pose deepens only the wrapping joints
+  (MCP-FE incl. thumb, PIP, thumb IP -- NOT the fingertip DIPs or spread) to
+  `grasp + clamp(closing, min=0.15) + 0.2 rad`
+  (`grasp_stages.compute_grasp_stages`, see
+  [`anchored_bodex.md`](anchored_bodex.md)), so a blocked finger stalls
+  ~0.35 rad short of its target -- past the soft drives' cap-saturation band
+  (`maxForce/stiffness` = 0.10-0.14 rad) -- and holds its effort cap instead
+  of decaying as it reaches the pose.
+
+Either way the simulator does no target rewriting -- it commands the chosen
+trajectory pose directly -- and grasp synthesis is unaffected (the record
+carries both poses regardless). The `squeeze` segment still exists in the
+timeline; under `grasp` it simply holds the grasp pose (an extra settle).
 
 The v13 contact-aware target governor (`--contact-aware-finger-targets`,
 default OFF) is retained as an alternative sim-side policy: it recomputes
@@ -289,8 +299,8 @@ load), `--joint-armature`/`--joint-friction` (0.001/0.0, the reference
 drive-table values; stiffness/damping/effort caps come from the per-joint
 table and are not CLI-tunable),
 `--lift-threshold`/`--drop-threshold`
-(0.02m/0.005m), `--tabletop-z` (0.0), `--time-steps-per-second` (120, PhysX
-substep rate, keep a multiple of 60), `--capture-every` (1),
+(0.02m/0.005m), `--tabletop-z` (0.0), `--time-steps-per-second` (180, PhysX
+substep rate, 3 substeps per app.update; keep a multiple of 60), `--capture-every` (1),
 `--settle-steps` (60), `--video-fps` (trajectory fps),
 `--contact-aware-finger-targets` (off; see Hand physics), and
 `--contact-target-lead-rad` (0.03rad).
@@ -837,6 +847,48 @@ when it exceeds `max(2.5x, +4cm)` of the direct distance. cuRobo failing
 outright already fell back to interp; this extends the fallback to cuRobo
 "succeeding" with a wild detour.
 
+### v25 -- decouple video capture from physics stepping (2026-07-16)
+
+`capture_camera_png` stepped the app (`app.update()`) until the camera
+yielded a frame -- but with the timeline playing every `app.update()` also
+advances PhysX, so calling it once per trajectory frame injected an extra
+physics step per recorded frame: the wrist (rewritten once per frame) then
+ran at ~20Hz instead of 30Hz, `--capture-every` silently changed the
+dynamics, and total carry time stretched ~1.5x. Fixed by rendering and
+recording from the same steps: the render pipeline is primed once at the
+frame-0 pose before the loop, and per-frame recording now uses
+`save_latest_camera_png`, which reads the RGB the main loop's own
+`app.update()` already rendered and never steps (skips the frame if none is
+ready rather than forcing a step). The one-time final screenshot keeps the
+stepping `capture_camera_png` (post-metrics, harmless).
+
+### v26 -- substep wrist/finger interpolation (2026-07-16)
+
+With v25 removing the recording-induced extra settling step, the 30Hz
+stair-step anchor transport stood exposed: the wrapper Xform teleported
+once per trajectory frame (up to ~5.3mm per jump at the lift's 0.157 m/s
+peak) and held for both physics substeps, so the object had to catch up to
+each jump through contact -- a ratchet-slip driver that v25's accidental
+extra step per frame had been masking (all three sequences slipped worse
+after v25 alone; the mug dropped outright, its commanded-vs-object gap
+growing 0.7 -> 3.7 -> 5.4cm through the lift before contact loss). The main
+loop now spreads each frame's wrist motion across the substeps (lerp
+position / slerp orientation via `segments.slerp_wxyz`, endpoint-exact on
+frame t) and interpolates finger targets the same way, raising the command
+rate to the 60Hz physics rate and halving the max per-update jump
+(5.3 -> 2.7mm) with frame timing and endpoint poses unchanged. The
+kinematic-object debug mode interpolates its teleports identically.
+
+### v27 -- held-finger-pose selectable, default grasp (2026-07-16)
+
+Stage A's `--held-finger-pose` selects the finger pose enforced through the
+squeeze segment, settle, and carry. Default flipped to **`grasp`**: the
+trajectory targets the record's grasp joints for the whole carry, with no
+squeeze drive-through past contact -- grip force is whatever the soft-capped
+drives produce holding the grasp posture. `squeeze` keeps the v23 overclosed
+squeeze pose. Trajectory-side only; grasp synthesis still bakes both poses
+into every record (`held_finger_pose` recorded in `extra_metadata.config`).
+
 ### Tooling (2026-07-10, commits 3da7b95 + 3946a12)
 
 Videos encoded H.264/yuv420p via ffmpeg; console output reduced to progress
@@ -852,9 +904,10 @@ lines + one core-metrics summary (full diagnostics stay in `report.json`).
   collision settings, and contact slop. The residual blocker is
   force-closure quality itself: sustained carries most likely require
   strictly-successful upstream grasp records. Remaining deliberate
-  differences from the reference: gravity 9.81 vs its 30 m/s^2 stress
-  load, per-sequence object masses vs its fixed 0.5 kg, and the trajectory
-  task itself vs its staged batch protocol with retrieval-force probes.
+  differences from the reference: gravity 9.81 vs its 30 m/s^2 stress load,
+  per-sequence object masses vs its fixed 0.5 kg, the trajectory task
+  itself vs its staged batch protocol with retrieval-force probes, and the
+  PhysX substep rate (180Hz vs the reference's 60Hz, for finer contact).
 - Ranking mixes similarity terms into `rank_score` and can promote
   poor-force-closure seeds over much better ones (see v15) --
   grasp-error-aware ranking is a cheap next candidate.

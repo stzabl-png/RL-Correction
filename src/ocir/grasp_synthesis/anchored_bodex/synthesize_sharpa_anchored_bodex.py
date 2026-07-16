@@ -216,6 +216,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.sequence_dir is not None:
         jobs = [args.sequence_dir]
+        # Single-sequence mode: --out-dir IS this sequence's output folder
+        # (files land directly in it). Batch mode fans out per-sequence
+        # subdirectories under --out-dir instead.
+        batch_mode = False
     else:
         if not Path(args.sequences_root).is_dir():
             print(f"sequences root not found: {args.sequences_root}", file=sys.stderr)
@@ -224,6 +228,7 @@ def main(argv: list[str] | None = None) -> int:
         if not jobs:
             print(f"no sequence directories found under {args.sequences_root}", file=sys.stderr)
             return 2
+        batch_mode = True
 
     try:
         ensure_human_demos(jobs, args)
@@ -237,7 +242,7 @@ def main(argv: list[str] | None = None) -> int:
     strict_failures = 0
     for sequence_dir in jobs:
         sequence_name = sequence_dir.name
-        out_dir = Path(args.out_dir) / sequence_name
+        out_dir = Path(args.out_dir) / sequence_name if batch_mode else Path(args.out_dir)
         print(f"OCIR_ANCHORED_BODEX solving {sequence_name} sequence_dir={sequence_dir}", flush=True)
         try:
             run_summary = solve_sharpa_anchored_bodex(
@@ -376,25 +381,17 @@ def main(argv: list[str] | None = None) -> int:
                     failed_visualizations += int(code != 0)
         summaries.append(run_summary)
 
-    Path(args.out_dir).mkdir(parents=True, exist_ok=True)
     overall_ok = solver_failures == 0 and failed_visualizations == 0 and (
         strict_failures == 0 or not args.strict_success_exit_code
     )
-    summary = {
-        "ok": overall_ok,
-        "backend": BACKEND_NAME,
-        "curobo_path": str(report.curobo_path),
-        "solver_failures": solver_failures,
-        "failed_visualizations": failed_visualizations,
-        "strict_failures": strict_failures,
-        "runs": summaries,
-    }
-    summary_path = Path(args.out_dir) / "summary.json"
-    summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    # No aggregate batch summary is written: each sequence already has its own
+    # summary.json (with grasp_json/failed_grasp_json) in its output folder,
+    # which is what downstream traj-gen consumes. The run-level outcome is
+    # surfaced on the console and via the exit code only.
     print(
         f"OCIR_ANCHORED_BODEX done: ok={overall_ok} runs={len(summaries)} "
         f"solver_failures={solver_failures} failed_visualizations={failed_visualizations} "
-        f"strict_failures={strict_failures} summary={summary_path}",
+        f"strict_failures={strict_failures}",
         flush=True,
     )
     if solver_failures or failed_visualizations:

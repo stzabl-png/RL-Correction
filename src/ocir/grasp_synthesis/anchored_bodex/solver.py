@@ -34,8 +34,6 @@ from ocir.grasp_synthesis.anchored_bodex.guidance import (
 )
 from ocir.grasp_synthesis.anchored_bodex.grasp_stages import (
     DEFAULT_PREGRASP_CLEARANCE_M,
-    DEFAULT_SQUEEZE_MIN_RAD,
-    DEFAULT_SQUEEZE_OVERCLOSE_RAD,
     SnapshotBodexNewtonOpt,
     compute_grasp_stages,
     stage_pose_dict,
@@ -148,8 +146,6 @@ def solve_sharpa_anchored_bodex(
     rank_affordance_weight: float = 1.0,
     rank_pose_weight: float = 0.5,
     force_affordance: bool = False,
-    squeeze_min_rad: float = DEFAULT_SQUEEZE_MIN_RAD,
-    squeeze_overclose_rad: float = DEFAULT_SQUEEZE_OVERCLOSE_RAD,
     penetration_weight: float = 0.0,
     selfcollision_weight: float = 1000.0,
     pregrasp_clearance_m: float = DEFAULT_PREGRASP_CLEARANCE_M,
@@ -344,14 +340,6 @@ def solve_sharpa_anchored_bodex(
         "demo_analysis": analysis.report,
     }
 
-    joint_limits = asset.config["joint_limits"]
-    full_joint_lower = np.asarray(
-        [joint_limits[name][0] for name in rollouts[0].full_joint_order], dtype=np.float64
-    )
-    full_joint_upper = np.asarray(
-        [joint_limits[name][1] for name in rollouts[0].full_joint_order], dtype=np.float64
-    )
-
     def _expand_full(active_action: np.ndarray) -> np.ndarray:
         active_action = active_action.copy()
         active_action[3:7] = active_action[3:7] / max(np.linalg.norm(active_action[3:7]), 1e-9)
@@ -370,12 +358,8 @@ def solve_sharpa_anchored_bodex(
             full_action,
             pregrasp_full,
             rollouts[0].full_joint_order,
-            full_joint_lower,
-            full_joint_upper,
             stage_clearance_checker,
             rollouts[0].contact_world,
-            squeeze_min_rad=squeeze_min_rad,
-            squeeze_overclose_rad=squeeze_overclose_rad,
             pregrasp_clearance_m=pregrasp_clearance_m,
         )
         record = {
@@ -394,16 +378,15 @@ def solve_sharpa_anchored_bodex(
             "sequence_dir": str(sequence_dir),
             "action": full_action.astype(float).tolist(),
             "joint_names": rollouts[0].full_joint_order,
-            # Three-stage poses (see anchored_bodex/grasp_stages.py):
-            # grasp = the fully optimized action as-is; pregrasp = stage-0
+            # Two-stage poses (see anchored_bodex/grasp_stages.py):
+            # grasp = the fully optimized action as-is (also the pose held
+            # through the whole close/settle/carry); pregrasp = stage-0
             # snapshot with the open-mask joints (flexion + both thumb-CMC
             # DoFs) opened until the hand clears the object (wrist pose
-            # untouched); squeeze = Articulation-BODex extrapolation past
-            # the grasp.
+            # untouched).
             "stages": {
                 "pregrasp": stage_pose_dict(stages.pregrasp, rollouts[0].full_joint_order),
                 "grasp": stage_pose_dict(stages.grasp, rollouts[0].full_joint_order),
-                "squeeze": stage_pose_dict(stages.squeeze, rollouts[0].full_joint_order),
             },
             "stage_report": stages.report,
             "success": bool(success[seed_idx].item()),

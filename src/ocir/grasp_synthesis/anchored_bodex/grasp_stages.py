@@ -1,6 +1,6 @@
-"""Three-stage grasp poses, computed at synthesis time.
+"""Two-stage grasp poses, computed at synthesis time.
 
-Every written grasp record carries three wrist+finger poses instead of one:
+Every written grasp record carries two wrist+finger poses instead of one:
 
 - ``pregrasp``: the mid-optimization snapshot taken the moment the staged
   contact cost enters its middle (1cm-standoff) stage -- i.e. the pose
@@ -23,25 +23,14 @@ Every written grasp record carries three wrist+finger poses instead of one:
   5mm). Each finger is searched independently against only the spheres it
   moves; the palm is ignored (no joint opens it), so a finger that already
   clears keeps its grasp posture and a penetrating palm never splays the
-  fingers. The squeeze delta below is computed from the UN-opened snapshot
-  so this opening never inflates the squeeze extrapolation.
+  fingers.
 - ``grasp``: the fully optimized final action, unmodified (identical to the
   record's ``action``). Usually still slightly penetrates the object (the
   staged contact cost's final target distance is 0; the in-optimization
   penetration penalty bounds but does not eliminate the overshoot) -- the
-  simulation's soft drives absorb the overlap as contact force.
-- ``squeeze``: Articulation-BODex drive-through, baked into the pose. Only
-  the wrapping/press joints move -- MCP flexion (``_FE``, incl. thumb CMC-FE
-  and MCP-FE), ``_PIP``, and thumb ``_IP``; the fingertip ``_DIP`` joints and
-  all abduction/spread hold their grasp posture (driving the distal-most
-  joint deeper only rolls the fingertip off a convex surface). Each driven
-  joint is ``grasp + clamp(grasp - snapshot, min=squeeze_min_rad) +
-  squeeze_overclose_rad`` (snapshot = the pregrasp BEFORE the joint-space
-  opening above, so its closing delta is the optimizer's OWN full closing
-  motion; the floor gives joints that barely moved -- typically the thumb --
-  a minimum drive-through, and the fixed overclose keeps a blocked finger
-  past the sim drives' cap-saturation band so grip force does not decay to
-  zero as it reaches the pose). Clamped to joint limits.
+  simulation's soft drives absorb the overlap as contact force. The grasp
+  pose is the one held through the whole close/settle/carry: there is no
+  separate driven-past-contact "squeeze" pose.
 
 All poses are full 29-D actions ``[pos(3), quat_wxyz(4), joints(22)]`` in
 the object canonical frame, full asset joint order.
@@ -61,14 +50,6 @@ from ocir.grasp_synthesis.bodex_curobo_v2.newton_opt import (
 )
 from ocir.grasp_synthesis.clearance import ClearanceChecker
 
-DEFAULT_SQUEEZE_MIN_RAD = 0.15
-#: Fixed extra flexion baked into the squeeze pose on top of the closing-motion
-#: floor, so a blocked finger stalls well past the soft sim drives'
-#: cap-saturation band (maxForce/stiffness = 0.10-0.14 rad) and holds grip
-#: force instead of decaying to zero as it reaches the pose. Baked here (not
-#: applied in the simulator) so the record's squeeze pose is the true deep
-#: target. (user decision 2026-07-16)
-DEFAULT_SQUEEZE_OVERCLOSE_RAD = 0.2
 #: Target SDF clearance for the opened pregrasp pose: an approach pose that
 #: must sit comfortably clear of the object, not skim it.
 DEFAULT_PREGRASP_CLEARANCE_M = 0.005
@@ -76,23 +57,6 @@ _PREGRASP_OPEN_SAMPLES = 101
 
 
 _FINGERS = ("thumb", "index", "middle", "ring", "pinky")
-
-
-def _squeeze_drive_mask(joint_order: list[str]) -> np.ndarray:
-    """Joints the squeeze actively drives past contact: the wrapping/press
-    flexion channels only -- MCP flexion (``_FE``, including thumb CMC-FE and
-    thumb MCP-FE), ``_PIP``, and the thumb ``_IP``. Deliberately EXCLUDES the
-    fingertip ``_DIP`` joints: driving the distal-most joint deeper rolls the
-    fingertip off a convex surface for negligible force (DIP effort cap
-    0.19 Nm), so DIP holds its grasp posture and conforms. Abduction/adduction
-    spread and ``pinky_CMC`` likewise hold at grasp. Distinct from
-    ``relax_joint_mask`` (which also drives pregrasp opening and seed
-    relaxation) on purpose. (user decision 2026-07-16)"""
-
-    return np.array(
-        [name.endswith(("_FE", "_PIP", "_IP")) for name in joint_order],
-        dtype=bool,
-    )
 
 
 def _finger_of(name: str) -> str | None:
@@ -109,8 +73,8 @@ def _pregrasp_open_mask(joint_order: list[str]) -> np.ndarray:
     channels plus BOTH thumb-CMC DoFs -- ``thumb_CMC_AA`` opens alongside
     ``thumb_CMC_FE`` so the whole thumb column can move off the object (user
     decision, 2026-07-15). Distinct from ``relax_joint_mask`` on purpose:
-    that mask also drives the squeeze stage's flexion-only floor and the
-    seed relaxation, whose semantics are unchanged."""
+    that mask also drives the seed relaxation, whose semantics are
+    unchanged."""
 
     mask = relax_joint_mask(joint_order)
     for i, name in enumerate(joint_order):
@@ -278,7 +242,6 @@ def _open_pregrasp(
 class GraspStages:
     pregrasp: np.ndarray  # (29,) full action, opened clear of the object
     grasp: np.ndarray     # (29,) the fully optimized final action, as-is
-    squeeze: np.ndarray   # (29,)
     report: dict
 
 
@@ -286,22 +249,17 @@ def compute_grasp_stages(
     raw_action: np.ndarray,
     pregrasp_action: np.ndarray,
     joint_order: list[str],
-    joint_limits_lower: np.ndarray,
-    joint_limits_upper: np.ndarray,
     clearance_checker: ClearanceChecker,
     world,
     *,
-    squeeze_min_rad: float = DEFAULT_SQUEEZE_MIN_RAD,
-    squeeze_overclose_rad: float = DEFAULT_SQUEEZE_OVERCLOSE_RAD,
     pregrasp_clearance_m: float = DEFAULT_PREGRASP_CLEARANCE_M,
 ) -> GraspStages:
-    """Derive the opened ``pregrasp`` and extrapolated ``squeeze`` stages
-    from the raw final action and the pregrasp snapshot (both full 29-D,
-    object canonical frame). ``grasp`` is the raw final action verbatim."""
+    """Derive the opened ``pregrasp`` stage from the raw final action and the
+    pregrasp snapshot (both full 29-D, object canonical frame). ``grasp`` is
+    the raw final action verbatim."""
 
     grasp_action = np.asarray(raw_action, dtype=np.float64).copy()
     pregrasp_snapshot = np.asarray(pregrasp_action, dtype=np.float64).copy()
-    drive_mask = _squeeze_drive_mask(joint_order)
 
     # -- Pregrasp opening: the stage-0 snapshot is captured before the
     # penetration penalty ramps in and frequently sits inside the object.
@@ -320,28 +278,6 @@ def compute_grasp_stages(
 
     grasp_clearance_m = clearance_checker.min_clearance_m(grasp_action.astype(np.float32), world)
 
-    # -- Squeeze: Articulation-BODex drive-through baked into the pose. Only
-    # the wrapping/press joints (drive_mask: MCP-FE incl. thumb, PIP, thumb
-    # IP -- NOT the fingertip DIPs, NOT abduction/spread) move; every other
-    # joint holds its grasp posture. For a driven joint the extrapolation is
-    # the optimizer's OWN closing motion (grasp - snapshot; from the UN-opened
-    # snapshot so the pregrasp opening never inflates it) floored at
-    # squeeze_min_rad, PLUS a fixed squeeze_overclose_rad so a blocked finger
-    # stalls past the sim drives' cap-saturation band and holds grip force.
-    # The overclose is baked here so the record's squeeze pose is the true
-    # deep target and the simulator commands it verbatim. --
-    closing = grasp_action[7:] - pregrasp_snapshot[7:]
-    driven_delta = np.clip(closing, squeeze_min_rad, None) + squeeze_overclose_rad
-    delta = np.where(drive_mask, driven_delta, 0.0)
-    raw_squeeze = grasp_action[7:] + delta
-    squeeze_action = grasp_action.copy()
-    squeeze_action[7:] = np.clip(raw_squeeze, joint_limits_lower, joint_limits_upper)
-    limit_clamped = [
-        name
-        for i, name in enumerate(joint_order)
-        if drive_mask[i] and squeeze_action[7 + i] < raw_squeeze[i] - 1e-9
-    ]
-
     report = {
         "pregrasp_snapshot_clearance_m": snapshot_clearance_m,
         "pregrasp_open_fractions": {k: float(v) for k, v in pregrasp_open_fractions.items()},
@@ -349,15 +285,10 @@ def compute_grasp_stages(
         "pregrasp_clearance_target_m": float(pregrasp_clearance_m),
         "pregrasp_clearance_m": float(pregrasp_clearance),
         "grasp_clearance_m": float(grasp_clearance_m),
-        "squeeze_min_rad": float(squeeze_min_rad),
-        "squeeze_overclose_rad": float(squeeze_overclose_rad),
-        "squeeze_drive_channels": [name for i, name in enumerate(joint_order) if drive_mask[i]],
-        "squeeze_limit_clamped_joints": limit_clamped,
     }
     return GraspStages(
         pregrasp=pregrasp_opened,
         grasp=grasp_action,
-        squeeze=squeeze_action,
         report=report,
     )
 

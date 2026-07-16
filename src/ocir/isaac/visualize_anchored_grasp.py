@@ -347,16 +347,16 @@ def visualize_anchored_grasp(app, args: argparse.Namespace, progress=None) -> di
     # --- Optimized grasp hand(s) ------------------------------------------
     # Records with stage poses (see anchored_bodex/grasp_stages.py) get one
     # hand instance per stage under /World/StageHands/<name>; the saved
-    # screenshot becomes an Nx3 grid (stages x orthogonal views) -- 3 rows
-    # for current records (pregrasp/grasp/squeeze), 4 for legacy ones that
-    # still carry a separate raw_grasp. Records without stages keep the
-    # single-hand 1x3 behavior.
+    # screenshot becomes an Nx3 grid (stages x orthogonal views) -- 2 rows
+    # for current records (pregrasp/grasp), 3 for legacy ones that still carry
+    # a separate raw_grasp. Records without stages keep the single-hand 1x3
+    # behavior.
     phase("building optimized grasp hand")
     hand_material = add_material(stage, "/World/Materials/SharpaHand", (0.82, 0.84, 0.88))
     elastomer_material = add_material(stage, "/World/Materials/SharpaElastomer", (0.08, 0.36, 0.85))
     hand_materials = {"hand": hand_material, "elastomer": elastomer_material}
     stage_defs = grasp.get("stages") or {}
-    stage_order = [name for name in ("pregrasp", "raw_grasp", "grasp", "squeeze") if name in stage_defs]
+    stage_order = [name for name in ("pregrasp", "raw_grasp", "grasp") if name in stage_defs]
     stage_hand_reports: dict[str, list[dict]] = {}
     if stage_order:
         joint_order = list(asset.config["joint_order"])

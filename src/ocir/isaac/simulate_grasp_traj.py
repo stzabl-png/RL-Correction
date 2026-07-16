@@ -496,7 +496,7 @@ def govern_contact_targets(
 ) -> tuple[np.ndarray, int]:
     """Bound each finger drive target around its current physical position.
 
-    A synthesized squeeze pose is a force direction, not a configuration the
+    The closed grasp pose is a force direction, not a configuration the
     physics solver must reach through a rigid object.  Limiting the virtual
     target's angular lead bounds the proportional spring load independently
     for every joint: a blocked finger maintains preload while unblocked
@@ -938,11 +938,10 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
     if bool(args.contact_aware_finger_targets) and target_lead_rad <= 0.0:
         raise ValueError(f"--contact-target-lead-rad must be positive, got {target_lead_rad}")
 
-    # The squeeze-drive-through (deepen the wrapping joints so blocked
-    # fingers hold cap-level grip torque) is baked into the record's squeeze
-    # pose at synthesis time (grasp_stages.compute_grasp_stages), so the
-    # trajectory's finger_targets ARE the deep target and the simulator
-    # commands them verbatim -- no target rewriting here.
+    # The trajectory's finger_targets hold the record's grasp pose through
+    # the squeeze segment and carry (no separate driven-past-contact squeeze
+    # pose), so the simulator commands them verbatim -- no target rewriting
+    # here; the per-joint effort caps bound the resulting grip force.
 
     # Prime the render pipeline ONCE, at the initial (frame-0) pose, so the
     # per-frame recording can read the already-rendered RGB without its own
@@ -1164,7 +1163,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--friction-combine-mode", choices=["max", "multiply", "average", "min"], default="multiply", help="PhysX friction combine mode of the bound material; multiply/max both outrank the default material's 'average', so the bound side wins any pair against an unbound collider.")
     parser.add_argument("--joint-armature", type=float, default=0.001, help="Finger joint armature; default matches the reference drive table. Stiffness/damping/effort caps come from the per-joint SHARPA_PER_JOINT_DRIVES table and are not CLI-tunable.")
     parser.add_argument("--joint-friction", type=float, default=0.0, help="Finger joint friction; default matches the reference drive table.")
-    parser.add_argument("--contact-aware-finger-targets", action=argparse.BooleanOptionalAction, default=False, help="Bound finger position targets around the actual joints during squeeze and carry so blocked fingers apply finite impedance instead of holding the synthesized angle through the object. Default off: the baked per-joint effort caps already bound contact forces, and direct targeting of the synthesized squeeze pose lets every joint hold its full tuned authority.")
+    parser.add_argument("--contact-aware-finger-targets", action=argparse.BooleanOptionalAction, default=False, help="Bound finger position targets around the actual joints during the squeeze segment and carry so blocked fingers apply finite impedance instead of holding the grasp angle through the object. Default off: the baked per-joint effort caps already bound contact forces, and direct targeting of the grasp pose lets every joint hold its full tuned authority.")
     parser.add_argument("--contact-target-lead-rad", type=float, default=0.03, help="Maximum per-joint angular lead of a contact-phase drive target beyond the current physical joint position.")
     parser.add_argument("--convex-decomp-max-hulls", type=int, default=32, help="Hull ceiling for the object's convex decomposition (the hand's colliders are baked into its asset).")
     parser.add_argument("--object-collision", choices=["sdf", "convex"], default="convex", help="Object collider type: convex decomposition (default, matches the reference validators) or exact SDF triangle mesh (concavities stay hollow).")

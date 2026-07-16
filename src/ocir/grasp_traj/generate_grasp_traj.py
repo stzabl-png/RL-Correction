@@ -61,10 +61,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fps", type=float, default=30.0)
     parser.add_argument("--approach-seconds", type=float, default=1.0, help="Minimum lead time before grasp used for handoff selection and minimum duration of the direct cuRobo plan to pregrasp.")
     parser.add_argument("--close-seconds", type=float, default=0.3)
-    parser.add_argument("--squeeze-seconds", type=float, default=0.3)
+    parser.add_argument("--squeeze-seconds", type=float, default=0.3, help="Duration of the close->squeeze segment (a static hold at the record's grasp pose so the contacts converge -- there is no separate driven-past-contact squeeze pose).")
     parser.add_argument("--pregrasp-open-fraction", type=float, default=1.0, help="How wide the fingers open before the final reach: 1.0 scales all flexion joints to 0 rad (fully open), 0.0 keeps the grasp posture.")
-    parser.add_argument("--squeeze-delta", type=float, default=0.15)
-    parser.add_argument("--held-finger-pose", choices=["grasp", "squeeze"], default="grasp", help="Finger pose held through the squeeze segment, settle, and carry. grasp (default): enforce the record's GRASP joints -- no drive-through past contact. squeeze: hold the synthesized (overclosed) squeeze pose. Grasp synthesis is unaffected either way.")
     parser.add_argument("--approach-clearance", type=float, default=0.003, help="Minimum all-sphere clearance for the direct planned approach, including the open-hand pregrasp endpoint.")
     parser.add_argument("--carry-style", choices=["vertical_lift", "demo"], default="vertical_lift", help="vertical_lift: after squeeze+settle, raise the wrist straight up (world +z) by --carry-lift-height and hold. demo: follow the recorded human carry trajectory.")
     parser.add_argument("--settle-seconds", type=float, default=1.0, help="Post-squeeze hold (wrist parked, squeeze targets held) letting the contacts settle before the carry; appended to the squeeze segment.")
@@ -274,8 +272,6 @@ def main(argv: list[str] | None = None) -> int:
         close_seconds=args.close_seconds,
         squeeze_seconds=args.squeeze_seconds,
         pregrasp_open_fraction=args.pregrasp_open_fraction,
-        squeeze_delta=args.squeeze_delta,
-        held_finger_pose=args.held_finger_pose,
         approach_clearance_m=args.approach_clearance,
         carry_style=args.carry_style,
         settle_seconds=args.settle_seconds,

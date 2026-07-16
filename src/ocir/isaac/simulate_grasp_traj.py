@@ -934,6 +934,12 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
     target_lead_rad = float(args.contact_target_lead_rad)
     if bool(args.contact_aware_finger_targets) and target_lead_rad <= 0.0:
         raise ValueError(f"--contact-target-lead-rad must be positive, got {target_lead_rad}")
+
+    # The squeeze-drive-through (deepen the wrapping joints so blocked
+    # fingers hold cap-level grip torque) is baked into the record's squeeze
+    # pose at synthesis time (grasp_stages.compute_grasp_stages), so the
+    # trajectory's finger_targets ARE the deep target and the simulator
+    # commands them verbatim -- no target rewriting here.
     phase(f"simulating {traj.num_steps} steps")
     for t in range(traj.num_steps):
         desired_targets = traj.finger_targets[t]

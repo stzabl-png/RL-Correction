@@ -35,6 +35,7 @@ from ocir.grasp_synthesis.anchored_bodex.guidance import (
 from ocir.grasp_synthesis.anchored_bodex.grasp_stages import (
     DEFAULT_PREGRASP_CLEARANCE_M,
     DEFAULT_SQUEEZE_MIN_RAD,
+    DEFAULT_SQUEEZE_OVERCLOSE_RAD,
     SnapshotBodexNewtonOpt,
     compute_grasp_stages,
     stage_pose_dict,
@@ -148,6 +149,7 @@ def solve_sharpa_anchored_bodex(
     rank_pose_weight: float = 0.5,
     force_affordance: bool = False,
     squeeze_min_rad: float = DEFAULT_SQUEEZE_MIN_RAD,
+    squeeze_overclose_rad: float = DEFAULT_SQUEEZE_OVERCLOSE_RAD,
     penetration_weight: float = 900.0,
     selfcollision_weight: float = 1000.0,
     pregrasp_clearance_m: float = DEFAULT_PREGRASP_CLEARANCE_M,
@@ -373,6 +375,7 @@ def solve_sharpa_anchored_bodex(
             stage_clearance_checker,
             rollouts[0].contact_world,
             squeeze_min_rad=squeeze_min_rad,
+            squeeze_overclose_rad=squeeze_overclose_rad,
             pregrasp_clearance_m=pregrasp_clearance_m,
         )
         record = {

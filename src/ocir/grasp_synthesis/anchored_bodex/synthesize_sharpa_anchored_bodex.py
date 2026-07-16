@@ -141,7 +141,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--afford-tau", type=float, default=0.3, help="Heatmap threshold defining the high-affordance region.")
     parser.add_argument("--rank-affordance-weight", type=float, default=1.0)
     parser.add_argument("--rank-pose-weight", type=float, default=0.5)
-    parser.add_argument("--squeeze-min", type=float, default=0.15, help="Flexion-only floor (rad) on the squeeze stage's per-joint extrapolation beyond the contact grasp.")
+    parser.add_argument("--squeeze-min", type=float, default=0.15, help="Floor (rad) on the squeeze stage's per-joint closing-motion extrapolation, applied to the driven wrapping joints (MCP-FE incl. thumb, PIP, thumb IP; not the fingertip DIPs or spread).")
+    parser.add_argument("--squeeze-overclose", type=float, default=0.2, help="Fixed extra flexion (rad) baked onto the squeeze pose's driven joints beyond the closing-motion floor, so a blocked finger stalls past the sim drives' cap-saturation band and holds grip force instead of decaying. 0 keeps the pose at the floor.")
     parser.add_argument("--penetration-weight", type=float, default=900.0, help="Full weight of the asymmetric all-sphere non-penetration energy (relu(-sdf)^2 summed); 0 disables it. Default 900: zero through stage 0, linearly ramped in across stage 1, full only in the final distance=0 stage (the one place the symmetric contact term needs the asymmetry). Softens final-grasp penetration but by construction cannot clean the stage-0 pregrasp snapshot -- see --pregrasp-clearance for that.")
     parser.add_argument("--selfcollision-weight", type=float, default=1000.0, help="Weight of the pairwise sphere-vs-sphere self-collision energy between non-adjacent hand links (relu(min_dist-dist)^2 summed); 0 disables it. Unlike the other guidance costs this is at full weight in every optimization stage.")
     parser.add_argument("--force-closure-weight", type=float, default=500.0, help="Optimization-time weight of the force-closure QP energy (stage 0 only -- the QP is dormant in stages 1-2). Overrides only the first entry of original BODex's [grasp, dist, regu] weight triple (100 in original BODex and the pure pipeline); dist (1000) and regu (10) stay unchanged. Does not change the pass/fail success threshold itself (grasp_error is weight-independent); a higher weight only pulls the optimizer harder toward low grasp energy during stage 0.")
@@ -268,6 +269,7 @@ def main(argv: list[str] | None = None) -> int:
                 rank_pose_weight=args.rank_pose_weight,
                 force_affordance=args.force_affordance,
                 squeeze_min_rad=args.squeeze_min,
+                squeeze_overclose_rad=args.squeeze_overclose,
                 penetration_weight=args.penetration_weight,
                 selfcollision_weight=args.selfcollision_weight,
                 pregrasp_clearance_m=args.pregrasp_clearance,

@@ -223,13 +223,24 @@ step; a `SingleArticulation` view is kept only for joint-state readback and
 the initial joint teleport. Resolved per-joint caps are recorded in
 `report.json` under `hand.resolved_max_efforts`.
 
-Finger drives target the synthesized stage poses directly: during squeeze
-and carry each joint holds the record's squeeze angle as its position-drive
-target, so a blocked joint presses persistently up to its tuned effort cap.
+During squeeze and carry the finger drives command the record's squeeze
+pose directly -- the simulator does no target rewriting. The grip-force
+drive-through is **baked into that squeeze pose at synthesis time**
+(`grasp_stages.compute_grasp_stages`, see [`anchored_bodex.md`](anchored_bodex.md)):
+only the wrapping/press joints (MCP-FE incl. thumb, PIP, thumb IP -- NOT the
+fingertip DIPs or spread) are deepened to `grasp + clamp(closing, min=0.15)
++ 0.2 rad`, so a blocked finger stalls ~0.35 rad short of its target, well
+past the soft drives' cap-saturation band (`maxForce/stiffness` =
+0.10-0.14 rad), and holds its effort cap instead of decaying to zero as it
+reaches the pose. Because it is a fixed pose (not a target chasing the
+measured joints), a free finger simply closes to it and stops -- no ratchet.
+The trajectory ramps grasp -> squeeze over the squeeze segment (~0.3 s) as
+usual, and the settle/carry/hold phases hold that same deep pose.
+
 The v13 contact-aware target governor (`--contact-aware-finger-targets`,
-default OFF) is retained as an option: it recomputes each drive target
-before every physics update and limits it to `--contact-target-lead-rad`
-(0.03rad) from the joint's actual position.
+default OFF) is retained as an alternative sim-side policy: it recomputes
+each drive target before every physics update and bounds it to
+`--contact-target-lead-rad` (0.03rad) from the joint's actual position.
 
 ### Collision
 
@@ -764,6 +775,54 @@ produce steady, drive-absorbable contact forces, and satisfying PhysX's
 rest-offset preference (1+1 mm) at open postures needs the collider-level
 fix (reduced rest offsets / finer decomposition), which posture tuning
 cannot provide (spread ceiling ~+0.1 mm sphere metric, measured).
+
+### v22 -- constant-force squeeze via measured-joint lead (2026-07-16)
+
+Diagnosed the downward carry slip (chef can 5.0 cm, mug 5.7 cm final object
+position error; wood block 1.1 cm held): the static squeeze pose under the
+soft force-capped drives leaks grip force. Drive torque is
+`stiffness * (target - actual)` capped at maxForce, and at the synthesis
+squeeze floor (0.15 rad) the error budget above cap saturation is only
+0.008 rad (PIP) to 0.055 rad (DIP) -- so as a finger advances (object
+compliance, settle, slip) the torque desaturates and decays toward zero,
+a positive feedback loop the carry-phase tracking-error decay confirmed
+(0.61 -> 0.49 and 0.50 -> 0.36 rad on the two slipping runs; the held run
+stayed flat). First fix attempt: Stage A exports the squeeze-driven flexion
+channels (`squeeze_drive_channels` in `trajectory.json`), and Stage B
+raised those targets to `max(trajectory target, measured joint + 0.3 rad)`
+every physics substep during squeeze/carry.
+
+**Result: worse -- the moving target is unanchored force control.** With
+the target redefined ahead of wherever the finger currently is, any finger
+that CAN move ratchets closed indefinitely and abandons the grasp shape
+(visible in the videos as fingers curling past the object): mug carry
+ended +0.28 rad more closed than the squeeze pose (70% of carry
+joint-frames past it) and slip worsened 5.7 -> 7.75 cm; wood block
+1.1 -> 2.64 cm; chef can 5.0 -> 4.35 cm. Replaced by v23's static
+overclose; only the channel export survives.
+
+### v23 -- static overclosed squeeze targets, then baked into synthesis (2026-07-16)
+
+Same force-decay diagnosis as v22, position-anchored fix. First landed in
+Stage B as `--squeeze-overclose-rad`: deepen the squeeze-driven flexion
+targets by a FIXED offset past the trajectory's squeeze-frame targets
+(computed from the trajectory alone, never the measured joints, so no
+ratchet). A blocked finger then stalls >= 0.14 rad short of its target and
+stays pinned at its effort cap (slip budget before desaturation grows from
+~0.01-0.05 rad to ~0.2 rad), while a free finger closes to the fixed deeper
+pose and STOPS -- grasp shape preserved.
+
+Then **moved into grasp synthesis** (`grasp_stages.compute_grasp_stages`,
+`--squeeze-overclose` default 0.2) so the record's squeeze pose is itself
+the deep target and the simulator commands it verbatim -- no sim-side
+rewriting. Same move narrowed the squeeze-driven set: **the fingertip DIP
+joints are dropped** (driving the distal-most joint deeper rolls the
+fingertip off a convex surface for ~0 force; DIP cap is 0.19 Nm), leaving
+MCP-FE (incl. thumb CMC-FE/MCP-FE), PIP, and thumb IP -- 11 joints; DIP and
+all spread hold their grasp posture. Requires re-running synthesis (the
+squeeze pose is baked into the record). Known residual unchanged:
+force-closure geometry of `failed_grasp` records (radial pinch vs axial
+gravity on smooth objects) is untouched by any drive policy.
 
 ### Tooling (2026-07-10, commits 3da7b95 + 3946a12)
 

@@ -25,6 +25,7 @@ from ocir.grasp_synthesis.bodex_curobo_v2.solver import _load_yaml
 
 from ocir.grasp_traj.clearance import ClearanceChecker, build_contact_world
 from ocir.grasp_traj.planner import TransitPlanner
+from ocir.grasp_traj.self_clearance import DEFAULT_SELF_CLEARANCE_BUFFER_M, SelfClearanceTuner
 from ocir.grasp_traj.segments import (
     PALM_APPROACH_AXIS_LOCAL,
     blend_into_trajectory,
@@ -88,6 +89,17 @@ class GraspTrajectoryConfig:
     planner: str = "curobo"  # or "linear"
     final_close_seconds: float = 1.0
     near_contact_margin_m: float = 0.003
+    #: Minimum sphere-metric self-clearance enforced on the trajectory's
+    #: INITIAL posture (frame 0, the pose the simulation teleport-initializes
+    #: the articulation to -- an interpenetrating start blows up under PhysX
+    #: hand self-collision). 0.0 = sphere surfaces touching (~1.5-1.8 mm true
+    #: mesh gap at the binding finger-base pairs); positive values are
+    #: anatomically unreachable at open postures. Negative disables the pass.
+    self_clearance_buffer_m: float = DEFAULT_SELF_CLEARANCE_BUFFER_M
+    #: The frame-0 correction decays linearly back to the original trajectory
+    #: over this duration (no target jump at frame 1; past it the trajectory
+    #: is untouched).
+    self_clearance_decay_seconds: float = 1.0
 
     @property
     def dt(self) -> float:
@@ -868,12 +880,102 @@ class GraspTrajectoryGenerator:
                 "carry_resample": carry_resample_report,
             })
 
+        hand_pos_all = np.concatenate(hand_pos_chunks, axis=0)
+        hand_quat_all = np.concatenate(hand_quat_chunks, axis=0)
+        finger_targets = np.concatenate(joints_chunks, axis=0)
+        object_pos_all = np.concatenate(object_pos_chunks, axis=0)
+        object_quat_all = np.concatenate(object_quat_chunks, axis=0)
+
+        # --- Initial-posture self-clearance correction: the simulation
+        # initializes the articulation by teleporting the joints to frame 0,
+        # and with PhysX hand self-collision ON an interpenetrating start
+        # posture (the retargeted open hand reads -2.7 mm on the finger-base
+        # sphere pairs, i.e. overlapping hulls) is resolved impulsively on
+        # the first step -- the frame-0 blowup. Only the initialization is
+        # dangerous: once running, targets that bring fingers close together
+        # merely produce steady, drive-absorbable contact forces. So frame 0
+        # alone is spread clear (or to its anatomical maximum), and the
+        # correction decays back to the original trajectory over
+        # self_clearance_decay_seconds so the commanded targets stay
+        # continuous; the rest of the trajectory is untouched.
+        if self.config.self_clearance_buffer_m >= 0.0:
+            finger_targets_orig = finger_targets.copy()
+            tuner = SelfClearanceTuner(
+                self.asset, self.device_cfg, self.clearance_checker,
+                buffer_m=self.config.self_clearance_buffer_m,
+            )
+            before_min = float(tuner.min_clearances(finger_targets_orig[:1])[0])
+            report_sc: dict = {
+                "buffer_m": self.config.self_clearance_buffer_m,
+                "frame0_before_min_clearance_m": before_min,
+                "frame0_before_worst_pairs": tuner.worst_pairs(finger_targets_orig[0]),
+            }
+            tuned0, achieved = tuner.solve_posture(finger_targets_orig[0])
+            correction = tuned0 - finger_targets_orig[0]
+            n_decay = min(
+                max(int(round(self.config.self_clearance_decay_seconds * self.config.fps)), 1),
+                finger_targets.shape[0] - 1,
+            )
+            for k in range(n_decay):
+                factor = 1.0 - k / float(n_decay)
+                finger_targets[k] = self._clamp(finger_targets_orig[k] + correction * factor)
+
+            # Object-clearance guard: the spread must not push a finger into
+            # the object on the affected frames (hand pose re-expressed in
+            # the object frame for the SDF query). Per frame, bisect the
+            # largest correction scale keeping at least 0.5 mm of object
+            # clearance where the original frame had it (never worsening a
+            # frame already at/inside the surface). Frame 0 is typically far
+            # from the object, so this rarely binds.
+            idx = np.arange(n_decay)
+            rel = np.linalg.inv(pos_quat_to_matrix(object_pos_all[idx], object_quat_all[idx])) @ pos_quat_to_matrix(
+                hand_pos_all[idx], hand_quat_all[idx]
+            )
+            rel_pos, rel_quat = matrix_to_pos_quat(rel)
+
+            def _object_clearances(joints_sub: np.ndarray) -> np.ndarray:
+                actions = np.concatenate([rel_pos, rel_quat, joints_sub], axis=-1).astype(np.float32)
+                return self.clearance_checker.compute_clearances(
+                    self.device_cfg.to_device(actions), world
+                ).cpu().numpy()
+
+            obj_before = _object_clearances(finger_targets_orig[idx])
+            obj_after = _object_clearances(finger_targets[idx])
+            floor = np.minimum(obj_before, 0.0005)
+            offending = obj_after < floor - 1e-6
+            if offending.any():
+                lo_s = np.zeros(idx.size)
+                hi_s = np.ones(idx.size)
+                per_frame_corr = finger_targets[idx] - finger_targets_orig[idx]
+                for _ in range(10):
+                    mid = 0.5 * (lo_s + hi_s)
+                    cand = finger_targets_orig[idx] + mid[:, None] * per_frame_corr
+                    ok = _object_clearances(cand) >= floor - 1e-6
+                    lo_s = np.where(ok, mid, lo_s)
+                    hi_s = np.where(ok, hi_s, mid)
+                scale = np.where(offending, lo_s, 1.0)
+                finger_targets[idx] = finger_targets_orig[idx] + scale[:, None] * per_frame_corr
+                obj_after = _object_clearances(finger_targets[idx])
+                report_sc["object_guard_min_scale"] = float(scale.min())
+            report_sc.update(
+                frame0_after_min_clearance_m=float(tuner.min_clearances(finger_targets[:1])[0]),
+                frame0_after_worst_pairs=tuner.worst_pairs(finger_targets[0]),
+                converged=bool(achieved >= self.config.self_clearance_buffer_m - 1e-4),
+                max_abs_delta_rad=float(np.abs(finger_targets[0] - finger_targets_orig[0]).max()),
+                decay_frames=int(n_decay),
+                object_guard_frames=int(offending.sum()),
+                object_clearance_before_m=float(obj_before.min()),
+                object_clearance_after_m=float(obj_after.min()),
+                max_step_delta_rad=float(np.abs(np.diff(finger_targets[: n_decay + 1], axis=0)).max()),
+            )
+            clearance_report = {**clearance_report, "self_clearance": report_sc}
+
         traj = GraspTrajectory(
-            hand_pos_camera=np.concatenate(hand_pos_chunks, axis=0),
-            hand_quat_camera=np.concatenate(hand_quat_chunks, axis=0),
-            finger_targets=np.concatenate(joints_chunks, axis=0),
-            object_pos_camera=np.concatenate(object_pos_chunks, axis=0),
-            object_quat_camera=np.concatenate(object_quat_chunks, axis=0),
+            hand_pos_camera=hand_pos_all,
+            hand_quat_camera=hand_quat_all,
+            finger_targets=finger_targets,
+            object_pos_camera=object_pos_all,
+            object_quat_camera=object_quat_all,
             segment=np.concatenate(segment_chunks, axis=0),
             dt=self.config.dt,
             joint_order=tuple(self.joint_order),
@@ -904,6 +1006,8 @@ class GraspTrajectoryGenerator:
                     "planner": self.config.planner,
                     "final_close_seconds": self.config.final_close_seconds,
                     "near_contact_margin_m": self.config.near_contact_margin_m,
+                    "self_clearance_buffer_m": self.config.self_clearance_buffer_m,
+                    "self_clearance_decay_seconds": self.config.self_clearance_decay_seconds,
                 },
                 "grasp_frame_index": int(analysis.grasp_frame_index),
                 "pickup_frame_index": int(analysis.pickup_frame_index),

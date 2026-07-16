@@ -51,6 +51,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--planner", choices=["curobo", "linear"], default="curobo", help="Planner for handoff -> repaired open-hand pregrasp. cuRobo uses the object mesh as a collision constraint and fails closed; linear is an explicit debug-only alternative.")
     parser.add_argument("--final-close-seconds", type=float, default=1.0, help="Duration of the slow final close from the near-contact posture to the contact-projected posture.")
     parser.add_argument("--near-contact-margin", type=float, default=0.003, help="Clearance (m) of the near-contact posture that the fast close stage sweeps to before the slow final close.")
+    parser.add_argument("--self-clearance-buffer", type=float, default=0.0, help="Minimum sphere-metric hand self-clearance (m) enforced on the INITIAL posture (frame 0) by spreading the fingers -- the sim teleport-initializes the articulation there, and an interpenetrating start blows up under PhysX hand self-collision. 0.0 = sphere surfaces touching (~1.5-1.8mm true mesh gap at the binding finger-base pairs); positive values are anatomically unreachable at open postures. Negative disables.")
+    parser.add_argument("--self-clearance-decay-seconds", type=float, default=1.0, help="Duration over which the frame-0 self-clearance correction decays back to the original trajectory (no target jump at frame 1).")
 
     parser.add_argument("--simulate", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--isaac-mode", choices=["server", "standalone"], default="server")
@@ -244,6 +246,8 @@ def main(argv: list[str] | None = None) -> int:
         planner=args.planner,
         final_close_seconds=args.final_close_seconds,
         near_contact_margin_m=args.near_contact_margin,
+        self_clearance_buffer_m=args.self_clearance_buffer,
+        self_clearance_decay_seconds=args.self_clearance_decay_seconds,
     )
     device_cfg = DeviceCfg(device=torch.device("cuda:0"), dtype=torch.float32)
 

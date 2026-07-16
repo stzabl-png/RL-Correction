@@ -83,7 +83,31 @@ The generated trajectory is labeled per step with one of five segments
    pose with the squeeze targets held for `--settle-seconds` so the physics
    contacts converge before any load transfer (appended to the squeeze
    segment: same drive gains, and the carry-only lift metrics stay clean).
-7. **Carry** (`--carry-style`, default `vertical_lift`):
+7. **Initial-posture self-clearance correction** (`self_clearance.py`).
+   Stage B teleport-initializes the articulation to frame 0 of the
+   trajectory. The retargeting IK has no self-collision term, and the
+   near-open start posture commands straight parallel fingers whose designed
+   true-mesh gaps are only 0.05-1 mm -- under the collider approximation
+   that is actual interpenetration (the collision spheres read the
+   finger-base pairs at -2.7 mm), so a PhysX run with hand self-collision
+   ON initializes INSIDE contact and resolves it impulsively on the first
+   step (the frame-0 blowup). Only the initialization is dangerous: once
+   running, targets that bring fingers close together merely produce steady,
+   drive-absorbable contact forces. So FRAME 0 ALONE is spread clear: the 7
+   abduction/spread joints only (never the wrist, never the flexion profile
+   -- staggering flexion would separate sphere centers without separating
+   the actual finger surfaces) until every non-adjacent sphere pair keeps
+   `--self-clearance-buffer` (default 0.0 = sphere surfaces touching =
+   ~1.5-1.8 mm true mesh gap; the anatomical ceiling of the spread subspace
+   is only ~+0.1 mm, so positive buffers are unreachable at open postures).
+   Solver: greedy coordinate ascent with batched line scans (gradient
+   methods tangle on the relu contact landscape). The correction decays
+   back to the original trajectory over `--self-clearance-decay-seconds`
+   (default 1.0 s, no target jump at frame 1); the rest of the trajectory
+   is untouched. An object-clearance guard bisects the correction back on
+   any affected frame the spread would push below 0.5 mm of object
+   clearance. Reported under `clearance_report.self_clearance`.
+8. **Carry** (`--carry-style`, default `vertical_lift`):
    - `vertical_lift`: the wrist rises straight up (world +z) by
      `--carry-lift-height` over `--carry-lift-seconds` with a cosine ease
      (zero boundary velocity, so no squeeze->carry blend or jerk; peak speed
@@ -131,7 +155,9 @@ approach), `--open-clearance` (0.05m), `--open-horizon-seconds` (1.0),
 `--carry-hold-seconds` (1.0) / `--dexycb-manifest` (auto) for the vertical
 lift, `--carry-blend-seconds` (0.3) and
 `--carry-start {grasp_frame,pickup_frame}` (grasp_frame) for the demo
-carry. `--squeeze-delta` (0.15 rad) and `--near-contact-margin`
+carry. `--self-clearance-buffer` (0.0m sphere metric; negative disables the
+frame-0 finger-spread correction) and `--self-clearance-decay-seconds`
+(1.0). `--squeeze-delta` (0.15 rad) and `--near-contact-margin`
 (0.003m) only apply to legacy records without stages. Writes
 `trajectory.npz` (per-step hand/object pos+quat, finger targets, segment
 labels) + `trajectory.json` (switch frame, clearance/transit/stage report,
@@ -717,6 +743,27 @@ method, replacing floating-base tensor-API driving:
   removed with it.
 - The `SingleArticulation` view remains read-only (joint-state metrics,
   initial joint teleport, the optional target governor).
+
+### v21 -- frame-0 self-clearance correction (2026-07-15)
+
+With PhysX hand self-collision enabled (the project requirement), the
+trajectory's INITIAL posture was an interpenetrating start state: the
+retargeting IK has no self-collision term, and the Sharpa's straight
+neighboring fingers have designed true gaps of only 0.05-1 mm, which the
+collider approximation turns into overlap (collision spheres read the
+finger-base pairs at -2.7 mm; the PhysX hulls overlap too), so the
+initialization teleport was resolved impulsively on the first step. The new
+`self_clearance.py` pass (Stage A step 7) spreads the abduction joints of
+frame 0 alone to the buffer or the anatomical spread ceiling, decays the
+correction over ~1 s, and guards the affected frames' object clearance.
+Measured on the three test sequences: frame-0 sphere clearance
+-2.4..-3.4 mm -> -0.4..0.0 mm (true mesh gaps ~+1.3..+1.7 mm, no hull
+interpenetration at the sim start). Deliberately NOT applied to the rest of
+the trajectory: during a running simulation, close-together finger targets
+produce steady, drive-absorbable contact forces, and satisfying PhysX's
+rest-offset preference (1+1 mm) at open postures needs the collider-level
+fix (reduced rest offsets / finer decomposition), which posture tuning
+cannot provide (spread ceiling ~+0.1 mm sphere metric, measured).
 
 ### Tooling (2026-07-10, commits 3da7b95 + 3946a12)
 

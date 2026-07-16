@@ -249,9 +249,14 @@ def setup_hand_articulation_root(stage, ref_path: str, *, self_collisions: bool 
 
 
 def high_friction_material(stage, root_path: str, mat_path: str, *, static_friction: float, dynamic_friction: float, restitution: float = 0.0, combine_mode: str = "multiply") -> dict:
-    """Define (or reuse) a physics material at ``mat_path`` and bind it to
-    every collision mesh under ``root_path`` (physics purpose, stronger than
-    descendants). Returns a report of what it authored and bound."""
+    """Define (or reuse) a physics material at ``mat_path`` and bind it once to
+    the ``root_path`` prim (physics purpose, ``strongerThanDescendants``), so
+    every collider in the subtree inherits it -- USD physics material binding
+    resolves each collider via ``ComputeBoundMaterial`` up the namespace, and
+    the stronger-than-descendants strength overrides any per-collider material
+    the asset baked. This is the reference ``ref/sharpa_tabletop.py`` pattern
+    (``create_and_bind_high_friction_material``: a single bind on the root).
+    Returns a report incl. the descendant colliders the binding covers."""
 
     from pxr import PhysxSchema, Usd, UsdGeom, UsdPhysics, UsdShade
 
@@ -269,13 +274,17 @@ def high_friction_material(stage, root_path: str, mat_path: str, *, static_frict
     PhysxSchema.PhysxMaterialAPI(mat_prim).CreateFrictionCombineModeAttr().Set(combine_mode)
 
     root = stage.GetPrimAtPath(root_path)
-    bound_paths: list[str] = []
-    for prim in Usd.PrimRange(root):
-        if prim.IsA(UsdGeom.Mesh) and prim.HasAPI(UsdPhysics.CollisionAPI):
-            UsdShade.MaterialBindingAPI(prim).Bind(
-                UsdShade.Material(mat_prim), bindingStrength=UsdShade.Tokens.strongerThanDescendants, materialPurpose="physics"
-            )
-            bound_paths.append(str(prim.GetPath()))
+    UsdShade.MaterialBindingAPI.Apply(root)
+    UsdShade.MaterialBindingAPI(root).Bind(
+        UsdShade.Material(mat_prim), bindingStrength=UsdShade.Tokens.strongerThanDescendants, materialPurpose="physics"
+    )
+    # Colliders the single root binding covers by inheritance (report/sanity
+    # check only -- not individually bound).
+    covered_paths = [
+        str(prim.GetPath())
+        for prim in Usd.PrimRange(root)
+        if prim.IsA(UsdGeom.Mesh) and prim.HasAPI(UsdPhysics.CollisionAPI)
+    ]
     return {
         "material_path": mat_path,
         "static_friction": float(static_friction),
@@ -283,8 +292,9 @@ def high_friction_material(stage, root_path: str, mat_path: str, *, static_frict
         "restitution": float(restitution),
         "friction_combine_mode": combine_mode,
         "binding_strength": "strongerThanDescendants",
-        "bound_collider_count": len(bound_paths),
-        "bound_collider_paths": bound_paths,
+        "binding_prim": str(root.GetPath()),
+        "bound_collider_count": len(covered_paths),
+        "bound_collider_paths": covered_paths,
     }
 
 

@@ -356,6 +356,15 @@ def make_record_camera(stage, args: argparse.Namespace, center: np.ndarray, bbox
 
 
 def capture_camera_png(app, camera, path: Path) -> None:
+    """Step the app until the camera yields an RGB frame, then write it.
+
+    WARNING: each ``app.update()`` also advances PhysX while the timeline is
+    playing, so this MUST NOT be called once per trajectory frame inside a
+    physics rollout -- it silently injects an extra physics step per capture
+    and slows the effective command rate (use ``save_latest_camera_png``
+    there instead). Kept for one-time captures (warm-up, final screenshot)
+    where an extra step is harmless."""
+
     import cv2
 
     rgb = None
@@ -370,6 +379,31 @@ def capture_camera_png(app, camera, path: Path) -> None:
     if rgb.dtype != np.uint8:
         rgb = np.clip(rgb, 0, 255).astype(np.uint8)
     cv2.imwrite(str(path), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+
+
+def save_latest_camera_png(camera, path: Path) -> bool:
+    """Write the camera's already-rendered RGB WITHOUT stepping the app.
+
+    The main physics loop renders via its own ``app.update()`` calls, so the
+    latest frame is available to read directly; this keeps recording from
+    perturbing the physics (an extra ``app.update()`` per frame drops the
+    trajectory command rate and makes ``--capture-every`` change the
+    dynamics). Returns False if no RGB is ready yet (caller skips the frame
+    rather than stepping to force one). The camera must be warmed up before
+    the loop (see ``capture_camera_png`` for a stepping warm-up)."""
+
+    import cv2
+
+    rgb = camera.get_rgb(device="cpu")
+    if rgb is None:
+        return False
+    rgb = np.asarray(rgb)
+    if rgb.size == 0:
+        return False
+    if rgb.dtype != np.uint8:
+        rgb = np.clip(rgb, 0, 255).astype(np.uint8)
+    cv2.imwrite(str(path), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+    return True
 
 
 def write_video(frame_paths: list[Path], out_path: Path, fps: int) -> bool:

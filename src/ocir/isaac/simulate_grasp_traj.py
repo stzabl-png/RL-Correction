@@ -47,6 +47,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from ocir.grasp_synthesis.assets import DEFAULT_SHARPA_WAVE_RIGHT_CONFIG, load_sharpa_wave_right
+from ocir.grasp_traj.segments import slerp_wxyz
 from ocir.grasp_traj.trajectory_schema import (
     SEGMENT_CARRY,
     SEGMENT_SQUEEZE,
@@ -59,6 +60,7 @@ from ocir.isaac.replay_dexycb import (
     load_dexycb_frame_mapper,
     make_record_camera,
     matrix_to_quat_wxyz,
+    save_latest_camera_png,
     write_video,
 )
 from ocir.isaac.sim_cli import apply_mode_defaults, run_sim_cli_main
@@ -925,6 +927,7 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
     actual_joint_positions_per_step: list[np.ndarray] = []
     driven_targets_per_step: list[np.ndarray] = []
     blowup_logged = False
+    skipped_capture_logged = False
 
     # The bounded virtual-spring governor (optional, default off) begins only
     # once the trajectory enters squeeze, then remains active through carry;
@@ -940,23 +943,60 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
     # pose at synthesis time (grasp_stages.compute_grasp_stages), so the
     # trajectory's finger_targets ARE the deep target and the simulator
     # commands them verbatim -- no target rewriting here.
+
+    # Prime the render pipeline ONCE, at the initial (frame-0) pose, so the
+    # per-frame recording can read the already-rendered RGB without its own
+    # app.update(). A capture that steps the app injects an extra physics
+    # step per frame (dropping the wrist command rate to ~20Hz and making
+    # --capture-every change the dynamics), so the warm-up cost is paid here,
+    # up front, instead of on every recorded frame.
+    set_world_pose(stage, HAND_WRAP, all_pos_isaac[0], all_quat_isaac[0])
+    if args.carry_mode == CARRY_MODE_KINEMATIC:
+        set_world_pose(stage, OBJECT_WRAP, obj_pos_isaac_all[0], obj_quat_isaac_all[0])
+    write_finger_targets(finger_target_attrs, traj.finger_targets[0])
+    camera_ready = False
+    for _ in range(30):
+        app.update()
+        if camera.get_rgb(device="cpu") is not None:
+            camera_ready = True
+            break
+    if not camera_ready:
+        raise RuntimeError("camera did not produce an RGB frame during warm-up")
+    log("render pipeline primed; per-frame capture reads without stepping physics")
+
     phase(f"simulating {traj.num_steps} steps")
+    num_substeps = max(1, int(args.sim_steps_per_frame))
     for t in range(traj.num_steps):
         desired_targets = traj.finger_targets[t]
         driven_targets = desired_targets
         governed_count = 0
-        # Reference-style kinematic anchor transport: rewrite the wrapper
-        # Xform once per trajectory frame; the palm's world-anchor joint
-        # follows it and carries the whole hand rigidly.
-        set_world_pose(stage, HAND_WRAP, all_pos_isaac[t], all_quat_isaac[t])
-        if args.carry_mode == CARRY_MODE_KINEMATIC:
-            set_world_pose(stage, OBJECT_WRAP, obj_pos_isaac_all[t], obj_quat_isaac_all[t])
-        for _ in range(int(args.sim_steps_per_frame)):
+        # Reference-style kinematic anchor transport, refined to physics
+        # cadence: instead of teleporting the wrapper Xform once per
+        # trajectory frame and holding it for every substep (a 30Hz
+        # stair-step -- up to ~5mm per jump at the lift's peak speed, which
+        # the object must catch up to through contact and can ratchet-slip
+        # down), the frame-to-frame wrist motion is spread across the
+        # substeps (lerp position / slerp orientation), so the command rate
+        # matches the 60Hz physics rate and each jump halves. Finger targets
+        # are interpolated the same way (a strict refinement of the 30Hz
+        # ramp; constant during carry). Frame timing and endpoint poses are
+        # unchanged: the last substep lands exactly on frame t.
+        prev = max(t - 1, 0)
+        for k in range(num_substeps):
+            alpha = (k + 1) / num_substeps
+            sub_pos = all_pos_isaac[prev] * (1.0 - alpha) + all_pos_isaac[t] * alpha
+            sub_quat = slerp_wxyz(all_quat_isaac[prev], all_quat_isaac[t], alpha)
+            set_world_pose(stage, HAND_WRAP, sub_pos, sub_quat)
+            if args.carry_mode == CARRY_MODE_KINEMATIC:
+                obj_sub_pos = obj_pos_isaac_all[prev] * (1.0 - alpha) + obj_pos_isaac_all[t] * alpha
+                obj_sub_quat = slerp_wxyz(obj_quat_isaac_all[prev], obj_quat_isaac_all[t], alpha)
+                set_world_pose(stage, OBJECT_WRAP, obj_sub_pos, obj_sub_quat)
+            driven_targets = traj.finger_targets[prev] * (1.0 - alpha) + desired_targets * alpha
             # The governor (if on) is recomputed at physics cadence so a
             # fast-moving joint can't outrun a once-per-frame bound.
             if bool(args.contact_aware_finger_targets) and int(traj.segment[t]) in governed_segments:
                 driven_targets, substep_governed_count = govern_contact_targets(
-                    desired_targets, hand_reader.joint_positions(), target_lead_rad
+                    driven_targets, hand_reader.joint_positions(), target_lead_rad
                 )
                 governed_count = max(governed_count, substep_governed_count)
             write_finger_targets(finger_target_attrs, driven_targets)
@@ -975,8 +1015,14 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
         object_track.append(pos)
         if t % int(args.capture_every) == 0:
             frame_path = frames_dir / f"frame_{t:05d}.png"
-            capture_camera_png(app, camera, frame_path)
-            frame_paths.append(frame_path)
+            # Read the frame the main loop's app.update() already rendered --
+            # never step the app here (that would advance physics). Skip the
+            # frame if no RGB is ready rather than forcing a step.
+            if save_latest_camera_png(camera, frame_path):
+                frame_paths.append(frame_path)
+            elif not skipped_capture_logged:
+                skipped_capture_logged = True
+                log(f"NOTE: camera had no RGB ready at step {t}; skipping this recorded frame (physics untouched)")
 
     phase(f"settling ({args.settle_steps} steps)")
     # The anchored hand holds the final wrapper pose on its own; keep the
@@ -1127,7 +1173,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hand-self-collisions", action=argparse.BooleanOptionalAction, default=True, help="PhysX self-collision between the hand's own links (PhysxArticulationAPI enabledSelfCollisions). Default on. Disable if squeeze/carry postures cause solver instability from expected finger-finger interpenetration at the closed grasp.")
     parser.add_argument("--hand-table-collision", action=argparse.BooleanOptionalAction, default=False, help="Hand-table contact pairs. Default off (collision-group filtered, as in ref/sharpa_tabletop.py): the trajectory may skim the tabletop and hand-table scraping only injects contact noise. The object always collides with both.")
     parser.add_argument("--sim-steps-per-frame", type=int, default=2, help="app.update() calls per trajectory frame; each advances sim time 1/60s, so 2 matches a 30fps trajectory in real time.")
-    parser.add_argument("--time-steps-per-second", type=float, default=120.0, help="PhysX substep rate; keep a multiple of 60.")
+    parser.add_argument("--time-steps-per-second", type=float, default=180.0, help="PhysX substep rate; keep a multiple of 60. Default 180 = 3 substeps per 1/60s app.update (finer contact than the reference's 60).")
     parser.add_argument("--gravity", type=float, default=9.81, help="Gravity magnitude (m/s^2), -z. Default 9.81 (realistic weight); ref/sharpa_tabletop.py uses 30 as a ~3g stress load.")
     parser.add_argument("--contact-slop", type=float, default=0.2, help="Object PhysX contactSlopCoefficient: penetration below this (scaled) tolerance is left uncorrected, damping resting-contact jitter/creep. Default 0.2 matches ref/sharpa_tabletop.py; 0 disables.")
     parser.add_argument("--capture-every", type=int, default=1)

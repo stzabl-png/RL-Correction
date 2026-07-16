@@ -824,6 +824,19 @@ squeeze pose is baked into the record). Known residual unchanged:
 force-closure geometry of `failed_grasp` records (radial pinch vs axial
 gravity on smooth objects) is untouched by any drive policy.
 
+### v24 -- pregrasp->grasp detour guard (2026-07-16)
+
+The mug seed's hand visibly "flew away" at the pregrasp pose: the pregrasp
+and grasp wrists coincide (pregrasp only opens the fingers), so the
+pregrasp->grasp leg is a ~1cm in-place move, but cuRobo returned a
+valid-but-pathological plan that swung the wrist ~40cm out and looped back
+(80cm path for a 1.3cm move). `_plan_contact_leg` now checks the returned
+plan's wrist path length and rejects it (falling back to the straight
+fingers-locked-open interp, which is collision-free here by construction)
+when it exceeds `max(2.5x, +4cm)` of the direct distance. cuRobo failing
+outright already fell back to interp; this extends the fallback to cuRobo
+"succeeding" with a wild detour.
+
 ### Tooling (2026-07-10, commits 3da7b95 + 3946a12)
 
 Videos encoded H.264/yuv420p via ffmpeg; console output reduced to progress

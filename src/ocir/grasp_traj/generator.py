@@ -434,8 +434,29 @@ class GraspTrajectoryGenerator:
                     seconds=seconds, fps=cfg.fps, max_speed_mps=cfg.max_wrist_speed_mps,
                 )
                 if out is not None:
-                    return out, "curobo"
-                print("[grasp_traj] pregrasp->grasp leg: cuRobo found no plan (goal at contact boundary); interpolating")
+                    # cuRobo can return a valid-but-pathological detour for
+                    # this near-in-place leg (the pregrasp and grasp wrists
+                    # coincide -- pregrasp only opens the fingers -- so the
+                    # goal sits ~a cm away): a mug seed planned an 80cm wrist
+                    # loop for a 1.3cm move, which reads as the hand flying
+                    # away and snapping back. The straight interp with fingers
+                    # locked open is collision-free here by construction, so
+                    # reject any plan whose wrist path is far longer than the
+                    # direct move and fall back to it.
+                    plan_pos = np.asarray(out[0])
+                    path_len = float(
+                        np.linalg.norm(plan_pos[0] - start_pos)
+                        + np.linalg.norm(np.diff(plan_pos, axis=0), axis=1).sum()
+                    )
+                    detour_limit = max(2.5 * dist, dist + 0.04)
+                    if path_len <= detour_limit:
+                        return out, "curobo"
+                    print(
+                        f"[grasp_traj] pregrasp->grasp leg: cuRobo path {path_len*100:.1f}cm detours far past "
+                        f"the {dist*100:.1f}cm direct move (limit {detour_limit*100:.1f}cm); interpolating"
+                    )
+                else:
+                    print("[grasp_traj] pregrasp->grasp leg: cuRobo found no plan (goal at contact boundary); interpolating")
             except Exception as exc:
                 print(f"[grasp_traj] pregrasp->grasp leg: cuRobo raised {exc!r}; interpolating")
         return _interp("interp")

@@ -127,7 +127,7 @@ scripts/run_grasp_synthesis_conda.sh \
   history). Even when enabled it can only soften the **final** grasp's
   penetration, never the stage-0 `pregrasp` snapshot (captured at
   `opt_progress == 0.6`, before the ramp); that is handled geometrically by
-  the pregrasp finger opening (`--pregrasp-clearance`, see the three-stage
+  the pregrasp finger opening (`--pregrasp-clearance`, see the two-stage
   table). `--pose-weight` still defaults to **0**: a
   stronger pose prior was found to pull finger geometry back into penetrating
   retarget anchors on hard cases. Pass a positive value to re-enable it.
@@ -159,23 +159,22 @@ not any seed cleared the strict success threshold (each record and the
 summary's `grasp_json` / `failed_grasp_json` point at `grasp_pose_1.json`).
 `grasp_traj`'s `--synthesis-out-dir` runs all of them.
 
-## Three-stage grasp poses
+## Two-stage grasp poses
 
-Every grasp record carries a `stages` dict with three wrist+finger poses
+Every grasp record carries a `stages` dict with two wrist+finger poses
 (`grasp_stages.py`; each stage is `{position, orientation (wxyz),
 joints {name: rad}}` in the object canonical frame), so downstream consumers
 (the `grasp_traj` pipeline) never have to repair or invent poses themselves:
 
 | Stage | Origin |
 | --- | --- |
-| `pregrasp` | Mid-optimization snapshot taken the moment the staged contact cost enters its middle (1cm-standoff) stage -- i.e. the pose optimized under the initial ~2cm-standoff target (the end of the optimizer's first, force-closure-scored phase). Reproduces BODex's own `save_qpos`/`mid_result` mechanism by *subclassing* the frozen optimizer core (`SnapshotBodexNewtonOpt`), never modifying it. Because the snapshot precedes the penetration-penalty ramp it frequently sits inside the object (object-dependent, some seeds 5-18mm deep), so it is **opened out of collision in joint space, per finger**: the wrist pose is kept exactly as optimized (it is the approach pose the trajectory is built around) and each finger's flexion channels (`_FE`/`_PIP`/`_DIP`/`_IP`) plus, for the thumb, **both thumb-CMC DoFs** (`thumb_CMC_AA` opens alongside `thumb_CMC_FE`; the remaining spread/AA channels frozen) are scaled toward 0 rad **only as far as that finger needs** to clear the object by `--pregrasp-clearance` (default 5mm). Each finger is searched independently against just the spheres it actually moves (the wrist is fixed, so opening one finger can't move another's; a metacarpal a frozen CMC leaves in place is excluded automatically), and the **palm is ignored** -- no joint opens it, so a finger that already clears keeps its grasp posture and a penetrating palm (a wrist-placement problem, warned about) never splays the fingers. A finger that can't clear even fully open is capped and warned. The squeeze delta is computed from the *un-opened* snapshot, so the opening never inflates the squeeze extrapolation. `stage_report` records `pregrasp_snapshot_clearance_m` (before opening), the per-finger `pregrasp_open_fractions` (and `pregrasp_open_fraction_max`), and the achieved `pregrasp_clearance_m` (both clearances are the min over openable spheres, palm excluded). |
-| `grasp` | The fully optimized final action, unmodified (identical to the record's `action`). Penetrates the object (the staged cost's final target distance is 0 and, with `--penetration-weight` 0 by default, nothing opposes overshoot) -- the simulation's soft per-joint drives absorb the overlap as contact force. `stage_report` records its `grasp_clearance_m`. |
-| `squeeze` | Articulation-BODex drive-through baked into the pose. Only the **wrapping/press joints** move -- MCP flexion (`_FE`, incl. thumb CMC-FE and MCP-FE), `_PIP`, and thumb `_IP`; the fingertip `_DIP` joints and all abduction/spread hold their grasp posture (driving the distal-most joint deeper only rolls the fingertip off a convex surface for negligible force). Each driven joint is `grasp + clamp(grasp - snapshot, min=--squeeze-min) + --squeeze-overclose` (snapshot = the pregrasp *before* its joint-space opening, so the delta is the optimizer's FULL closing motion; the 0.15 rad floor gives barely-moved joints -- typically the thumb -- a minimum drive-through, and the fixed 0.2 rad overclose keeps a blocked finger past the sim drives' cap-saturation band (`maxForce/stiffness` = 0.10-0.14 rad) so grip force does not decay to zero as it reaches the pose). Clamped to joint limits. The overclose is baked here, not applied in the simulator, so the record's squeeze pose is the true deep target. `stage_report` records `squeeze_overclose_rad`, `squeeze_drive_channels`, and any `squeeze_limit_clamped_joints`. |
+| `pregrasp` | Mid-optimization snapshot taken the moment the staged contact cost enters its middle (1cm-standoff) stage -- i.e. the pose optimized under the initial ~2cm-standoff target (the end of the optimizer's first, force-closure-scored phase). Reproduces BODex's own `save_qpos`/`mid_result` mechanism by *subclassing* the frozen optimizer core (`SnapshotBodexNewtonOpt`), never modifying it. Because the snapshot precedes the penetration-penalty ramp it frequently sits inside the object (object-dependent, some seeds 5-18mm deep), so it is **opened out of collision in joint space, per finger**: the wrist pose is kept exactly as optimized (it is the approach pose the trajectory is built around) and each finger's flexion channels (`_FE`/`_PIP`/`_DIP`/`_IP`) plus, for the thumb, **both thumb-CMC DoFs** (`thumb_CMC_AA` opens alongside `thumb_CMC_FE`; the remaining spread/AA channels frozen) are scaled toward 0 rad **only as far as that finger needs** to clear the object by `--pregrasp-clearance` (default 5mm). Each finger is searched independently against just the spheres it actually moves (the wrist is fixed, so opening one finger can't move another's; a metacarpal a frozen CMC leaves in place is excluded automatically), and the **palm is ignored** -- no joint opens it, so a finger that already clears keeps its grasp posture and a penetrating palm (a wrist-placement problem, warned about) never splays the fingers. A finger that can't clear even fully open is capped and warned. `stage_report` records `pregrasp_snapshot_clearance_m` (before opening), the per-finger `pregrasp_open_fractions` (and `pregrasp_open_fraction_max`), and the achieved `pregrasp_clearance_m` (both clearances are the min over openable spheres, palm excluded). |
+| `grasp` | The fully optimized final action, unmodified (identical to the record's `action`). Penetrates the object (the staged cost's final target distance is 0 and, with `--penetration-weight` 0 by default, nothing opposes overshoot) -- the simulation's soft per-joint drives absorb the overlap as contact force. This is also the pose held through the whole close/settle/carry: there is **no** separate driven-past-contact `squeeze` pose (removed 2026-07-16 -- the grasp pose is targeted directly). `stage_report` records its `grasp_clearance_m`. |
 
 `stage_report` records the SDF clearance of each stage. The Isaac
-visualization renders records with stages as a **3x3 grid** (one labeled row
+visualization renders records with stages as a **2x3 grid** (one labeled row
 per stage x front/side/top orthogonal views; legacy records with a separate
-`raw_grasp` render 4 rows); the exported `scene.usd` contains all stage
+`raw_grasp` render 3 rows); the exported `scene.usd` contains all stage
 hands with only `grasp` visible by default (the rest are toggleable).
 
 ## Visualization
@@ -190,10 +189,9 @@ present in the interactive/exported scene (`scene.usd`, toggleable there),
 but the **saved screenshot** deliberately shows only the object, the grasp
 hand, and the human demo point cloud (the ghost hand and affordance heatmap
 are hidden just for that capture, then restored). For stage records the
-screenshot is a labeled grid (pregrasp / grasp / squeeze rows x
-front/side/top views -- legacy records add a raw_grasp row -- individual
-rows also saved as `stage_<name>.png`); records without stages keep the
-single 1x3 composite.
+screenshot is a labeled grid (pregrasp / grasp rows x front/side/top views
+-- legacy records add a raw_grasp row -- individual rows also saved as
+`stage_<name>.png`); records without stages keep the single 1x3 composite.
 Same two modes as the base visualizer (see
 [Isaac Sim infrastructure](isaac_sim.md)); extra flags:
 `--show-affordance/--show-demo-hand/--show-anchor-hand`, `--anchor-opacity`,

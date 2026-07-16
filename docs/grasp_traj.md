@@ -2,7 +2,7 @@
 
 Turns one synthesized anchored-BODex grasp into a full manipulation --
 approach from the human video demo, retarget the hand along the way, close
-and squeeze onto the grasp pose, let the contacts settle, then carry: by
+onto the grasp pose, let the contacts settle, then carry: by
 default a straight vertical 20cm lift (the simplified pick task), or the
 object's recorded demo trajectory (`--carry-style demo`) -- and renders it
 as a video in Isaac Sim **with real PhysX physics** on the object (gravity,
@@ -46,15 +46,15 @@ The generated trajectory is labeled per step with one of five segments
    checked against the object SDF with all 37 hand collision spheres) and
    precedes the demo's first hand-object contact frame.
 3. **Stage poses come from the record.** Stage records (see
-   [anchored_bodex.md](anchored_bodex.md#three-stage-grasp-poses)) already
-   carry `pregrasp` (opened clear of the object) / `grasp` (the fully
-   optimized action, possibly slightly penetrating) / `squeeze` poses
-   computed at synthesis time, and the generator consumes them directly
+   [anchored_bodex.md](anchored_bodex.md#two-stage-grasp-poses)) already
+   carry `pregrasp` (opened clear of the object) and `grasp` (the fully
+   optimized action, possibly slightly penetrating) poses computed at
+   synthesis time, and the generator consumes them directly
    (`uses_record_stages: true` in the report). Legacy single-action records
    fall back to the generator's own repair: wrist back-off along the
    approach axis until the open hand clears (`wrist_backoff_m`) plus a
-   finger contact projection (`contact_close_fraction`), with
-   `--squeeze-delta` building the squeeze target.
+   finger contact projection (`contact_close_fraction`) whose contact pose
+   is then held.
 4. **Planned transit (cuRobo v2, fail-closed).** The open hand flies from
    the switch pose to an adaptive **preapproach** point -- the record's
    pregrasp wrist backed off along its palm axis just far enough for the
@@ -69,18 +69,20 @@ The generated trajectory is labeled per step with one of five segments
    alternative, not a silent fallback). The path is SDF-validated en route
    (the arrival tail next to the object is excluded from the threshold
    check).
-5. **Close + squeeze (all under the simulation's softened close gains).**
+5. **Close (all under the simulation's softened close gains).**
    Step-in: preapproach -> pregrasp wrist while the fingers blend wide-open
    -> the synthesized pregrasp posture. Then the wrist moves pregrasp ->
    contact-grasp pose -- cuRobo again when it finds a plan
    (`pregrasp_to_grasp_planner: curobo`), with straight interpolation as the
    DESIGNED fallback since this leg ends essentially on the contact boundary
    where collision-constrained planning is expected to be infeasible for
-   some grasps. Fingers then close in place to the contact-grasp posture
-   (`--final-close-seconds`), and squeeze ramps to the record's squeeze
-   stage (a bounded drive-force request past contact).
-6. **Settle.** After the squeeze ramp the wrist parks at the squeeze-end
-   pose with the squeeze targets held for `--settle-seconds` so the physics
+   some grasps. Fingers then close in place to the record's grasp posture
+   (`--final-close-seconds`). The final `squeeze` segment
+   (`--squeeze-seconds`) is a static hold at that grasp pose so the contacts
+   converge -- there is **no** separate driven-past-contact squeeze pose (the
+   grasp pose is the deepest target).
+6. **Settle.** After the squeeze segment the wrist parks at the grasp pose
+   with the grasp targets held for `--settle-seconds` so the physics
    contacts converge before any load transfer (appended to the squeeze
    segment: same drive gains, and the carry-only lift metrics stay clean).
 7. **Initial-posture self-clearance correction** (`self_clearance.py`).
@@ -159,8 +161,8 @@ lift, `--carry-blend-seconds` (0.3) and
 `--carry-start {grasp_frame,pickup_frame}` (grasp_frame) for the demo
 carry. `--self-clearance-buffer` (0.0m sphere metric; negative disables the
 frame-0 finger-spread correction) and `--self-clearance-decay-seconds`
-(1.0). `--squeeze-delta` (0.15 rad) and `--near-contact-margin`
-(0.003m) only apply to legacy records without stages. Writes
+(1.0). `--near-contact-margin` (0.003m) only applies to legacy records
+without stages. Writes
 `trajectory.npz` (per-step hand/object pos+quat, finger targets, segment
 labels) + `trajectory.json` (switch frame, clearance/transit/stage report,
 config).
@@ -225,27 +227,13 @@ step; a `SingleArticulation` view is kept only for joint-state readback and
 the initial joint teleport. Resolved per-joint caps are recorded in
 `report.json` under `hand.resolved_max_efforts`.
 
-The finger pose held through the squeeze segment, settle, and carry is
-selected by `--held-finger-pose` (Stage A):
-
-- **`grasp` (default)**: the drives target the record's **grasp** joints for
-  the whole squeeze/settle/carry -- no drive-through past contact. Grip force
-  is whatever the soft-capped drives produce holding the grasp posture
-  against the object.
-- **`squeeze`**: the drives target the record's synthesized (overclosed)
-  **squeeze** pose instead. That pose deepens only the wrapping joints
-  (MCP-FE incl. thumb, PIP, thumb IP -- NOT the fingertip DIPs or spread) to
-  `grasp + clamp(closing, min=0.15) + 0.2 rad`
-  (`grasp_stages.compute_grasp_stages`, see
-  [`anchored_bodex.md`](anchored_bodex.md)), so a blocked finger stalls
-  ~0.35 rad short of its target -- past the soft drives' cap-saturation band
-  (`maxForce/stiffness` = 0.10-0.14 rad) -- and holds its effort cap instead
-  of decaying as it reaches the pose.
-
-Either way the simulator does no target rewriting -- it commands the chosen
-trajectory pose directly -- and grasp synthesis is unaffected (the record
-carries both poses regardless). The `squeeze` segment still exists in the
-timeline; under `grasp` it simply holds the grasp pose (an extra settle).
+The finger pose held through the squeeze segment, settle, and carry is the
+record's **grasp** joints -- no drive-through past contact. Grip force is
+whatever the soft-capped drives produce holding the grasp posture against the
+object. The simulator does no target rewriting -- it commands the trajectory
+pose directly. The `squeeze` segment still exists in the timeline, but it
+simply holds the grasp pose (an extra settle): there is no separate
+driven-past-contact squeeze pose (removed 2026-07-16; see the changelog).
 
 The v13 contact-aware target governor (`--contact-aware-finger-targets`,
 default OFF) is retained as an alternative sim-side policy: it recomputes
@@ -888,6 +876,25 @@ squeeze drive-through past contact -- grip force is whatever the soft-capped
 drives produce holding the grasp posture. `squeeze` keeps the v23 overclosed
 squeeze pose. Trajectory-side only; grasp synthesis still bakes both poses
 into every record (`held_finger_pose` recorded in `extra_metadata.config`).
+
+### v28 -- squeeze pose removed entirely (2026-07-16)
+
+The synthesized overclosed squeeze pose is gone end to end. Grasp synthesis
+records now carry only two stage poses (`pregrasp`, `grasp`); the squeeze
+extrapolation, its `--squeeze-min` / `--squeeze-overclose` knobs, the
+`squeeze_*` `stage_report` fields, and the visualizer's squeeze row are all
+removed. Stage B no longer has a `--held-finger-pose` choice (or the legacy
+`--squeeze-delta`): the trajectory always targets the record's **grasp**
+pose through close, settle, and carry. The `squeeze` trajectory *segment*
+still exists as a static hold at the grasp pose (a final settle before the
+lift); only the driven-past-contact target is gone. Rationale: the v22-v23
+experiments showed the overclose either ratcheted the object loose
+(moving-target lead) or made no reliable difference over holding the grasp
+pose once the per-joint effort caps already bound the grip -- so the extra
+pose was complexity without a payoff. **Re-run grasp synthesis** to drop the
+squeeze stage from existing records (the Stage B reader requires only
+`pregrasp`/`grasp`; older records that still carry a `squeeze` stage are
+simply ignored).
 
 ### Tooling (2026-07-10, commits 3da7b95 + 3946a12)
 

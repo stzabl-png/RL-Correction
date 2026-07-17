@@ -1,7 +1,8 @@
 # Isaac Sim infrastructure: persistent server, standalone mode, visualization
 
 All Isaac-facing tools in this repo (grasp visualization, anchored
-visualization, grasp-trajectory physics simulation, DexYCB replay) share the
+visualization, grasp-trajectory physics simulation, closed-loop full-trajectory
+simulation, DexYCB replay) share the
 same execution infrastructure and dual-mode CLI.
 
 ## Persistent server vs. standalone
@@ -23,7 +24,8 @@ same execution infrastructure and dual-mode CLI.
   **Task hot-reload**: the server's default task module is
   `visualize_grasp.py`, whose `register_sim_tasks` chains
   `importlib.reload(...)` registrations for `grasp_pose_visualization`,
-  `anchored_grasp_visualization`, and `grasp_traj_simulation`, and whose
+  `anchored_grasp_visualization`, `grasp_traj_simulation`, and
+  `full_traj_simulation`, and whose
   module top additionally reloads the shared helper modules
   (`replay_dexycb`, `sim_cli`) -- plain from-imports would otherwise keep
   binding against the stale copies in `sys.modules`. A running server

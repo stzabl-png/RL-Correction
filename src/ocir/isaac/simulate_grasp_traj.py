@@ -52,6 +52,8 @@ from ocir.grasp_traj.trajectory_schema import (
     SEGMENT_CARRY,
     SEGMENT_SQUEEZE,
     GraspTrajectory,
+    matrix_to_pos_quat,
+    pos_quat_to_matrix,
     quat_wxyz_to_matrix,
 )
 from ocir.isaac.replay_dexycb import (
@@ -753,7 +755,7 @@ def compute_physics_metrics(
 # ---------------------------------------------------------------------------
 
 
-def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
+def simulate_grasp_traj(app, args: argparse.Namespace, progress=None, carry_controller_factory=None) -> dict:
     import omni.timeline
     import omni.usd
     from pxr import UsdGeom, UsdLux
@@ -808,6 +810,11 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
 
     all_pos_isaac, all_quat_isaac = camera_pos_quat_to_isaac(traj.hand_pos_camera, traj.hand_quat_camera, frame_mapper, z_offset=z_offset)
     obj_pos_isaac_all, obj_quat_isaac_all = camera_pos_quat_to_isaac(traj.object_pos_camera, traj.object_quat_camera, frame_mapper, z_offset=z_offset)
+    carry_runtime = (
+        carry_controller_factory(frame_mapper=frame_mapper, z_offset=z_offset, trajectory=traj)
+        if carry_controller_factory is not None
+        else None
+    )
     # world_verts_init was computed with z_offset=0.0 above (needed to derive
     # z_offset itself); shift it by the full offset to align with the
     # already-offset hand/object trajectories for the camera bbox below.
@@ -917,9 +924,13 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
             f"({traj.dt:.4f}s); playback speed scales by {float(traj.dt) / sim_dt_per_frame:.2f}x"
         )
 
-    carry_mask = traj.segment == SEGMENT_CARRY
     resting_z = float(obj_pos_isaac_all[0, 2])
     object_track: list[np.ndarray] = []
+    object_quat_track: list[np.ndarray] = []
+    reference_object_pos_track: list[np.ndarray] = []
+    reference_object_quat_track: list[np.ndarray] = []
+    runtime_segments: list[int] = []
+    desired_targets_per_step: list[np.ndarray] = []
     frame_paths: list[Path] = []
     joint_error_per_step: list[float] = []
     drive_target_error_per_step: list[float] = []
@@ -930,18 +941,17 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
     skipped_capture_logged = False
 
     # The bounded virtual-spring governor (optional, default off) begins only
-    # once the trajectory enters squeeze, then remains active through carry;
-    # close keeps its full trajectory target so the fingers can traverse free
-    # space and actually reach the contact posture.
+    # once the trajectory enters the stationary post-grasp hold (legacy
+    # SEGMENT_SQUEEZE label), then remains active through carry; close keeps
+    # its full target so the fingers can reach the grasp posture.
     governed_segments = {SEGMENT_SQUEEZE, SEGMENT_CARRY}
     target_lead_rad = float(args.contact_target_lead_rad)
     if bool(args.contact_aware_finger_targets) and target_lead_rad <= 0.0:
         raise ValueError(f"--contact-target-lead-rad must be positive, got {target_lead_rad}")
 
     # The trajectory's finger_targets hold the record's grasp pose through
-    # the squeeze segment and carry (no separate driven-past-contact squeeze
-    # pose), so the simulator commands them verbatim -- no target rewriting
-    # here; the per-joint effort caps bound the resulting grip force.
+    # the stationary post-grasp hold and carry. There is no separate squeeze
+    # pose; the per-joint effort caps bound the grip force.
 
     # Prime the render pipeline ONCE, at the initial (frame-0) pose, so the
     # per-frame recording can read the already-rendered RGB without its own
@@ -963,10 +973,53 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
         raise RuntimeError("camera did not produce an RGB frame during warm-up")
     log("render pipeline primed; per-frame capture reads without stepping physics")
 
-    phase(f"simulating {traj.num_steps} steps")
+    controlled_nominal_pos: list[np.ndarray] = []
+    controlled_nominal_quat: list[np.ndarray] = []
+    controlled_command_pos: list[np.ndarray] = []
+    controlled_command_quat: list[np.ndarray] = []
+    controlled_path_index: list[int] = []
+    controlled_progress_index: list[int] = []
+    controlled_translation_error: list[float] = []
+    controlled_orientation_error: list[float] = []
+    controlled_cross_track_translation: list[float] = []
+    controlled_cross_track_rotation: list[float] = []
+    controlled_translation_correction: list[float] = []
+    controlled_orientation_correction: list[float] = []
+    controlled_translation_saturated: list[bool] = []
+    controlled_orientation_saturated: list[bool] = []
+    controlled_velocity_saturated: list[bool] = []
+    controlled_acceleration_saturated: list[bool] = []
+    controlled_lost_grasp: list[bool] = []
+
+    if carry_runtime is None:
+        phase(f"simulating {traj.num_steps} steps")
+        max_outer_steps = traj.num_steps
+    else:
+        if int(carry_runtime.carry_start_step) <= 0:
+            raise ValueError("closed-loop carry requires a non-empty completed-grasp prefix")
+        if int(carry_runtime.carry_start_step) >= traj.num_steps:
+            raise ValueError("closed-loop carry_start_step is outside the trajectory")
+        max_carry_outer = int(np.ceil(carry_runtime.controller.max_duration_seconds / sim_dt_per_frame)) + 1
+        max_outer_steps = int(carry_runtime.carry_start_step) + max_carry_outer
+        phase(
+            f"simulating open-loop grasp prefix then adaptive carry "
+            f"(carry_start={carry_runtime.carry_start_step}, max_steps={max_outer_steps})"
+        )
+
     num_substeps = max(1, int(args.sim_steps_per_frame))
-    for t in range(traj.num_steps):
-        desired_targets = traj.finger_targets[t]
+    last_hand_pose = pos_quat_to_matrix(all_pos_isaac[0], all_quat_isaac[0])
+    controller_started = False
+    controller_last_step = None
+    t = 0
+    while t < max_outer_steps:
+        controlled_carry = carry_runtime is not None and t >= int(carry_runtime.carry_start_step)
+        source_t = min(t, traj.num_steps - 1)
+        segment_value = SEGMENT_CARRY if controlled_carry else int(traj.segment[source_t])
+        desired_targets = (
+            np.asarray(carry_runtime.fixed_finger_targets, dtype=np.float64)
+            if controlled_carry
+            else traj.finger_targets[source_t]
+        )
         driven_targets = desired_targets
         governed_count = 0
         # Reference-style kinematic anchor transport, refined to physics
@@ -980,26 +1033,52 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
         # are interpolated the same way (a strict refinement of the 30Hz
         # ramp; constant during carry). Frame timing and endpoint poses are
         # unchanged: the last substep lands exactly on frame t.
-        prev = max(t - 1, 0)
+        prev = max(source_t - 1, 0)
+        last_reference_pos = np.asarray(obj_pos_isaac_all[source_t], dtype=np.float64)
+        last_reference_quat = np.asarray(obj_quat_isaac_all[source_t], dtype=np.float64)
         for k in range(num_substeps):
-            alpha = (k + 1) / num_substeps
-            sub_pos = all_pos_isaac[prev] * (1.0 - alpha) + all_pos_isaac[t] * alpha
-            sub_quat = slerp_wxyz(all_quat_isaac[prev], all_quat_isaac[t], alpha)
+            if controlled_carry:
+                actual_obj_pos, actual_obj_quat = read_object_world_pose(stage)
+                actual_obj_pose = pos_quat_to_matrix(actual_obj_pos, actual_obj_quat)
+                if not controller_started:
+                    carry_runtime.controller.start(actual_obj_pose, last_hand_pose)
+                    controller_started = True
+                    log("closed-loop wrist controller activated at first carry update")
+                controller_last_step = carry_runtime.controller.step(
+                    actual_obj_pose,
+                    last_hand_pose,
+                    dt=1.0 / 60.0,
+                )
+                sub_pos, sub_quat = matrix_to_pos_quat(controller_last_step.hand_command)
+                last_reference_pos, last_reference_quat = matrix_to_pos_quat(controller_last_step.object_target)
+                nominal_pos, nominal_quat = matrix_to_pos_quat(controller_last_step.nominal_hand)
+            else:
+                alpha = (k + 1) / num_substeps
+                sub_pos = all_pos_isaac[prev] * (1.0 - alpha) + all_pos_isaac[source_t] * alpha
+                sub_quat = slerp_wxyz(all_quat_isaac[prev], all_quat_isaac[source_t], alpha)
             set_world_pose(stage, HAND_WRAP, sub_pos, sub_quat)
-            if args.carry_mode == CARRY_MODE_KINEMATIC:
-                obj_sub_pos = obj_pos_isaac_all[prev] * (1.0 - alpha) + obj_pos_isaac_all[t] * alpha
-                obj_sub_quat = slerp_wxyz(obj_quat_isaac_all[prev], obj_quat_isaac_all[t], alpha)
+            last_hand_pose = pos_quat_to_matrix(sub_pos, sub_quat)
+            if args.carry_mode == CARRY_MODE_KINEMATIC and not controlled_carry:
+                alpha = (k + 1) / num_substeps
+                obj_sub_pos = obj_pos_isaac_all[prev] * (1.0 - alpha) + obj_pos_isaac_all[source_t] * alpha
+                obj_sub_quat = slerp_wxyz(obj_quat_isaac_all[prev], obj_quat_isaac_all[source_t], alpha)
                 set_world_pose(stage, OBJECT_WRAP, obj_sub_pos, obj_sub_quat)
-            driven_targets = traj.finger_targets[prev] * (1.0 - alpha) + desired_targets * alpha
+            if controlled_carry:
+                driven_targets = desired_targets
+            else:
+                alpha = (k + 1) / num_substeps
+                driven_targets = traj.finger_targets[prev] * (1.0 - alpha) + desired_targets * alpha
             # The governor (if on) is recomputed at physics cadence so a
             # fast-moving joint can't outrun a once-per-frame bound.
-            if bool(args.contact_aware_finger_targets) and int(traj.segment[t]) in governed_segments:
+            if bool(args.contact_aware_finger_targets) and segment_value in governed_segments:
                 driven_targets, substep_governed_count = govern_contact_targets(
                     driven_targets, hand_reader.joint_positions(), target_lead_rad
                 )
                 governed_count = max(governed_count, substep_governed_count)
             write_finger_targets(finger_target_attrs, driven_targets)
             app.update()
+            if controlled_carry and carry_runtime.controller.done:
+                break
         step_error = hand_reader.max_joint_tracking_error(desired_targets)
         drive_step_error = hand_reader.max_joint_tracking_error(driven_targets)
         joint_error_per_step.append(step_error)
@@ -1007,11 +1086,34 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
         governed_joint_count_per_step.append(governed_count)
         actual_joint_positions_per_step.append(hand_reader.joint_positions())
         driven_targets_per_step.append(np.asarray(driven_targets, dtype=np.float64).copy())
+        desired_targets_per_step.append(np.asarray(desired_targets, dtype=np.float64).copy())
+        runtime_segments.append(segment_value)
+        reference_object_pos_track.append(np.asarray(last_reference_pos, dtype=np.float64).copy())
+        reference_object_quat_track.append(np.asarray(last_reference_quat, dtype=np.float64).copy())
         if drive_step_error > 1.0 and not blowup_logged:
             blowup_logged = True
-            log(f"NOTE: drive-target lag {drive_step_error:.2f} rad at step {t} (segment {int(traj.segment[t])}) -- expected under soft reference gains when contact stalls a joint")
-        pos, _ = read_object_world_pose(stage)
+            log(f"NOTE: drive-target lag {drive_step_error:.2f} rad at step {t} (segment {segment_value}) -- expected under soft reference gains when contact stalls a joint")
+        pos, quat = read_object_world_pose(stage)
         object_track.append(pos)
+        object_quat_track.append(quat)
+        if controlled_carry and controller_last_step is not None:
+            controlled_nominal_pos.append(np.asarray(nominal_pos, dtype=np.float64).copy())
+            controlled_nominal_quat.append(np.asarray(nominal_quat, dtype=np.float64).copy())
+            controlled_command_pos.append(np.asarray(sub_pos, dtype=np.float64).copy())
+            controlled_command_quat.append(np.asarray(sub_quat, dtype=np.float64).copy())
+            controlled_path_index.append(int(controller_last_step.path_index))
+            controlled_progress_index.append(int(controller_last_step.progress_index))
+            controlled_translation_error.append(float(controller_last_step.translation_error_m))
+            controlled_orientation_error.append(float(controller_last_step.orientation_error_rad))
+            controlled_cross_track_translation.append(float(controller_last_step.cross_track_translation_m))
+            controlled_cross_track_rotation.append(float(controller_last_step.cross_track_rotation_rad))
+            controlled_translation_correction.append(float(controller_last_step.correction_translation_m))
+            controlled_orientation_correction.append(float(controller_last_step.correction_rotation_rad))
+            controlled_translation_saturated.append(bool(controller_last_step.correction_translation_saturated))
+            controlled_orientation_saturated.append(bool(controller_last_step.correction_rotation_saturated))
+            controlled_velocity_saturated.append(bool(controller_last_step.velocity_saturated))
+            controlled_acceleration_saturated.append(bool(controller_last_step.acceleration_saturated))
+            controlled_lost_grasp.append(bool(controller_last_step.lost_grasp))
         if t % int(args.capture_every) == 0:
             frame_path = frames_dir / f"frame_{t:05d}.png"
             # Read the frame the main loop's app.update() already rendered --
@@ -1022,31 +1124,39 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
             elif not skipped_capture_logged:
                 skipped_capture_logged = True
                 log(f"NOTE: camera had no RGB ready at step {t}; skipping this recorded frame (physics untouched)")
+        if controlled_carry and carry_runtime.controller.done:
+            break
+        t += 1
 
     phase(f"settling ({args.settle_steps} steps)")
     # The anchored hand holds the final wrapper pose on its own; keep the
     # finger targets commanded so the grip stays loaded while the object
     # settles.
-    set_world_pose(stage, HAND_WRAP, all_pos_isaac[-1], all_quat_isaac[-1])
+    final_hand_pos, final_hand_quat = matrix_to_pos_quat(last_hand_pose)
+    set_world_pose(stage, HAND_WRAP, final_hand_pos, final_hand_quat)
+    final_finger_targets = desired_targets_per_step[-1]
     for _ in range(int(args.settle_steps)):
-        settle_targets = traj.finger_targets[-1]
+        settle_targets = final_finger_targets
         if bool(args.contact_aware_finger_targets):
             settle_targets, _ = govern_contact_targets(
                 settle_targets, hand_reader.joint_positions(), target_lead_rad
             )
         write_finger_targets(finger_target_attrs, settle_targets)
-        if args.carry_mode == CARRY_MODE_KINEMATIC:
-            set_world_pose(stage, OBJECT_WRAP, obj_pos_isaac_all[-1], obj_quat_isaac_all[-1])
+        if args.carry_mode == CARRY_MODE_KINEMATIC and carry_runtime is None:
+            set_world_pose(stage, OBJECT_WRAP, reference_object_pos_track[-1], reference_object_quat_track[-1])
         app.update()
-        pos, _ = read_object_world_pose(stage)
+        pos, quat = read_object_world_pose(stage)
         object_track.append(pos)
+        object_quat_track.append(quat)
 
+    runtime_segment_array = np.asarray(runtime_segments, dtype=np.int8)
+    carry_mask = runtime_segment_array == SEGMENT_CARRY
     final_pos, _ = read_object_world_pose(stage)
     metrics = compute_physics_metrics(
         object_track,
         resting_z,
         carry_mask,
-        reference_final_pos=obj_pos_isaac_all[-1],
+        reference_final_pos=reference_object_pos_track[-1],
         final_actual_pos=final_pos,
         lift_threshold=float(args.lift_threshold),
         drop_threshold=float(args.drop_threshold),
@@ -1054,18 +1164,41 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
     np.savez_compressed(
         out_dir / "object_track.npz",
         position_world=np.asarray(object_track, dtype=np.float64),
-        reference_position_world=np.asarray(obj_pos_isaac_all, dtype=np.float64),
-        segment=np.asarray(traj.segment, dtype=np.int8),
+        orientation_world_wxyz=np.asarray(object_quat_track, dtype=np.float64),
+        reference_position_world=np.asarray(reference_object_pos_track, dtype=np.float64),
+        reference_orientation_world_wxyz=np.asarray(reference_object_quat_track, dtype=np.float64),
+        segment=runtime_segment_array,
         carry_mask=np.asarray(carry_mask, dtype=bool),
     )
     np.savez_compressed(
         out_dir / "finger_track.npz",
-        desired_position_rad=np.asarray(traj.finger_targets, dtype=np.float64),
+        desired_position_rad=np.asarray(desired_targets_per_step, dtype=np.float64),
         driven_target_rad=np.asarray(driven_targets_per_step, dtype=np.float64),
         actual_position_rad=np.asarray(actual_joint_positions_per_step, dtype=np.float64),
         joint_order=np.asarray(traj.joint_order),
-        segment=np.asarray(traj.segment, dtype=np.int8),
+        segment=runtime_segment_array,
     )
+    if carry_runtime is not None:
+        np.savez_compressed(
+            out_dir / "controlled_wrist_track.npz",
+            nominal_position_world=np.asarray(controlled_nominal_pos, dtype=np.float64),
+            nominal_orientation_world_wxyz=np.asarray(controlled_nominal_quat, dtype=np.float64),
+            commanded_position_world=np.asarray(controlled_command_pos, dtype=np.float64),
+            commanded_orientation_world_wxyz=np.asarray(controlled_command_quat, dtype=np.float64),
+            path_index=np.asarray(controlled_path_index, dtype=np.int32),
+            progress_index=np.asarray(controlled_progress_index, dtype=np.int32),
+            object_translation_error_m=np.asarray(controlled_translation_error, dtype=np.float64),
+            object_orientation_error_rad=np.asarray(controlled_orientation_error, dtype=np.float64),
+            cross_track_translation_m=np.asarray(controlled_cross_track_translation, dtype=np.float64),
+            cross_track_rotation_rad=np.asarray(controlled_cross_track_rotation, dtype=np.float64),
+            correction_translation_m=np.asarray(controlled_translation_correction, dtype=np.float64),
+            correction_orientation_rad=np.asarray(controlled_orientation_correction, dtype=np.float64),
+            correction_translation_saturated=np.asarray(controlled_translation_saturated, dtype=bool),
+            correction_orientation_saturated=np.asarray(controlled_orientation_saturated, dtype=bool),
+            velocity_saturated=np.asarray(controlled_velocity_saturated, dtype=bool),
+            acceleration_saturated=np.asarray(controlled_acceleration_saturated, dtype=bool),
+            lost_grasp=np.asarray(controlled_lost_grasp, dtype=bool),
+        )
 
     phase("capturing final screenshot")
     screenshot_path = out_dir / "screenshot.png"
@@ -1089,20 +1222,20 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
     if bool(args.hold_open):
         deadline = time.monotonic() + float(args.hold_open_seconds)
         while time.monotonic() < deadline:
-            hold_targets = traj.finger_targets[-1]
+            hold_targets = final_finger_targets
             if bool(args.contact_aware_finger_targets):
                 hold_targets, _ = govern_contact_targets(
                     hold_targets, hand_reader.joint_positions(), target_lead_rad
                 )
             write_finger_targets(finger_target_attrs, hold_targets)
-            if args.carry_mode == CARRY_MODE_KINEMATIC:
-                set_world_pose(stage, OBJECT_WRAP, obj_pos_isaac_all[-1], obj_quat_isaac_all[-1])
+            if args.carry_mode == CARRY_MODE_KINEMATIC and carry_runtime is None:
+                set_world_pose(stage, OBJECT_WRAP, reference_object_pos_track[-1], reference_object_quat_track[-1])
             app.update()
             time.sleep(1.0 / 60.0)
 
     report = {
         "ok": True,
-        "task": "grasp_traj_simulation",
+        "task": "full_traj_simulation" if carry_runtime is not None else "grasp_traj_simulation",
         "trajectory_dir": str(args.trajectory_dir),
         "out_dir": str(out_dir),
         "sequence_id": sequence_id,
@@ -1116,7 +1249,7 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
         "contact_target_lead_rad": target_lead_rad,
         "max_drive_target_error_rad": max(drive_target_error_per_step) if drive_target_error_per_step else None,
         "max_contact_drive_target_error_rad": max(
-            (error for error, segment in zip(drive_target_error_per_step, traj.segment) if int(segment) in governed_segments),
+            (error for error, segment in zip(drive_target_error_per_step, runtime_segment_array) if int(segment) in governed_segments),
             default=None,
         ),
         "drive_target_error_per_step": [round(v, 4) for v in drive_target_error_per_step],
@@ -1134,6 +1267,30 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
         "num_frames_captured": len(frame_paths),
         "metrics": metrics,
     }
+    if carry_runtime is not None:
+        from ocir.full_traj.metrics import ordered_pose_path_metrics
+
+        carry_targets = np.asarray(desired_targets_per_step, dtype=np.float64)[carry_mask]
+        fixed_target = np.asarray(carry_runtime.fixed_finger_targets, dtype=np.float64)
+        report["full_traj_controller"] = carry_runtime.controller.report()
+        report["full_traj_controller"]["finger_targets_constant"] = bool(
+            carry_targets.size and np.array_equal(carry_targets, np.tile(fixed_target[None], (carry_targets.shape[0], 1)))
+        )
+        report["full_traj_controller"]["controlled_wrist_track"] = str(out_dir / "controlled_wrist_track.npz")
+        runtime_pose_count = len(runtime_segment_array)
+        actual_runtime_poses = pos_quat_to_matrix(
+            np.asarray(object_track[:runtime_pose_count], dtype=np.float64)[carry_mask],
+            np.asarray(object_quat_track[:runtime_pose_count], dtype=np.float64)[carry_mask],
+        )
+        # Evaluate against the reference the controller actually tracked:
+        # with alignment held, that is the path shifted to the carry-entry
+        # object pose rather than the absolute camera-calibrated path.
+        report["full_traj_controller"]["ordered_path_metrics"] = ordered_pose_path_metrics(
+            actual_runtime_poses,
+            carry_runtime.controller.aligned_object_reference,
+            position_tolerance_m=carry_runtime.controller.config.position_tolerance_m,
+            orientation_tolerance_rad=carry_runtime.controller.config.orientation_tolerance_rad,
+        )
     (out_dir / "report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     log(f"done: {json.dumps(metrics)}")
     return report
@@ -1163,13 +1320,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--friction-combine-mode", choices=["max", "multiply", "average", "min"], default="multiply", help="PhysX friction combine mode of the bound material; multiply/max both outrank the default material's 'average', so the bound side wins any pair against an unbound collider.")
     parser.add_argument("--joint-armature", type=float, default=0.001, help="Finger joint armature; default matches the reference drive table. Stiffness/damping/effort caps come from the per-joint SHARPA_PER_JOINT_DRIVES table and are not CLI-tunable.")
     parser.add_argument("--joint-friction", type=float, default=0.0, help="Finger joint friction; default matches the reference drive table.")
-    parser.add_argument("--contact-aware-finger-targets", action=argparse.BooleanOptionalAction, default=False, help="Bound finger position targets around the actual joints during the squeeze segment and carry so blocked fingers apply finite impedance instead of holding the grasp angle through the object. Default off: the baked per-joint effort caps already bound contact forces, and direct targeting of the grasp pose lets every joint hold its full tuned authority.")
+    parser.add_argument("--contact-aware-finger-targets", action=argparse.BooleanOptionalAction, default=False, help="Bound finger position targets around the actual joints during the stationary grasp-hold segment and carry so blocked fingers apply finite impedance instead of holding the grasp angle through the object. Default off: the baked per-joint effort caps already bound contact forces, and direct targeting of the grasp pose lets every joint hold its full tuned authority.")
     parser.add_argument("--contact-target-lead-rad", type=float, default=0.03, help="Maximum per-joint angular lead of a contact-phase drive target beyond the current physical joint position.")
     parser.add_argument("--convex-decomp-max-hulls", type=int, default=32, help="Hull ceiling for the object's convex decomposition (the hand's colliders are baked into its asset).")
     parser.add_argument("--object-collision", choices=["sdf", "convex"], default="convex", help="Object collider type: convex decomposition (default, matches the reference validators) or exact SDF triangle mesh (concavities stay hollow).")
     parser.add_argument("--sdf-resolution", type=int, default=256)
     parser.add_argument("--hand-rest-offset", type=float, default=None, help="Explicit rest offset (m) override for every hand collider (contact offset becomes this + 4mm). Default: keep the offsets baked into the asset (4mm/1mm on the tuned hand).")
-    parser.add_argument("--hand-self-collisions", action=argparse.BooleanOptionalAction, default=True, help="PhysX self-collision between the hand's own links (PhysxArticulationAPI enabledSelfCollisions). Default on. Disable if squeeze/carry postures cause solver instability from expected finger-finger interpenetration at the closed grasp.")
+    parser.add_argument("--hand-self-collisions", action=argparse.BooleanOptionalAction, default=True, help="PhysX self-collision between the hand's own links (PhysxArticulationAPI enabledSelfCollisions). Default on. Disable if grasp-hold/carry postures cause solver instability from expected finger-finger interpenetration at the closed grasp.")
     parser.add_argument("--hand-table-collision", action=argparse.BooleanOptionalAction, default=False, help="Hand-table contact pairs. Default off (collision-group filtered, as in ref/sharpa_tabletop.py): the trajectory may skim the tabletop and hand-table scraping only injects contact noise. The object always collides with both.")
     parser.add_argument("--sim-steps-per-frame", type=int, default=2, help="app.update() calls per trajectory frame; each advances sim time 1/60s, so 2 matches a 30fps trajectory in real time.")
     parser.add_argument("--time-steps-per-second", type=float, default=180.0, help="PhysX substep rate; keep a multiple of 60. Default 180 = 3 substeps per 1/60s app.update (finer contact than the reference's 60).")

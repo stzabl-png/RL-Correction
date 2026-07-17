@@ -1,11 +1,10 @@
-"""Closed-loop full-trajectory object-path tracking.
+"""Open-loop full-trajectory carry retargeting.
 
-The package is deliberately split into import-safe NumPy reference/control
-code and an Isaac-facing runtime module.  Importing :mod:`ocir.full_traj`
-never imports Isaac Sim, torch, or cuRobo.
+Generation preserves the completed grasp prefix, transfers the recorded MANO
+wrist motion onto the synthesized wrist, and keeps finger targets fixed during
+carry.  Importing :mod:`ocir.full_traj` never imports Isaac Sim.
 """
 
-from ocir.full_traj.controller import ControllerConfig, PathFollowingController
 from ocir.full_traj.reference import FullTrajectoryReference
 
-__all__ = ["ControllerConfig", "FullTrajectoryReference", "PathFollowingController"]
+__all__ = ["FullTrajectoryReference"]

@@ -18,6 +18,29 @@ def _pairwise_pose_errors(actual: np.ndarray, reference: np.ndarray) -> tuple[np
     return translation, rotation
 
 
+def paired_pose_path_metrics(actual: np.ndarray, reference: np.ndarray) -> dict:
+    """Pose errors for two paths sampled at the same open-loop timestamps."""
+
+    actual = np.asarray(actual, dtype=np.float64)
+    reference = np.asarray(reference, dtype=np.float64)
+    if actual.shape != reference.shape or actual.ndim != 3 or actual.shape[1:] != (4, 4):
+        raise ValueError("paired pose paths must have identical shape (N,4,4)")
+    if actual.shape[0] == 0:
+        raise ValueError("paired pose path metrics require non-empty paths")
+    translation = np.linalg.norm(actual[:, :3, 3] - reference[:, :3, 3], axis=1)
+    relative = reference[:, :3, :3] @ np.swapaxes(actual[:, :3, :3], 1, 2)
+    trace = np.trace(relative, axis1=1, axis2=2)
+    rotation = np.arccos(np.clip((trace - 1.0) / 2.0, -1.0, 1.0))
+    return {
+        "translation_rmse_m": float(np.sqrt(np.mean(translation**2))),
+        "translation_max_m": float(translation.max()),
+        "translation_final_m": float(translation[-1]),
+        "orientation_rmse_rad": float(np.sqrt(np.mean(rotation**2))),
+        "orientation_max_rad": float(rotation.max()),
+        "orientation_final_rad": float(rotation[-1]),
+    }
+
+
 def ordered_pose_path_metrics(
     actual: np.ndarray,
     reference: np.ndarray,

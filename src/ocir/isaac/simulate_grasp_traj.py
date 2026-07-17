@@ -52,8 +52,6 @@ from ocir.grasp_traj.trajectory_schema import (
     SEGMENT_CARRY,
     SEGMENT_SQUEEZE,
     GraspTrajectory,
-    matrix_to_pos_quat,
-    pos_quat_to_matrix,
     quat_wxyz_to_matrix,
 )
 from ocir.isaac.replay_dexycb import (
@@ -701,8 +699,12 @@ def read_object_world_pose(stage) -> tuple[np.ndarray, np.ndarray]:
     prim = stage.GetPrimAtPath(OBJECT_REF)
     xform_cache = UsdGeom.XformCache()
     matrix = xform_cache.GetLocalToWorldTransform(prim)
+    # Gf.Matrix4d is row-vector convention (p' = p @ M): translation lives in
+    # row 3 and the upper-left 3x3 is the TRANSPOSE of the column-vector
+    # rotation that matrix_to_quat_wxyz expects. Reading it untransposed
+    # returns the conjugate quaternion.
     pos = np.array([matrix[3][0], matrix[3][1], matrix[3][2]], dtype=float)
-    rot = np.array([[matrix[i][j] for j in range(3)] for i in range(3)], dtype=float)
+    rot = np.array([[matrix[j][i] for j in range(3)] for i in range(3)], dtype=float)
     quat = matrix_to_quat_wxyz(rot)
     return pos, quat
 
@@ -755,7 +757,7 @@ def compute_physics_metrics(
 # ---------------------------------------------------------------------------
 
 
-def simulate_grasp_traj(app, args: argparse.Namespace, progress=None, carry_controller_factory=None) -> dict:
+def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
     import omni.timeline
     import omni.usd
     from pxr import UsdGeom, UsdLux
@@ -810,11 +812,6 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None, carry_cont
 
     all_pos_isaac, all_quat_isaac = camera_pos_quat_to_isaac(traj.hand_pos_camera, traj.hand_quat_camera, frame_mapper, z_offset=z_offset)
     obj_pos_isaac_all, obj_quat_isaac_all = camera_pos_quat_to_isaac(traj.object_pos_camera, traj.object_quat_camera, frame_mapper, z_offset=z_offset)
-    carry_runtime = (
-        carry_controller_factory(frame_mapper=frame_mapper, z_offset=z_offset, trajectory=traj)
-        if carry_controller_factory is not None
-        else None
-    )
     # world_verts_init was computed with z_offset=0.0 above (needed to derive
     # z_offset itself); shift it by the full offset to align with the
     # already-offset hand/object trajectories for the camera bbox below.
@@ -924,13 +921,10 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None, carry_cont
             f"({traj.dt:.4f}s); playback speed scales by {float(traj.dt) / sim_dt_per_frame:.2f}x"
         )
 
+    carry_mask = traj.segment == SEGMENT_CARRY
     resting_z = float(obj_pos_isaac_all[0, 2])
     object_track: list[np.ndarray] = []
     object_quat_track: list[np.ndarray] = []
-    reference_object_pos_track: list[np.ndarray] = []
-    reference_object_quat_track: list[np.ndarray] = []
-    runtime_segments: list[int] = []
-    desired_targets_per_step: list[np.ndarray] = []
     frame_paths: list[Path] = []
     joint_error_per_step: list[float] = []
     drive_target_error_per_step: list[float] = []
@@ -973,53 +967,10 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None, carry_cont
         raise RuntimeError("camera did not produce an RGB frame during warm-up")
     log("render pipeline primed; per-frame capture reads without stepping physics")
 
-    controlled_nominal_pos: list[np.ndarray] = []
-    controlled_nominal_quat: list[np.ndarray] = []
-    controlled_command_pos: list[np.ndarray] = []
-    controlled_command_quat: list[np.ndarray] = []
-    controlled_path_index: list[int] = []
-    controlled_progress_index: list[int] = []
-    controlled_translation_error: list[float] = []
-    controlled_orientation_error: list[float] = []
-    controlled_cross_track_translation: list[float] = []
-    controlled_cross_track_rotation: list[float] = []
-    controlled_translation_correction: list[float] = []
-    controlled_orientation_correction: list[float] = []
-    controlled_translation_saturated: list[bool] = []
-    controlled_orientation_saturated: list[bool] = []
-    controlled_velocity_saturated: list[bool] = []
-    controlled_acceleration_saturated: list[bool] = []
-    controlled_lost_grasp: list[bool] = []
-
-    if carry_runtime is None:
-        phase(f"simulating {traj.num_steps} steps")
-        max_outer_steps = traj.num_steps
-    else:
-        if int(carry_runtime.carry_start_step) <= 0:
-            raise ValueError("closed-loop carry requires a non-empty completed-grasp prefix")
-        if int(carry_runtime.carry_start_step) >= traj.num_steps:
-            raise ValueError("closed-loop carry_start_step is outside the trajectory")
-        max_carry_outer = int(np.ceil(carry_runtime.controller.max_duration_seconds / sim_dt_per_frame)) + 1
-        max_outer_steps = int(carry_runtime.carry_start_step) + max_carry_outer
-        phase(
-            f"simulating open-loop grasp prefix then adaptive carry "
-            f"(carry_start={carry_runtime.carry_start_step}, max_steps={max_outer_steps})"
-        )
-
+    phase(f"simulating {traj.num_steps} steps")
     num_substeps = max(1, int(args.sim_steps_per_frame))
-    last_hand_pose = pos_quat_to_matrix(all_pos_isaac[0], all_quat_isaac[0])
-    controller_started = False
-    controller_last_step = None
-    t = 0
-    while t < max_outer_steps:
-        controlled_carry = carry_runtime is not None and t >= int(carry_runtime.carry_start_step)
-        source_t = min(t, traj.num_steps - 1)
-        segment_value = SEGMENT_CARRY if controlled_carry else int(traj.segment[source_t])
-        desired_targets = (
-            np.asarray(carry_runtime.fixed_finger_targets, dtype=np.float64)
-            if controlled_carry
-            else traj.finger_targets[source_t]
-        )
+    for t in range(traj.num_steps):
+        desired_targets = traj.finger_targets[t]
         driven_targets = desired_targets
         governed_count = 0
         # Reference-style kinematic anchor transport, refined to physics
@@ -1033,52 +984,26 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None, carry_cont
         # are interpolated the same way (a strict refinement of the 30Hz
         # ramp; constant during carry). Frame timing and endpoint poses are
         # unchanged: the last substep lands exactly on frame t.
-        prev = max(source_t - 1, 0)
-        last_reference_pos = np.asarray(obj_pos_isaac_all[source_t], dtype=np.float64)
-        last_reference_quat = np.asarray(obj_quat_isaac_all[source_t], dtype=np.float64)
+        prev = max(t - 1, 0)
         for k in range(num_substeps):
-            if controlled_carry:
-                actual_obj_pos, actual_obj_quat = read_object_world_pose(stage)
-                actual_obj_pose = pos_quat_to_matrix(actual_obj_pos, actual_obj_quat)
-                if not controller_started:
-                    carry_runtime.controller.start(actual_obj_pose, last_hand_pose)
-                    controller_started = True
-                    log("closed-loop wrist controller activated at first carry update")
-                controller_last_step = carry_runtime.controller.step(
-                    actual_obj_pose,
-                    last_hand_pose,
-                    dt=1.0 / 60.0,
-                )
-                sub_pos, sub_quat = matrix_to_pos_quat(controller_last_step.hand_command)
-                last_reference_pos, last_reference_quat = matrix_to_pos_quat(controller_last_step.object_target)
-                nominal_pos, nominal_quat = matrix_to_pos_quat(controller_last_step.nominal_hand)
-            else:
-                alpha = (k + 1) / num_substeps
-                sub_pos = all_pos_isaac[prev] * (1.0 - alpha) + all_pos_isaac[source_t] * alpha
-                sub_quat = slerp_wxyz(all_quat_isaac[prev], all_quat_isaac[source_t], alpha)
+            alpha = (k + 1) / num_substeps
+            sub_pos = all_pos_isaac[prev] * (1.0 - alpha) + all_pos_isaac[t] * alpha
+            sub_quat = slerp_wxyz(all_quat_isaac[prev], all_quat_isaac[t], alpha)
             set_world_pose(stage, HAND_WRAP, sub_pos, sub_quat)
-            last_hand_pose = pos_quat_to_matrix(sub_pos, sub_quat)
-            if args.carry_mode == CARRY_MODE_KINEMATIC and not controlled_carry:
-                alpha = (k + 1) / num_substeps
-                obj_sub_pos = obj_pos_isaac_all[prev] * (1.0 - alpha) + obj_pos_isaac_all[source_t] * alpha
-                obj_sub_quat = slerp_wxyz(obj_quat_isaac_all[prev], obj_quat_isaac_all[source_t], alpha)
+            if args.carry_mode == CARRY_MODE_KINEMATIC:
+                obj_sub_pos = obj_pos_isaac_all[prev] * (1.0 - alpha) + obj_pos_isaac_all[t] * alpha
+                obj_sub_quat = slerp_wxyz(obj_quat_isaac_all[prev], obj_quat_isaac_all[t], alpha)
                 set_world_pose(stage, OBJECT_WRAP, obj_sub_pos, obj_sub_quat)
-            if controlled_carry:
-                driven_targets = desired_targets
-            else:
-                alpha = (k + 1) / num_substeps
-                driven_targets = traj.finger_targets[prev] * (1.0 - alpha) + desired_targets * alpha
+            driven_targets = traj.finger_targets[prev] * (1.0 - alpha) + desired_targets * alpha
             # The governor (if on) is recomputed at physics cadence so a
             # fast-moving joint can't outrun a once-per-frame bound.
-            if bool(args.contact_aware_finger_targets) and segment_value in governed_segments:
+            if bool(args.contact_aware_finger_targets) and int(traj.segment[t]) in governed_segments:
                 driven_targets, substep_governed_count = govern_contact_targets(
                     driven_targets, hand_reader.joint_positions(), target_lead_rad
                 )
                 governed_count = max(governed_count, substep_governed_count)
             write_finger_targets(finger_target_attrs, driven_targets)
             app.update()
-            if controlled_carry and carry_runtime.controller.done:
-                break
         step_error = hand_reader.max_joint_tracking_error(desired_targets)
         drive_step_error = hand_reader.max_joint_tracking_error(driven_targets)
         joint_error_per_step.append(step_error)
@@ -1086,34 +1011,12 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None, carry_cont
         governed_joint_count_per_step.append(governed_count)
         actual_joint_positions_per_step.append(hand_reader.joint_positions())
         driven_targets_per_step.append(np.asarray(driven_targets, dtype=np.float64).copy())
-        desired_targets_per_step.append(np.asarray(desired_targets, dtype=np.float64).copy())
-        runtime_segments.append(segment_value)
-        reference_object_pos_track.append(np.asarray(last_reference_pos, dtype=np.float64).copy())
-        reference_object_quat_track.append(np.asarray(last_reference_quat, dtype=np.float64).copy())
         if drive_step_error > 1.0 and not blowup_logged:
             blowup_logged = True
-            log(f"NOTE: drive-target lag {drive_step_error:.2f} rad at step {t} (segment {segment_value}) -- expected under soft reference gains when contact stalls a joint")
+            log(f"NOTE: drive-target lag {drive_step_error:.2f} rad at step {t} (segment {int(traj.segment[t])}) -- expected under soft reference gains when contact stalls a joint")
         pos, quat = read_object_world_pose(stage)
         object_track.append(pos)
         object_quat_track.append(quat)
-        if controlled_carry and controller_last_step is not None:
-            controlled_nominal_pos.append(np.asarray(nominal_pos, dtype=np.float64).copy())
-            controlled_nominal_quat.append(np.asarray(nominal_quat, dtype=np.float64).copy())
-            controlled_command_pos.append(np.asarray(sub_pos, dtype=np.float64).copy())
-            controlled_command_quat.append(np.asarray(sub_quat, dtype=np.float64).copy())
-            controlled_path_index.append(int(controller_last_step.path_index))
-            controlled_progress_index.append(int(controller_last_step.progress_index))
-            controlled_translation_error.append(float(controller_last_step.translation_error_m))
-            controlled_orientation_error.append(float(controller_last_step.orientation_error_rad))
-            controlled_cross_track_translation.append(float(controller_last_step.cross_track_translation_m))
-            controlled_cross_track_rotation.append(float(controller_last_step.cross_track_rotation_rad))
-            controlled_translation_correction.append(float(controller_last_step.correction_translation_m))
-            controlled_orientation_correction.append(float(controller_last_step.correction_rotation_rad))
-            controlled_translation_saturated.append(bool(controller_last_step.correction_translation_saturated))
-            controlled_orientation_saturated.append(bool(controller_last_step.correction_rotation_saturated))
-            controlled_velocity_saturated.append(bool(controller_last_step.velocity_saturated))
-            controlled_acceleration_saturated.append(bool(controller_last_step.acceleration_saturated))
-            controlled_lost_grasp.append(bool(controller_last_step.lost_grasp))
         if t % int(args.capture_every) == 0:
             frame_path = frames_dir / f"frame_{t:05d}.png"
             # Read the frame the main loop's app.update() already rendered --
@@ -1124,39 +1027,31 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None, carry_cont
             elif not skipped_capture_logged:
                 skipped_capture_logged = True
                 log(f"NOTE: camera had no RGB ready at step {t}; skipping this recorded frame (physics untouched)")
-        if controlled_carry and carry_runtime.controller.done:
-            break
-        t += 1
-
     phase(f"settling ({args.settle_steps} steps)")
     # The anchored hand holds the final wrapper pose on its own; keep the
     # finger targets commanded so the grip stays loaded while the object
     # settles.
-    final_hand_pos, final_hand_quat = matrix_to_pos_quat(last_hand_pose)
-    set_world_pose(stage, HAND_WRAP, final_hand_pos, final_hand_quat)
-    final_finger_targets = desired_targets_per_step[-1]
+    set_world_pose(stage, HAND_WRAP, all_pos_isaac[-1], all_quat_isaac[-1])
     for _ in range(int(args.settle_steps)):
-        settle_targets = final_finger_targets
+        settle_targets = traj.finger_targets[-1]
         if bool(args.contact_aware_finger_targets):
             settle_targets, _ = govern_contact_targets(
                 settle_targets, hand_reader.joint_positions(), target_lead_rad
             )
         write_finger_targets(finger_target_attrs, settle_targets)
-        if args.carry_mode == CARRY_MODE_KINEMATIC and carry_runtime is None:
-            set_world_pose(stage, OBJECT_WRAP, reference_object_pos_track[-1], reference_object_quat_track[-1])
+        if args.carry_mode == CARRY_MODE_KINEMATIC:
+            set_world_pose(stage, OBJECT_WRAP, obj_pos_isaac_all[-1], obj_quat_isaac_all[-1])
         app.update()
         pos, quat = read_object_world_pose(stage)
         object_track.append(pos)
         object_quat_track.append(quat)
 
-    runtime_segment_array = np.asarray(runtime_segments, dtype=np.int8)
-    carry_mask = runtime_segment_array == SEGMENT_CARRY
     final_pos, _ = read_object_world_pose(stage)
     metrics = compute_physics_metrics(
         object_track,
         resting_z,
         carry_mask,
-        reference_final_pos=reference_object_pos_track[-1],
+        reference_final_pos=obj_pos_isaac_all[-1],
         final_actual_pos=final_pos,
         lift_threshold=float(args.lift_threshold),
         drop_threshold=float(args.drop_threshold),
@@ -1165,40 +1060,19 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None, carry_cont
         out_dir / "object_track.npz",
         position_world=np.asarray(object_track, dtype=np.float64),
         orientation_world_wxyz=np.asarray(object_quat_track, dtype=np.float64),
-        reference_position_world=np.asarray(reference_object_pos_track, dtype=np.float64),
-        reference_orientation_world_wxyz=np.asarray(reference_object_quat_track, dtype=np.float64),
-        segment=runtime_segment_array,
+        reference_position_world=np.asarray(obj_pos_isaac_all, dtype=np.float64),
+        reference_orientation_world_wxyz=np.asarray(obj_quat_isaac_all, dtype=np.float64),
+        segment=np.asarray(traj.segment, dtype=np.int8),
         carry_mask=np.asarray(carry_mask, dtype=bool),
     )
     np.savez_compressed(
         out_dir / "finger_track.npz",
-        desired_position_rad=np.asarray(desired_targets_per_step, dtype=np.float64),
+        desired_position_rad=np.asarray(traj.finger_targets, dtype=np.float64),
         driven_target_rad=np.asarray(driven_targets_per_step, dtype=np.float64),
         actual_position_rad=np.asarray(actual_joint_positions_per_step, dtype=np.float64),
         joint_order=np.asarray(traj.joint_order),
-        segment=runtime_segment_array,
+        segment=np.asarray(traj.segment, dtype=np.int8),
     )
-    if carry_runtime is not None:
-        np.savez_compressed(
-            out_dir / "controlled_wrist_track.npz",
-            nominal_position_world=np.asarray(controlled_nominal_pos, dtype=np.float64),
-            nominal_orientation_world_wxyz=np.asarray(controlled_nominal_quat, dtype=np.float64),
-            commanded_position_world=np.asarray(controlled_command_pos, dtype=np.float64),
-            commanded_orientation_world_wxyz=np.asarray(controlled_command_quat, dtype=np.float64),
-            path_index=np.asarray(controlled_path_index, dtype=np.int32),
-            progress_index=np.asarray(controlled_progress_index, dtype=np.int32),
-            object_translation_error_m=np.asarray(controlled_translation_error, dtype=np.float64),
-            object_orientation_error_rad=np.asarray(controlled_orientation_error, dtype=np.float64),
-            cross_track_translation_m=np.asarray(controlled_cross_track_translation, dtype=np.float64),
-            cross_track_rotation_rad=np.asarray(controlled_cross_track_rotation, dtype=np.float64),
-            correction_translation_m=np.asarray(controlled_translation_correction, dtype=np.float64),
-            correction_orientation_rad=np.asarray(controlled_orientation_correction, dtype=np.float64),
-            correction_translation_saturated=np.asarray(controlled_translation_saturated, dtype=bool),
-            correction_orientation_saturated=np.asarray(controlled_orientation_saturated, dtype=bool),
-            velocity_saturated=np.asarray(controlled_velocity_saturated, dtype=bool),
-            acceleration_saturated=np.asarray(controlled_acceleration_saturated, dtype=bool),
-            lost_grasp=np.asarray(controlled_lost_grasp, dtype=bool),
-        )
 
     phase("capturing final screenshot")
     screenshot_path = out_dir / "screenshot.png"
@@ -1222,20 +1096,20 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None, carry_cont
     if bool(args.hold_open):
         deadline = time.monotonic() + float(args.hold_open_seconds)
         while time.monotonic() < deadline:
-            hold_targets = final_finger_targets
+            hold_targets = traj.finger_targets[-1]
             if bool(args.contact_aware_finger_targets):
                 hold_targets, _ = govern_contact_targets(
                     hold_targets, hand_reader.joint_positions(), target_lead_rad
                 )
             write_finger_targets(finger_target_attrs, hold_targets)
-            if args.carry_mode == CARRY_MODE_KINEMATIC and carry_runtime is None:
-                set_world_pose(stage, OBJECT_WRAP, reference_object_pos_track[-1], reference_object_quat_track[-1])
+            if args.carry_mode == CARRY_MODE_KINEMATIC:
+                set_world_pose(stage, OBJECT_WRAP, obj_pos_isaac_all[-1], obj_quat_isaac_all[-1])
             app.update()
             time.sleep(1.0 / 60.0)
 
     report = {
         "ok": True,
-        "task": "full_traj_simulation" if carry_runtime is not None else "grasp_traj_simulation",
+        "task": "grasp_traj_simulation",
         "trajectory_dir": str(args.trajectory_dir),
         "out_dir": str(out_dir),
         "sequence_id": sequence_id,
@@ -1249,7 +1123,7 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None, carry_cont
         "contact_target_lead_rad": target_lead_rad,
         "max_drive_target_error_rad": max(drive_target_error_per_step) if drive_target_error_per_step else None,
         "max_contact_drive_target_error_rad": max(
-            (error for error, segment in zip(drive_target_error_per_step, runtime_segment_array) if int(segment) in governed_segments),
+            (error for error, segment in zip(drive_target_error_per_step, traj.segment) if int(segment) in governed_segments),
             default=None,
         ),
         "drive_target_error_per_step": [round(v, 4) for v in drive_target_error_per_step],
@@ -1267,30 +1141,6 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None, carry_cont
         "num_frames_captured": len(frame_paths),
         "metrics": metrics,
     }
-    if carry_runtime is not None:
-        from ocir.full_traj.metrics import ordered_pose_path_metrics
-
-        carry_targets = np.asarray(desired_targets_per_step, dtype=np.float64)[carry_mask]
-        fixed_target = np.asarray(carry_runtime.fixed_finger_targets, dtype=np.float64)
-        report["full_traj_controller"] = carry_runtime.controller.report()
-        report["full_traj_controller"]["finger_targets_constant"] = bool(
-            carry_targets.size and np.array_equal(carry_targets, np.tile(fixed_target[None], (carry_targets.shape[0], 1)))
-        )
-        report["full_traj_controller"]["controlled_wrist_track"] = str(out_dir / "controlled_wrist_track.npz")
-        runtime_pose_count = len(runtime_segment_array)
-        actual_runtime_poses = pos_quat_to_matrix(
-            np.asarray(object_track[:runtime_pose_count], dtype=np.float64)[carry_mask],
-            np.asarray(object_quat_track[:runtime_pose_count], dtype=np.float64)[carry_mask],
-        )
-        # Evaluate against the reference the controller actually tracked:
-        # with alignment held, that is the path shifted to the carry-entry
-        # object pose rather than the absolute camera-calibrated path.
-        report["full_traj_controller"]["ordered_path_metrics"] = ordered_pose_path_metrics(
-            actual_runtime_poses,
-            carry_runtime.controller.aligned_object_reference,
-            position_tolerance_m=carry_runtime.controller.config.position_tolerance_m,
-            orientation_tolerance_rad=carry_runtime.controller.config.orientation_tolerance_rad,
-        )
     (out_dir / "report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     log(f"done: {json.dumps(metrics)}")
     return report

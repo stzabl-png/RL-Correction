@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ocir.full_traj.se3 import batch_pos_quat_to_matrix, interpolate_transform, rotation_angle
+from ocir.full_traj.se3 import batch_pos_quat_to_matrix, interpolate_transform
 from ocir.grasp_traj.trajectory_schema import matrix_to_pos_quat, pos_quat_to_matrix
 
 
@@ -20,11 +20,14 @@ def resample_synchronized_poses(
     object_poses: np.ndarray,
     wrist_poses: np.ndarray,
     source_frame_indices: np.ndarray,
-    *,
-    max_translation_step_m: float,
-    max_rotation_step_rad: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Densify synchronized poses without changing the demonstrated path."""
+    """Fill missing source frames without changing the demonstrated timing.
+
+    The trajectory schema has one fixed ``dt``.  Geometry-based subdivision
+    would therefore slow an open-loop replay whenever extra poses were added.
+    This routine only interpolates genuinely missing integer video frames, so
+    ``(last_frame - first_frame) / fps`` remains the carry duration.
+    """
 
     object_poses = np.asarray(object_poses, dtype=np.float64)
     wrist_poses = np.asarray(wrist_poses, dtype=np.float64)
@@ -35,27 +38,91 @@ def resample_synchronized_poses(
         raise ValueError("source_frame_indices length must match the pose paths")
     if object_poses.shape[0] == 0:
         raise ValueError("full-trajectory reference cannot be empty")
+    rounded_frames = np.rint(source_frame_indices).astype(np.int64)
+    if not np.allclose(source_frame_indices, rounded_frames, atol=1e-9):
+        raise ValueError("source_frame_indices must be integer video-frame indices")
+    if np.any(np.diff(rounded_frames) <= 0):
+        raise ValueError("source_frame_indices must be strictly increasing")
 
     out_object = [object_poses[0]]
     out_wrist = [wrist_poses[0]]
-    out_source = [source_frame_indices[0]]
+    out_source = [rounded_frames[0]]
     for i in range(object_poses.shape[0] - 1):
-        obj_delta = np.linalg.inv(object_poses[i]) @ object_poses[i + 1]
-        wrist_delta = np.linalg.inv(wrist_poses[i]) @ wrist_poses[i + 1]
-        distance = max(
-            float(np.linalg.norm(object_poses[i + 1, :3, 3] - object_poses[i, :3, 3])),
-            float(np.linalg.norm(wrist_poses[i + 1, :3, 3] - wrist_poses[i, :3, 3])),
-        )
-        angle = max(rotation_angle(obj_delta[:3, :3]), rotation_angle(wrist_delta[:3, :3]))
-        n_trans = int(np.ceil(distance / max_translation_step_m)) if max_translation_step_m > 0.0 else 1
-        n_rot = int(np.ceil(angle / max_rotation_step_rad)) if max_rotation_step_rad > 0.0 else 1
-        subdivisions = max(1, n_trans, n_rot)
-        for step in range(1, subdivisions + 1):
-            alpha = step / float(subdivisions)
+        frame_gap = int(rounded_frames[i + 1] - rounded_frames[i])
+        for step in range(1, frame_gap + 1):
+            alpha = step / float(frame_gap)
             out_object.append(interpolate_transform(object_poses[i], object_poses[i + 1], alpha))
             out_wrist.append(interpolate_transform(wrist_poses[i], wrist_poses[i + 1], alpha))
-            out_source.append(source_frame_indices[i] * (1.0 - alpha) + source_frame_indices[i + 1] * alpha)
-    return np.asarray(out_object), np.asarray(out_wrist), np.asarray(out_source)
+            out_source.append(rounded_frames[i] + step)
+    return np.asarray(out_object), np.asarray(out_wrist), np.asarray(out_source, dtype=np.float64)
+
+
+def retime_synchronized_poses(
+    object_poses: np.ndarray,
+    wrist_poses: np.ndarray,
+    source_frame_indices: np.ndarray,
+    *,
+    dt: float,
+    time_scale: float,
+    ease_in_seconds: float,
+    ease_out_seconds: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Slow a synchronized pose path down and smooth its velocity endpoints.
+
+    The demonstrated human carry is typically 2-3x too fast for the PD hand's
+    friction contacts, and it starts at full speed because the video is cut at
+    the grasp frame.  This warp keeps the geometric path exactly (endpoints
+    included) while stretching total duration by ``time_scale`` and ramping
+    the path speed from zero over ``ease_in_seconds`` (and back to zero over
+    ``ease_out_seconds``) with cosine profiles, so the carry entry no longer
+    commands a velocity step into a stationary grasp.
+    """
+
+    object_poses = np.asarray(object_poses, dtype=np.float64)
+    wrist_poses = np.asarray(wrist_poses, dtype=np.float64)
+    source_frame_indices = np.asarray(source_frame_indices, dtype=np.float64)
+    if float(time_scale) <= 0.0:
+        raise ValueError("time_scale must be positive")
+    if float(ease_in_seconds) < 0.0 or float(ease_out_seconds) < 0.0:
+        raise ValueError("ease durations must be nonnegative")
+    n = object_poses.shape[0]
+    if n < 2 or (float(time_scale) == 1.0 and float(ease_in_seconds) == 0.0 and float(ease_out_seconds) == 0.0):
+        return object_poses, wrist_poses, source_frame_indices
+
+    total_seconds = float(time_scale) * (n - 1) * float(dt)
+    n_out = max(int(round(total_seconds / float(dt))) + 1, 2)
+    t = np.arange(n_out) * float(dt)
+    # Keep the constant-speed plateau at least 10% of the carry so the eases
+    # cannot swallow the whole motion when the source clip is short.
+    max_ease = 0.45 * total_seconds
+    ease_in = min(float(ease_in_seconds), max_ease)
+    ease_out = min(float(ease_out_seconds), max_ease)
+    speed = np.ones(n_out, dtype=np.float64)
+    if ease_in > 0.0:
+        ramp = t < ease_in
+        speed[ramp] = 0.5 * (1.0 - np.cos(np.pi * t[ramp] / ease_in))
+    if ease_out > 0.0:
+        ramp = t > total_seconds - ease_out
+        speed[ramp] = np.minimum(
+            speed[ramp], 0.5 * (1.0 - np.cos(np.pi * (total_seconds - t[ramp]) / ease_out))
+        )
+    progress = np.concatenate([[0.0], np.cumsum((speed[1:] + speed[:-1]) * 0.5)])
+    progress /= progress[-1]
+    u = progress * (n - 1)
+
+    lo = np.clip(np.floor(u).astype(int), 0, n - 2)
+    alpha = u - lo
+    out_object = np.stack(
+        [interpolate_transform(object_poses[i], object_poses[i + 1], a) for i, a in zip(lo, alpha)]
+    )
+    out_wrist = np.stack(
+        [interpolate_transform(wrist_poses[i], wrist_poses[i + 1], a) for i, a in zip(lo, alpha)]
+    )
+    out_frames = source_frame_indices[lo] * (1.0 - alpha) + source_frame_indices[lo + 1] * alpha
+    # Land exactly on the source endpoints regardless of rounding.
+    out_object[0], out_wrist[0], out_frames[0] = object_poses[0], wrist_poses[0], source_frame_indices[0]
+    out_object[-1], out_wrist[-1], out_frames[-1] = object_poses[-1], wrist_poses[-1], source_frame_indices[-1]
+    return out_object, out_wrist, out_frames
 
 
 @dataclass(frozen=True)

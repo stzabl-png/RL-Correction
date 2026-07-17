@@ -27,17 +27,17 @@ object, optionally with a reconstructed human demonstration):
    (retarget -> open -> planned transit -> close -> grasp hold -> carry) and
    plays it back in Isaac Sim with real PhysX physics, reporting lift/drop
    metrics and a video. -> [docs/grasp_traj.md](docs/grasp_traj.md)
-4. **Closed-loop full trajectory** (`full_traj`) -- preserves an existing
+4. **Open-loop full trajectory** (`full_traj`) -- preserves an existing
    completed grasp, replaces the vertical lift with the recorded MANO/object
-   carry path, and adjusts only the wrist online so the dynamic object follows
-   that translation+orientation path without frame-timing correspondence.
+   carry path, and replays the precomputed MANO-retargeted wrist motion while
+   holding every finger target fixed.
    -> [docs/full_traj.md](docs/full_traj.md)
 
 ```text
 sequence dir (object mesh)                    --[1]-->  grasp_*.json / summary.json
 sequence dir (object mesh + human_demo.npz)   --[2]-->  grasp_*.json / summary.json
 grasp record + sequence dir                   --[3]-->  trajectory.npz -> video.mp4 / report.json
-completed grasp trajectory + human demo       --[4]-->  full_traj reference -> closed-loop video / path metrics
+completed grasp trajectory + human demo       --[4]-->  full_traj reference -> open-loop video / path metrics
 ```
 
 All Isaac-facing steps run either against a **persistent Isaac Sim server**
@@ -51,7 +51,7 @@ process) -- see [docs/isaac_sim.md](docs/isaac_sim.md).
 | [docs/bodex_curobo_v2.md](docs/bodex_curobo_v2.md) | Core algorithm, CLI flags, outputs, hand asset config, limitations |
 | [docs/anchored_bodex.md](docs/anchored_bodex.md) | Human-demo-guided synthesis: demo data prep, calibration, guidance, visualization |
 | [docs/grasp_traj.md](docs/grasp_traj.md) | Trajectory generation + PhysX simulation, all flags, diagnostics, **changelog of design iterations** |
-| [docs/full_traj.md](docs/full_traj.md) | Carry-only closed-loop wrist control, MANO/object reference generation, path metrics |
+| [docs/full_traj.md](docs/full_traj.md) | Carry-only open-loop wrist retargeting, MANO/object reference generation, path metrics |
 | [docs/isaac_sim.md](docs/isaac_sim.md) | Persistent server / standalone modes, visualization, video encoding, troubleshooting |
 
 ## Repository Layout
@@ -66,7 +66,7 @@ src/ocir/
     anchored_bodex/      # human-demo-guided pipeline built on top of bodex_curobo_v2
   grasp_traj/            # Stage A trajectory generation (schema, segments, clearance,
                           # switch-frame search, cuRobo transit planner, generator, CLI)
-  full_traj/             # MANO/object path reference, SE(3) controller/metrics, Isaac task
+  full_traj/             # MANO/object path reference, open-loop retargeting/metrics, Isaac task
   isaac/
     visualize_grasp.py   # grasp visualization (also the server's task-registration hub)
     visualize_anchored_grasp.py   # anchored-variant visualization overlays
@@ -210,7 +210,7 @@ scripts/run_grasp_synthesis_conda.sh \
   --grasp-traj-dir ${OCIR_DATA_ROOT}/testing/grasp_traj/<sequence_id>/grasp_pose_1 \
   --out-dir ${OCIR_DATA_ROOT}/testing/full_traj/<sequence_id>/grasp_pose_1
 
-# 5. Run carry-only closed-loop wrist control (submits to the Isaac server)
+# 5. Replay the carry-only open-loop wrist trajectory (submits to the Isaac server)
 scripts/run_isaacsim_conda.sh \
   scripts/full_traj/simulate_full_traj.py \
   --trajectory-dir ${OCIR_DATA_ROOT}/testing/full_traj/<sequence_id>/grasp_pose_1 \

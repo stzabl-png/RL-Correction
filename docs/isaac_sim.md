@@ -1,7 +1,7 @@
 # Isaac Sim infrastructure: persistent server, standalone mode, visualization
 
 All Isaac-facing tools in this repo (grasp visualization, anchored
-visualization, grasp-trajectory physics simulation, closed-loop full-trajectory
+visualization, grasp-trajectory physics simulation, open-loop full-trajectory
 simulation, DexYCB replay) share the
 same execution infrastructure and dual-mode CLI.
 

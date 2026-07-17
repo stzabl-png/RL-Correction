@@ -1,29 +1,100 @@
-# Closed-loop full-trajectory carry
+# Open-loop full-trajectory carry
 
-`ocir.full_traj` converts an existing completed grasp trajectory into a
-MANO/object carry reference, then tracks the demonstrated object path in
-Isaac Sim by changing only the Sharpa wrist pose.
+`ocir.full_traj` replaces the vertical-lift carry of an existing
+`grasp_traj` result with the recorded MANO wrist motion. The complete wrist
+command is generated before Isaac Sim starts. During simulation the object
+remains dynamic, but its measured pose never changes the wrist command.
 
-This is an experimental simulation controller. It is useful after a grasp
-trajectory already closes the hand successfully; it does not synthesize or
-repair grasps.
+Use this pipeline after `grasp_traj` has produced candidate trajectories. A
+failed source grasp remains a failed grasp: `full_traj` retargets carry motion
+and does not synthesize or repair finger contacts.
 
-## Grasp and activation semantics
+## Control contract
 
-Current grasp records contain two poses: `pregrasp` and `grasp`. There is no
-overclosed squeeze pose or squeeze action. Trajectory segment value `3` is a
-legacy schema label named `squeeze`, but its current behavior is only a
-stationary hold at the final grasp posture while contacts settle.
+Everything before the first `carry` frame is copied exactly from the selected
+source candidate. Segment value `3` remains the stationary final-grasp hold;
+there is no separate squeeze action or overclosed finger pose.
 
-Full-trajectory control is disabled for every pre-carry frame. It activates
-on the first frame whose segment is `carry` (`4`). At activation it copies
-the final 22-DoF grasp target and commands that same vector for the entire
-carry. Actual finger joints can deflect under their soft PD drives and
-contact forces, but their commanded targets do not change.
+At carry entry:
 
-## Pipeline
+- the first retargeted wrist pose equals the final grasp-prefix wrist pose;
+- the first aligned object reference equals the final prefix object reference;
+- all 22 finger targets are copied from the final prefix frame and held
+  exactly constant for the complete carry; and
+- the object is driven only by gravity, collision, and friction.
 
-### 1. Generate the reference
+The simulator reads object poses for recording and metrics only. There is no
+PI controller, path projection, lookahead target, slip recovery, or other
+feedback from the object to the hand.
+
+## Wrist retargeting
+
+The demonstrated object path is aligned to the nominal source object pose at
+carry entry:
+
+```text
+T_C_O_ref[k] =
+    T_C_O_source[0] @ inverse(T_C_O_demo[0]) @ T_C_O_demo[k]
+```
+
+This aligned path is an evaluation reference, not an object command, in
+friction mode.
+
+`--retarget-mode object` (default) drives the wrist so this object path
+replays through the synthesized grasp relation, held rigid:
+
+```text
+T_C_W_robot[k] = T_C_O_ref[k] @ inverse(T_C_O_source[0]) @ T_C_W_robot[0]
+```
+
+The human's wrist motion *relative to the object* (in-hand adjustment plus
+MANO wrist-keypoint noise, measured at 30+ mm / ~10 degrees over a DexYCB
+carry) is deliberately discarded: with fixed finger targets it is pure
+commanded slip that pries the grasp open.
+
+`--retarget-mode wrist` replays the recorded MANO wrist motion verbatim
+instead:
+
+```text
+T_C_W_robot[k] =
+    T_C_W_robot[0] @ inverse(T_C_W_mano[0]) @ T_C_W_mano[k]
+```
+
+This preserves the full relative MANO wrist translation and orientation, at
+the cost of commanding that wrist-object drift into the rigid grasp.
+
+## Timing
+
+The recorded human carry is too dynamic for the fixed-target PD grasp: the
+clip is cut at the grasp frame, so it starts at its full instantaneous wrist
+speed (0.16-0.28 m/s measured on DexYCB sequences) and sustains 2-3x the
+speed of the proven vertical lift, with 40-85 deg/s wrist rotation. Replayed
+one-to-one, all tested carries shear the object out of the grasp within
+0.5 s.
+
+Generation therefore retimes the carry while preserving its geometric path
+exactly:
+
+- `--time-scale` (default `3.0`) stretches the carry duration relative to the
+  source video clock by inserting interpolated rows (the schema has one fixed
+  `dt`, so duration is expressed in row count). At 3x the peak wrist speed
+  (~0.13 m/s on the tested sequences) sits under the proven vertical-lift
+  envelope (0.157 m/s); at 2x (~0.20 m/s) the tested grasp still slipped at
+  peak speed;
+- `--ease-in` / `--ease-out` (default `0.3` s each) ramp the path speed from
+  and back to zero with cosine profiles, removing the velocity step between
+  the stationary grasp hold and the moving carry. Each ease is capped at 45%
+  of the scaled carry duration.
+
+`--time-scale 1.0 --ease-in 0 --ease-out 0` replays the raw video timing. If
+valid video frames have gaps, the missing integer frames are interpolated
+before retiming. The reference arrays are retimed together with the command,
+so they stay pointwise-synchronized.
+
+The default 30 Hz trajectory is interpolated across two `app.update()` calls
+per row, giving 60 Hz wrist commands.
+
+## Generate
 
 ```bash
 scripts/run_grasp_synthesis_conda.sh \
@@ -33,24 +104,19 @@ scripts/run_grasp_synthesis_conda.sh \
 ```
 
 The input directory must contain `trajectory.npz` and `trajectory.json` from
-`grasp_traj`. Generation:
+`grasp_traj`. Generation writes a compatible replacement trajectory plus:
 
-- copies every frame before carry without modifying any array;
-- derives the post-grasp MANO wrist frame from the 21 recorded keypoints;
-- applies `assets/robots/hands/sharpa_wave/grasp_synthesis/bodex/mano_transfer.yml`
-  to obtain the nominal Sharpa base pose;
-- loads the recorded object poses from `human_demo.npz`;
-- resamples synchronized object/wrist paths to at most 5 mm and 3 degrees per
-  path interval by default; and
-- replaces the old vertical-lift carry with the resulting reference while
-  holding the final grasp targets.
+- `full_traj_reference.npz`: raw synchronized MANO wrist and object paths,
+  source frame indices, and the fixed finger target;
+- `full_traj_reference.json`: carry boundary, source paths, timing, and
+  calibration metadata.
 
-Use `--overwrite` for a non-empty output directory. The generator otherwise
-fails rather than mixing artifacts from different references.
+The command refuses a non-empty output directory unless `--overwrite` is
+passed.
 
-### 2. Simulate with carry-only feedback
+## Simulate
 
-Against the persistent server:
+Against the persistent Isaac server:
 
 ```bash
 scripts/run_isaacsim_conda.sh \
@@ -69,116 +135,41 @@ scripts/run_isaacsim_conda.sh \
   --out-dir /path/to/simulation/output
 ```
 
-The persistent server's default `visualize_grasp.py` registration hub now
-also exposes `full_traj_simulation`.
+`--carry-mode friction` is required. Contact-aware finger target rewriting is
+rejected because it violates the fixed-target carry contract.
 
-## Controller behavior
+The physical scene, hand asset, object collision, friction, drive settings,
+solver rates, camera, and video path all come from the same
+`simulate_grasp_traj` implementation used by the source trajectory.
 
-The video is treated as an ordered geometric path through SE(3), not as a
-frame-clock signal. The controller is a monotonic pure-pursuit follower:
-each update it projects the actual object pose onto the reference path
-(searching a bounded forward window, never moving backward) and steers the
-wrist toward a lookahead carrot ahead of that projection. Progress therefore
-follows the object itself -- it never waits for the object to enter a tight
-tolerance band around each individual path point. An object further than the
-projection acceptance radius from the path (for example after a dropped
-grasp) makes no projection progress; a stall-escape timeout then creeps one
-path point forward so a single unreachable region cannot consume the entire
-run, and total carry time is still capped at a multiple of the source carry
-duration.
+## Outputs and metrics
 
-At the first carry update, the controller measures the actual object and
-wrist poses and aligns the video object path to that measured object pose.
-By default (`--hold-alignment`) this alignment is kept for the whole carry,
-so the controller tracks the demonstrated relative motion rather than
-absolute camera-calibrated coordinates. `--no-hold-alignment` restores the
-old behavior of removing the alignment smoothly over `--catchup-seconds` so
-the target converges to the absolute recorded path.
+Simulation writes:
 
-The nominal wrist replays MANO's changing wrist-to-object transform on top
-of the synthesized grasp relation measured at carry entry. Bounded PI terms
-correct object translation and orientation: the proportional term acts on
-the error to the lookahead carrot (this is what propels pursuit), while the
-integral term acts on the cross-track error to the projected path point, so
-the standing lookahead offset cannot wind it up. Orientation corrections
-rotate the wrist about the object's actual position rather than the wrist
-origin, so they do not inject translation error through the hand-object
-lever arm. Wrist translation, rotation, speed, and acceleration are limited.
-Excessive hand-object slip is reported as a lost grasp, but feedback remains
-active and continues bounded pursuit.
+- `video.mp4`, `screenshot.png`, and `scene.usd`;
+- `object_track.npz` with actual and reference object position and orientation;
+- `finger_track.npz` with desired, driven, and actual finger positions;
+- `report.json` with normal grasp/lift metrics and `full_traj_open_loop`.
 
-The run finishes when the projection reaches the end of the path and the
-final cross-track error is within tolerance (reported as
-`final_pose_within_tolerance`), when the last point stalls past the
-stall-escape timeout, or at the total timeout.
+`full_traj_open_loop` reports:
 
-Important defaults:
+- `object_pose_used_for_control: false` and
+  `wrist_commands_precomputed: true`;
+- an exact `finger_targets_constant` check;
+- time-aligned translation/orientation errors at the commanded timestamps;
+- ordered dynamic-time-warping path metrics for geometric path agreement
+  without requiring equal progression speed.
 
-| Control | Default |
-| --- | --- |
-| Pursuit lookahead | 2 cm translation, 10 degrees rotation |
-| Projection window / acceptance radius | 40 path points / 5 cm |
-| Projection rotation weight | 0.05 m per radian |
-| Cross-track tolerance (coverage + completion) | 8 mm, 5 degrees |
-| Stall-escape timeout | 1 second |
-| Total timeout | 3x source duration |
-| PI gains, translation | `kp=0.6`, `ki=0.15` |
-| PI gains, rotation | `kp=0.6`, `ki=0.15` |
-| Maximum feedback correction | 5 cm, 20 degrees |
-| Maximum wrist speed | 0.25 m/s, 90 degrees/s |
-| Lost-grasp threshold | 5 cm or 30 degrees for 5 control updates |
-
-`--carry-mode friction` is required. Contact-aware finger-target rewriting
-is rejected because it violates the fixed-target contract.
-
-## Frames and pose conventions
-
-Generated reference files store camera-frame positions in metres and
-quaternions in `wxyz` order. The simulator maps both object and wrist paths
-through the same DexYCB camera-to-Isaac-world calibration and table-height
-offset used by `grasp_traj`.
-
-Homogeneous transforms map local coordinates into their named parent frame.
-For example, the demonstrated wrist-to-object relation is computed as
-`inverse(T_world_object) @ T_world_wrist`.
-
-## Outputs and evaluation
-
-Generation writes compatible `trajectory.npz/json` plus:
-
-- `full_traj_reference.npz`: recorded object and MANO wrist paths, source
-  frame coordinates, and the fixed finger target;
-- `full_traj_reference.json`: source paths, carry boundary, calibration, and
-  resampling metadata.
-
-Simulation writes the usual video, screenshot, scene, and report plus:
-
-- `controlled_wrist_track.npz`: nominal and commanded wrist poses, carrot and
-  projection path indices, carrot and cross-track errors;
-- `object_track.npz`: actual/reference object positions and orientations;
-- `finger_track.npz`: desired, driven, and actual finger positions.
-
-`report.json.full_traj_controller` includes completion/timeouts, carrot and
-cross-track error summaries (coverage fractions are computed from cross-track
-error against the projected path point), the held alignment magnitude,
-saturation counts, lost-grasp state, and an exact `finger_targets_constant`
-check. `ordered_path_metrics` compares the simulated object path against the
-reference the controller actually tracked (the aligned path when
-`--hold-alignment` is on) using monotonic dynamic time warping, so its
-translation/orientation RMSE, maxima, and path coverage measure ordered
-geometric agreement without requiring video and simulation frames to have the
-same timing.
+The evaluation tolerances can be changed with
+`--path-position-tolerance` and `--path-orientation-tolerance-deg`. They affect
+metrics only and never affect simulation commands.
 
 ## Limitations
 
-- Wrist-only feedback cannot recover object degrees of freedom that the
-  current contacts do not control.
-- Once contact is lost, continued pursuit may not recover the object; the run
-  remains marked `lost_grasp` even though the requested chase policy stays
-  active.
-- Controller defaults are conservative starting values, not tuned gains for
-  every object and grasp.
-- Isaac validation is required for final gain selection; pure-NumPy tests
-  cover reference preservation, fixed finger targets, SE(3) math, projection
-  progress and pursuit, alignment holding, stall-escape timeouts, and
-  lost-grasp reporting.
+- Object displacement during grasping and slip during carry are not corrected.
+- A successful vertical lift does not guarantee that the same contacts can
+  withstand the recorded wrist translations and rotations.
+- The kinematic wrist follows the precomputed command even after the object is
+  dropped.
+- Candidates should be evaluated independently; the candidate index is part
+  of both the source and output directory.

@@ -117,6 +117,10 @@ SHARPA_PER_JOINT_DRIVES: dict[str, tuple[float, float, float]] = {
     "right_pinky_DIP": (2.0, 0.45, 0.18936899304389954),
 }
 
+# Temporary robustness experiment: retain the tuned stiffness/damping values
+# while doubling every finger drive's effort cap.
+SHARPA_MAX_FORCE_SCALE = 2.0
+
 CARRY_MODE_FRICTION = "friction"
 CARRY_MODE_KINEMATIC = "kinematic"
 
@@ -384,8 +388,8 @@ def setup_hand_drives(stage, ref_path: str, *, armature: float, joint_friction: 
     (``SHARPA_PER_JOINT_DRIVES``) on every revolute finger joint. Gains are
     tabled in N*m/rad and converted to USD's per-degree angular drive units
     here (the reference's ``HAND_ANGULAR_GAINS_IN_RADIANS`` conversion);
-    ``maxForce`` is written from the table (equal to the asset's baked tuned
-    effort limits). Rigid-body properties and the asset's per-joint velocity
+    ``maxForce`` is the table value multiplied by ``SHARPA_MAX_FORCE_SCALE``.
+    Rigid-body properties and the asset's per-joint velocity
     limits are left untouched, as in the reference. Joints not in the table
     (the asset's passive virtual-chain joints) are skipped. Returns the
     drive count and the resolved ``{joint_name: maxForce}`` map."""
@@ -405,6 +409,7 @@ def setup_hand_drives(stage, ref_path: str, *, armature: float, joint_friction: 
             skipped.append(name)
             continue
         stiffness, damping, max_force = SHARPA_PER_JOINT_DRIVES[name]
+        max_force *= SHARPA_MAX_FORCE_SCALE
         drive = UsdPhysics.DriveAPI.Apply(prim, "angular")
         (drive.GetStiffnessAttr() or drive.CreateStiffnessAttr()).Set(float(stiffness) * deg_scale)
         (drive.GetDampingAttr() or drive.CreateDampingAttr()).Set(float(damping) * deg_scale)
@@ -421,7 +426,10 @@ def setup_hand_drives(stage, ref_path: str, *, armature: float, joint_friction: 
         n += 1
     if skipped:
         log(f"{ref_path}: left {len(skipped)} passive revolute joint(s) undriven: {skipped}")
-    log(f"{ref_path}: configured {n} finger joint drives (reference per-joint soft gains)")
+    log(
+        f"{ref_path}: configured {n} finger joint drives "
+        f"(reference soft gains, maxForce scale={SHARPA_MAX_FORCE_SCALE:g}x)"
+    )
     return n, efforts
 
 

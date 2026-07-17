@@ -4,14 +4,16 @@
 The hand USD (the Articulation_Bodex tuned Sharpa asset, see
 ``assets/robots/hands/sharpa_wave/usd/right/bodex_reference/``) is a 22-DOF
 articulation with baked convexDecomposition colliders, 4mm/1mm contact/rest
-offsets, and BODex-tuned per-joint drive effort limits. It is driven the way
-the reference validator ``ref/sharpa_tabletop.py`` drives it (**kinematic
+offsets, and BODex-tuned per-joint drive effort limits. The current robustness
+experiment doubles those baked effort caps at runtime while keeping the tuned
+stiffness and damping. The hand is driven the way the reference validator
+``ref/sharpa_tabletop.py`` drives it (**kinematic
 anchor transport**): the asset's palm link ships anchored to the world by a
 zero-offset ``PhysicsFixedJoint``, making the hand a fixed-base
 articulation whose anchor follows the ``/World/Hand`` wrapper Xform -- each trajectory frame simply rewrites the
 wrapper's translate/orient ops and the whole hand teleports rigidly with no
 root dynamics to stabilize. Finger joints run soft per-joint PD drives (the
-reference's tuned stiffness/damping table, effort caps = the asset's baked
+reference's tuned stiffness/damping table, effort caps = 2x the asset's baked
 tuned limits) and are commanded by writing
 ``drive:angular:physics:targetPosition`` (degrees) on the joint prims. A
 ``SingleArticulation`` view is kept only for reading joint states and the
@@ -21,12 +23,14 @@ reference), gravity on. Renders a video and writes lift/grasp metrics to
 ``report.json``.
 
 Reuses ``ocir.isaac.replay_dexycb``'s DexYCB camera-frame-to-Isaac-world
-mapping and video/camera helpers. The physics recipe (friction 3.0/3.0
-multiply on hand AND object, contact slop 0.2, convex-decomposition object
-collision, hand-table collision groups, per-joint soft drives) follows
-``ref/sharpa_tabletop.py`` (Articulation_Bodex); the articulation solver
-iteration counts come from MagicSim's floating Sharpa hand config
-(``SharpaWaveFloating.py``).
+mapping and video/camera helpers. The base physics recipe (friction 3.0/3.0
+multiply on hand AND object, convex-decomposition object collision,
+hand-table collision groups, per-joint soft drives) follows
+``ref/sharpa_tabletop.py`` (Articulation_Bodex). Two deliberate robustness
+differences are active: the 2x finger effort caps above and object contact
+slop 0, which preserves angular contact response at this object scale. The
+articulation solver iteration counts come from MagicSim's floating Sharpa
+hand config (``SharpaWaveFloating.py``).
 """
 
 from __future__ import annotations
@@ -88,9 +92,10 @@ RAD_TO_DEG = 180.0 / np.pi
 #: The reference validator's per-joint finger drive table
 #: (ref/sharpa_tabletop.py SHARPA_PER_JOINT_DRIVE_OVERRIDES): soft
 #: stiffness/damping in N*m/rad and N*m*s/rad -- converted to USD's
-#: per-degree angular drive units at authoring time -- with maxForce equal to
-#: the asset's baked tuned effort limits. Soft gains keep contact joints out
-#: of permanent force saturation; the caps, not the gains, bound the grip.
+#: per-degree angular drive units at authoring time. The table stores the
+#: asset's baked tuned maxForce values; setup_hand_drives applies the explicit
+#: robustness scale below. Soft gains keep contact joints out of permanent
+#: force saturation; the scaled caps, not the gains, bound the grip.
 SHARPA_PER_JOINT_DRIVES: dict[str, tuple[float, float, float]] = {
     # joint: (stiffness Nm/rad, damping Nms/rad, max_force Nm)
     "right_index_MCP_FE": (14.0, 2.6, 1.8639999628067017),
@@ -499,6 +504,54 @@ class HandJointReader:
         return float(np.abs(self.joint_positions() - np.asarray(joint_targets_rad, dtype=np.float64)).max())
 
 
+def _tensor_to_numpy(value) -> np.ndarray:
+    if isinstance(value, np.ndarray):
+        return value
+    if hasattr(value, "detach"):
+        return value.detach().cpu().numpy()
+    if hasattr(value, "numpy"):
+        return value.numpy()
+    return np.asarray(value)
+
+
+class ObjectRigidBodyReader:
+    """Authoritative PhysX-tensor readback for the dynamic object.
+
+    USD transform writeback is intended for rendering and can lag or omit a
+    component depending on the authored Xform stack.  Robustness metrics must
+    read the simulated actor state directly.
+    """
+
+    def __init__(self, rigid_body_path: str):
+        import omni.physics.tensors
+        from isaacsim.core.simulation_manager import SimulationManager
+        from isaacsim.core.utils.stage import get_current_stage_id
+
+        self.sim_view = omni.physics.tensors.create_simulation_view(
+            SimulationManager.get_backend(), stage_id=get_current_stage_id()
+        )
+        self.sim_view.set_subspace_roots("/")
+        self.rigid_body_view = self.sim_view.create_rigid_body_view(rigid_body_path)
+        if self.rigid_body_view.count != 1:
+            raise RuntimeError(
+                f"object rigid-body view count mismatch at {rigid_body_path}: "
+                f"expected 1, got {self.rigid_body_view.count}"
+            )
+        self.mass_kg = float(_tensor_to_numpy(self.rigid_body_view.get_masses()).reshape(-1)[0])
+        self.inertia = _tensor_to_numpy(self.rigid_body_view.get_inertias()).reshape(1, 3, 3)[0].astype(np.float64)
+        log(f"object rigid-body view ready: path={rigid_body_path} mass={self.mass_kg:.6g}kg")
+
+    def pose(self) -> tuple[np.ndarray, np.ndarray]:
+        transform = _tensor_to_numpy(self.rigid_body_view.get_transforms()).reshape(1, 7)[0]
+        # Tensor API uses xyzw; trajectory/report convention is wxyz.
+        quat_wxyz = np.asarray([transform[6], transform[3], transform[4], transform[5]], dtype=np.float64)
+        return np.asarray(transform[:3], dtype=np.float64), quat_wxyz
+
+    def velocity(self) -> tuple[np.ndarray, np.ndarray]:
+        velocity = _tensor_to_numpy(self.rigid_body_view.get_velocities()).reshape(1, 6)[0]
+        return np.asarray(velocity[:3], dtype=np.float64), np.asarray(velocity[3:], dtype=np.float64)
+
+
 def govern_contact_targets(
     desired_rad: np.ndarray, actual_rad: np.ndarray, max_target_lead_rad: float
 ) -> tuple[np.ndarray, int]:
@@ -548,10 +601,10 @@ def build_object(stage, mesh_path: Path, *, mass_kg: float, kinematic: bool, arg
     vertices = np.asarray(loaded.vertices, dtype=float)
     faces = np.asarray(loaded.faces, dtype=np.int64)
 
-    UsdGeom.Xform.Define(stage, OBJECT_WRAP)
+    object_root = UsdGeom.Xform.Define(stage, OBJECT_WRAP).GetPrim()
     material = add_material(stage, "/World/Materials/Object", (0.95, 0.72, 0.16))
     mesh_report = define_mesh(stage, f"{OBJECT_REF}", vertices, faces, material)
-    prim = stage.GetPrimAtPath(OBJECT_REF)
+    collision_prim = stage.GetPrimAtPath(OBJECT_REF)
 
     # --carry-mode kinematic: the object is a pure visual prim teleported
     # along the recorded reference trajectory every step -- no collision, no
@@ -563,36 +616,46 @@ def build_object(stage, mesh_path: Path, *, mass_kg: float, kinematic: bool, arg
     if not kinematic:
         from pxr import PhysxSchema
 
-        UsdPhysics.RigidBodyAPI.Apply(prim)
-        UsdPhysics.MassAPI.Apply(prim).CreateMassAttr().Set(float(mass_kg))
-        UsdPhysics.CollisionAPI.Apply(prim)
+        # Keep the authored transform, mass and rigid-body state on one root,
+        # with the collision mesh as its child. This matches the reference
+        # setup and avoids splitting the simulated pose across parent/child
+        # Xform stacks.
+        rigid_body = UsdPhysics.RigidBodyAPI.Apply(object_root)
+        rigid_body.CreateRigidBodyEnabledAttr().Set(True)
+        rigid_body.CreateKinematicEnabledAttr().Set(False)
+        UsdPhysics.MassAPI.Apply(object_root).CreateMassAttr().Set(float(mass_kg))
+        UsdPhysics.CollisionAPI.Apply(collision_prim)
         # convex (default): convex decomposition, the reference validator's
         # object collision (hull count capped by --convex-decomp-max-hulls;
         # deep concavities may be bridged by hulls). sdf: exact SDF
         # triangle-mesh collision -- concavities like a mug's opening/handle
         # stay hollow, at the cost of softer penetration handling.
         if args.object_collision == "sdf":
-            UsdPhysics.MeshCollisionAPI.Apply(prim).CreateApproximationAttr().Set("sdf")
-            sdf = PhysxSchema.PhysxSDFMeshCollisionAPI.Apply(prim)
+            UsdPhysics.MeshCollisionAPI.Apply(collision_prim).CreateApproximationAttr().Set("sdf")
+            sdf = PhysxSchema.PhysxSDFMeshCollisionAPI.Apply(collision_prim)
             sdf.CreateSdfResolutionAttr().Set(int(args.sdf_resolution))
         else:
-            UsdPhysics.MeshCollisionAPI.Apply(prim).CreateApproximationAttr().Set("convexDecomposition")
-            decomp = PhysxSchema.PhysxConvexDecompositionCollisionAPI.Apply(prim)
+            UsdPhysics.MeshCollisionAPI.Apply(collision_prim).CreateApproximationAttr().Set("convexDecomposition")
+            decomp = PhysxSchema.PhysxConvexDecompositionCollisionAPI.Apply(collision_prim)
             decomp.CreateMinThicknessAttr().Set(0.002)
             decomp.CreateHullVertexLimitAttr().Set(64)
             decomp.CreateMaxConvexHullsAttr().Set(int(args.convex_decomp_max_hulls))
-        collision = PhysxSchema.PhysxCollisionAPI.Apply(prim)
+        collision = PhysxSchema.PhysxCollisionAPI.Apply(collision_prim)
         collision.CreateContactOffsetAttr().Set(0.004)
         collision.CreateRestOffsetAttr().Set(0.001)
         # Same stability caps as the hand links: a squeeze pinch between
         # finger colliders otherwise ejects the object at unbounded
         # depenetration velocity (watermelon-seed style).
-        rb_api = PhysxSchema.PhysxRigidBodyAPI.Apply(prim)
+        rb_api = PhysxSchema.PhysxRigidBodyAPI.Apply(object_root)
+        rb_api.CreateDisableGravityAttr().Set(False)
+        rb_api.CreateLockedPosAxisAttr().Set(0)
+        rb_api.CreateLockedRotAxisAttr().Set(0)
         rb_api.CreateMaxDepenetrationVelocityAttr().Set(2.0)
-        # Contact slop: penetration shallower than this (scaled) tolerance is
-        # not corrected, so the solver stops chasing sub-mm contact noise at
-        # every resting finger contact (jitter and creep). Matches the
-        # reference validator's 0.2. 0 restores exact-correction behavior.
+        # PhysX contact slop is an angular-response filter, not a penetration
+        # deadband: it zeroes the angular influence of contacts whose lever arm
+        # falls below its scaled tolerance.  At this object scale the old 0.2
+        # value effectively suppressed the measured angular response.  Zero
+        # preserves the full 6-DoF contact response.
         if float(args.contact_slop) > 0.0:
             rb_api.CreateContactSlopCoefficientAttr().Set(float(args.contact_slop))
         # Nothing in this scene legitimately moves faster than the capped
@@ -605,11 +668,14 @@ def build_object(stage, mesh_path: Path, *, mass_kg: float, kinematic: bool, arg
 
     mesh_report["mass_kg"] = float(mass_kg)
     mesh_report["rigid_body_dynamic"] = not bool(kinematic)
+    mesh_report["rigid_body_path"] = OBJECT_WRAP if not kinematic else None
+    mesh_report["locked_position_axes"] = 0 if not kinematic else None
+    mesh_report["locked_rotation_axes"] = 0 if not kinematic else None
     mesh_report["collider_type"] = None if kinematic else str(args.object_collision)
     mesh_report["sdf_resolution"] = int(args.sdf_resolution) if (not kinematic and args.object_collision == "sdf") else None
     mesh_report["contact_offset_m"] = 0.004 if not kinematic else None
     mesh_report["rest_offset_m"] = 0.001 if not kinematic else None
-    mesh_report["contact_slop_coefficient"] = float(args.contact_slop) if (not kinematic and float(args.contact_slop) > 0.0) else None
+    mesh_report["contact_slop_coefficient"] = float(args.contact_slop) if not kinematic else None
     mesh_report["vertices_local"] = vertices
     return mesh_report
 
@@ -704,7 +770,11 @@ def build_hand(stage, hand_usd_path: Path, args: argparse.Namespace) -> dict:
 def read_object_world_pose(stage) -> tuple[np.ndarray, np.ndarray]:
     from pxr import UsdGeom
 
-    prim = stage.GetPrimAtPath(OBJECT_REF)
+    # OBJECT_WRAP is both the authored pose root and, in friction mode, the
+    # dynamic rigid body.  Reading this same prim captures PhysX translation
+    # and orientation writeback without mixing a static parent transform with
+    # a simulated child transform.
+    prim = stage.GetPrimAtPath(OBJECT_WRAP)
     xform_cache = UsdGeom.XformCache()
     matrix = xform_cache.GetLocalToWorldTransform(prim)
     # Gf.Matrix4d is row-vector convention (p' = p @ M): translation lives in
@@ -916,6 +986,18 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
     for _ in range(10):
         app.update()
 
+    object_reader = None
+    if args.carry_mode == CARRY_MODE_FRICTION:
+        phase("initializing object rigid-body view")
+        object_reader = ObjectRigidBodyReader(OBJECT_WRAP)
+        object_report["runtime_mass_kg"] = object_reader.mass_kg
+        object_report["runtime_inertia_kg_m2"] = object_reader.inertia.tolist()
+
+    def current_object_pose() -> tuple[np.ndarray, np.ndarray]:
+        if object_reader is not None:
+            return object_reader.pose()
+        return read_object_world_pose(stage)
+
     phase("initializing hand articulation view")
     hand_reader = HandJointReader(hand_report["articulation_root"], traj.joint_order)
     hand_reader.reset_joints(traj.finger_targets[0])
@@ -933,6 +1015,7 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
     resting_z = float(obj_pos_isaac_all[0, 2])
     object_track: list[np.ndarray] = []
     object_quat_track: list[np.ndarray] = []
+    object_angular_speed_track: list[float] = []
     frame_paths: list[Path] = []
     joint_error_per_step: list[float] = []
     drive_target_error_per_step: list[float] = []
@@ -1022,9 +1105,12 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
         if drive_step_error > 1.0 and not blowup_logged:
             blowup_logged = True
             log(f"NOTE: drive-target lag {drive_step_error:.2f} rad at step {t} (segment {int(traj.segment[t])}) -- expected under soft reference gains when contact stalls a joint")
-        pos, quat = read_object_world_pose(stage)
+        pos, quat = current_object_pose()
         object_track.append(pos)
         object_quat_track.append(quat)
+        if object_reader is not None:
+            _, angular_velocity = object_reader.velocity()
+            object_angular_speed_track.append(float(np.linalg.norm(angular_velocity)))
         if t % int(args.capture_every) == 0:
             frame_path = frames_dir / f"frame_{t:05d}.png"
             # Read the frame the main loop's app.update() already rendered --
@@ -1050,11 +1136,14 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
         if args.carry_mode == CARRY_MODE_KINEMATIC:
             set_world_pose(stage, OBJECT_WRAP, obj_pos_isaac_all[-1], obj_quat_isaac_all[-1])
         app.update()
-        pos, quat = read_object_world_pose(stage)
+        pos, quat = current_object_pose()
         object_track.append(pos)
         object_quat_track.append(quat)
+        if object_reader is not None:
+            _, angular_velocity = object_reader.velocity()
+            object_angular_speed_track.append(float(np.linalg.norm(angular_velocity)))
 
-    final_pos, _ = read_object_world_pose(stage)
+    final_pos, _ = current_object_pose()
     metrics = compute_physics_metrics(
         object_track,
         resting_z,
@@ -1125,6 +1214,7 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
         "z_offset": z_offset,
         "tabletop_z": tabletop_z,
         "time_steps_per_second": time_steps_per_second,
+        "max_object_angular_speed_rad_s": max(object_angular_speed_track, default=None),
         "max_joint_tracking_error_rad": max(joint_error_per_step) if joint_error_per_step else None,
         "joint_tracking_error_per_step": [round(v, 4) for v in joint_error_per_step],
         "contact_aware_finger_targets": bool(args.contact_aware_finger_targets),
@@ -1189,7 +1279,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sim-steps-per-frame", type=int, default=2, help="app.update() calls per trajectory frame; each advances sim time 1/60s, so 2 matches a 30fps trajectory in real time.")
     parser.add_argument("--time-steps-per-second", type=float, default=180.0, help="PhysX substep rate; keep a multiple of 60. Default 180 = 3 substeps per 1/60s app.update (finer contact than the reference's 60).")
     parser.add_argument("--gravity", type=float, default=9.81, help="Gravity magnitude (m/s^2), -z. Default 9.81 (realistic weight); ref/sharpa_tabletop.py uses 30 as a ~3g stress load.")
-    parser.add_argument("--contact-slop", type=float, default=0.2, help="Object PhysX contactSlopCoefficient: penetration below this (scaled) tolerance is left uncorrected, damping resting-contact jitter/creep. Default 0.2 matches ref/sharpa_tabletop.py; 0 disables.")
+    parser.add_argument("--contact-slop", type=float, default=0.0, help="Object PhysX contactSlopCoefficient distance scale. Values larger than a contact lever arm suppress that contact's angular influence; default 0 preserves object rotation.")
     parser.add_argument("--capture-every", type=int, default=1)
     parser.add_argument("--settle-steps", type=int, default=60)
     parser.add_argument("--video-fps", type=float, default=None)

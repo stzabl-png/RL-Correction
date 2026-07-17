@@ -215,12 +215,14 @@ time.
 **Finger drives**: the reference's per-joint soft PD table
 (`SHARPA_PER_JOINT_DRIVES` in the sim module -- MCP 14/2.6, PIP 4.5/0.9,
 DIP 2.0/0.45, thumb CMC_FE 26/5, pinky CMC 3/0.7 Nm/rad, converted to USD's
-per-degree drive units at authoring), with `maxForce` equal to the asset's
-baked tuned effort limits (MCP 1.864, PIP/thumb-IP 0.638, DIP 0.189, pinky
-CMC 0.5285, thumb CMC 3.3 Nm), armature `--joint-armature` 0.001, joint
-friction `--joint-friction` 0.0. Soft gains keep contact joints out of
-permanent force saturation; the caps, not the gains, bound the grip. The
-same gains apply in every segment (no close-phase softening -- the gains
+per-degree drive units at authoring). The current **experimental robustness
+configuration** sets `SHARPA_MAX_FORCE_SCALE = 2.0`, so runtime `maxForce`
+caps are twice the asset's baked tuned values: MCP 3.728,
+PIP/thumb-IP 1.276, DIP 0.379, pinky CMC 1.057, and thumb CMC 6.6 Nm.
+Stiffness and damping are unchanged. Armature is `--joint-armature` 0.001
+and joint friction is `--joint-friction` 0.0. Soft gains keep contact joints
+out of permanent force saturation; the caps, not the gains, bound the grip.
+The same gains apply in every segment (no close-phase softening -- the gains
 are already soft). Targets are commanded the reference way: writing
 `drive:angular:physics:targetPosition` (degrees) on the joint prims each
 step; a `SingleArticulation` view is kept only for joint-state readback and
@@ -247,9 +249,10 @@ each drive target before every physics update and bounds it to
   `--convex-decomp-max-hulls` 32), matching the reference validators. `sdf`
   is the optional alternative: exact SDF triangle-mesh collision at
   `--sdf-resolution` (256), keeping concavities (a mug's opening/handle)
-  hollow where hulls would bridge them. 4mm contact / 1mm rest offsets and
-  a `--contact-slop` 0.2 penetration deadband (suppresses resting-contact
-  jitter/creep; 0 disables) in either case.
+  hollow where hulls would bridge them. Both use 4mm contact / 1mm rest
+  offsets. `--contact-slop` defaults to 0: PhysX defines this as a distance
+  scale that can zero a contact's angular influence. The old 0.2 value
+  effectively suppressed object rotation in these scenes.
 - **Hand**: all 26 collider meshes are **baked into the asset** as PhysX
   `convexDecomposition` (minThickness 2mm, hullVertexLimit 64,
   maxConvexHulls 16) with 4mm contact / 1mm rest offsets; the runtime only
@@ -284,8 +287,9 @@ the object only, and every pair the object touches (table included) sees
 mass, otherwise mesh volume x `--object-density` 700 kg/m^3),
 `--gravity` (9.81 m/s^2; the reference validator uses 30 as a ~3g stress
 load), `--joint-armature`/`--joint-friction` (0.001/0.0, the reference
-drive-table values; stiffness/damping/effort caps come from the per-joint
-table and are not CLI-tunable),
+drive-table values; stiffness/damping come from the per-joint table and the
+effort caps additionally use the source-level `SHARPA_MAX_FORCE_SCALE`;
+these are not CLI-tunable),
 `--lift-threshold`/`--drop-threshold`
 (0.02m/0.005m), `--tabletop-z` (0.0), `--time-steps-per-second` (180, PhysX
 substep rate, 3 substeps per app.update; keep a multiple of 60), `--capture-every` (1),
@@ -295,7 +299,8 @@ substep rate, 3 substeps per app.update; keep a multiple of 60), `--capture-ever
 
 ### Outputs and diagnostics
 
-Writes `video.mp4` (H.264), `screenshot.png`, `scene.usd`, and `report.json`
+Writes `video.mp4` (H.264), `screenshot.png`, `scene.usd`,
+`object_track.npz`, and `report.json`
 with a `metrics` block: `lifted` (any carry step above `--lift-threshold`),
 `sustained_lift` (>= 5 consecutive lifted steps), `grasp_success`
 (sustained and not dropped), `object_dropped`, `max_lift_m` /
@@ -311,6 +316,61 @@ genuine, useful finding: it means the synthesized grasp does not hold the
 object under real physics (common for grasps that did not reach
 anchored-BODex's own strict force-closure success), not necessarily a
 simulation bug.
+
+For friction-mode runs, the object pose, angular velocity, mass, and inertia
+come from the PhysX rigid-body tensor view rather than USD render-transform
+writeback. `object_track.npz` stores actual and reference world poses using
+`orientation_world_wxyz`; `report.json` additionally records
+`object.runtime_mass_kg`, `object.runtime_inertia_kg_m2`, and the derived
+`max_object_angular_speed_rad_s`.
+
+### Rotation robustness gauntlet (experimental)
+
+The gauntlet reuses a completed vertical-lift trajectory, lifts the object,
+then applies cosine-eased `+/-` yaw, pitch, and roll wrist rotations while
+holding the recorded grasp joint targets. It does not add a squeeze or attach
+the object to the hand. The analyzer subtracts the position/orientation error
+present at the end of the post-lift hold, then reports only the additional
+slip introduced by each rotation phase.
+
+One candidate:
+
+```bash
+export OCIR_DATA_ROOT=/data/users/hangkes2/OCIR
+src_dir="$OCIR_DATA_ROOT/testing/grasp_traj/<sequence_id>/grasp_pose_<candidate>"
+run_dir="$OCIR_DATA_ROOT/testing/robustness_2x_torque_rotfixed/<sequence_id>/grasp_pose_<candidate>"
+
+PYTHONPATH=src python3 scripts/grasp_robustness/generate_rotation_gauntlet.py \
+  --grasp-traj-dir "$src_dir" --out-dir "$run_dir" --overwrite
+
+scripts/run_isaacsim_conda.sh scripts/isaac/simulate_grasp_traj.py \
+  --mode webrtc --contact-slop 0 \
+  --trajectory-dir "$run_dir" --out-dir "$run_dir/isaac_sim"
+
+PYTHONPATH=src python3 scripts/grasp_robustness/analyze_rotation_gauntlet.py \
+  --trajectory-dir "$run_dir"
+```
+
+The generator defaults to a 15cm lift followed by `+/-45deg` legs about
+`yaw,pitch,roll`, with 45deg/s peak angular speed and 0.4s holds. It refuses a
+non-empty output directory unless `--overwrite` is passed. The analyzer's
+default slip thresholds are 3cm added translation or 20deg added orientation
+error. Outputs are:
+
+```text
+<run_dir>/trajectory.npz
+<run_dir>/trajectory.json
+<run_dir>/isaac_sim/video.mp4
+<run_dir>/isaac_sim/object_track.npz
+<run_dir>/isaac_sim/report.json
+<run_dir>/isaac_sim/rotation_report.json
+```
+
+`--mode webrtc` submits to the persistent Isaac control server. With the
+server's default `hot_reload_tasks=true`, edits to task modules load before
+each job and do not require an Isaac restart. A restart is required only when
+hot reload is disabled, the task is not registered, or non-task startup code
+or extensions changed.
 
 ---
 
@@ -707,9 +767,10 @@ per-pair-realistic experiments:
   The transient compliant-fingertip-material experiment was removed too:
   the hand is fully rigid.
 - **Object collision default = convex decomposition** (the reference's
-  choice); SDF became the explicit alternative. Object gains the
-  reference's `contactSlopCoefficient` 0.2 (`--contact-slop`) penetration
-  deadband against resting-contact jitter.
+  choice); SDF became the explicit alternative. The reference's
+  `contactSlopCoefficient` 0.2 was initially copied here; v29 corrects this
+  after finding that its angular-response semantics are unsuitable at this
+  object scale.
 - **Hand-table collision filtered by default** via UsdPhysics collision
   groups (`--hand-table-collision` re-enables), exactly the reference's
   ground-hand mechanism.
@@ -896,6 +957,26 @@ squeeze stage from existing records (the Stage B reader requires only
 `pregrasp`/`grasp`; older records that still carry a `squeeze` stage are
 simply ignored).
 
+### v29 -- restore object angular contact response (2026-07-17)
+
+The rotation gauntlet exposed an object that translated with the hand but
+remained bit-for-bit fixed in orientation. It was not kinematic and no
+rotation axis was locked. The copied `contactSlopCoefficient = 0.2` was the
+cause: PhysX uses this as a distance scale for zeroing a contact's angular
+influence, not as a penetration deadband. At this object scale it suppressed
+the measured angular response in these scenes. The default is now 0;
+the same 15deg diagnostic wrist-yaw motion changed from exactly 0deg object
+rotation to about 20.2deg (including dynamic overshoot).
+
+The object hierarchy was made unambiguous at the same time: `/World/Object`
+now owns the transform, dynamic rigid-body state, and mass, while its child
+`/World/Object/ref` supplies the collision mesh. Position and rotation locks
+are explicitly cleared. Friction-mode metrics now read position, orientation,
+angular velocity, mass, and inertia directly from the PhysX tensor actor,
+avoiding USD parent/child transform or writeback ambiguity. Separately, the
+current robustness experiment doubles every actuated finger drive's effort
+cap while leaving its target, stiffness, and damping unchanged.
+
 ### Tooling (2026-07-10, commits 3da7b95 + 3946a12)
 
 Videos encoded H.264/yuv420p via ffmpeg; console output reduced to progress
@@ -905,10 +986,10 @@ lines + one core-metrics summary (full diagnostics stay in `report.json`).
 
 - All three test records remain `failed_grasp` outputs (0 strictly
   successful seeds). Since v15 their poses no longer meaningfully penetrate
-  the object (sub-millimeter), and as of v20 the physics stack mirrors the
-  proven reference validator end to end: its exact hand asset, driving
-  method (anchored transport + soft per-joint drives), friction recipe,
-  collision settings, and contact slop. The residual blocker is
+  the object (sub-millimeter). The physics stack uses the proven reference
+  validator's hand asset, anchored transport, soft-drive gains, friction
+  recipe, and collision settings, with two deliberate robustness deviations:
+  2x finger effort caps and contact slop 0. The residual blocker is
   force-closure quality itself: sustained carries most likely require
   strictly-successful upstream grasp records. Remaining deliberate
   differences from the reference: gravity 9.81 vs its 30 m/s^2 stress load,

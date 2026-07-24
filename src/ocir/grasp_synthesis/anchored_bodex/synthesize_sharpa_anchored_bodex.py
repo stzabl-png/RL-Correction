@@ -145,6 +145,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--selfcollision-weight", type=float, default=1000.0, help="Weight of the pairwise sphere-vs-sphere self-collision energy between non-adjacent hand links (relu(min_dist-dist)^2 summed); 0 disables it. Unlike the other guidance costs this is at full weight in every optimization stage.")
     parser.add_argument("--force-closure-weight", type=float, default=500.0, help="Optimization-time weight of the force-closure QP energy (stage 0 only -- the QP is dormant in stages 1-2). Overrides only the first entry of original BODex's [grasp, dist, regu] weight triple (100 in original BODex and the pure pipeline); dist (1000) and regu (10) stay unchanged. Does not change the pass/fail success threshold itself (grasp_error is weight-independent); a higher weight only pulls the optimizer harder toward low grasp energy during stage 0.")
     parser.add_argument("--pregrasp-clearance", type=float, default=0.005, help="SDF clearance (m) the pregrasp stage is opened to, PER FINGER: each finger's flexion joints (plus both thumb-CMC DoFs for the thumb) are scaled toward 0 rad only as far as that finger needs to clear the object by this margin (wrist and spread/AA frozen; palm ignored), giving a collision-free pre-grasp pose that stays as close to the grasp posture as possible. Fingers that already clear are left untouched; a finger that can't clear even fully open is capped with a warning.")
+    parser.add_argument("--table-penalty-weight", type=float, default=0.0,
+                        help="Weight of the hand-table collision penalty (relu(depth-below-tabletop)^2 over all 37 "
+                             "hand spheres; 0 disables). The tabletop plane is the object's resting plane; 'up' is "
+                             "auto-derived from the demo's object orientation (world +Z into object frame). "
+                             "e.g. 500 keeps fingers/palm from dipping below the table during optimization.")
+    parser.add_argument("--approach-dir", type=float, nargs=3, default=None,
+                        help="Human hand approach direction in the OBJECT frame (x y z), from the pre-contact "
+                             "wrist path. Narrows the affordance guidance region to the side the hand "
+                             "approached from. Does not touch the pose-anchored seeds (orientation) or the "
+                             "table penalty -- only WHERE contacts are pulled toward.")
+    parser.add_argument("--cone-halfangle-deg", type=float, default=80.0,
+                        help="Approach-cone half-angle (deg) for --approach-dir; larger = looser.")
     parser.add_argument("--force-affordance", action="store_true", help="Recompute the per-sequence affordance cache.")
     parser.add_argument(
         "--auto-export-demo",
@@ -212,6 +224,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     from ocir.grasp_synthesis.anchored_bodex.solver import solve_sharpa_anchored_bodex
+    import numpy as np
+
+    approach_dir = np.asarray(args.approach_dir, dtype=float) if args.approach_dir is not None else None
+    approach_cone_cos = float(np.cos(np.deg2rad(args.cone_halfangle_deg)))
 
     if args.sequence_dir is not None:
         jobs = [args.sequence_dir]
@@ -270,6 +286,9 @@ def main(argv: list[str] | None = None) -> int:
                 selfcollision_weight=args.selfcollision_weight,
                 pregrasp_clearance_m=args.pregrasp_clearance,
                 force_closure_weight=args.force_closure_weight,
+                table_penalty_weight=args.table_penalty_weight,
+                approach_dir_object=approach_dir,
+                approach_cone_cos=approach_cone_cos,
             )
         except Exception as exc:
             solver_failures += 1

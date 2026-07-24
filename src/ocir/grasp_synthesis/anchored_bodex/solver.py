@@ -150,6 +150,11 @@ def solve_sharpa_anchored_bodex(
     selfcollision_weight: float = 1000.0,
     pregrasp_clearance_m: float = DEFAULT_PREGRASP_CLEARANCE_M,
     force_closure_weight: float = 500.0,
+    table_penalty_weight: float = 0.0,
+    table_up_object: "np.ndarray | None" = None,
+    world_up: "tuple[float, float, float]" = (0.0, 0.0, 1.0),
+    approach_dir_object: "np.ndarray | None" = None,
+    approach_cone_cos: float = 0.174,
 ) -> dict[str, Any]:
     if not torch.cuda.is_available():
         raise RuntimeError("anchored BODex grasp synthesis requires CUDA")
@@ -164,6 +169,24 @@ def solve_sharpa_anchored_bodex(
         sequence_dir, demo, surface.points_object_frame, force=force_affordance
     )
     analysis = analyze_demo(demo, affordance)
+
+    # Hand-table collision penalty geometry (object frame). The object rests on
+    # the table at its reconstructed orientation; "up" in the object frame is the
+    # world-up rotated into the object frame. Derive it from the demo's object
+    # pose at the first valid frame unless the caller passes it explicitly.
+    table_up_obj = None
+    table_offset_val = 0.0
+    if table_penalty_weight > 0.0:
+        if table_up_object is not None:
+            table_up_obj = np.asarray(table_up_object, dtype=np.float64).reshape(3)
+        else:
+            v0 = int(np.flatnonzero(demo.valid_mask)[0])
+            R_wo = np.asarray(demo.object_pose_camera[v0][:3, :3], dtype=np.float64)
+            table_up_obj = R_wo.T @ np.asarray(world_up, dtype=np.float64)
+        table_up_obj = table_up_obj / (np.linalg.norm(table_up_obj) + 1e-12)
+        # tabletop plane = the object's lowest extent along up (it rests there)
+        pts = np.asarray(surface.points_object_frame, dtype=np.float64)
+        table_offset_val = float((pts @ table_up_obj).min())
 
     asset = load_sharpa_wave_right()
     calib_path = transfer_path(asset)
@@ -192,6 +215,37 @@ def solve_sharpa_anchored_bodex(
     pressure_constraints = build_pressure_constraints(active_roles)
 
     afford_mask = affordance.heatmap >= afford_tau
+    # narrow the affordance guidance region to the side the human hand approached
+    # from (path-derived direction). Same wide-cone geometry as
+    # affordance_seed.load_affordance_region, with a min-points fallback so a
+    # noisy direction never empties the region. Orientation (thumb-down) and
+    # table clearance stay handled by the pose prior and table penalty -- this
+    # only trims WHERE on the object the contacts are pulled toward.
+    afford_before = int(afford_mask.sum())
+    if approach_dir_object is not None and afford_before > 0:
+        from ocir.grasp_synthesis.affordance_seed import approach_cone_mask
+        cone_keep = approach_cone_mask(
+            object_mesh_path,
+            affordance.points_object_frame[afford_mask],
+            approach_dir_object,
+            cone_cos=approach_cone_cos,
+        )
+        if int(cone_keep.sum()) >= 8:
+            drop_idx = np.flatnonzero(afford_mask)[~cone_keep]
+            afford_mask = afford_mask.copy()
+            afford_mask[drop_idx] = False
+            print(
+                f"[anchored_bodex] approach-cone: afford region {afford_before} -> "
+                f"{int(afford_mask.sum())} points "
+                f"(dir={np.round(np.asarray(approach_dir_object, dtype=float), 3).tolist()})",
+                flush=True,
+            )
+        else:
+            print(
+                f"[anchored_bodex] approach-cone SKIPPED (would leave "
+                f"{int(cone_keep.sum())} < 8 points; kept {afford_before})",
+                flush=True,
+            )
     afford_points = (
         device_cfg.to_device(affordance.points_object_frame[afford_mask].astype(np.float32))
         if afford_mask.any()
@@ -221,6 +275,9 @@ def solve_sharpa_anchored_bodex(
         weights=weights,
         opt_iters=opt_iters,
         force_closure_weight=force_closure_weight,
+        table_penalty_weight=table_penalty_weight,
+        table_up_object=table_up_obj,
+        table_offset=table_offset_val,
     )
     rollouts = [AnchoredBodexRollout(**rollout_cfg), AnchoredBodexRollout(**rollout_cfg)]
 

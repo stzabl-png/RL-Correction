@@ -91,6 +91,14 @@ class AnchoredBodexRollout:
     #: 100 in original BODex and the pure pipeline); dist/regu stay at
     #: their original values.
     force_closure_weight: float = DEFAULT_WEIGHT[0]
+    #: Hand-table collision penalty. The object rests on a table; the tabletop
+    #: is the object-frame plane {x : dot(x, table_up_object) == table_offset}.
+    #: Any hand collision sphere whose lowest point dips below it is penalized
+    #: (relu(table_offset - (dot(center,up) - radius))^2, summed, x weight).
+    #: Additive guidance term, differentiable through FK, object-frame only.
+    table_penalty_weight: float = 0.0
+    table_up_object: np.ndarray | None = None   # (3,) world "up" expressed in object frame
+    table_offset: float = 0.0                    # object-frame tabletop plane offset along up
 
     def __post_init__(self):
         self.asset = load_sharpa_wave_right()
@@ -210,8 +218,15 @@ class AnchoredBodexRollout:
         # sphere positions are differentiable through FK, and
         # get_sphere_contact_pdn's backward carries the exact SDF gradient
         # for the penetration distance term.
-        need_full_spheres = self.weights.w_pene > 0.0 or self.weights.w_selfcol > 0.0
+        need_full_spheres = (
+            self.weights.w_pene > 0.0 or self.weights.w_selfcol > 0.0 or self.table_penalty_weight > 0.0
+        )
         self._pene_checker = ClearanceChecker(self.asset, self.device_cfg) if need_full_spheres else None
+        self._table_up = (
+            self.device_cfg.to_device(np.asarray(self.table_up_object, dtype=np.float32).reshape(3))
+            if (self.table_penalty_weight > 0.0 and self.table_up_object is not None)
+            else None
+        )
         self._pene_expand_idx = torch.tensor(
             [self.full_joint_order.index(name) for name in self.joint_names],
             device=self.device_cfg.device,
@@ -372,13 +387,26 @@ class AnchoredBodexRollout:
 
         need_pene = self._pene_checker is not None and self.weights.pene_weight(opt_progress) > 0.0
         need_selfcol = self._selfcol_i is not None
-        if need_pene or need_selfcol:
-            centers = self._full_sphere_centers(flat_action)
+        need_table = self._table_up is not None and self.table_penalty_weight > 0.0
+        if need_pene or need_selfcol or need_table:
+            centers = self._full_sphere_centers(flat_action)  # (b, 37, 3) object frame
             if need_pene:
                 out["penetration_penalty"] = self.weights.pene_weight(opt_progress) * self._penetration_cost(centers)
             if need_selfcol:
                 out["self_collision"] = self.weights.w_selfcol * self._self_collision_cost(centers)
+            if need_table:
+                out["table_penalty"] = self.table_penalty_weight * self._table_cost(centers)
         return out
+
+    def _table_cost(self, centers: torch.Tensor) -> torch.Tensor:
+        """Hand-table collision energy: each sphere's lowest point below the
+        object-frame tabletop plane is penalized (relu(depth)^2, m^2, summed).
+        ``height = dot(center, up)``; the sphere bottom is ``height - radius``;
+        depth below the table = ``table_offset - (height - radius)``."""
+        radii = self._pene_checker.radii.view(1, -1)           # (1, 37)
+        height = torch.matmul(centers, self._table_up)          # (b, 37)
+        depth = torch.relu(self.table_offset - (height - radii))  # (b, 37) meters
+        return (depth ** 2).sum(dim=-1)                          # (b,)
 
     def _full_sphere_centers(self, flat_action: torch.Tensor) -> torch.Tensor:
         """(b, N, 3) world-frame centers of ALL hand collision spheres,

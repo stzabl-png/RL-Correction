@@ -1,0 +1,53 @@
+# ===== 大数据 / 外部库(不入版本控制,自行获取)=====
+/Data/
+/Output/
+/third_party/
+/Baseline/
+/curobo/
+/.claude/
+
+# ===== Python 缓存 / 构建 =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+.venv-*/
+venv/
+env/
+
+# ===== 模型权重 / 大二进制(防误提交)=====
+*.pth
+*.pt
+*.ckpt
+*.onnx
+*.safetensors
+*.pkl
+*.h5
+*.hdf5
+
+# ===== v17A 实验模块运行时产物(同学跑时生成,见 experimental/hoi_detr_v17a/SETUP_AND_USAGE.md)=====
+experimental/hoi_detr_v17a/data/
+experimental/**/checkpoints/
+experimental/**/HOI-DETR/
+experimental/**/mmcv/
+
+# ===== 运行输出 / 中间产物 =====
+**/data/interim/
+**/ReconstructOutput/
+**/RetargetOutput/
+*.mp4
+*.npz
+*.npy
+
+# ===== 杂项 =====
+*.log
+*.tmp
+.DS_Store
+.ipynb_checkpoints/
+
+# ===== 保留:retarget 需要的机器人 USD 资产(在 ego_pipeline/Retargeting/assets)=====
+!ego_pipeline/**/*.usd
+!ego_pipeline/**/*.usda

@@ -18,3 +18,18 @@ From noisy egocentric video reconstruction to high-quality sim-verified robot tr
 8. **High-Quality Sim-Verified Data** — `D_high-quality`, for robot policy training and dataset construction
 
 A trajectory quality reward (`+ contact + stability + progress + success − penetration − collision − joint-limit − jerk − deviation`) closes the loop, with a fidelity term keeping the corrected trajectory close to the original video intent.
+
+---
+
+## 本分支：Step 2 — Noisy Reconstruction
+
+从 egocentric 人手视频重建出（带噪声、物理上不一致的）`τ_raw`：
+
+- MANO 手部姿态
+- 物体部分点云与 6D pose
+- hand-object 轨迹
+- affordance / contact prior
+
+同时产出 Step 3a 需要的 **Object Geometry** `O`：mesh、完整点云、SDF、表面法向、scale / shape feature。
+
+输出对应 HuggingFace 数据集中的 `Data/<split>/<sample_id>/reconstruction/`（见 `Step1_DataInput` 分支）。

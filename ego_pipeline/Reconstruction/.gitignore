@@ -1,0 +1,6 @@
+# Heavy / generated — not tracked in Reconstruct_and_Retarget
+third_party/
+weights/
+data/
+__pycache__/
+*.py[cod]

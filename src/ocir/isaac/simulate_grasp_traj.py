@@ -230,7 +230,9 @@ def find_hand_world_anchor(stage, ref_path: str) -> str:
     )
 
 
-def setup_hand_articulation_root(stage, ref_path: str, *, self_collisions: bool = True) -> str:
+def setup_hand_articulation_root(stage, ref_path: str, *, self_collisions: bool = True,
+                                 pos_iters: int = ARTICULATION_SOLVER_POSITION_ITERATIONS,
+                                 vel_iters: int = ARTICULATION_SOLVER_VELOCITY_ITERATIONS) -> str:
     """Ensure the hand has an ``ArticulationRootAPI`` and set the
     articulation-level solver iteration counts + self-collision flag there.
     Uses the asset's own API where it ships one (the tuned asset does, on
@@ -254,8 +256,8 @@ def setup_hand_articulation_root(stage, ref_path: str, *, self_collisions: bool 
     if not root_prim.HasAPI(PhysxSchema.PhysxArticulationAPI):
         PhysxSchema.PhysxArticulationAPI.Apply(root_prim)
     articulation = PhysxSchema.PhysxArticulationAPI(root_prim)
-    articulation.CreateSolverPositionIterationCountAttr().Set(ARTICULATION_SOLVER_POSITION_ITERATIONS)
-    articulation.CreateSolverVelocityIterationCountAttr().Set(ARTICULATION_SOLVER_VELOCITY_ITERATIONS)
+    articulation.CreateSolverPositionIterationCountAttr().Set(int(pos_iters))
+    articulation.CreateSolverVelocityIterationCountAttr().Set(int(vel_iters))
     articulation.CreateEnabledSelfCollisionsAttr().Set(bool(self_collisions))
     return str(root_prim.GetPath())
 
@@ -641,8 +643,8 @@ def build_object(stage, mesh_path: Path, *, mass_kg: float, kinematic: bool, arg
             decomp.CreateHullVertexLimitAttr().Set(64)
             decomp.CreateMaxConvexHullsAttr().Set(int(args.convex_decomp_max_hulls))
         collision = PhysxSchema.PhysxCollisionAPI.Apply(collision_prim)
-        collision.CreateContactOffsetAttr().Set(0.004)
-        collision.CreateRestOffsetAttr().Set(0.001)
+        collision.CreateContactOffsetAttr().Set(float(args.object_contact_offset))
+        collision.CreateRestOffsetAttr().Set(float(args.object_rest_offset))
         # Same stability caps as the hand links: a squeeze pinch between
         # finger colliders otherwise ejects the object at unbounded
         # depenetration velocity (watermelon-seed style).
@@ -650,7 +652,7 @@ def build_object(stage, mesh_path: Path, *, mass_kg: float, kinematic: bool, arg
         rb_api.CreateDisableGravityAttr().Set(False)
         rb_api.CreateLockedPosAxisAttr().Set(0)
         rb_api.CreateLockedRotAxisAttr().Set(0)
-        rb_api.CreateMaxDepenetrationVelocityAttr().Set(2.0)
+        rb_api.CreateMaxDepenetrationVelocityAttr().Set(float(args.object_max_depenetration_velocity))
         # PhysX contact slop is an angular-response filter, not a penetration
         # deadband: it zeroes the angular influence of contacts whose lever arm
         # falls below its scaled tolerance.  At this object scale the old 0.2
@@ -663,8 +665,8 @@ def build_object(stage, mesh_path: Path, *, mass_kg: float, kinematic: bool, arg
         # pinch-ejection local instead of firing the object across the room.
         rb_api.CreateMaxLinearVelocityAttr().Set(1.5)
         rb_api.CreateMaxAngularVelocityAttr().Set(4.0 * RAD_TO_DEG)
-        rb_api.CreateSolverPositionIterationCountAttr().Set(16)
-        rb_api.CreateSolverVelocityIterationCountAttr().Set(2)
+        rb_api.CreateSolverPositionIterationCountAttr().Set(int(args.object_solver_position_iterations))
+        rb_api.CreateSolverVelocityIterationCountAttr().Set(int(args.object_solver_velocity_iterations))
 
     mesh_report["mass_kg"] = float(mass_kg)
     mesh_report["rigid_body_dynamic"] = not bool(kinematic)
@@ -673,8 +675,8 @@ def build_object(stage, mesh_path: Path, *, mass_kg: float, kinematic: bool, arg
     mesh_report["locked_rotation_axes"] = 0 if not kinematic else None
     mesh_report["collider_type"] = None if kinematic else str(args.object_collision)
     mesh_report["sdf_resolution"] = int(args.sdf_resolution) if (not kinematic and args.object_collision == "sdf") else None
-    mesh_report["contact_offset_m"] = 0.004 if not kinematic else None
-    mesh_report["rest_offset_m"] = 0.001 if not kinematic else None
+    mesh_report["contact_offset_m"] = float(args.object_contact_offset) if not kinematic else None
+    mesh_report["rest_offset_m"] = float(args.object_rest_offset) if not kinematic else None
     mesh_report["contact_slop_coefficient"] = float(args.contact_slop) if not kinematic else None
     mesh_report["vertices_local"] = vertices
     return mesh_report
@@ -732,7 +734,9 @@ def build_hand(stage, hand_usd_path: Path, args: argparse.Namespace) -> dict:
 
     anchor_joint = find_hand_world_anchor(stage, HAND_REF)
     articulation_root = setup_hand_articulation_root(
-        stage, HAND_REF, self_collisions=args.hand_self_collisions
+        stage, HAND_REF, self_collisions=args.hand_self_collisions,
+        pos_iters=args.articulation_solver_position_iterations,
+        vel_iters=args.articulation_solver_velocity_iterations,
     )
     collider_count = count_hand_colliders(stage, HAND_REF)
     if args.hand_rest_offset is not None:
@@ -1273,6 +1277,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--convex-decomp-max-hulls", type=int, default=32, help="Hull ceiling for the object's convex decomposition (the hand's colliders are baked into its asset).")
     parser.add_argument("--object-collision", choices=["sdf", "convex"], default="convex", help="Object collider type: convex decomposition (default, matches the reference validators) or exact SDF triangle mesh (concavities stay hollow).")
     parser.add_argument("--sdf-resolution", type=int, default=256)
+    parser.add_argument("--object-contact-offset", type=float, default=0.004,
+                        help="Object collider PhysX contact offset (m). Reduce for thin objects (4mm on a 13mm object "
+                             "is a large collision margin -> phantom early contacts).")
+    parser.add_argument("--object-rest-offset", type=float, default=0.001,
+                        help="Object collider PhysX rest offset (m).")
+    parser.add_argument("--object-max-depenetration-velocity", type=float, default=2.0,
+                        help="Object rigid-body max depenetration velocity (m/s). Lower = deep interpenetration is "
+                             "pushed out gently instead of ejecting the object (watermelon-seed blowups).")
+    parser.add_argument("--object-solver-position-iterations", type=int, default=16,
+                        help="Object rigid-body PhysX solver position iterations (higher = more stable deep contact).")
+    parser.add_argument("--object-solver-velocity-iterations", type=int, default=2,
+                        help="Object rigid-body PhysX solver velocity iterations.")
+    parser.add_argument("--articulation-solver-position-iterations", type=int, default=ARTICULATION_SOLVER_POSITION_ITERATIONS,
+                        help="Hand articulation PhysX solver position iterations (higher = fewer finger-joint blowups "
+                             "on deep self/object contact; default 20).")
+    parser.add_argument("--articulation-solver-velocity-iterations", type=int, default=ARTICULATION_SOLVER_VELOCITY_ITERATIONS,
+                        help="Hand articulation PhysX solver velocity iterations (default 10).")
     parser.add_argument("--hand-rest-offset", type=float, default=None, help="Explicit rest offset (m) override for every hand collider (contact offset becomes this + 4mm). Default: keep the offsets baked into the asset (4mm/1mm on the tuned hand).")
     parser.add_argument("--hand-self-collisions", action=argparse.BooleanOptionalAction, default=True, help="PhysX self-collision between the hand's own links (PhysxArticulationAPI enabledSelfCollisions). Default on. Disable if grasp-hold/carry postures cause solver instability from expected finger-finger interpenetration at the closed grasp.")
     parser.add_argument("--hand-table-collision", action=argparse.BooleanOptionalAction, default=False, help="Hand-table contact pairs. Default off (collision-group filtered, as in ref/sharpa_tabletop.py): the trajectory may skim the tabletop and hand-table scraping only injects contact noise. The object always collides with both.")

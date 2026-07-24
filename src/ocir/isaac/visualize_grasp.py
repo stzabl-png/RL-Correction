@@ -524,6 +524,62 @@ def capture_orthogonal_composite(
     return path, camera_report
 
 
+def capture_turntable(
+    app, camera, camera_prim_path: str, target: np.ndarray, radius: float, args: argparse.Namespace, out_path: Path
+) -> dict:
+    """Orbit the (already-working) record camera 360 degrees around the grasp
+    and encode the frames to an H.264 mp4. Reuses the same camera set up by
+    build_camera, so no second SimulationApp / stage reload is needed."""
+
+    import subprocess
+    import tempfile
+
+    import cv2
+
+    n = int(args.turntable_frames)
+    distance = radius * float(args.camera_distance_scale)
+    elev = np.radians(float(args.turntable_elev_deg))
+    tmp = Path(tempfile.mkdtemp(prefix="ocir_turntable_"))
+    for i in range(n):
+        az = 2.0 * np.pi * i / n
+        eye = target + np.array(
+            [
+                distance * np.cos(elev) * np.cos(az),
+                distance * np.cos(elev) * np.sin(az),
+                distance * np.sin(elev),
+            ],
+            dtype=float,
+        )
+        point_camera(app, camera_prim_path, target, eye)
+        bgr = cv2.cvtColor(capture_camera_rgb(app, camera), cv2.COLOR_RGB2BGR)
+        cv2.imwrite(str(tmp / f"frame_{i:04d}.png"), bgr)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        "ffmpeg", "-y", "-framerate", str(int(args.turntable_fps)),
+        "-i", str(tmp / "frame_%04d.png"),
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20",
+        str(out_path),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        # OpenCV mp4v fallback if ffmpeg is unavailable.
+        first = cv2.imread(str(tmp / "frame_0000.png"))
+        h, w = first.shape[:2]
+        writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*"mp4v"), int(args.turntable_fps), (w, h))
+        for i in range(n):
+            writer.write(cv2.imread(str(tmp / f"frame_{i:04d}.png")))
+        writer.release()
+    return {
+        "path": str(out_path),
+        "frames": n,
+        "fps": int(args.turntable_fps),
+        "elev_deg": float(args.turntable_elev_deg),
+        "distance": float(distance),
+        "encoder": "libx264" if proc.returncode == 0 else "mp4v",
+    }
+
+
 def visualize_grasp(app, args: argparse.Namespace, progress=None) -> dict:
     import omni.timeline
     import trimesh
@@ -648,6 +704,14 @@ def visualize_grasp(app, args: argparse.Namespace, progress=None) -> dict:
     stage_path = out_dir / "scene.usd"
     stage.GetRootLayer().Export(str(stage_path.resolve()))
 
+    turntable_report = {"enabled": False}
+    if args.turntable_frames and int(args.turntable_frames) > 0:
+        if progress is not None:
+            progress(f"rendering {args.turntable_frames}-frame turntable video")
+        video_path = Path(args.turntable_video) if args.turntable_video else (out_dir / "grasp_turntable.mp4")
+        turntable_report = capture_turntable(app, camera, camera_prim_path, cam_target, cam_radius, args, video_path)
+        turntable_report["enabled"] = True
+
     if args.hold_open:
         if progress is not None:
             progress(f"grasp visualization ready; holding viewport for {args.hold_open_seconds}s")
@@ -672,6 +736,7 @@ def visualize_grasp(app, args: argparse.Namespace, progress=None) -> dict:
         "hand_mesh_count": len(hand_mesh_reports),
         "table": table_report,
         "camera": camera_report,
+        "turntable": turntable_report,
         "tabletop_z": float(args.tabletop_z),
         "world_from_object": world_from_object.astype(float).tolist(),
         "score": float(grasp.get("score", np.nan)),
@@ -725,6 +790,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--camera-target-offset", type=float, nargs=3, default=[0.0, 0.0, 0.04])
     parser.add_argument("--camera-focal-length", type=float, default=45.0)
     parser.add_argument("--camera-horizontal-aperture", type=float, default=38.0)
+    parser.add_argument("--turntable-frames", type=int, default=0,
+                        help="If >0, also render an N-frame 360-degree turntable video of the grasp.")
+    parser.add_argument("--turntable-fps", type=int, default=30)
+    parser.add_argument("--turntable-elev-deg", type=float, default=22.0)
+    parser.add_argument("--turntable-video", type=Path, default=None,
+                        help="Output mp4 path (default: <out-dir>/grasp_turntable.mp4).")
     parser.add_argument("--hold-open", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--hold-open-seconds", type=float, default=10.0)
     parser.add_argument(

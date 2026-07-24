@@ -16,8 +16,9 @@
 # 其它 flag 透传 run_batch_queue（--force / --dry-run / --workers-per-gpu 2 ...）。
 set -euo pipefail
 
-BIV2AP=/home/lyh/Project/Reconstruct_and_Retarget
-RECON=/home/lyh/Project/HumanVideo2RobotData/recon_pipeline
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/repo_paths.sh"
+BIV2AP="$RR_ROOT"
+RECON="$RECON_PIPELINE"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export RECON_FINAL_ROOT="$BIV2AP/Output/ReconstructOutput"
 export RECON_INTERIM_ROOT="$BIV2AP/Output/ReconstructOutput/interim"
@@ -27,7 +28,7 @@ export RECON_FINAL_NESTED=1   # final 目录镜像原数据集嵌套: A__B__C ->
 # 内置数据集 root(其它数据集用 --root 指定)
 declare -A DATASET_ROOTS=(
   [hoi4d]="$BIV2AP/Data/HOI4D"
-  [egodex]="/home/lyh/Project/V2AP/data/egocentric/egodex"
+  [egodex]="$EGODEX_ROOT"
 )
 
 DATASET=hoi4d; ROOT=""; N=10; WEB=0; TAKES=(); PASS=()

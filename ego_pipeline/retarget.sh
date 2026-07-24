@@ -13,7 +13,8 @@
 # 路径默认 Output/{Reconstruct,Retarget}Output，可用 $RECON_FINAL_ROOT/$RETARGET_FINAL_ROOT 覆盖。
 set -euo pipefail
 
-BIV2AP=/home/lyh/Project/Reconstruct_and_Retarget
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/repo_paths.sh"
+BIV2AP="$RR_ROOT"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RECON_ROOT="${RECON_FINAL_ROOT:-$BIV2AP/Output/ReconstructOutput}"
 DATASET=hoi4d

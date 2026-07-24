@@ -7,7 +7,8 @@
 #   bash init_submodules.sh --apply    # alias for the same (kept for symmetry)
 set -euo pipefail
 
-HV2RD="/home/lyh/Project/HumanVideo2RobotData"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/repo_paths.sh"
+HV2RD="$HV2RD_ROOT"
 TP="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/third_party"
 mkdir -p "$TP"
 

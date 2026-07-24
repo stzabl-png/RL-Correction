@@ -1,5 +1,6 @@
-asset_path: /home/lyh/Project/Reconstruct_and_Retarget/third_party/MagicDexMate/assets/robots/hands/sharpa_wave/right/right_sharpa_wave.urdf
-usd_dir: /home/lyh/Project/Reconstruct_and_Retarget/third_party/MagicDexMate/assets/robots/hands/sharpa_wave/right
+# 路径相对本文件所在目录(vendored 资产就在同级);原先指向 third_party/MagicDexMate,该目录不入 git
+asset_path: right_sharpa_wave.urdf
+usd_dir: .
 usd_file_name: right_sharpa_wave.usd
 force_usd_conversion: true
 make_instanceable: true

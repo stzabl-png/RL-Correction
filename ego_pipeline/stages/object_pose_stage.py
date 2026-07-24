@@ -36,15 +36,16 @@ from ego_pipeline.utils.object_io import (
     build_fp_scene_dir, build_pp_scene_dir, extract_frames,
 )
 from .base import PipelineStage
+from ego_pipeline.repo_paths import FOUNDATIONPOSE_ROOT, ISAAC_ROS_WS
 
 # V2AP-proven FoundationPose copy (flat import, verified in biv2ap Phase 0).
-DEFAULT_FP_ROOT = "/home/lyh/Project/V2AP/thirdparty/foundationpose"
+DEFAULT_FP_ROOT = str(FOUNDATIONPOSE_ROOT)
 
 # FoundationPosePP-ROS / Isaac ROS runtime. The container mounts ONLY
 # ISAAC_WS_HOST -> ISAAC_WS_CONT, so anything the tracker reads/writes must live
 # under ISAAC_WS_HOST (host) which the container sees at ISAAC_WS_CONT.
 ISAAC_WS_HOST = os.environ.get("ISAAC_ROS_WS_HOST",
-                               "/home/lyh/Project/V2AP/thirdparty/isaac_ros_ws")
+                               str(ISAAC_ROS_WS))
 ISAAC_WS_CONT = "/workspaces/isaac_ros-dev"
 PP_CONTAINER = os.environ.get("FPPP_CONTAINER", "isaac_ros_dev_container")
 PP_OVERLAY = f"{ISAAC_WS_CONT}/pp_overlay/install/setup.bash"

@@ -11,8 +11,9 @@
 #           push Reconstruct_and_Retarget recon edits = `sync_recon.sh push --apply` then (cd HV2RD && git commit && git push).
 set -euo pipefail
 
-HV2RD="/home/lyh/Project/HumanVideo2RobotData/recon_pipeline/"
-BIV2AP="/home/lyh/Project/Reconstruct_and_Retarget/ego_pipeline/Reconstruction/recon_pipeline/"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/repo_paths.sh"
+HV2RD="$RECON_PIPELINE/"
+BIV2AP="$RR_ROOT/ego_pipeline/Reconstruction/recon_pipeline/"
 
 # Only pure code crosses; exclude caches and anything heavy/generated.
 EXCLUDES=(

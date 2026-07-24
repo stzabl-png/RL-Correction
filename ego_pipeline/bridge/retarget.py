@@ -21,10 +21,13 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-BIV2AP = Path("/home/lyh/Project/Reconstruct_and_Retarget")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # -> ego_pipeline/
+from repo_paths import RR_ROOT, HAWOR_PYTHON  # noqa: E402
+
+BIV2AP = RR_ROOT
 DEFAULT_RECON_ROOT = Path(os.environ.get("RECON_FINAL_ROOT", BIV2AP / "Output" / "ReconstructOutput"))
 DEFAULT_RETARGET_ROOT = Path(os.environ.get("RETARGET_FINAL_ROOT", BIV2AP / "Output" / "RetargetOutput"))
-HAWOR_PY = "/home/lyh/anaconda3/envs/hawor/bin/python"
+HAWOR_PY = str(HAWOR_PYTHON)
 ISAAC_PY = BIV2AP / "third_party" / "MagicDexMate" / ".venv-isaac" / "bin" / "python"
 OBJ_TO_USD = BIV2AP / "ego_pipeline" / "Retargeting" / "scripts" / "obj_to_usd.py"
 

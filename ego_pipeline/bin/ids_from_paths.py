@@ -11,8 +11,11 @@ hand-writing a --video-list of flat ids.
 import sys
 from pathlib import Path
 
-RECON = Path("/home/lyh/Project/HumanVideo2RobotData/recon_pipeline")
-BIV2AP = Path("/home/lyh/Project/Reconstruct_and_Retarget")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # -> ego_pipeline/
+from repo_paths import RECON_PIPELINE, RR_ROOT  # noqa: E402
+
+RECON = RECON_PIPELINE
+BIV2AP = RR_ROOT
 DATA_ROOT = BIV2AP / "Data" / "HOI4D"
 sys.path.insert(0, str(RECON))
 

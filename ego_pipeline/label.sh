@@ -11,8 +11,9 @@
 # 窗口操作：左键=物体(绿点) 右键=背景(红点) | s=保存并进下一条 | u=撤销 | c=清空 | a/d 或 ←/→ 换帧 | q/ESC 退出
 set -euo pipefail
 
-BIV2AP=/home/lyh/Project/Reconstruct_and_Retarget
-RECON=/home/lyh/Project/HumanVideo2RobotData/recon_pipeline
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/repo_paths.sh"
+BIV2AP="$RR_ROOT"
+RECON="$RECON_PIPELINE"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export RECON_FINAL_ROOT="$BIV2AP/Output/ReconstructOutput"
 export RECON_INTERIM_ROOT="$BIV2AP/Output/ReconstructOutput/interim"

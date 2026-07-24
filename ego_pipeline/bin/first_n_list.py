@@ -9,8 +9,11 @@ SAME N takes. Discovery is deterministic, so independent calls agree.
 import sys
 from pathlib import Path
 
-RECON = Path("/home/lyh/Project/HumanVideo2RobotData/recon_pipeline")
-DATA_ROOT = Path("/home/lyh/Project/Reconstruct_and_Retarget/Data/HOI4D")  # Data/ 现仅 HOI4D；新增数据集时在此扩展
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # -> ego_pipeline/
+from repo_paths import RECON_PIPELINE, DATA_ROOT as _RR_DATA  # noqa: E402
+
+RECON = RECON_PIPELINE
+DATA_ROOT = _RR_DATA / "HOI4D"  # Data/ 现仅 HOI4D；新增数据集时在此扩展
 sys.path.insert(0, str(RECON))
 
 from _common.dataset import discover_videos  # noqa: E402

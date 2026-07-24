@@ -7,8 +7,9 @@
 #   sync_retarget.sh --apply    # vendor for real
 set -euo pipefail
 
-SRC="/home/lyh/Project/Reconstruct_and_Retarget/third_party/MagicDexMate"
-DST="/home/lyh/Project/Reconstruct_and_Retarget/ego_pipeline/Retargeting"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/repo_paths.sh"
+SRC="$THIRD_PARTY/MagicDexMate"
+DST="$RR_ROOT/ego_pipeline/Retargeting"
 
 # Only the pieces the recon->sim path needs (assets kept for paper release).
 INCLUDE=(magicdexmate sim scripts configs assets)

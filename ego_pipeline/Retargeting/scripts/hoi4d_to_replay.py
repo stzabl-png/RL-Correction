@@ -2,8 +2,8 @@
 """HOI4D take -> replay.npz for sim/retarget_isaacsim.py. Run in the HaWoR conda env
 (needs MANO/smplx + hawor.utils.process):
 
-  /home/lyh/anaconda3/envs/hawor/bin/python scripts/hoi4d_to_replay.py \
-      --hoi4d-root /home/lyh/Project/Reconstruct_and_Retarget/Data/HOI4D \
+  "$HAWOR_PYTHON" scripts/hoi4d_to_replay.py \
+      --hoi4d-root "$RR_DATA_ROOT/HOI4D" \
       --rel ZY20210800001/H1/C20/N27/S295/s03/T4 --out replay_hoi4d.npz
 
 Exports BOTH hands by default (--hands both). Output keys:

@@ -1,0 +1,23 @@
+# 文本规范化
+* text=auto
+
+# 二进制资产:标为 binary,避免行尾转换损坏 / diff 噪音
+*.usd    binary
+*.usda   binary
+*.usdc   binary
+*.STL    binary
+*.stl    binary
+*.obj    binary
+*.ply    binary
+*.npz    binary
+*.npy    binary
+*.png    binary
+*.jpg    binary
+*.mp4    binary
+*.pth    binary
+*.pt     binary
+
+# 注意:本分支**未启用 Git LFS**。
+# 现有最大文件为 SharpaWave 手 USD(约 8.6MB × 2),总仓 ~42MB,尚无需 LFS。
+# 若将来大二进制增多,再统一决定是否迁 LFS(需要历史迁移 + 注意私有仓 1GB 免费额度),
+# 不要只加规则不迁历史 —— 那会产生「按规则该是 LFS 指针但实际是裸 blob」的 fsck warning。

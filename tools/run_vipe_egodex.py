@@ -32,11 +32,16 @@ from pathlib import Path
 
 import numpy as np
 
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[1] / "ego_pipeline"))
+from repo_paths import EGODEX_RAW_ROOT  # noqa: E402
+
 SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
 BIV2AP_DIR  = os.path.dirname(SCRIPT_DIR)
 VIPE_DIR    = os.path.join(BIV2AP_DIR, "third_party", "vipe")
 
-EGODEX_ROOT = "/home/lyh/Project/Affordance2Grasp/data_hub/RawData/EgoRawData/egodex/test"
+EGODEX_ROOT = str(EGODEX_RAW_ROOT)
 OUT_BASE    = os.path.join(BIV2AP_DIR, "Output", "Depth", "ViPE", "Egodex")
 
 # ViPE's native output directory (used by the pipeline internally, then we

@@ -2,8 +2,9 @@
 # Real-time monitor for MegaSAM + HaWoR dual pipeline
 # Usage: bash tools/monitor_egodex.sh
 
-MEGA_LOG="/home/lyh/Project/Reconstruct_and_Retarget/Output/Depth/MegaSAM/Egodex/batch_log.jsonl"
-HAWOR_LOG="/home/lyh/Project/Reconstruct_and_Retarget/Output/MANO/HaWoR/Egodex/batch_log.jsonl"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../ego_pipeline" && pwd)/repo_paths.sh"
+MEGA_LOG="$RR_OUTPUT_ROOT/Depth/MegaSAM/Egodex/batch_log.jsonl"
+HAWOR_LOG="$RR_OUTPUT_ROOT/MANO/HaWoR/Egodex/batch_log.jsonl"
 TOTAL=3051
 
 while true; do

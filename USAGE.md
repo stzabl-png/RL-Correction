@@ -1,7 +1,8 @@
 # Reconstruct_and_Retarget 使用手册
 
 > 每次开新 Terminal 先 `cat /home/lyh/Project/Reconstruct_and_Retarget/USAGE.md`。
-> 这个项目做的事:**人类视频 → 重建(手+物体的世界轨迹 + 物体 mesh)→ retarget 到 SharpaWave 机器人手 → Isaac Sim 回放**,产物给下游 RL correction(`/home/lyh/Project/RL_Correction`,即 GitHub `Shen626/GR00T-VisualSim2Real`)。
+> 这个项目做的事:**人类视频 → 重建(手+物体的世界轨迹 + 物体 mesh)→ retarget 到 SharpaWave 机器人手 → Isaac Sim 回放**,产物给下游 RL correction —— 本仓库 **`Step4_RL_Correction`** 分支
+> (其代码最初 fork 自 `Shen626/GR00T-VisualSim2Real`,本地化后已迁入本仓;上游仅用于拉更新,不再是下游指向)。
 
 ---
 

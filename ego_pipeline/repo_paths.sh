@@ -26,6 +26,13 @@ _RP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${HAWOR_PYTHON:=/home/lyh/anaconda3/envs/hawor/bin/python}"
 : "${ISAAC_PYTHON:=$THIRD_PARTY/MagicDexMate/.venv-isaac/bin/python}"
 
+: "${A2G_ROOT:=/home/lyh/Project/Affordance2Grasp}"
+: "${EGODEX_RAW_ROOT:=$A2G_ROOT/data_hub/RawData/EgoRawData/egodex/test}"
+: "${HAWOR_DATA:=$A2G_ROOT/third_party/hawor/_DATA}"
+: "${VIPE_ROOT:=$THIRD_PARTY/vipe}"
+: "${HOI4D_RELEASE:=$V2AP_ROOT/data/egocentric/hoi4d/HOI4D_release}"
+export A2G_ROOT EGODEX_RAW_ROOT HAWOR_DATA VIPE_ROOT HOI4D_RELEASE
+
 export RR_ROOT RR_DATA_ROOT RR_OUTPUT_ROOT RECON_OUTPUT RETARGET_OUTPUT THIRD_PARTY
 export HV2RD_ROOT RECON_PIPELINE V2AP_ROOT EGODEX_ROOT HAWOR_PYTHON ISAAC_PYTHON
 unset _RP_DIR

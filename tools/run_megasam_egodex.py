@@ -10,10 +10,10 @@ Pipeline (models loaded ONCE, reused across all episodes):
   Step 5  Save outputs   → standardised format
 
 Input:
-  EgoDex raw data: /home/lyh/Project/Affordance2Grasp/data_hub/RawData/EgoRawData/egodex/test/
+  EgoDex raw data: $EGODEX_RAW_ROOT/
 
 Output:
-  /home/lyh/Project/Reconstruct_and_Retarget/Output/Depth/MegaSAM/Egodex/{task}/{episode}/
+  $RR_OUTPUT_ROOT/Depth/MegaSAM/Egodex/{task}/{episode}/
     depth.npz        depths (N,H,W) float32 [metres]
     cam_c2w.npy      camera-to-world (N,4,4)
     K.npy            intrinsic matrix (3,3)
@@ -22,7 +22,7 @@ Output:
 
 Usage:
   conda activate biv2ap
-  cd /home/lyh/Project/Reconstruct_and_Retarget/third_party/megasam
+  cd "$THIRD_PARTY/megasam"
   LD_LIBRARY_PATH=$(python -c "import torch,os; print(os.path.join(os.path.dirname(torch.__file__),'lib'))"):$LD_LIBRARY_PATH \\
     python ../../tools/run_megasam_egodex.py --resume
 
@@ -39,9 +39,14 @@ import torch, cv2
 from tqdm import tqdm
 from natsort import natsorted
 
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[1] / "ego_pipeline"))
+from repo_paths import EGODEX_RAW_ROOT as _EGODEX_RAW_ROOT  # noqa: E402
+
 # ── paths ──────────────────────────────────────────────────────────────────────
 SCRIPT_DIR   = os.path.dirname(os.path.abspath(__file__))
-BIV2AP_DIR   = os.path.dirname(SCRIPT_DIR)  # /home/lyh/Project/Reconstruct_and_Retarget
+BIV2AP_DIR   = os.path.dirname(SCRIPT_DIR)  # 仓库根(由脚本位置推导)
 MEGASAM_DIR  = os.path.join(BIV2AP_DIR, "third_party", "megasam")
 
 sys.path.insert(0, MEGASAM_DIR)
@@ -50,7 +55,7 @@ sys.path.insert(0, os.path.join(MEGASAM_DIR, "base", "droid_slam"))
 sys.path.insert(0, os.path.join(MEGASAM_DIR, "Depth-Anything"))
 
 # ── input / output ─────────────────────────────────────────────────────────────
-EGODEX_ROOT  = "/home/lyh/Project/Affordance2Grasp/data_hub/RawData/EgoRawData/egodex/test"
+EGODEX_ROOT  = str(_EGODEX_RAW_ROOT)
 OUT_BASE     = os.path.join(BIV2AP_DIR, "Output", "Depth", "MegaSAM", "Egodex")
 WORK_DIR     = os.path.join(BIV2AP_DIR, "Output", "Depth", "MegaSAM", "_workdir")
 

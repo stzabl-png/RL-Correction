@@ -34,10 +34,15 @@ from smplx.lbs import batch_rodrigues
 import joblib
 import open3d as o3d
 
-HAWOR_DATA = "/home/lyh/Project/Affordance2Grasp/third_party/hawor/_DATA"
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[1] / "ego_pipeline"))
+from repo_paths import HAWOR_DATA as _HAWOR_DATA, EGODEX_RAW_ROOT  # noqa: E402
+
+HAWOR_DATA = str(_HAWOR_DATA)
 MANO_RIGHT = f"{HAWOR_DATA}/data/mano/MANO_RIGHT.pkl"
 MANO_LEFT  = f"{HAWOR_DATA}/data_left/mano_left/MANO_LEFT.pkl"
-DEFAULT_SEQ = ("/home/lyh/Project/Affordance2Grasp/data_hub/RawData/"
+DEFAULT_SEQ = (str(EGODEX_RAW_ROOT) + "/../../"
                "EgoRawData/egodex/test/add_remove_lid/0")
 
 # ── 坐标系 ────────────────────────────────────────────────────────────────────

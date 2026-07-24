@@ -25,9 +25,14 @@ sys.path.insert(0, BIV2AP)
 from ego_pipeline.context import EgoContext
 from ego_pipeline.stages.object_mask_stage import ObjectMaskStage
 
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[1] / "ego_pipeline"))
+from repo_paths import HOI4D_RELEASE  # noqa: E402
+
 RGB_ROOTS = [
     os.path.join(BIV2AP, "Data/HOI4D/HOI4D_release"),
-    "/home/lyh/Project/V2AP/data/egocentric/hoi4d/HOI4D_release",
+    str(HOI4D_RELEASE),
 ]
 RGB_REL = "align_rgb/image/extracted_images"
 

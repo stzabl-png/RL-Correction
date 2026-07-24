@@ -30,7 +30,12 @@ sys.path.insert(0, BIV2AP)
 from ego_pipeline.context import EgoContext
 from ego_pipeline.stages.object_pose_stage import ObjectPoseStage
 
-V2AP = "/home/lyh/Project/V2AP"
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[1] / "ego_pipeline"))
+from repo_paths import V2AP_ROOT  # noqa: E402
+
+V2AP = str(V2AP_ROOT)
 DEPTH_BASE = os.path.join(V2AP, "data_hub/ProcessedData/egocentric_depth/hoi4d")
 MESH_BASE = os.path.join(V2AP, "data_hub/ProcessedData/obj_meshes/hoi4d")
 RECON_BASE = os.path.join(V2AP, "data_hub/ProcessedData/obj_recon_input/egocentric")

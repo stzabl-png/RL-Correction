@@ -33,3 +33,31 @@ A trajectory quality reward (`+ contact + stability + progress + success − pen
 同时产出 Step 3a 需要的 **Object Geometry** `O`：mesh、完整点云、SDF、表面法向、scale / shape feature。
 
 输出对应 HuggingFace 数据集中的 `Data/<split>/<sample_id>/reconstruction/`（见 `Step1_DataInput` 分支）。
+
+### 本分支代码结构（并入的 336 个文件）
+
+```
+ego_pipeline/          重建 + retarget 主流程
+  repo_paths.py/.sh    ★ 所有路径的统一出口（RR_ROOT 自动推导，clone 即用）
+  reconstruct.sh       重建入口（8 步：vipe→sam3_hands→sam2_object→hawor→sam3d→sam3d_scale→fp_pose→fuse）
+  retarget.sh          retarget 入口
+  label.sh             物体 mask 人工标注
+  bridge/retarget.py   recon 产物 → replay_world.npz + object.usd
+  phase/               抓取接触阶段（grasp phase）子系统
+    manual.py          人工标注 provider（当前流程使用）
+    detect.py          recon-only 自动接触检测（2D 手/物 mask 邻接，分左右手）
+    comotion_gate.py   手-物主动协同运动闸：判「真抓 vs 靠近/搁着」，带物体实例身份
+    auto.py            自动 provider（消费 contact_auto.json）
+  Reconstruction/      重建各 stage
+  Retargeting/         retarget + SharpaWave 手资产（vendored）
+tools/                 标注、attach phase、批处理、可视化
+experimental/hoi_detr_v17a/   HOI-DETR v17A 自动交互分割（**未接入主流程**，见其 SETUP_AND_USAGE.md）
+```
+
+**当前流程的 Mask 与 Phase 仍为人工标注**；自动化（v17A / co-motion gate）已打包但未接入。
+
+### 环境与依赖
+
+- 上手先读 **`USAGE.md`**（三步全流程）。
+- **`third_party/` 不入 git**（体积过大），需自行准备，见 **`SETUP.md`**。
+- 所有路径走 `ego_pipeline/repo_paths.py`；clone 到任何位置无需配置即可运行，外部依赖用同名环境变量覆盖。

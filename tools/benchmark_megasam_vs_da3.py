@@ -9,12 +9,17 @@ import numpy as np
 import cv2
 from natsort import natsorted
 
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[1] / "ego_pipeline"))
+from repo_paths import EGODEX_RAW_ROOT, OUTPUT_ROOT  # noqa: E402
+
 # ── Paths ──────────────────────────────────────────────────────────────────────
-EGODEX_ROOT = "/home/lyh/Project/Affordance2Grasp/data_hub/RawData/EgoRawData/egodex/test"
+EGODEX_ROOT = str(EGODEX_RAW_ROOT)
 TASK = "add_remove_lid"
 TASK_DIR = os.path.join(EGODEX_ROOT, TASK)
-MEGASAM_DIR = "/home/lyh/Project/Reconstruct_and_Retarget/Output/Depth/MegaSAM/Egodex"
-OUT_DIR = "/home/lyh/Project/Reconstruct_and_Retarget/Output/Benchmark/MegaSAM_vs_DA3"
+MEGASAM_DIR = str(OUTPUT_ROOT / "Depth/MegaSAM/Egodex")
+OUT_DIR = str(OUTPUT_ROOT / "Benchmark/MegaSAM_vs_DA3")
 os.makedirs(OUT_DIR, exist_ok=True)
 
 

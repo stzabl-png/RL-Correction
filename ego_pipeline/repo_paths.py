@@ -49,6 +49,13 @@ EGODEX_ROOT: Path = _env_path("EGODEX_ROOT", V2AP_ROOT / "data/egocentric/egodex
 FOUNDATIONPOSE_ROOT: Path = _env_path("FOUNDATIONPOSE_ROOT", V2AP_ROOT / "thirdparty/foundationpose")
 ISAAC_ROS_WS: Path = _env_path("ISAAC_ROS_WS", V2AP_ROOT / "thirdparty/isaac_ros_ws")
 
+# Affordance2Grasp(EgoDex 原始数据 / hawor _DATA 的另一处来源)
+A2G_ROOT: Path = _env_path("A2G_ROOT", "/home/lyh/Project/Affordance2Grasp")
+EGODEX_RAW_ROOT: Path = _env_path("EGODEX_RAW_ROOT", A2G_ROOT / "data_hub/RawData/EgoRawData/egodex/test")
+HAWOR_DATA: Path = _env_path("HAWOR_DATA", A2G_ROOT / "third_party/hawor/_DATA")
+VIPE_ROOT: Path = _env_path("VIPE_ROOT", THIRD_PARTY / "vipe")
+HOI4D_RELEASE: Path = _env_path("HOI4D_RELEASE", V2AP_ROOT / "data/egocentric/hoi4d/HOI4D_release")
+
 # 解释器
 HAWOR_PYTHON: Path = _env_path("HAWOR_PYTHON", "/home/lyh/anaconda3/envs/hawor/bin/python")
 ISAAC_PYTHON: Path = _env_path(

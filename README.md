@@ -1,4 +1,13 @@
-# OCIR Grasp Synthesis (cuRobo v2)
+# GraspPose_Optimization
+
+> Sharpa Wave dexterous **GraspPose optimization** — BODex on official NVLabs cuRobo v2,
+> with human-demo anchoring, affordance seeding, and Isaac Sim physics validation.
+>
+> **Layering (outermost is newest):**
+> `bodex_curobo_v2` (pure BODex, the frozen root) → `anchored_bodex` (human-demo anchored)
+> → affordance-seeded (region seeding) → approach-cone + table-penalty / fingertip-contacts.
+
+> **新终端先读 [`HANDBOOK.md`](HANDBOOK.md)** — 怎么跑脚本、一条命令全流程、参数、数据布局、排错。
 
 Sharpa Wave dexterous-hand grasp synthesis on official NVLabs cuRobo v2, with
 Isaac Sim visualization and physics simulation. This is an independent port
@@ -50,6 +59,7 @@ process) -- see [docs/isaac_sim.md](docs/isaac_sim.md).
 | --- | --- |
 | [docs/bodex_curobo_v2.md](docs/bodex_curobo_v2.md) | Core algorithm, CLI flags, outputs, hand asset config, limitations |
 | [docs/anchored_bodex.md](docs/anchored_bodex.md) | Human-demo-guided synthesis: demo data prep, calibration, guidance, visualization |
+| [docs/affordance_seeding.md](docs/affordance_seeding.md) | Affordance-model "expected grasp area" seeding: one-command synthesis that restricts seeds to a predicted grasp region (vendored model + checkpoint) |
 | [docs/grasp_traj.md](docs/grasp_traj.md) | Trajectory generation + PhysX simulation, all flags, diagnostics, **changelog of design iterations** |
 | [docs/full_traj.md](docs/full_traj.md) | Carry-only open-loop wrist retargeting, MANO/object reference generation, path metrics |
 | [docs/isaac_sim.md](docs/isaac_sim.md) | Persistent server / standalone modes, visualization, video encoding, troubleshooting |

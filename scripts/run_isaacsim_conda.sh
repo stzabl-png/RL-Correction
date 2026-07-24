@@ -2,7 +2,9 @@
 set -euo pipefail
 
 CONDA_ENV="${OCIR_ISAACSIM_CONDA_ENV:-env_isaacsim}"
-DATA_ROOT="${OCIR_DATA_ROOT:-/data/users/hangkes2/OCIR}"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Default the data root to this checkout's own data/ dir; override with OCIR_DATA_ROOT.
+DATA_ROOT="${OCIR_DATA_ROOT:-${REPO_ROOT}/data}"
 ISAACSIM_MODE="${OCIR_ISAACSIM_MODE:-webrtc}"
 OMNI_KIT_ACCEPT_EULA="${OMNI_KIT_ACCEPT_EULA:-YES}"
 MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib-maniskill}"

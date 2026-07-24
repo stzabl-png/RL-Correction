@@ -2,8 +2,9 @@
 set -euo pipefail
 
 CONDA_ENV="${OCIR_CUROBO_CONDA_ENV:-${OCIR_GRASP_SYNTHESIS_CONDA_ENV:-env_isaacsim}}"
-DATA_ROOT="${OCIR_DATA_ROOT:-/data/users/hangkes2/OCIR}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Default the data root to this checkout's own data/ dir; override with OCIR_DATA_ROOT.
+DATA_ROOT="${OCIR_DATA_ROOT:-${REPO_ROOT}/data}"
 PYTHONPATH_VALUE="${REPO_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
 
 if [[ $# -lt 1 ]]; then

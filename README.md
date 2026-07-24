@@ -18,3 +18,17 @@ From noisy egocentric video reconstruction to high-quality sim-verified robot tr
 8. **High-Quality Sim-Verified Data** — `D_high-quality`, for robot policy training and dataset construction
 
 A trajectory quality reward (`+ contact + stability + progress + success − penetration − collision − joint-limit − jerk − deviation`) closes the loop, with a fidelity term keeping the corrected trajectory close to the original video intent.
+
+---
+
+## 本分支：Step 3 — Grasp Pose Optimization
+
+对 `τ_raw` 做基于优化的先验修正，得到 `τ_opt = Optimize(τ_raw, O, C)`，约束项包括：
+
+- contact consistency（接触一致性）
+- non-penetration（非穿透）
+- smoothness（平滑性）
+- joint limits（关节限位）
+- grasp / IK feasibility（抓取与逆运动学可行性）
+
+输出对应 HuggingFace 数据集中的 `Data/<split>/<sample_id>/grasp_pose/`，含 Isaac Sim 验证结果（见 `Step1_DataInput` 分支）。

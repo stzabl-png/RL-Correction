@@ -1,0 +1,53 @@
+# SharpaCorrectionEnv 的 PPO 配置 — 基于冠军 ppo_cfg_v3net_p8.yaml, 改动:
+#   priv_info_dim 8 -> 7 (质量1+摩擦1+指尖力5, correction_env_cfg.priv_info_dim)
+#   actor_priv_dim 7      -> actor 拿全部 7 维 priv 的嵌入 (HORA z; stage-2 换估计器)
+#   experiment_name       -> correction_clip11
+#   其余超参与冠军一致 (sigma_floor 0.1 = D-Grasp 反塌缩同款思想)
+seed: 42
+algo: PPO
+device: cuda
+network:
+  mlp:
+    units: [256, 128]          # 单物体 MVP 瘦身 (原 [512,256,128])
+  priv_mlp:
+    units: [64, 32, 8]         # 同上 (原 [256,128,8])
+  separate_critic: True
+  actor_priv_dim: 7
+  # 2026-07-21: 旧值 sigma_floor 0.1 + 初值 exp(0)=1.0 让策略永远在 ±11cm 抖腕 (实测 sigma
+  # 收敛到 0.76), 抓握接触率 0.1%. 现在初值直接给 0.1, floor 放到 0.02 让它还能继续降.
+  sigma_floor: 0.02
+  sigma_init: 0.1
+  mu_init_scale: 0.01      # mu~=0 at init -> 策略从零残差(=已验证可用的参考)起步
+
+load_path: None
+
+algorithm:
+  experiment_name: 'correction_clip11'
+  normalize_input: True
+  normalize_value: True
+  value_bootstrap: True
+  num_actors: 1024
+  normalize_advantage: True
+  gamma: 0.99
+  tau: 0.95
+  learning_rate: 3e-4        # 旧 5e-3: 从"零残差=可用解"起步时大步长只会把好解踹掉 (mu.weight norm 0.031->0.966)
+  kl_threshold: 0.05
+  max_lr: 3e-4               # = learning_rate, 调度器只减不增
+  min_lr: 3e-5               # 别塌到 1e-6 学不动         # 旧 0.02: sigma 0.76->0.1 使 KL 放大 ~58x, 阈值需部分补偿
+  horizon_length: 32
+  minibatch_size: 8192
+  mini_epochs: 5
+  critic_warmup_iters: 50    # 前 50 epoch 只训 critic, 避免噪声 advantage 推走 mu
+  clip_value: True
+  critic_coef: 1
+  entropy_coef: 0.001
+  e_clip: 0.2
+  bounds_loss_coef: 0.0001
+  truncate_grads: True
+  grad_norm: 1.0
+  save_best_after: 0
+  save_frequency: 100
+  max_agent_steps: 100000000
+  priv_info: True
+  priv_info_dim: 7
+  priv_info_embed_dim: 8

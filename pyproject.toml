@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sharpawave-rl-rebuild"
+version = "1.0.1"
+description = "sharpawave rl repo"
+authors = [{ name = "sharpa" }]
+dependencies = []
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["rl_rebuild*"]

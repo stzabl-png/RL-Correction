@@ -1,0 +1,59 @@
+# p8 VARIANT (2026-07-03): v3net for the BANDROT env family, whose priv buffer is the base 8 extrinsics
+# (no regripv2 chassis -> no extended [8:23] live-state dims). Only priv_info_dim differs (23 -> 8).
+# v3net agent config — step-1 network bundle (notes/algorithms/network_capacity_audit_2026-07-02.md).
+# Deltas vs ppo_cfg.yaml, all task-agnostic (same network to be reused for rotation later):
+#   network.separate_critic true  -> independent critic MLP [512,256,128] on (raw obs + full raw priv)
+#   network.actor_priv_dim 8      -> actor's extrinsics embed sees only the first 8 priv dims (HORA z);
+#                                    dims 8:23 (object quat/linvel/angvel + 5 debounced contacts,
+#                                    filled by the regripv2 chassis) are critic-only
+#   network.sigma_floor 0.1       -> learned log-std clamped from below
+#   algorithm.priv_info_dim 23    -> matches the task cfg's extended priv buffer
+#   algorithm.critic_coef 4 -> 1  -> the 4x weighting made sense only on a shared trunk
+#   algorithm.horizon_length 8 -> 32 (user 2026-07-02 PM; train.py minibatch=num_envs*8 -> 4 minibatches/epoch at 2048 envs)
+#   algorithm.entropy_coef 0 -> 0.001
+seed: 42
+algo: PPO
+device: cuda
+network:
+  mlp:
+    units: [512, 256, 128]
+  priv_mlp:
+    units: [256, 128, 8]
+  separate_critic: True
+  actor_priv_dim: 8
+  sigma_floor: 0.1
+
+load_path: None # path to the checkpoint to load
+
+algorithm:
+  experiment_name: 'debug'
+  normalize_input: True
+  normalize_value: True
+  value_bootstrap: True
+  num_actors: 16384
+  normalize_advantage: True
+  gamma: 0.99
+  tau: 0.95
+  learning_rate: 5e-3
+  kl_threshold: 0.02
+  # PPO batch collection
+  horizon_length: 32
+  minibatch_size: 32768
+  mini_epochs: 5
+  # PPO loss setting
+  clip_value: True
+  critic_coef: 1
+  entropy_coef: 0.001
+  e_clip: 0.2
+  bounds_loss_coef: 0.0001
+  # grad clipping
+  truncate_grads: True
+  grad_norm: 1.0
+  # snapshot setting
+  save_best_after: 0
+  save_frequency: 100   # H=32 -> 183 iters per 12M; 500 never fired (no last.pth)
+  max_agent_steps: 300000000
+  # hora setting
+  priv_info: True
+  priv_info_dim: 8
+  priv_info_embed_dim: 8

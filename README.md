@@ -40,3 +40,20 @@ R = + contact + stability + progress + success
 ```
 
 其中 fidelity 项约束修正后的轨迹不偏离原视频意图。修正结果经 Isaac Sim 验证（Step 5）后进入 `D_verified`，再去重得到 `D_high-quality`。
+
+---
+
+## 实现现状（本分支代码）
+
+本分支已并入 RL correction 的可运行实现（IsaacLab + 自研 PPO）。按「抓姿合成器对该物体是否管用」
+分成**两套并存、互不干扰**的训练设定，详见 [`docs/TRAINING_SETUPS_A_B.md`](docs/TRAINING_SETUPS_A_B.md)：
+
+| | 设定 A | 设定 B |
+|---|---|---|
+| | RL 学习 **GraspPose 能处理**的物体（普遍偏大，可整手包络） | RL 学习 **GraspPose 处理不了**的物体（普遍偏小/偏扁，只能指尖捏取） |
+| 骨干 | cuRobo close 轨迹 + 28 维残差修正 | 重建人手腕位姿 + affordance 逐点热图，RL 自学指尖抓取 |
+| 状态 | 单物体 `Grasp0` 确定性评测 **99.9%** | 管线已跑通，首个对象仍在调试 |
+
+- 上手与踩坑：[`docs/MANUAL.md`](docs/MANUAL.md)
+- 外部依赖路径通过环境变量配置：`RR_ROOT`（重建/retarget 仓）、`AFFORDANCE_ROOT`、`OCIR_ROOT`
+  （见 `rl_rebuild/correction/paths.py`）

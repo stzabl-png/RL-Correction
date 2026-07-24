@@ -1,0 +1,39 @@
+# ---- 训练/运行产物 ----
+logs/
+results/
+wandb/
+outputs/
+runs/
+__pycache__/
+*.egg-info/
+.hydra/
+*.pyc
+
+# ---- 数据 (体积大, 由上游流水线生成, 不入库) ----
+# TrainingData: stage_training_data.py 从 OCIR/Bi-V2AP 归置的四类源数据 (~100MB+)
+TrainingData/
+# data/: 消融曲线 npz、ocir 缓存等生成物
+data/
+# 物体 USD / retarget 缓存 (由 mesh 自动转换生成)
+**/cache/object.usd
+**/cache/human_fq_*.npz
+
+# ---- 媒体产物 ----
+videos_compare/
+*.mp4
+*.avi
+
+# ---- 杂项 ----
+.DS_Store
+*.swp
+.vscode/
+.idea/
+
+# ---- 旧 SharpaWave 手内旋转栈的产物 (与 RL_Correction 无关, 本地保留但不入库) ----
+checkpoints/
+cache/
+media/
+*.pth
+
+# ---- 本机 Claude Code 配置 ----
+.claude/settings.local.json

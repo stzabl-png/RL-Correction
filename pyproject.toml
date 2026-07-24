@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "GraspPose_Optimization"
+version = "0.1.0"
+description = "Sharpa Wave dexterous GraspPose optimization: BODex on official cuRobo v2, with human-demo anchoring, affordance seeding, Isaac Sim physics validation."
+requires-python = ">=3.10"
+dependencies = [
+  "numpy",
+  "PyYAML",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

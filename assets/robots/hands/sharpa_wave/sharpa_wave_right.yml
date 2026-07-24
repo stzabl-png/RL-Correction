@@ -1,0 +1,72 @@
+name: sharpa_wave_right
+side: right
+urdf_path: urdf/right_sharpa_wave/right_sharpa_wave.urdf
+# Thin overlay (sharpa_right_tuned_thumbfilter.usda) over the verbatim
+# Articulation_Bodex tuned hand (see bodex_reference/provenance.json): 22
+# finger DOFs, palm world-anchor FixedJoint + passive 6-DOF virtual base
+# chain baked in, baked convexDecomposition colliders with 4mm/1mm
+# contact/rest offsets, tuned per-joint drive gains/effort limits. The
+# overlay adds exactly ONE opinion: a filtered collision pair
+# right_thumb_MC <-> right_hand_C_MC (palm), whose designed 1.2-5.6mm
+# clearance the collider approximation + rest offsets otherwise turn into a
+# permanent wedge that seizes the thumb CMC when self-collision is enabled.
+usd_path: usd/right/bodex_reference/sharpa_right_tuned_thumbfilter.usda
+base_link: right_hand_C_MC
+ee_link: right_hand_C_MC
+joint_order:
+  - right_thumb_CMC_FE
+  - right_thumb_CMC_AA
+  - right_thumb_MCP_FE
+  - right_thumb_MCP_AA
+  - right_thumb_IP
+  - right_index_MCP_FE
+  - right_index_MCP_AA
+  - right_index_PIP
+  - right_index_DIP
+  - right_middle_MCP_FE
+  - right_middle_MCP_AA
+  - right_middle_PIP
+  - right_middle_DIP
+  - right_ring_MCP_FE
+  - right_ring_MCP_AA
+  - right_ring_PIP
+  - right_ring_DIP
+  - right_pinky_CMC
+  - right_pinky_MCP_FE
+  - right_pinky_MCP_AA
+  - right_pinky_PIP
+  - right_pinky_DIP
+joint_limits:
+  right_thumb_CMC_FE: [-0.1745, 1.9199]
+  right_thumb_CMC_AA: [-0.3491, 0.3491]
+  right_thumb_MCP_FE: [-0.5236, 1.3963]
+  right_thumb_MCP_AA: [-0.3491, 0.3491]
+  right_thumb_IP: [0.0, 1.7453]
+  right_index_MCP_FE: [-0.17453293, 1.5708]
+  right_index_MCP_AA: [-0.3491, 0.3491]
+  right_index_PIP: [0.0, 1.7453]
+  right_index_DIP: [0.0, 1.3963]
+  right_middle_MCP_FE: [-0.17453293, 1.5708]
+  right_middle_MCP_AA: [-0.3491, 0.3491]
+  right_middle_PIP: [0.0, 1.7453]
+  right_middle_DIP: [0.0, 1.3963]
+  right_ring_MCP_FE: [-0.17453293, 1.5708]
+  right_ring_MCP_AA: [-0.3491, 0.3491]
+  right_ring_PIP: [0.0, 1.7453]
+  right_ring_DIP: [0.0, 1.3963]
+  right_pinky_CMC: [0.0, 0.2618]
+  right_pinky_MCP_FE: [-0.17453293, 1.5708]
+  right_pinky_MCP_AA: [-0.3491, 0.3491]
+  right_pinky_PIP: [0.0, 1.7453]
+  right_pinky_DIP: [0.0, 1.3963]
+contact_points:
+  config_path: contact_points/dex_hand_pose/contact_points.yaml
+  side_key: right_points
+  default_category: cat2
+collision_spheres:
+  path: collision/curobo/sharpa_right.yml
+bodex:
+  robot_config: robot_configs/curobo_sharpa_right.yml
+  collision_spheres: collision/curobo/sharpa_right.yml
+  hand_pose_transfer: grasp_synthesis/bodex/hand_pose_transfer/sharpa_right.yml
+  grasp_synthesis_config: grasp_synthesis/bodex/fc.yml

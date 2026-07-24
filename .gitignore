@@ -1,0 +1,40 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# --- Data root & run artifacts ---
+/data
+outputs/
+runs/
+sweeps/
+*.log
+nohup.out
+*.dmp
+
+# --- Large / license-restricted assets: NOT distributed with this repo ---
+# assets/mano/  : MANO models are license-restricted -- obtain them yourself.
+# assets/affordance/model.pt : 415MB checkpoint -- fetch separately (see
+#   assets/affordance/README.md).
+# third_party/  : cuRobo is a git submodule (init it, don't commit its tree).
+# NOTE: the Sharpa Wave hand assets under assets/robots/ were committed
+# upstream before this rule and stay tracked, so the repo still runs.
+/assets/
+/third_party/
+/envs/
+*.pt
+*.pth
+*.ply
+
+# --- Editor / OS ---
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store

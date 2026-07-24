@@ -1,0 +1,3 @@
+# Hand-local optimizer overrides are not loaded by the current bimanual runner.
+# Keep this file for parity with other hand packages.
+global: {}

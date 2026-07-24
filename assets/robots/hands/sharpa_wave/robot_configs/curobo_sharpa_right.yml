@@ -1,0 +1,229 @@
+##
+## Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+##
+## NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
+## property and proprietary rights in and to this material, related
+## documentation and any modifications thereto. Any use, reproduction,
+## disclosure or distribution of this material and related documentation
+## without an express license agreement from NVIDIA CORPORATION or
+## its affiliates is strictly prohibited.
+##
+robot_cfg:
+  kinematics:
+    base_link: right_hand_C_MC
+    use_root_pose: True
+    hand_pose_transfer_path: /home/hangkes2/ocir-grasp-synthesis/assets/robots/hands/sharpa_wave/grasp_synthesis/bodex/hand_pose_transfer/sharpa_right.yml
+    collision_link_names:
+      - right_hand_C_MC
+      - right_thumb_MC
+      - right_thumb_PP
+      - right_thumb_DP
+      - right_index_PP
+      - right_index_MP
+      - right_index_DP
+      - right_middle_PP
+      - right_middle_MP
+      - right_middle_DP
+      - right_ring_PP
+      - right_ring_MP
+      - right_ring_DP
+      - right_pinky_MC
+      - right_pinky_PP
+      - right_pinky_MP
+      - right_pinky_DP
+    collision_sphere_buffer: 0.001
+    collision_spheres: /home/hangkes2/ocir-grasp-synthesis/assets/robots/hands/sharpa_wave/collision/curobo/sharpa_right.yml
+    ee_link: right_hand_C_MC
+    link_names:
+      - right_thumb_DP
+      - right_index_DP
+      - right_middle_DP
+      - right_ring_DP
+      - right_pinky_DP
+    contact_mesh_names:
+      - right_index_DP
+      - right_middle_DP
+      - right_ring_DP
+      - right_pinky_DP
+      - right_thumb_DP
+    self_collision_buffer:
+      right_hand_C_MC: 0.0
+      right_thumb_MC: 0.0
+      right_thumb_PP: 0.0
+      right_thumb_DP: 0.0
+      right_index_PP: 0.0
+      right_index_MP: 0.0
+      right_index_DP: 0.0
+      right_middle_PP: 0.0
+      right_middle_MP: 0.0
+      right_middle_DP: 0.0
+      right_ring_PP: 0.0
+      right_ring_MP: 0.0
+      right_ring_DP: 0.0
+      right_pinky_MC: 0.0
+      right_pinky_PP: 0.0
+      right_pinky_MP: 0.0
+      right_pinky_DP: 0.0
+    self_collision_ignore:
+      right_hand_C_MC:
+        [right_index_MCP_VL, right_middle_MCP_VL, right_pinky_MC, right_ring_MCP_VL, right_thumb_CMC_VL]
+      right_index_MCP_VL:
+        [right_index_PP, right_middle_MCP_VL, right_pinky_MC, right_ring_MCP_VL, right_thumb_CMC_VL]
+      right_index_PP: [right_index_MP]
+      right_index_MP: [right_index_DP]
+      right_index_DP: [right_index_elastomer]
+      right_index_elastomer: [right_index_fingertip]
+      right_middle_MCP_VL:
+        [right_middle_PP, right_pinky_MC, right_ring_MCP_VL, right_thumb_CMC_VL]
+      right_middle_PP: [right_middle_MP]
+      right_middle_MP: [right_middle_DP]
+      right_middle_DP: [right_middle_elastomer]
+      right_middle_elastomer: [right_middle_fingertip]
+      right_pinky_MC: [right_pinky_MCP_VL, right_ring_MCP_VL, right_thumb_CMC_VL]
+      right_pinky_MCP_VL: [right_pinky_PP]
+      right_pinky_PP: [right_pinky_MP]
+      right_pinky_MP: [right_pinky_DP]
+      right_pinky_DP: [right_pinky_elastomer]
+      right_pinky_elastomer: [right_pinky_fingertip]
+      right_ring_MCP_VL: [right_ring_PP, right_thumb_CMC_VL]
+      right_ring_PP: [right_ring_MP]
+      right_ring_MP: [right_ring_DP]
+      right_ring_DP: [right_ring_elastomer]
+      right_ring_elastomer: [right_ring_fingertip]
+      right_thumb_CMC_VL: [right_thumb_MC]
+      right_thumb_MC: [right_thumb_MCP_VL]
+      right_thumb_MCP_VL: [right_thumb_PP]
+      right_thumb_PP: [right_thumb_DP]
+      right_thumb_DP: [right_thumb_elastomer]
+      right_thumb_elastomer: [right_thumb_fingertip]
+    urdf_path: /home/hangkes2/ocir-grasp-synthesis/assets/robots/hands/sharpa_wave/urdf/right_sharpa_wave/right_sharpa_wave.urdf
+    usd_path: /home/hangkes2/ocir-grasp-synthesis/assets/robots/hands/sharpa_wave/usd/right/right_sharpa_wave/right_sharpa_wave.usd
+    asset_root_path: /home/hangkes2/ocir-grasp-synthesis/assets/robots/hands/sharpa_wave/urdf/right_sharpa_wave
+    cspace:
+      joint_names:
+        [
+          "right_thumb_CMC_FE",
+          "right_thumb_CMC_AA",
+          "right_thumb_MCP_FE",
+          "right_thumb_MCP_AA",
+          "right_thumb_IP",
+          "right_index_MCP_FE",
+          "right_index_MCP_AA",
+          "right_index_PIP",
+          "right_index_DIP",
+          "right_middle_MCP_FE",
+          "right_middle_MCP_AA",
+          "right_middle_PIP",
+          "right_middle_DIP",
+          "right_ring_MCP_FE",
+          "right_ring_MCP_AA",
+          "right_ring_PIP",
+          "right_ring_DIP",
+          "right_pinky_CMC",
+          "right_pinky_MCP_FE",
+          "right_pinky_MCP_AA",
+          "right_pinky_PIP",
+          "right_pinky_DIP",
+        ]
+      cspace_distance_weight:
+        - 0.1
+        - 0.1
+        - 0.1
+        - 0.1
+        - 0.1
+        - 0.1
+        - 0.1
+        - 0.1
+        - 0.1
+        - 0.1
+        - 0.1
+        - 0.1
+        - 0.1
+        - 0.1
+        - 0.1
+        - 0.1
+        - 0.1
+        - 0.1
+        - 0.1
+        - 0.1
+        - 0.1
+        - 0.1   
+      null_space_weight:
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+        - 1.0
+      retract_config:
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+        - 0.0
+      max_acceleration: 15.0
+      max_jerk: 500.0
+    mesh_link_names:
+      [
+        "right_hand_C_MC",
+        "right_thumb_CMC_VL",
+        "right_thumb_MC",
+        "right_thumb_MCP_VL",
+        "right_thumb_PP",
+        "right_thumb_DP",
+        "right_thumb_elastomer",
+        "right_index_MCP_VL",
+        "right_index_PP",
+        "right_index_MP",
+        "right_index_DP",
+        "right_index_elastomer",
+        "right_middle_MCP_VL",
+        "right_middle_PP",
+        "right_middle_MP",
+        "right_middle_DP",
+        "right_middle_elastomer",
+        "right_ring_MCP_VL",
+        "right_ring_PP",
+        "right_ring_MP",
+        "right_ring_DP",
+        "right_ring_elastomer",
+        "right_pinky_MC",
+        "right_pinky_MCP_VL",
+        "right_pinky_PP",
+        "right_pinky_MP",
+        "right_pinky_DP",
+        "right_pinky_elastomer",
+      ]

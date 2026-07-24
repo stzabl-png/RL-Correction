@@ -42,7 +42,7 @@ scripts/run_grasp_synthesis_conda.sh scripts/grasp_traj/reconstructed_grasp_vide
 | 合成 + 轨迹 + Isaac 仿真 | **`env_isaacsim`** | Python 3.11、torch 2.7.0+cu128、cuRobo v2、coal、coacd;Isaac Sim 5.1 通过 activate.d 钩子挂进来 |
 | Affordance 模型推理 | **`deximit`** | 需要 sonata + spconv-cu128 + torch_scatter;由 affordance 步骤**子进程**调用,不用手动进 |
 
-**永远用这两个包装脚本跑,别直接调 python**(否则 Isaac 的 numpy/torch 会污染,见 §8):
+**永远用这两个包装脚本跑,别直接调 python**(否则 Isaac 的 numpy/torch 会污染,见 §9):
 - `scripts/run_grasp_synthesis_conda.sh <script.py> [args]` — 在 env_isaacsim 里跑,自动设 PYTHONPATH。
 - `scripts/run_isaacsim_conda.sh <script.py> [args]` — 同上 + 自动接受 Isaac EULA(启物理/渲染用这个)。
 
@@ -145,6 +145,10 @@ scripts/run_isaacsim_conda.sh scripts/isaac/simulate_grasp_traj.py --mode local 
 | `--squeeze-overclose` | 0.0 | 到位后手指多闭的弧度(抓得更紧、少下滑),0.2 较实 |
 | `--pose-weight` | 1.0 | anchored:人手位姿先验强度 |
 | `--table-penalty-weight` | 500 | anchored:手-桌碰撞惩罚权重 |
+| `--cone-halfangle-deg` | 80 | **approach-cone** 半角:把抓取区域收窄到人手接近的那一侧(见 §8)|
+| `--no-approach-cone` | off | 关掉 approach-cone,用完整 affordance 区域 |
+| `--opt-table-penalty-weight` | **0(关)** | **①** affordance 路径:优化时的手-桌惩罚。厚物体建议 500;薄物体慎用(见 §8)|
+| `--fingertip-contacts` | off | **②** 指尖捏取(实测有害,仅实验用,见 §8)|
 | `--seeds` / `--opt-iters` / `--top-k` | 40 / 500 / 8 | 合成搜索规模 |
 | `--carry-lift-height` | 0.10 | 抬升高度(m)|
 | `--object-mass` | 0.2 | 物体质量(kg,Stage B)|
@@ -187,26 +191,80 @@ identity_manifest/     Stage B 用的恒等 manifest
 
 ## 7. Affordance 模型(换更好的模型)
 
-- 代码已 vendored 进 `src/ocir/affordance/`;checkpoint 在 `assets/affordance/model.pt`(**git-lfs**,克隆后 `git lfs pull`)。
+- 代码已 vendored 进 `src/ocir/affordance/`;checkpoint 放 `assets/affordance/model.pt`(434MB)。
+- **⚠️ checkpoint 不随仓库分发**:`assets/` 已在 `.gitignore` 里(体积 + MANO 许可限制),clone 后需**自行放置**。用 `OCIR_AFFORDANCE_CKPT` 指到别处也行。同理 `assets/mano/mano_right_vertex_part_ids.npy`(anchored/export 用)也需自备。
 - **换模型 = 直接替换 `assets/affordance/model.pt`**(加载器从 checkpoint 自带的 cfg 读架构,其他不用动)。详见 `assets/affordance/README.md`。
 - 单独跑一次预测:`conda run -n deximit env PYTHONPATH=$PWD/src python -m ocir.affordance.predict --mesh <obj> --out <dir>`。
 - 环境搭建:`envs/affordance-requirements.txt`。
 
 ---
 
-## 8. 坑 / 排错
+## 8. 新增约束项:实测结论与已知问题
+
+> 这一节记录 approach-cone / ① 桌面惩罚 / ② 指尖 三个**最外层新增约束**的实测表现。
+> 结论来自 **18 条右手 egodex `basic_pick_place` take × 4 组配置 = 72 次完整流程**(合成→轨迹→Isaac 物理)。
+> **接手前务必读完**——有两项是「默认关且不建议开」。
+
+### 实测总表(18 物体,纯 affordance 路径)
+
+| 组 | 抓起并保持 | 没抬起 | 抬起又掉 | 物理异常 |
+|---|---|---|---|---|
+| base(仅 approach-cone) | 6 | 11 | 1 | 0 |
+| **+ ① 桌面惩罚** | **10** | 5 | 3 | 0 |
+| + ② 指尖 | 4 | 13 | 1 | 0 |
+| + ①+② | 5 | 11 | 2 | 0 |
+
+按物体形态拆开(**厚度**是关键,不是大小):
+
+| 组 | 薄物体(厚度≤2.6cm,6 个) | 厚物体(≥3.5cm,11 个) |
+|---|---|---|
+| base | 1 | ~4 |
+| **① 桌面惩罚** | **1(没帮上)** | **~8(明显变好)** |
+
+### ① 优化时桌面惩罚 —— 有效,但**只对厚物体**
+- **默认关**(`--opt-table-penalty-weight 0`)。开:传 `500`。
+- **原理**:冻结核心优化时**完全不知道桌子**(只有播种前剔除朝下法线 + 事后选过桌抓取两道被动过滤)。① 把 `relu(低于桌面深度)²` 加进优化成本,让优化过程主动把手推离桌面。
+- **实测收益**:过桌候选数普遍从 `0~2/8` 升到 `3~8/8`,桌面间隙从 -26mm/-17mm 拉回 -2/-3mm;厚物体 OK 数约 4→8。
+- **⚠️ 薄物体上会反噬**:包络与「不碰桌」几何互斥,惩罚一推就只能松手。典型 idx12(厚 1.3cm):穿桌从 **-33mm 修到 +12mm**,但 **grasp_err 从 0.013 飙到 0.849**(力封闭被打崩)→ 仍然抓不起。**它把失败模式从「穿桌」换成「抓不住」,不是修好。**
+- **建议**:厚物体开;薄物体别指望它。
+
+### ② 指尖捏取 —— **实测有害,默认关,别开**
+- OK 数 6→4,**在它本该帮的扁物体上 0/8**。
+- **原因(物理真实,非 bug)**:TopDown 用 5 指尖压扁物体顶面,接触法线同向、**无对握** → 力封闭不成立(扁物体 grasp_err 飙到 1.68;圆物体尚可 0.0127,但仍不如 11 点包络的 0.0015)。
+- **副作用**:配合下面的「无自碰惩罚」缺口,手指会**蜷成一团、自碰**,物理里出现关节跟踪误差 53/80 rad 的失稳(base 全在 0.3–1.8)。
+- 保留仅为实验对照。**「扁物体该用指尖捏」这个假设已被证伪**(至少 top-down 这么做不行)。
+
+### approach-cone —— 默认开,但方向可能不可信
+- 方向由**接触前手腕 path**估(自适应回溯到累计位移 ≥5cm),**不用**重建的手腕朝向(pose 不可信)。
+- 兜底已做:位移 < 3cm → 不收窄;锥后存活点 < min_points → 不收窄。
+- **⚠️ 残留风险**:重建噪声大的 take 方向可能偏(20 条里 take4/take10 估出的接近方向朝上,明显不合理)。80° 宽锥 + 兜底能压住大部分,但**噪声 take 仍可能收偏、滤掉好区域**。日志里核对 `approach-cone: ... N -> M points` 和方向向量。
+
+### 已知缺口:冻结核心**没有自碰惩罚**
+- `bodex_curobo_v2`(affordance 路径走的)优化成本里只有 grasp_energy / contact_distance / regularization / quat_norm —— **不管手指互插**。anchored 有 `w_selfcol=1000`,affordance 路径**没有**。
+- 后果:② 尤其明显(手蜷成团);base/① 目视尚可但同样缺这道防线。
+- **未修**。要修就照 ① 的方式把 anchored 的 `_self_collision_cost` 以 monkeypatch 挂进 affordance 路径。
+
+### 仿真侧:两条已验证的**反面**结论(别再踩)
+- **`--object-collision sdf` 对这类物体有害**:SDF「穿模处理更软」,深穿模会沉更深、反弹更猛。实测把爆炸从 jtrk 80 rad 推到 **153 rad**、物体角速度冲到 187 rad/s。**用默认 convex decomposition。**
+- **缩小接触 offset 同样帮倒忙**(margin 更小 → 插得更深再弹)。
+- 那个 187 rad 爆炸的根因是 **②的自碰位姿**,不是碰撞体类型——**仿真调参救不了一个自碰的目标位姿**。
+
+---
+
+## 9. 坑 / 排错
 
 - **一定用包装脚本 + `export OCIR_DATA_ROOT=$PWD/data`**。直接 `python` 会因 Isaac 的 numpy/torch shadow 出错。
 - **视频里物体偏小**:相机按整张大桌子自动取景。看细节可以用 §C 的转台或 GUI。
 - **`contact_frames=0` + anchored 失败**:重建空隙大,已自动回退 affordance;想用 anchored 就把原视频裁到只有 grasp 动作再重建。
 - **下滑**:力封闭临界(grasp_error 高于 0.001)+ retarget 手指碰撞体轻微重叠;加 `--squeeze-overclose 0.2`、或更多 `--seeds`、或 Stage B `--friction`(默认 3.0,手物有效 9.0)。
 - **穿桌**:已修(§5 防穿桌)。若换了新物体又出现,查日志 `table-clearing grasp selection: N/8 candidates clear`——若 0/8,说明所有候选都扎桌,需要更强的上表面过滤或换 anchored。
-- **checkpoint push 不上 GitHub**:434MB,已配 git-lfs(`.gitattributes`)。
+- **`assets/` 不在仓库里**:已 gitignore(415MB checkpoint + MANO 许可限制)。clone 后 affordance/anchored 报找不到文件,就是缺这些——见 §7 自行放置。
+  (例外:`assets/robots/hands/sharpa_wave/` 的手模型是上游历史里就跟踪的,**会**随 clone 下来。)
 - `data/` 已 gitignore,里面的产物不会误提交。
 
 ---
 
-## 9. 文件地图(改哪找哪)
+## 10. 文件地图(改哪找哪)
 
 | 文件 | 作用 |
 |---|---|

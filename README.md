@@ -18,3 +18,25 @@ From noisy egocentric video reconstruction to high-quality sim-verified robot tr
 8. **High-Quality Sim-Verified Data** — `D_high-quality`, for robot policy training and dataset construction
 
 A trajectory quality reward (`+ contact + stability + progress + success − penetration − collision − joint-limit − jerk − deviation`) closes the loop, with a fidelity term keeping the corrected trajectory close to the original video intent.
+
+---
+
+## 本分支：Step 4 — RL Correction
+
+在优化先验之上做 object-conditioned 的残差修正（keyframe residual correction）：
+
+```
+π_θ(τ_raw, τ_opt, O, C) → Δτ_RL
+τ_corr = τ_opt + Δτ_RL
+```
+
+策略条件包括 hand-object state、contact / affordance prior、phase（pre-grasp / contact / grasp / lift / place）。
+
+轨迹质量奖励：
+
+```
+R = + contact + stability + progress + success
+    − penetration − collision − joint-limit − jerk − deviation
+```
+
+其中 fidelity 项约束修正后的轨迹不偏离原视频意图。修正结果经 Isaac Sim 验证（Step 5）后进入 `D_verified`，再去重得到 `D_high-quality`。

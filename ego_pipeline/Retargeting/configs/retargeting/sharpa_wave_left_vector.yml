@@ -1,0 +1,11 @@
+retargeting:
+  type: vector
+  urdf_path: sharpa_wave/left/left_sharpa_wave.urdf
+
+  target_origin_link_names: [ "left_hand_C_MC", "left_hand_C_MC", "left_hand_C_MC", "left_hand_C_MC", "left_hand_C_MC" ]
+  target_task_link_names: [ "left_thumb_fingertip", "left_index_fingertip", "left_middle_fingertip", "left_ring_fingertip", "left_pinky_fingertip" ]
+
+  target_link_human_indices: [ [ 0, 0, 0, 0, 0 ], [ 4, 8, 12, 16, 20 ] ]
+
+  scaling_factor: 1.07
+  low_pass_alpha: 0.2

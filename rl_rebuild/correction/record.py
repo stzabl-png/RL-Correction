@@ -16,6 +16,8 @@ parser.add_argument("--zero_action", action="store_true",
 parser.add_argument("--rsi_prob", type=float, default=None)
 parser.add_argument("--out_dir", type=str, default=None,
                     help="默认: <run_dir>/videos")
+parser.add_argument("--robot", type=str, default="flying",
+                    choices=("flying", "dexmate"), help="须与训练时一致")
 parser.add_argument("--clip", type=str, default=None,
                     help="缺省从 checkpoint 路径 correction_<clip>_<tag> 自动推断 (与训练同物体)")
 parser.add_argument("--num_envs", type=int, default=4)
@@ -28,6 +30,12 @@ parser.add_argument("--no_stop_on_done", action="store_true",
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 args.enable_cameras = True                     # 离屏渲染必需
+
+# GPU 独占槽位: 录像开的是**带渲染**的 Isaac, 和训练同时满载最容易触发电源 OCP.
+# 这里阻塞等待 —— autorecord.sh 已先落 PAUSE 标记, 训练会在 epoch 边界让出槽位.
+from rl_rebuild.utils.gpu_guard import isaac_slot  # noqa: E402
+_slot = isaac_slot("record")
+
 app = AppLauncher(args).app
 
 import gymnasium as gym  # noqa: E402
@@ -38,8 +46,9 @@ from isaaclab.envs import ViewerCfg  # noqa: E402
 from rl_rebuild.algo.ppo.ppo import PPO  # noqa: E402
 from rl_rebuild.wrapper.config_wrapper import ConfigWrapper  # noqa: E402
 from rl_rebuild.wrapper.sharpa_wave_env_wrapper import GymStyleEnvWrapper  # noqa: E402
-from rl_rebuild.correction.env.correction_env import SharpaCorrectionEnv  # noqa: E402
-from rl_rebuild.correction.env.correction_env_cfg import SharpaCorrectionEnvCfg  # noqa: E402
+from rl_rebuild.correction.env.registry import make_env  # noqa: E402
+
+EnvCls, EnvCfgCls = make_env(args.robot)
 
 if args.zero_action:
     assert args.clip, "--zero_action 必须显式给 --clip"
@@ -70,7 +79,7 @@ if args.clip is None and not args.zero_action:
         raise SystemExit(f"[record] 无法从路径推断 clip (run='{_exp}'), 请显式传 --clip")
     print(f"[record] 自动推断 clip={args.clip}  (来自 {_exp})")
 
-env_cfg = SharpaCorrectionEnvCfg()
+env_cfg = EnvCfgCls()
 clips.configure_cfg(env_cfg, args.clip)
 env_cfg.scene.num_envs = args.num_envs
 if args.rsi_prob is not None:
@@ -80,7 +89,7 @@ _lookat = tuple(float(x) for x in args.lookat.split(","))
 env_cfg.viewer = ViewerCfg(eye=_eye, lookat=_lookat,
                            origin_type="env", env_index=0, resolution=(720, 540))
 
-base = SharpaCorrectionEnv(env_cfg, render_mode="rgb_array")
+base = EnvCls(env_cfg, render_mode="rgb_array")
 ep_total = base.ep_total
 if args.fps > 0:
     base.metadata["render_fps"] = args.fps      # 编码帧率<采集率(20Hz) => 慢放
@@ -92,7 +101,8 @@ env = GymStyleEnvWrapper(base, clip_actions=env_cfg.clip_actions)
 agent = None
 if not args.zero_action:
     agent = PPO(env, output_dir=os.path.join(out_dir, ".tmp"),
-                full_config=ConfigWrapper(agent_cfg, env_cfg, test=True))
+                full_config=ConfigWrapper(agent_cfg, env_cfg, test=True),
+                create_output_dir=False)   # 推理路径: 不建日志目录/不初始化 wandb
     print(f"[record] loading {ckpt}")
     agent.restore_test(ckpt)
     agent.set_eval()
@@ -103,7 +113,7 @@ obs_dict = env.reset()
 with torch.no_grad():
     for t in range(ep_total + 2):
         if agent is None:
-            mu = torch.zeros(args.num_envs, 28, device=obs_dict["obs"].device)
+            mu = torch.zeros(args.num_envs, env_cfg.action_space, device=obs_dict["obs"].device)
         else:
             _inp = {
                 "obs": agent.running_mean_std(obs_dict["obs"]),

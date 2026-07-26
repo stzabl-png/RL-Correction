@@ -10,6 +10,10 @@ parser.add_argument("--freeze", action="store_true",
                     help="冻结参考帧: 手悬停在 t0, 隔离测物体-桌子静置稳定性")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
+# GPU 独占槽位: 同一时刻只允许一个 Isaac 进程占 GPU (见 utils/gpu_guard.py).
+from rl_rebuild.utils.gpu_guard import isaac_slot  # noqa: E402
+_slot = isaac_slot("audit")
+
 app = AppLauncher(args).app
 
 import torch  # noqa: E402

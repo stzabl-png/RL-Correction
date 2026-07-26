@@ -138,6 +138,47 @@ class SharpaCorrectionEnvCfg(DirectRLEnvCfg):
     # ---- 桌子: 静态碰撞体, 桌面 z=0.85 (与数据对齐约定一致) ----
     table_size = (1.2, 1.2, 0.04)
     table_top_z = 0.85
+    # ---- DexMate(Vega) 视觉参考 ----
+    # 只为在 GUI 里核对工作区尺度 (飞手 MVP 的腕位必须落在 Vega 够得到的范围内,
+    # 见 docs/DEXMATE_WORKSPACE.md). **不参与控制、不参与训练**: 挂在 /World/Dexmate,
+    # 在 env 命名空间之外, clone_environments 不会复制它.
+    # 默认关闭; 查看器用 SHOW_DEXMATE=1 打开 (训练脚本不受影响).
+    show_dexmate = os.environ.get("SHOW_DEXMATE", "0") == "1"
+    dexmate_usd = os.path.join(
+        os.environ.get("MAGICSIM_ASSETS", "/home/lyh/luhr/MagicSim/Assets"),
+        "Robots", "vega_1p_sharpa.usd")
+    dexmate_pos = (-0.5, 0.0, 0.0)    # 底座在地面 (z=0); 从 -0.8 往 +X 前进 0.3
+    dexmate_quat = (1.0, 0.0, 0.0, 0.0)   # wxyz 单位四元数 = 面朝 +X (Vega 原生朝向)
+    # ---- 双手轨迹摆放预览 (查看器专用, SHOW_HUMAN_TRAJ=1 打开) ----
+    # 以交互起始帧为基准, 求让机器人左右手最均衡的 XY 平移; 物体落到交互手掌心、Z 贴桌.
+    # 细线画出双手腕轨迹. 详见 bimanual_align.py
+    show_human_traj = os.environ.get("SHOW_HUMAN_TRAJ", "0") == "1"
+    align_frame = 0                   # 双手刚体对齐基准帧 = 轨迹第一帧
+    obj_frame = 34                    # 物体摆放基准帧 = 交互起始帧
+    interact_hand = "right"           # phase_left 全 0, 只有右手交互
+    traj_width = 0.004                # 细线宽度 (m)
+    # 抓取帧掌心距物体**中心**的目标距离. Z 平移量由它反算, 所以调它 = 整体升降
+    # 人手轨迹/红球/橙球/蓝球(相机), 物体不动(物体独立贴桌).
+    grasp_gap = 0.045
+    # 头->头 XY 锚定用哪个 link 当"机器人的头".
+    #   vega_1p_head_l3  = 头本体 link 原点 (视觉上和头几何重合)
+    #   zed_mid          = ZED 双目中点 (光心, 在头前方约 6.1cm)
+    # 选 head_l3 会让整体(轨迹+物体)相对 ZED 方案后移约 6cm.
+    head_anchor = "vega_1p_head_l3"
+    # 默认姿势: 关节名 -> **度** (prismatic 关节则是米). 建场景时就摆好 (InitialStateCfg),
+    # 所以查看器重建后姿态不会丢. 全部可控名见 DEXMATE_JOINTS.md (67 个).
+    # 2026-07-25 手调的对称站姿:
+    dexmate_joints = {
+        "torso_j1": 45.0,
+        "torso_j2": 90.0,
+        "L_arm_j1": 45.0,  "R_arm_j1": -45.0,     # 肩 pitch, 左右对称
+        "L_arm_j2": 0.0,   "R_arm_j2": 0.0,
+        "L_arm_j3": 0.0,   "R_arm_j3": 0.0,
+        "L_arm_j4": -90.0, "R_arm_j4": -90.0,     # 肘同向弯 90°
+        "L_arm_j5": 0.0,   "R_arm_j5": 0.0,
+        "L_arm_j6": 0.0,   "R_arm_j6": 0.0,
+        "L_arm_j7": 0.0,   "R_arm_j7": 0.0,
+    }
     # ---- scene ----
     scene: InteractiveSceneCfg = InteractiveSceneCfg(
         num_envs=8, env_spacing=2.0, replicate_physics=False)  # 冠军同款: fabric克隆会破坏接触传感器的prim视图
@@ -171,6 +212,29 @@ class SharpaCorrectionEnvCfg(DirectRLEnvCfg):
     # ---- affordance 指尖抓取 (小/扁物体; 仅 clip 挂了 affordance 时生效) ----
     lam_afford = 0.4                  # 指尖落高 affordance 点的奖励权重
     loose_grip_afford = 0.05          # affordance clip 的松握折扣 (压 cage/scoop, 逼指尖抓)
+    # ---- approach 阶段 (从固定起点沿 retarget 接近路径够到 PreGrasp, 再抓) ----
+    approach_steps = 0                # >0: episode 提前此步数起步, 腕跟随接近路径(env 变量 GRASP_APPROACH)
+    approach_res_scale = 3.0          # 接近段腕残差放大倍率(相对抓取段±2cm; 接触前无精细约束)
+                                      # ⚠ 按**参考帧号**切的二值放大. dyn_res=True 时被
+                                      # 动态残差取代 (按距离连续调, 且臂/手指分别调)
+    # ---- 动态残差: 按 掌心->物体表面 距离连续缩放残差界 ----
+    # 人手轨迹是**弱参考**, 只用来把手引到物体附近、省掉盲目探索:
+    #   远 -> 臂放开去找物体, 手指基本不动
+    #   近 -> 臂收紧(毫米级容忍度, 免得把物体捅飞), 手指放开去试怎么握住
+    # 臂和手指方向相反. 飞手默认关闭 (保持旧行为), DexMate 默认打开.
+    dyn_res = False
+    dyn_d_near = 0.02                 # m; 掌心离表面近于它 -> 用 near 档
+    dyn_d_far = 0.15                  # m; 远于它 -> 用 far 档; 中间线性过渡
+    dyn_arm_far = 3.0                 # 臂: 远处放开 (= 原 approach_res_scale)
+    dyn_arm_near = 1.0                # 臂: 近处 = 标定出来的界本身 (末端 ±2cm)
+    dyn_fin_far = 0.2                 # 手指: 远处几乎不动 (±5.7° × 0.2 = ±1.1°)
+    dyn_fin_near = 1.0                # 手指: 接触时 = finger_residual_max (之前训练验证过的值)
+    start_jitter = 0.0                # m, 每回合起点腕位加均匀随机偏移 ±此值 (env 变量 GRASP_START_JITTER)
+                                      # 训练鲁棒性: 让策略覆盖一圈起点; 0=固定起点(旧行为)
+    # ---- 接触触发合拢 (指尖靠近物体才合, 不按帧数; 形状泛化用) ----
+    contact_close = False             # True: 合拢由指尖-物体距离触发 (env 变量 GRASP_CONTACT_CLOSE)
+    close_trigger_dist = 0.035        # m, 指尖离物体表面近于此则开始合拢
+    close_speed_steps = 15            # 触发后合拢到位的步数
     # ---- 数据先验开关 (消融实验: Exp1 两个都开, Exp2 都关) ----
     use_grasp_prior = False           # 抓握段手指模仿目标: True=GraspPose纯抓姿 / False=重建手指
     use_curobo_guide = False          # cuRobo 预抓取路点引导 (退火, 初值由 train.py 置)

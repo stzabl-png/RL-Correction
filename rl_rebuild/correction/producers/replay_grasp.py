@@ -51,10 +51,13 @@ def _flat_rest_quat(verts: np.ndarray) -> np.ndarray:
     return np.concatenate([[np.cos(ang / 2)], np.sin(ang / 2) * axis]).astype(np.float64)
 
 
-def _close_ramp(L: int, gs: int, ge: int) -> np.ndarray:
-    """(L,22) 傻瓜合拢斜坡: t<gs 张开, gs<=t<=ge 线性合拢, t>ge 保持合拢."""
-    u = np.clip((np.arange(L) - gs) / max(ge - gs, 1), 0.0, 1.0)[:, None]
-    return (1 - u) * GENERIC_OPEN[None] + u * GENERIC_CLOSED[None]
+def _close_ramp(L: int, gs: int, ge: int, close_scale: float = 1.0) -> np.ndarray:
+    """(L,22) 傻瓜合拢斜坡: t<gs 张开, gs<=t<=ge 线性合拢, t>ge 保持合拢.
+    close_scale>1 = 目标合拢构型更深 (薄物体需要更紧的握持)."""
+    u = np.clip((np.arange(L) - gs) / max(ge - gs, 1), 0.0, 1.0)
+    u = (u * u * (3.0 - 2.0 * u))[:, None]        # smoothstep: 合拢起停平滑, 不是匀速硬合
+    closed = GENERIC_OPEN + (GENERIC_CLOSED - GENERIC_OPEN) * close_scale
+    return (1 - u) * GENERIC_OPEN[None] + u * closed[None]
 
 
 def _affordance_target(affordance_npz):
@@ -67,9 +70,16 @@ def _affordance_target(affordance_npz):
 
 
 def load_replay_grasp(npz_path, mesh_path, usd_path="", clip_id="", hand="right",
-                      target_hz=20.0, palm_offset=0.09, close_steps=30, hover_gap=0.02,
-                      table_height=0.85, obj_gap=0.002, affordance_npz=None,
+                      target_hz=20.0, palm_offset=None, close_steps=None, hover_gap=None,
+                      close_scale=None, table_height=0.85, obj_gap=0.002, affordance_npz=None,
                       semantics: ObjectSemantics | None = None, verbose=False):
+    # 抓取几何旋钮 — 支持环境变量覆盖, 便于不改代码扫参 (GRASP_HOVER / GRASP_PALM_OFF / ...)
+    import os as _o
+    palm_offset = float(_o.environ.get("GRASP_PALM_OFF", 0.09)) if palm_offset is None else palm_offset
+    hover_gap = float(_o.environ.get("GRASP_HOVER", 0.02)) if hover_gap is None else hover_gap
+    close_steps = int(_o.environ.get("GRASP_CLOSE_STEPS", 30)) if close_steps is None else close_steps
+    # close_scale: 合拢深度倍率 (>1 = 握更紧, 用于薄物体加大握持力)
+    close_scale = float(_o.environ.get("GRASP_CLOSE_SCALE", 1.0)) if close_scale is None else close_scale
     # ---- 1. 接触窗 (源帧率) -> PreGrasp 起点 ----
     raw = np.load(npz_path, allow_pickle=True)
     src_fps = float(raw["fps"])
@@ -110,14 +120,22 @@ def load_replay_grasp(npz_path, mesh_path, usd_path="", clip_id="", hand="right"
     # 但 grasp_only 把物体钉桌上 -> 腕跟着飘走会把物体留在原地(抓空气). pp0 的 cuRobo
     # close 段腕本就不动, 这里显式复刻: gs 之后腕保持 gs 帧位姿, 抬升由 grasp_only 硬编码接管.
     r.track_wrist[gs:] = r.track_wrist[gs]
+    # 起点偏移测试旋钮 (仅测容忍度用): 把冻结的腕整体平移, 物体不动 -> 制造"手物错位"起点.
+    _off = np.array([float(_o.environ.get(k, 0.0)) for k in
+                     ("GRASP_TEST_DX", "GRASP_TEST_DY", "GRASP_TEST_DZ")], dtype=np.float32)
+    if np.any(_off):
+        r.track_wrist[:, :3] += _off
+        r.mano_joints += _off
 
     # 物体: 弃用噪声 track, 用恒定 re-anchored rest 位 (freeze 会钉在这, 不能是噪声位)
     init_pose = np.concatenate([obj_pos, rest_q]).astype(np.float32)
     r.track_object = np.broadcast_to(init_pose, (L, 7)).copy()
 
     # ---- 3. 傻瓜合拢斜坡 (丢弃不可信重建手指) ----
-    r.human_finger = _close_ramp(L, gs, ge).astype(np.float32)
-    r.finger_names = list(GENERIC_JOINT_ORDER)
+    r.human_finger = _close_ramp(L, gs, ge, close_scale).astype(np.float32)
+    # 关节名跟着手侧走: GENERIC_JOINT_ORDER 里写的是 right_*, 左手 clip 直接用会让
+    # env 的 perm 映射炸掉 ("left_index_MCP_FE is not in list"). 两只手关节名后缀一致.
+    r.finger_names = [n.replace("right_", f"{hand}_") for n in GENERIC_JOINT_ORDER]
     r.anchor_wrist = r.anchor_finger = r.curobo_pregrasp = None      # 无 cuRobo
     r.interaction_seg = (gs, min(ge, L - 1))
     r.valid[:] = True
@@ -128,7 +146,7 @@ def load_replay_grasp(npz_path, mesh_path, usd_path="", clip_id="", hand="right"
         finger_q=GENERIC_CLOSED.copy(),
         wrist_pose=r.track_wrist[ge].copy(),
         contact_fingers=np.ones(5, dtype=bool),
-        finger_names=list(GENERIC_JOINT_ORDER),
+        finger_names=[n.replace("right_", f"{hand}_") for n in GENERIC_JOINT_ORDER],
         grasp_phase_frame=ge)
 
     du.object_init_pose = init_pose

@@ -15,6 +15,10 @@ parser.add_argument("--curobo_guide", action="store_true")
 parser.add_argument("--rsi_prob", type=float, default=None, help="覆盖 RSI 概率 (评测用 0)")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
+# GPU 独占槽位: 同一时刻只允许一个 Isaac 进程占 GPU (见 utils/gpu_guard.py).
+from rl_rebuild.utils.gpu_guard import isaac_slot  # noqa: E402
+_slot = isaac_slot("replay")
+
 app = AppLauncher(args).app
 
 import numpy as np  # noqa: E402

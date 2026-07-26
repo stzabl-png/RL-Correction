@@ -25,6 +25,10 @@ parser.add_argument("--eye", type=str, default="0.7,0.7,1.25")
 parser.add_argument("--lookat", type=str, default="0.0,0.0,0.95")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
+# GPU 独占槽位: 同一时刻只允许一个 Isaac 进程占 GPU (见 utils/gpu_guard.py).
+from rl_rebuild.utils.gpu_guard import isaac_slot  # noqa: E402
+_slot = isaac_slot("play")
+
 app = AppLauncher(args).app          # 不传 --headless => 开 GUI 窗口
 
 import yaml  # noqa: E402
@@ -72,7 +76,10 @@ env_cfg.viewer = ViewerCfg(eye=_eye, lookat=_lookat, origin_type="env", env_inde
 
 base = SharpaCorrectionEnv(env_cfg)
 env = GymStyleEnvWrapper(base, clip_actions=env_cfg.clip_actions)
-agent = PPO(env, output_dir="/tmp/play_tmp", full_config=ConfigWrapper(agent_cfg, env_cfg, test=True))
+# create_output_dir=False: 推理路径不建日志目录、不初始化 TBWriter/wandb
+# (否则忘了传 SHARPA_WANDB=0 就会弹交互式登录把进程卡死 — CLAUDE.md 第 1 条)
+agent = PPO(env, output_dir="/tmp/play_tmp", full_config=ConfigWrapper(agent_cfg, env_cfg, test=True),
+            create_output_dir=False)
 print(f"\n[play] 加载 {os.path.basename(ckpt)}")
 agent.restore_test(ckpt)
 agent.set_eval()
@@ -85,19 +92,26 @@ try:
     while True:
         input(f">>> 按 Enter 跑第 {ep + 1} 回合 ...")
         obs = env.reset()
+        lift, ncon, hold = 0.0, 0, 0        # 回合中采样峰值 (done 后 env 已复位, 读数会归零)
         with torch.no_grad():
             for _ in range(base.ep_total):
-                mu = agent.model.act_inference({
+                _inp = {
                     "obs": agent.running_mean_std(obs["obs"]),
-                    "priv_info": obs["priv_info"]})
+                    "priv_info": obs["priv_info"]}
+                if "pointcloud" in obs:              # 点云策略需要 PointNet 分支
+                    _inp["pointcloud"] = obs["pointcloud"]
+                mu = agent.model.act_inference(_inp)
                 obs, _r, done, _i = env.step(torch.clamp(mu, -1.0, 1.0))
+                # 在 done(复位)之前采样, 取整回合峰值
+                if not bool(done[0]):
+                    lift = max(lift, (base.object.data.root_pos_w[0, 2]
+                                      - base.scene.env_origins[0, 2] - base.obj_rest_z).item())
+                    ncon = max(ncon, int(base._tip_contacts()[0].sum().item()))
+                    hold = max(hold, int(base.hold_ok[0]))
                 if bool(done[0]):
                     break
-        # 结果: env0 是否成功保持 + 物体抬升高度
-        succ = float(base.hold_ok[0]) >= _thr
-        lift = (base.object.data.root_pos_w[0, 2] - base.scene.env_origins[0, 2]
-                - base.obj_rest_z).item()
-        ncon = int(base._tip_contacts()[0].sum().item())
+        # 结果: 用回合内峰值 hold 计数判成功
+        succ = hold >= _thr
         print(f"    第{ep + 1}回合: {'✅ 抓起并保持住' if succ else '❌ 没抓稳'}  "
               f"物体抬升 {lift * 100:+.1f}cm  当前接触指数 {ncon}/5\n")
         ep += 1

@@ -18,6 +18,15 @@ data/
 **/cache/object.usd
 **/cache/human_fq_*.npz
 
+# ---- 派生资产 (由 tools/ 脚本从 MagicSim 共享资产生成, 25MB 二进制, 不入库) ----
+#   python tools/make_fixed_torso_usd.py   # 躯干/底盘/头 -> fixed joint
+#   python tools/add_arm_collision.py      # 补手臂碰撞几何 (必须在上一条之后跑)
+assets/*.usd
+
+# ---- 查看器运行时状态 ----
+.env_viewer.json
+.env_viewer.log
+
 # ---- 媒体产物 ----
 videos_compare/
 *.mp4

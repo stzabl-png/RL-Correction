@@ -82,8 +82,11 @@ def _replay_grasp(part, name, aff_obj, mass_kg=0.1, friction=0.5):
     )
 
 
-# 物体2 = basic_pick_place/2 (7.7x2.6cm 甜甜圈, BODex 抓不出)
-CLIPS["Grasp2"] = _replay_grasp("part2", "basic_pick_place/2", "obj_02")
+# EgoDex part2/basic_pick_place 的 20 个物体, 资产已全齐 (npz/mesh/usd/affordance).
+# Grasp2 = 7.7x2.6cm 甜甜圈 (BODex 抓不出), 是首个跑通的.
+for _i in range(20):
+    CLIPS[f"Grasp{_i}"] = _replay_grasp("part2", f"basic_pick_place/{_i}", f"obj_{_i:02d}")
+del _i
 
 
 def clip_entry(name: str) -> dict:
@@ -144,13 +147,36 @@ def ensure_object_usd(name: str):
     return usd
 
 
+def interact_hand(clip_name: str, default: str = "right") -> str:
+    """从 phase_left/phase_right 判定这条 clip 是哪只手在交互."""
+    e = CLIPS.get(clip_name, {})
+    if not e.get("npz"):
+        return default
+    try:
+        import numpy as _np
+        d = _np.load(e["npz"], allow_pickle=True)
+        n = {h: int((d[f"phase_{h}"].astype(int) == 1).sum()) for h in ("left", "right")}
+    except Exception:
+        return default
+    if max(n.values()) == 0:
+        return default
+    return max(n, key=n.get)
+
+
 def load_data_unit(cfg) -> DataUnit:
     e = clip_entry(cfg.clip_name)
     if e["source"] == "replay_grasp":
         from rl_rebuild.correction.producers.replay_grasp import load_replay_grasp
         return load_replay_grasp(e["npz"], e["mesh"], usd_path=e["usd"],
+                                 # 交互手从 phase_* 自动判定, 不能写死 "right":
+                                 # Grasp10/12 在重建里是**左手**交互, 写死右手 = 拿垃圾数据
+                                 # (实测 Grasp12 的物体被摆到 x=-0.58, 在机器人底座后面)
+                                 hand=interact_hand(cfg.clip_name),
                                  clip_id=cfg.clip_name, target_hz=cfg.target_hz,
                                  table_height=cfg.table_top_z, affordance_npz=e.get("affordance"),
+                                 # 手离物体的悬停高度: DexMate 需要比飞手大得多 (飞手能把手
+                                 # 硬顶进桌子, 真机械臂顶不动). cfg 没这项时沿用旧默认.
+                                 hover_gap=getattr(cfg, "hover_gap", None),
                                  semantics=e["semantics"], verbose=True)
     if e["source"] == "bi_v2ap":
         return load(e["npz"], e["mesh"], usd_path=e["usd"],

@@ -28,6 +28,10 @@ parser.add_argument("--action_noise", type=float, default=0.0,
 parser.add_argument("--tag", type=str, default="")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
+# GPU 独占槽位: 同一时刻只允许一个 Isaac 进程占 GPU (见 utils/gpu_guard.py).
+from rl_rebuild.utils.gpu_guard import isaac_slot  # noqa: E402
+_slot = isaac_slot("ablation")
+
 app = AppLauncher(args).app
 
 import numpy as np  # noqa: E402

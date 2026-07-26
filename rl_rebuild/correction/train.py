@@ -1,4 +1,4 @@
-"""SharpaCorrectionEnv 训练入口 — 复用冠军 PPO 栈 (algo/ppo + v3net + wrapper).
+"""残差修正训练入口 (--robot 选飞手 / DexMate) — 复用冠军 PPO 栈 (algo/ppo + v3net + wrapper).
 
   .venv-isaac/bin/python -m rl_rebuild.correction.train --num_envs 1024 --headless
   快速冒烟:  ... --num_envs 128 --max_agent_steps 100000 --headless
@@ -10,6 +10,9 @@ import sys
 from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--robot", type=str, default="flying", choices=("flying", "dexmate"),
+                    help="flying=飞手(腕浮动根+wrench-PD, 动作28) / "
+                         "dexmate=DexMate臂+Sharpa(关节驱动, 动作29). 见 env/registry.py")
 parser.add_argument("--clip", type=str, default="clip11",
                     help="数据源 (clips.py 注册表): clip11 | pp0_human | pp0_anchor")
 parser.add_argument("--num_envs", type=int, default=1024)
@@ -17,9 +20,10 @@ parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--max_agent_steps", type=int, default=None)
 parser.add_argument("--load_path", type=str, default=None)
 parser.add_argument("--resume", action="store_true", default=False)
-parser.add_argument("--video_every", type=int, default=1000,
+parser.add_argument("--video_every", type=int, default=2000,
                     help="每 N 次迭代自动录一段回放视频到 <run>/videos (0=关闭; "
-                         "须为 save_frequency=100 的倍数)")
+                         "须为 save_frequency=100 的倍数). 录像期间训练会在 epoch 边界"
+                         "让出 GPU 槽位挂起, 等录像进程完全退出后再继续 (见 utils/gpu_guard.py)")
 parser.add_argument("--grasp_prior", action="store_true",
                     help="抓握段手指模仿目标用 GraspPose 纯抓姿 (消融 Exp1)")
 parser.add_argument("--curobo_guide", action="store_true",
@@ -35,6 +39,23 @@ parser.add_argument("--rsi_mode", type=str, default=None, choices=["linear", "su
                     help="RSI 退火方式: linear=按步数线性 / success=成功率门控棘轮(能抓就降)")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
+
+# ---- 功耗防护 (2026-07-24 整机断电事故后加, 详见 rl_rebuild/utils/gpu_guard.py) ----
+# num_envs 软上限: 断电那几个 run 实际跑的是 2048 (从 ckpt 名 ep_100_step_0006M 反推),
+# 是本文件默认值的 2 倍 —— GPU 持续功耗和尖峰幅度都随之翻倍, 而这台机器供电余量极薄.
+# 需要更大规模时显式 RL_MAX_ENVS=2048 覆盖, 别再靠命令行悄悄传上去.
+_MAX_ENVS = int(os.environ.get("RL_MAX_ENVS", "1024"))
+if args.num_envs > _MAX_ENVS:
+    print(f"[train] ⚠ num_envs {args.num_envs} 超过软上限 {_MAX_ENVS}, 已压回 {_MAX_ENVS}。"
+          f"\n[train]   原因: 5090(600W)+14700K(253W) 在本机余量极薄, 2048 envs 的功耗尖峰"
+          f"曾两次触发电源 OCP 整机瞬断 (2026-07-22 14:46 / 2026-07-24 16:15)。"
+          f"\n[train]   确实需要更大规模: RL_MAX_ENVS={args.num_envs} 显式覆盖。")
+    args.num_envs = _MAX_ENVS
+
+# GPU 独占槽位: 在 Isaac 起来之前排队, 保证同一时刻只有一个 Isaac 进程在 GPU 上算.
+from rl_rebuild.utils.gpu_guard import isaac_slot  # noqa: E402
+_slot = isaac_slot("train")
+
 app = AppLauncher(args).app
 
 import json  # noqa: E402
@@ -104,8 +125,9 @@ class CorrectionPPO(PPO):
                 print(f"[milestone] success_rate_ema >= {key} @ {self.agent_steps} steps")
 from rl_rebuild.wrapper.config_wrapper import ConfigWrapper  # noqa: E402
 from rl_rebuild.wrapper.sharpa_wave_env_wrapper import GymStyleEnvWrapper  # noqa: E402
-from rl_rebuild.correction.env.correction_env import SharpaCorrectionEnv  # noqa: E402
-from rl_rebuild.correction.env.correction_env_cfg import SharpaCorrectionEnvCfg  # noqa: E402
+from rl_rebuild.correction.env.registry import make_env  # noqa: E402
+
+EnvCls, EnvCfgCls = make_env(args.robot)
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
@@ -116,7 +138,7 @@ with open(os.path.join(_HERE, "agents/ppo_correction.yaml")) as f:
 
 from rl_rebuild.correction import clips  # noqa: E402
 
-env_cfg = SharpaCorrectionEnvCfg()
+env_cfg = EnvCfgCls()
 clips.configure_cfg(env_cfg, args.clip)
 env_cfg.use_grasp_prior = args.grasp_prior      # 消融开关 (env __init__ 读)
 env_cfg.use_curobo_guide = args.curobo_guide
@@ -130,7 +152,8 @@ if args.rsi_prob is not None:                   # RSI 起步概率覆盖 (评测
 if args.rsi_mode is not None:
     env_cfg.rsi_mode = args.rsi_mode
 _tag = args.tag or ("gc" if (args.grasp_prior or args.curobo_guide) else "base")
-agent_cfg["algorithm"]["experiment_name"] = f"correction_{args.clip}_{_tag}"
+_rb = "" if args.robot == "flying" else f"_{args.robot}"
+agent_cfg["algorithm"]["experiment_name"] = f"correction_{args.clip}{_rb}_{_tag}"
 env_cfg.scene.num_envs = args.num_envs
 env_cfg.seed = args.seed
 agent_cfg["seed"] = args.seed
@@ -147,10 +170,13 @@ log_dir = os.path.join(
 print(f"[train] log_dir={log_dir}  envs={args.num_envs}  "
       f"minibatch={agent_cfg['algorithm']['minibatch_size']}")
 
-env_raw = SharpaCorrectionEnv(env_cfg)
+env_raw = EnvCls(env_cfg)
 env = GymStyleEnvWrapper(env_raw, clip_actions=env_cfg.clip_actions)
 agent = CorrectionPPO(env, output_dir=log_dir, full_config=ConfigWrapper(agent_cfg, env_cfg))
 agent._raw_env = env_raw        # 退火 hook 用: 按 sr_ema 调 rw.lam_curobo
+# 录像让出点: 每个 epoch 边界 (刚存完 ckpt) 检查一次, 有录像请求就释放 GPU 槽位挂起,
+# 等录像进程完全退出再继续 —— 避免两个 Isaac 同时满载把电源打到 OCP.
+agent.epoch_hook = _slot.yield_if_paused
 
 # 自动录像监视器 (子进程): 每 video_every 次迭代取周期快照录一段回放,
 # 视频落在 <run>/videos/. 训练结束后它会补录完剩余快照再自行退出.
@@ -159,6 +185,7 @@ if args.video_every > 0:
     subprocess.Popen(
         [os.path.join(_HERE, "autorecord.sh"), os.path.abspath(log_dir),
          str(args.video_every), args.clip,     # ← 传 clip, 否则 record.py 默认 clip11 录错物体
+         args.robot,                            # ← 传 robot, 否则录像端动作维度对不上 (28 vs 29)
          sys.executable],                       # ← 传本进程 python (跨机通用, 免写死本地路径)
         stdout=_watcher_log, stderr=subprocess.STDOUT)
     print(f"[train] 自动录像已启动: 每 {args.video_every} 迭代 -> {log_dir}/videos/ "

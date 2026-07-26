@@ -140,8 +140,11 @@ def compute_reward(
         r_afford = torch.tanh((contacts.float() * tip_afford).sum(dim=1) / w.afford_sat) * act
         terms["afford"] = w.lam_afford * r_afford
     # D-Grasp 三件套: 逐项 clamp -> 求和 -> 全局 clip
+    # NaN 防护: 物体物理偶发发散会让状态量变 NaN -> reward NaN -> advantage/loss NaN ->
+    # 梯度裁剪也救不回来(裁剪 NaN 仍是 NaN) -> 权重 NaN -> 训练崩. 必须在这里截断.
+    terms = {k: v.nan_to_num(0.0) for k, v in terms.items()}
     total = sum(t.clamp(min=w.term_clamp) for t in terms.values())
-    total = total.clamp(min=w.total_clip)
+    total = total.clamp(min=w.total_clip).nan_to_num(w.total_clip)
     return total, terms
 
 

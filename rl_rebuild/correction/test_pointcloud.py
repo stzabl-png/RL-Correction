@@ -2,6 +2,10 @@
 import argparse, torch
 from isaaclab.app import AppLauncher
 p = argparse.ArgumentParser(); AppLauncher.add_app_launcher_args(p); args = p.parse_args()
+# GPU 独占槽位: 同一时刻只允许一个 Isaac 进程占 GPU (见 utils/gpu_guard.py).
+from rl_rebuild.utils.gpu_guard import isaac_slot  # noqa: E402
+_slot = isaac_slot("pctest")
+
 app = AppLauncher(args).app
 
 from rl_rebuild.correction import clips

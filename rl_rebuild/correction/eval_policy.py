@@ -15,11 +15,17 @@ from isaaclab.app import AppLauncher
 parser = argparse.ArgumentParser()
 parser.add_argument("--checkpoint", type=str, default=None)
 parser.add_argument("--zero_action", action="store_true", help="不载策略, 零残差基线对照")
+parser.add_argument("--robot", type=str, default="flying", choices=("flying", "dexmate"),
+                    help="必须与训练时一致 —— 动作/观测维度不同, 载错会直接维度不匹配")
 parser.add_argument("--clip", type=str, default=None)
 parser.add_argument("--num_envs", type=int, default=2048)
 parser.add_argument("--episodes", type=int, default=2, help="连跑几个完整回合")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
+# GPU 独占槽位: 同一时刻只允许一个 Isaac 进程占 GPU (见 utils/gpu_guard.py).
+from rl_rebuild.utils.gpu_guard import isaac_slot  # noqa: E402
+_slot = isaac_slot("eval")
+
 app = AppLauncher(args).app
 
 import numpy as np  # noqa: E402
@@ -28,8 +34,9 @@ import yaml  # noqa: E402
 
 from rl_rebuild.algo.ppo.ppo import PPO  # noqa: E402
 from rl_rebuild.correction import clips  # noqa: E402
-from rl_rebuild.correction.env.correction_env import SharpaCorrectionEnv  # noqa: E402
-from rl_rebuild.correction.env.correction_env_cfg import SharpaCorrectionEnvCfg  # noqa: E402
+from rl_rebuild.correction.env.registry import make_env  # noqa: E402
+
+EnvCls, EnvCfgCls = make_env(args.robot)
 from rl_rebuild.wrapper.config_wrapper import ConfigWrapper  # noqa: E402
 from rl_rebuild.wrapper.sharpa_wave_env_wrapper import GymStyleEnvWrapper  # noqa: E402
 
@@ -49,10 +56,10 @@ if args.clip is None:
     assert args.clip, f"无法从 {_exp} 推断 clip, 请显式传 --clip"
     print(f"[eval] 自动推断 clip={args.clip}")
 
-env_cfg = SharpaCorrectionEnvCfg()
+env_cfg = EnvCfgCls()
 clips.configure_cfg(env_cfg, args.clip)
 env_cfg.scene.num_envs = args.num_envs
-raw = SharpaCorrectionEnv(env_cfg)
+raw = EnvCls(env_cfg)
 env = GymStyleEnvWrapper(raw, clip_actions=env_cfg.clip_actions)
 
 agent = None
@@ -84,7 +91,7 @@ with torch.no_grad():
         first_contact = torch.full((N, 5), float('nan'), device=dev)
         for t in range(raw.ep_total):
             if agent is None:
-                act = torch.zeros(N, 28, device=dev)
+                act = torch.zeros(N, env_cfg.action_space, device=dev)   # 28(飞手) / 29(DexMate)
             else:
                 _inp = {
                     "obs": agent.running_mean_std(obs_dict["obs"]),

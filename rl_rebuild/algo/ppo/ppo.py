@@ -136,6 +136,8 @@ class PPO(object):
         self.episode_lengths = AverageScalarMeter(100)
         self.obs = None
         self.epoch_num = 0
+        # 每个 epoch 边界调用一次 (train.py 挂 gpu_guard 的让出点; 推理路径不设 = 不生效).
+        self.epoch_hook = None
         self._in_critic_warmup = False   # 推理路径(record/play)不进 train_epoch, 给个安全缺省
         self.storage = ExperienceBuffer(
             self.num_actors, self.horizon_length, self.batch_size, self.minibatch_size, self.obs_shape[0],
@@ -238,6 +240,11 @@ class PPO(object):
                           f'Mean Rewards: {mean_rewards:.2f} | ' \
                           f'Current Best: {self.best_rewards:.2f}'
             print(info_string)
+
+            # 录像让出点: 此刻 ckpt 刚落盘, 是挂起的干净位置. 无请求时开销 = 一次 stat.
+            # 两个 Isaac 同时满载会把这台机器的电源打到 OCP 整机瞬断, 见 utils/gpu_guard.py.
+            if self.epoch_hook is not None:
+                self.epoch_hook()
 
         print('max steps achieved')
 

@@ -38,7 +38,7 @@ PYTHONDONTWRITEBYTECODE=1 CUDA_VISIBLE_DEVICES=1 \
 PY=/home/bangdu/miniforge3/envs/sam3/bin/python   # ②③④ 均用 sam3 环境，无 GPU
 
 # ② 左右手拆分 + 任意物体连线过滤（Qwen 2 次调用）
-$PY -m experiments.hoi_detr.dual_hand_frame_split \
+$PY -m experiments.hoi_detr.timeline.dual_hand_frame_split \
   --video $VIDEO --detections $BASE/hoi_detr_probe/detections.json \
   --output-dir $BASE/anylink_split
 
@@ -46,10 +46,10 @@ $PY -m experiments.hoi_detr.dual_hand_frame_split \
 for side in left right; do
   TRK=$BASE/anylink_split/${side}_hand/filtered_track.json
   [ -f "$TRK" ] || continue    # 该手无连线帧则跳过
-  $PY -m experiments.hoi_detr.mark_interaction_segments \
+  $PY -m experiments.hoi_detr.timeline.mark_interaction_segments \
     --video $VIDEO --filtered-track $TRK \
     --output-dir $BASE/anylink_timeline/${side}_hand
-  $PY -m experiments.hoi_detr.mark_three_phase_timeline \
+  $PY -m experiments.hoi_detr.timeline.mark_three_phase_timeline \
     --video $VIDEO \
     --segments $BASE/anylink_timeline/${side}_hand/interaction_segments.json \
     --filtered-track $TRK \

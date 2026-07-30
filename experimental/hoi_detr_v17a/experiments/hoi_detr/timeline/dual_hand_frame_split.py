@@ -31,7 +31,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .qwen_client import build_user_content, call_qwen, make_client
+from ..qwen_client import build_user_content, call_qwen, make_client
 from .qwen_interaction_object_filter import (
     HAND_COLOR,
     LINK_COLOR,

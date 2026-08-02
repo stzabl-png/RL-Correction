@@ -51,3 +51,7 @@ experimental/**/mmcv/
 # ===== 保留:retarget 需要的机器人 USD 资产(在 ego_pipeline/Retargeting/assets)=====
 !ego_pipeline/**/*.usd
 !ego_pipeline/**/*.usda
+
+# ===== 本机开发:测试视频与机器特定软链不入库 =====
+temp/
+ego_pipeline/Reconstruction/third_party

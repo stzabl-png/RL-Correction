@@ -52,12 +52,12 @@ STEP_SCRIPTS = {
 
 STEP_ENVS = {
     "vipe": "cu128",
-    "sam3_hands": "HV2RD",
-    "sam2_object": "HV2RD",
+    "sam3_hands": "sam3",
+    "sam2_object": "sam3",
     "hawor": "hawor",
-    "sam3d": "biv2ap",
-    "sam3d_scale": "biv2ap",
-    "fp_pose": "biv2ap",
+    "sam3d": "sam3d-objects",
+    "sam3d_scale": "foundationpose",
+    "fp_pose": "foundationpose",
     "fuse": "hawor",
 }
 

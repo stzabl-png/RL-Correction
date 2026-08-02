@@ -19,10 +19,10 @@ _RP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${THIRD_PARTY:=$RR_ROOT/third_party}"   # 注意:third_party 不入 git,需自行准备
 
 # ---------- 外部依赖(可用同名环境变量覆盖) ----------
-: "${HV2RD_ROOT:=/home/lyh/Project/HumanVideo2RobotData}"
-: "${RECON_PIPELINE:=$HV2RD_ROOT/recon_pipeline}"
+: "${HV2RD_ROOT:=/home/bangdu/HumanVideo2RobotData}"
+: "${RECON_PIPELINE:=$RR_ROOT/ego_pipeline/Reconstruction/recon_pipeline}"
 : "${V2AP_ROOT:=/home/lyh/Project/V2AP}"
-: "${EGODEX_ROOT:=$V2AP_ROOT/data/egocentric/egodex}"
+: "${EGODEX_ROOT:=$RR_DATA_ROOT/EgoDex}"
 : "${HAWOR_PYTHON:=/home/lyh/anaconda3/envs/hawor/bin/python}"
 : "${ISAAC_PYTHON:=$THIRD_PARTY/MagicDexMate/.venv-isaac/bin/python}"
 

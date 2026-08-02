@@ -40,12 +40,12 @@ THIRD_PARTY: Path = RR_ROOT / "third_party"          # 注意:third_party 不入
 
 # ---------- 外部依赖(可用同名环境变量覆盖) ----------
 # Jiakai 的重建仓(recon_pipeline 的上游)
-HV2RD_ROOT: Path = _env_path("HV2RD_ROOT", "/home/lyh/Project/HumanVideo2RobotData")
-RECON_PIPELINE: Path = HV2RD_ROOT / "recon_pipeline"
+HV2RD_ROOT: Path = _env_path("HV2RD_ROOT", "/home/bangdu/HumanVideo2RobotData")
+RECON_PIPELINE: Path = _env_path("RECON_PIPELINE", EGO_PIPELINE / "Reconstruction/recon_pipeline")
 
 # V2AP(FoundationPose / isaac_ros_ws / egodex 原始数据)
 V2AP_ROOT: Path = _env_path("V2AP_ROOT", "/home/lyh/Project/V2AP")
-EGODEX_ROOT: Path = _env_path("EGODEX_ROOT", V2AP_ROOT / "data/egocentric/egodex")
+EGODEX_ROOT: Path = _env_path("EGODEX_ROOT", DATA_ROOT / "EgoDex")
 FOUNDATIONPOSE_ROOT: Path = _env_path("FOUNDATIONPOSE_ROOT", V2AP_ROOT / "thirdparty/foundationpose")
 ISAAC_ROS_WS: Path = _env_path("ISAAC_ROS_WS", V2AP_ROOT / "thirdparty/isaac_ros_ws")
 

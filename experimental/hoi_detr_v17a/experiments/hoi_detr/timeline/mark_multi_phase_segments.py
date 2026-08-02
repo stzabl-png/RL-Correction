@@ -3,9 +3,16 @@
 Relies ONLY on HOI-DETR hf-link frames (as recorded in per_hand_links.json by
 render_per_hand_interaction_video): no pose, no co-motion, no Qwen.
 
-Rule (deliberately minimal):
+Rule:
   1. Per hand, linked frames -> interaction segments, bridging gaps
      <= --bridge-gap frames and dropping segments shorter than --min-seg.
+  1b. Qwen occlusion arbitration (on by default): a gap whose length is in
+     [--qwen-gap-min, --qwen-gap-max] is sent to Qwen with frames sampled
+     around it and two strict yes/no questions -- (q1) is the hand still
+     holding/manipulating the object with the object occluded, (q2) are the
+     pre-gap and post-gap objects the same object or part/whole of one
+     assembly.  Both "yes" -> the whole gap is merged into the interaction.
+     Gaps above --qwen-gap-max split unconditionally; API errors never bridge.
   2. Every remaining frame belongs to exactly one cycle: the gap between two
      consecutive interaction segments is split at its midpoint -- first half is
      the LEAVE of the previous cycle, second half the APPROACH of the next.
@@ -29,8 +36,131 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from ..qwen_client import build_user_content, call_qwen, make_client
 from .dual_hand_frame_split import build_hand_tracks
 from .qwen_interaction_object_filter import HAND_COLOR, LINK_COLOR, OBJECT_COLOR
+
+ARBITRATION_SYSTEM_PROMPT = (
+    "You are a precise vision assistant for egocentric manipulation video analysis. "
+    "You will be shown frames sampled around a temporal GAP in which a hand-object "
+    "interaction detector lost its link to an object. Your job is to answer exactly "
+    "two yes/no questions. Answer STRICTLY in JSON with no extra text, no reasoning, "
+    'no markdown: {"q1": "yes" | "no", "q2": "yes" | "no"}'
+)
+
+ARBITRATION_USER_TMPL = """Frames from ONE egocentric manipulation video, in temporal order:
+- IMAGE 1: the LAST frame BEFORE the gap where the detector still linked the {side} hand (red box) to an object (yellow box).
+- IMAGE 2..{k1}: frames sampled INSIDE the gap (no boxes; detector lost the object).
+- IMAGE {k}: the FIRST frame AFTER the gap where the link returned (red box = hand, yellow box = object).
+
+Q1: During the gap frames (middle images), is the {side} hand still holding or directly manipulating the object seen in IMAGE 1, with the object partially or fully hidden - occluded by the hand itself, by another object, or fused into another object? Answer "no" if the hand has visibly released the object (e.g., the object lies on the table away from the hand, or the hand is doing something else empty-handed).
+
+Q2: Is the object in IMAGE 1 and the object in IMAGE {k} the same physical object, OR is one of them a part/component of the other (or of the same assembly)? Answer "yes" also when before and after simply show the same object.
+
+Examples of correct judgments:
+- A hand sweeps with a broom; mid-gap the broom is hidden behind the hand and the debris pile; after the gap the same broom reappears in the same hand. -> q1: yes, q2: yes (same broom throughout).
+- A hand holds a key; mid-gap the key is inserted into a padlock so the detector now boxes the whole "padlock with key" assembly; the key is a component of that assembly. -> q1: yes, q2: yes.
+- A hand puts a dustpan down on the table and starts picking up beads with the now-empty fingers; the dustpan lies visible on the table away from the hand. -> q1: no (hand released the object; not an occlusion), q2 irrelevant.
+- Before the gap the hand held an apple; after the gap it holds a banana. -> q2: no (different objects, not part of one assembly).
+
+Answer strict JSON only: {{"q1": "yes"|"no", "q2": "yes"|"no"}}"""
+
+
+def _parse_yesno_json(content: str) -> dict:
+    text = content.strip().strip("`")
+    start, end = text.find("{"), text.rfind("}")
+    if start < 0 or end <= start:
+        raise ValueError(f"no JSON in Qwen reply: {content[:200]!r}")
+    return json.loads(text[start:end + 1])
+
+
+def _read_video_frames(video: str, wanted: set[int]) -> dict[int, "np.ndarray"]:
+    cap = cv2.VideoCapture(video)
+    out, idx = {}, 0
+    while True:
+        ret, img = cap.read()
+        if not ret:
+            break
+        if idx in wanted:
+            out[idx] = img
+        idx += 1
+    cap.release()
+    return out
+
+
+def _resize_width(img, width=960):
+    h = int(img.shape[0] * width / img.shape[1])
+    return cv2.resize(img, (width, h))
+
+
+def _draw_frame_links(img, links):
+    for lk in links:
+        hx1, hy1, hx2, hy2 = (int(round(v)) for v in lk["hand_box"])
+        ox1, oy1, ox2, oy2 = (int(round(v)) for v in lk["object_box"])
+        cv2.rectangle(img, (hx1, hy1), (hx2, hy2), (60, 60, 230), 5)
+        cv2.rectangle(img, (ox1, oy1), (ox2, oy2), (0, 220, 255), 5)
+    return img
+
+
+def qwen_arbitrate_gap(video: str, side: str, a: int, b: int,
+                       per_frame: dict, query_dir: Path, client) -> dict:
+    """Ask Qwen the two occlusion questions for the gap (a, b). Returns the
+    record dict; 'bridge' is True only when both answers are yes."""
+    mids = sorted({a + (b - a) // 3, a + (b - a) // 2, a + 2 * (b - a) // 3} - {a, b})[:3]
+    frames = _read_video_frames(video, {a, b, *mids})
+    query_dir.mkdir(parents=True, exist_ok=True)
+    tag = f"{side}_{a}-{b}"
+    paths = []
+    img = _draw_frame_links(frames[a].copy(), per_frame[str(a)]["links"])
+    p = query_dir / f"{tag}_1_before_f{a}.jpg"
+    cv2.imwrite(str(p), _resize_width(img)); paths.append(p)
+    for j, m in enumerate(mids):
+        p = query_dir / f"{tag}_{2 + j}_mid_f{m}.jpg"
+        cv2.imwrite(str(p), _resize_width(frames[m])); paths.append(p)
+    img = _draw_frame_links(frames[b].copy(), per_frame[str(b)]["links"])
+    p = query_dir / f"{tag}_{2 + len(mids)}_after_f{b}.jpg"
+    cv2.imwrite(str(p), _resize_width(img)); paths.append(p)
+
+    record = {"gap_start": a, "gap_end": b, "gap_len": b - a - 1}
+    try:
+        prompt = ARBITRATION_USER_TMPL.format(side=side, k=len(paths), k1=len(paths) - 1)
+        reply = call_qwen(ARBITRATION_SYSTEM_PROMPT, build_user_content(prompt, paths),
+                          client=client)
+        ans = _parse_yesno_json(reply.content)
+        record["q1"], record["q2"] = ans.get("q1"), ans.get("q2")
+        record["bridge"] = record["q1"] == "yes" and record["q2"] == "yes"
+    except Exception as exc:  # API failure never bridges
+        record["error"] = str(exc)
+        record["bridge"] = False
+    return record
+
+
+def arbitrate_and_merge(segs: list[tuple[int, int]], video: str, side: str,
+                        per_frame: dict, query_dir: Path,
+                        gap_min: int, gap_max: int, max_calls: int) -> tuple[list, list]:
+    """Merge consecutive segments across Qwen-approved occlusion gaps."""
+    if len(segs) < 2:
+        return segs, []
+    client = None
+    records, merged = [], [list(segs[0])]
+    calls = 0
+    for s, e in segs[1:]:
+        prev_end = merged[-1][1]
+        gap = s - prev_end - 1
+        bridge = False
+        if gap_min <= gap <= gap_max and calls < max_calls:
+            if client is None:
+                client = make_client()
+            rec = qwen_arbitrate_gap(video, side, prev_end, s, per_frame,
+                                     query_dir, client)
+            calls += 1
+            records.append(rec)
+            bridge = rec["bridge"]
+        if bridge:
+            merged[-1][1] = e
+        else:
+            merged.append([s, e])
+    return [(a, b) for a, b in merged], records
 
 # BGR phase colors: approach=blue, interact=green, leave=orange
 PHASE_COLOR = {"approach": (246, 130, 50), "interact": (80, 220, 80),
@@ -183,6 +313,12 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--bridge-gap", type=int, default=4)
     parser.add_argument("--min-seg", type=int, default=6)
+    parser.add_argument("--no-qwen-arbitration", action="store_true",
+                        help="disable Qwen occlusion arbitration of medium gaps")
+    parser.add_argument("--qwen-gap-min", type=int, default=5)
+    parser.add_argument("--qwen-gap-max", type=int, default=30)
+    parser.add_argument("--qwen-max-calls", type=int, default=8,
+                        help="max Qwen calls per hand per video")
     args = parser.parse_args()
 
     detections = json.load(open(args.detections))
@@ -204,7 +340,14 @@ def main() -> None:
         if info.get("status") != "ok":
             report[side] = {"status": info.get("status", "missing")}
             continue
-        segs = link_segments(info["linked_frames"], args.bridge_gap, args.min_seg)
+        segs = link_segments(info["linked_frames"], args.bridge_gap, 1)
+        arb_records = []
+        if not args.no_qwen_arbitration and segs:
+            segs, arb_records = arbitrate_and_merge(
+                segs, args.video, side, info["per_frame"],
+                output_dir / "qwen_gap_queries" / side,
+                args.qwen_gap_min, args.qwen_gap_max, args.qwen_max_calls)
+        segs = [(a, b) for a, b in segs if b - a + 1 >= args.min_seg]
         if not segs:
             report[side] = {"status": "no_segments_after_filter"}
             continue
@@ -222,8 +365,12 @@ def main() -> None:
                 "leave": [e + 1, max(frames_k)] if max(frames_k) > e else None,
             })
         report[side] = {"status": "ok", "num_cycles": len(segs),
-                        "cycles": cycles, "video": str(out_path)}
+                        "cycles": cycles, "video": str(out_path),
+                        "qwen_bridged_gaps": sum(1 for r in arb_records if r.get("bridge"))}
         json.dump({"bridge_gap": args.bridge_gap, "min_seg": args.min_seg,
+                   "qwen_arbitration": not args.no_qwen_arbitration,
+                   "qwen_gap_range": [args.qwen_gap_min, args.qwen_gap_max],
+                   "qwen_gap_records": arb_records,
                    "num_frames": num_frames, "cycles": cycles},
                   open(output_dir / f"{side}_hand_multi_phase.json", "w"),
                   ensure_ascii=False, indent=1)

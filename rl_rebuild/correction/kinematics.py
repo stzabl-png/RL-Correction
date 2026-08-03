@@ -19,10 +19,22 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 
-URDF_PATH = os.environ.get(
-    "VEGA_URDF",
-    "/home/lyh/luhr/MagicSim/Third_Party/curobo/curobo/content/assets/robot/"
-    "vega_1p_sharpa/vega_1p_sharpa.urdf")
+def _urdf_path() -> str:
+    """VEGA_URDF > 本机 MagicSim/curobo 副本 > 仓库自带 datasets/vega_urdf (见 paths.py)."""
+    p = os.environ.get("VEGA_URDF")
+    if p:
+        return p
+    mag = ("/home/lyh/luhr/MagicSim/Third_Party/curobo/curobo/content/assets/robot/"
+           "vega_1p_sharpa/vega_1p_sharpa.urdf")
+    if os.path.exists(mag):
+        return mag
+    b = os.path.abspath(os.path.join(
+        os.path.dirname(__file__), "..", "..", "datasets", "vega_urdf",
+        "vega_1p_sharpa", "vega_1p_sharpa.urdf"))
+    return b if os.path.exists(b) else mag
+
+
+URDF_PATH = _urdf_path()
 
 # correction_env_cfg.dexmate_joints 的默认站姿 (度). 躯干姿态会显著抬高肩部,
 # 必须带上, 否则可达性算出来是错的 (实测零位肩 z=0.428, 实际 1.301, 差 87cm).

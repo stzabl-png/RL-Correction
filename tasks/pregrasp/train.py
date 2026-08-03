@@ -54,6 +54,11 @@ parser.add_argument("--orient_blend", action="store_true",
                     help="方案一 (§2.15): 参考姿态混合到 GraspPose, 边前进边转向; 评测须同 flag")
 parser.add_argument("--cone", action="store_true",
                     help="方案二 (§2.16): 锥形信任管接替增量模仿罚; 训练时配 --no_imit")
+parser.add_argument("--grasp_first", action="store_true",
+                    help="先抓后飞门控 (§2.17): 阶段A 全回合从抖动 GraspPose 起步纯练抓取, "
+                         "sr/from_grasp 慢 EMA ≥ gf_target 后放行接近分支")
+parser.add_argument("--gf_target", type=float, default=0.9,
+                    help="门控毕业线 (抖动起点分布上的抓取成功率慢 EMA)")
 # 大batch(3072)调参覆盖 (不填=用 ppo.yaml 默认)
 parser.add_argument("--kl_threshold", type=float, default=None, help="覆盖 kl_threshold (放开策略步长)")
 parser.add_argument("--mini_epochs", type=int, default=None, help="覆盖 mini_epochs (每batch多更新)")
@@ -123,11 +128,28 @@ class MilestonePPO(PPO):
             cur = getattr(raw, "gentle", 0.2)
             raw.gentle = max(cur, min(tgt, cur + 0.005))
             self.writer.add_scalar("gentle", raw.gentle, self.agent_steps)
+        # ---- 先抓后飞门控 (§2.17): 阶段A 纯抓取(dgp 钉 1.0), 毕业才放行接近课程 ----
+        gated = getattr(self, "_grasp_first", False) and \
+            not getattr(self, "_gate_open", False)
+        if gated and raw is not None:
+            fg = self.extra_info.get("sr/from_grasp")
+            if fg is not None:
+                self._fg_slow = 0.995 * getattr(self, "_fg_slow", 0.0) + 0.005 * float(fg)
+                self.writer.add_scalar("curr/gate_fg_slow", self._fg_slow, self.agent_steps)
+                if self._fg_slow >= getattr(self, "_gf_target", 0.9):
+                    self._gate_open = True
+                    gated = False
+                    raw.cfg.direct_grasp_prob = 0.5   # 放行: 回基线初值
+                    self._dgp0 = 0.5                  # 退火锚点重置
+                    self._sr_slow = 0.0               # 接近课程从头自然启动
+                    print(f"[grasp_first] 毕业 @ {self.agent_steps/1e6:.2f}M 步 "
+                          f"(抖动起点分布上的抓取慢EMA≥{self._gf_target}), 接近分支已放行")
         # ---- 组1 可行性课程: 由 **arrive_rate** 驱动 ----------------------
         # 相关能力是"到得了", 不是"抓得住", 所以驱动量用 arrive_rate 而非 success_rate.
         # 三条一起从"宽松"收到"目标", 纪律同 gentle: 慢速 EMA + 每 epoch 限速 + 棘轮.
         ar = self.extra_info.get("approach/arrive_rate")
-        if raw is not None and getattr(raw.cfg, "approach", False) and ar is not None:
+        if raw is not None and getattr(raw.cfg, "approach", False) and ar is not None \
+                and not gated:
             a = getattr(self, "_ar_ema", 0.995)
             self._ar_slow = a * getattr(self, "_ar_slow", 0.0) + (1.0 - a) * float(ar)
             g = min(self._ar_slow / max(raw.cfg.curr_arrive_target, 1e-6), 1.0)
@@ -146,7 +168,7 @@ class MilestonePPO(PPO):
             self.writer.add_scalar("curr/ar_slow", self._ar_slow, self.agent_steps)
         # 接近段课程: 直接抓取起步比例 0.5 -> 0.1, t0 上限 0.8 -> 0 (逼它最终从头做).
         # 与 gentle 同一套纪律: 慢速 EMA 定价 + 每 epoch 限速 + 棘轮只降不升.
-        if raw is not None and getattr(raw.cfg, "approach", False):
+        if raw is not None and getattr(raw.cfg, "approach", False) and not gated:
             g = min(self._sr_slow / 0.3, 1.0)          # 巩固成功率 30% 时退火到位
             # ⚠ 退火终点固定 0.1, **起点取 run 的初值** —— 原来把 0.5 写死在公式里,
             #   初值调成 0.8 时第一次更新就会被 min() 直接压回 0.5, 实验等于没做.
@@ -200,6 +222,9 @@ if args.no_eps_curr:                 # E 组: 阈值不放松, 从一开始就�
 env_cfg.stance_prefix_frames = args.stance_prefix
 env_cfg.orient_blend = args.orient_blend
 env_cfg.cone_trust = args.cone
+if args.grasp_first:      # 阶段 A: 100% 直接抓取回合 (毕业后训练钩子放行回 0.5)
+    assert args.approach, "--grasp_first 是接近任务的课程, 必须配 --approach"
+    env_cfg.direct_grasp_prob = 1.0
 _prior = args.prior_npz or (os.path.join(_HERE, "priors", f"{args.clip}.npz")
                             if args.grasp_prior else None)
 if _prior:
@@ -247,6 +272,40 @@ agent = MilestonePPO(env, output_dir=log_dir, full_config=ConfigWrapper(agent_cf
 agent._raw_env = env_raw
 agent._no_imit = args.no_imit    # F 组: 模仿罚恒 0        # 笨拙课程钩子用: 按 sr_ema 更新 env.gentle
 agent._ar_ema = args.ar_ema      # N3 组: 可行性课程 EMA 速度
+agent._grasp_first = args.grasp_first
+agent._gf_target = args.gf_target
+if args.grasp_first:
+    # ---- §2.17 阶段A 起点抖动池 (用户设计, 2026-08-03) ----
+    # 覆盖课程全程合法到达误差的包络 U(0, eps_pos0)×U(0, eps_rot0): 接近段到达
+    # 永远 ≤ 当时的 eps ≤ 这个包络, 毕业 = 在这个分布上抓取 ≥ gf_target ——
+    # 交接自带容错. 复用 tol_curve.py 验证过的 IK 抖动法 + arm_start_pool 钩子.
+    import numpy as _np
+    from rl_rebuild.correction.kinematics import ArmIK as _ArmIK
+    _ik = _ArmIK(env_cfg.hand_side, anchor_link="arm_center", anchor_T=env_raw._anchor_T)
+    _sq = env_raw.q_pregrasp.cpu().numpy().astype(_np.float64)
+    _p0, _R0 = _ik.fk(_sq)
+    _rng = _np.random.default_rng(args.seed)
+
+    def _axang(v, th):
+        v = v / _np.linalg.norm(v)
+        K = _np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+        return _np.eye(3) + _np.sin(th) * K + (1 - _np.cos(th)) * K @ K
+
+    _qs = [_sq] * 64                       # ~14% 精确起点
+    _tries = 0
+    while len(_qs) < 448 and _tries < 1600:
+        _tries += 1
+        _u = _rng.normal(size=3)
+        _r = _ik.solve(_p0 + _u / _np.linalg.norm(_u) * _rng.uniform(0, env_cfg.eps_pos0),
+                       _axang(_rng.normal(size=3), _rng.uniform(0, env_cfg.eps_rot0)) @ _R0,
+                       q0=_sq, iters=80)
+        if _r["ok"] and _r["pos_err"] < 0.002:
+            _qs.append(_r["q"])
+    env_raw.arm_start_pool = torch.tensor(_np.stack(_qs), dtype=torch.float32,
+                                          device=env_raw.device)
+    print(f"[grasp_first] 起点抖动池 {len(_qs)} 位形 (≤{env_cfg.eps_pos0*100:.0f}cm/"
+          f"≤{_np.degrees(env_cfg.eps_rot0):.0f}°, 含 64 精确起点; IK 命中 "
+          f"{len(_qs)-64}/{_tries}) | 毕业线 {args.gf_target}")
 # 录像让出点: epoch 边界检查暂停请求, 避免两个 Isaac 同时满载触发电源 OCP
 agent.epoch_hook = _slot.yield_if_paused
 

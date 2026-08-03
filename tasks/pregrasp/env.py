@@ -1207,6 +1207,16 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         self.arm_center[env_ids] = self.q_pregrasp
         self.band_lo[env_ids] = self.arm_dev_lo
         self.band_hi[env_ids] = self.arm_dev_hi
+        # ⚠ 抖动池起步 (§2.17): 带子必须以**实际起步位形**为中心 —— 池样本可以偏出
+        # ±arm_dev_max, 带子钉在 q_pregrasp 会让第一步 clamp 把臂猛甩回带边
+        # (与 _set_arm_center 注释里"切换被一把拽回"同一失败模式, reset 路径同罪).
+        # _set_arm_center 自带"带子始终罩住抓握 IK 解"的保证, 合拢可达性不受影响.
+        if self.arm_start_pool is not None and start_grasp.any():
+            _gm = torch.zeros(self.num_envs, dtype=torch.bool, device=q_arm.device)
+            _gm[env_ids[start_grasp]] = True
+            _gq = self.arm_center.clone()
+            _gq[env_ids[start_grasp]] = q_arm[start_grasp]
+            self._set_arm_center(_gm, _gq)
         self.phase_step[env_ids] = 0
         self.cand_run[env_ids] = 0
         self.verify_k[env_ids] = 0

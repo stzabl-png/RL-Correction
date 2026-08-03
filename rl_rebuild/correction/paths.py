@@ -15,10 +15,28 @@ from __future__ import annotations
 
 import os
 
+# 仓库自带的**最小数据集** (datasets/, 走 LFS): 只含复现 Grasp3 那条训练所需的文件.
+# 上游仓不在这台机器上时自动回落到它 —— 外部协作者 clone 完就能直接开训, 不用配环境变量.
+# 要训别的 clip 仍需完整上游产物, 见 docs/DEPLOY_NEW_MACHINE.md §2B.
+_BUNDLED = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "datasets"))
+
+
+def _root(env_var: str, default: str, bundled: str) -> str:
+    """环境变量 > 本机默认路径(存在才用) > 仓库自带最小集 > 本机默认路径(保留原报错)."""
+    p = os.environ.get(env_var)
+    if p:
+        return p
+    if os.path.isdir(default):
+        return default
+    b = os.path.join(_BUNDLED, bundled)
+    return b if os.path.isdir(b) else default
+
+
 # 重建 + retarget 流水线仓 (原 Bi-V2AP)
-RR_ROOT = os.environ.get("RR_ROOT", "/home/lyh/Project/Reconstruct_and_Retarget")
+RR_ROOT = _root("RR_ROOT", "/home/lyh/Project/Reconstruct_and_Retarget", "RR")
 # affordance 预测模型输出仓
-AFFORDANCE_ROOT = os.environ.get("AFFORDANCE_ROOT", "/home/lyh/Project/AffordanceModel")
+AFFORDANCE_ROOT = _root("AFFORDANCE_ROOT", "/home/lyh/Project/AffordanceModel",
+                        "AffordanceModel")
 # OCIR 抓姿合成仓 (设定 A 的 grasp_pose / curobo_traj 源)
 OCIR_ROOT = os.environ.get("OCIR_ROOT", "/home/lyh/Project/ocir-grasp-synthesis")
 

@@ -78,7 +78,24 @@ file assets/vega_1p_sharpa_fixedtorso.usd    # 必须含 "data"/"PXR-USDC",若�
 机器人 USD(`assets/vega_1p_sharpa_fixedtorso.usd`, 25MB)**已随仓库入库**,
 不需要自己重建。只有在要改躯干锁定角/碰撞几何时才跑 `tools/` 那两个脚本,见 §2C。
 
-外部数据(重建/retarget/affordance/URDF)不在仓库里,仍需按 §2B ② 单独传。
+**Grasp3 那条训练的数据也随仓库走**(`datasets/`, 88MB: 人手轨迹 + 物体 mesh/USD +
+affordance + URDF),clone 完不用配任何环境变量就能直接开训:
+
+```bash
+# 冒烟 (几分钟)
+SHARPA_WANDB=0 PYTHONPATH=. $PY -m tasks.pregrasp.smoke --headless --clip Grasp3 \
+    --prior_npz tasks/pregrasp/priors/Grasp3_candidates/8_5.npz --prior_yaw 215
+# 正式训练 (复现当前基线)
+SHARPA_WANDB=0 PYTHONPATH=. $PY -m tasks.pregrasp.train --headless --clip Grasp3 \
+    --name repro --num_envs 1024 --approach --max_agent_steps 40000000 \
+    --prior_npz tasks/pregrasp/priors/Grasp3_candidates/8_5.npz --prior_yaw 215
+```
+
+路径解析优先级(`rl_rebuild/correction/paths.py`): 环境变量 > 本机上游仓(存在才用) >
+仓库自带 `datasets/`。所以原作者机器上仍读上游仓最新产物,别人机器上自动用这份快照。
+详见 `datasets/README.md`。
+
+**要训 Grasp3 以外的 clip**,才需要按 §2B ② 传完整上游产物。
 
 ### 2B. 从本机 rsync
 

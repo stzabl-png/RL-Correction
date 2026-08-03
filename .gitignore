@@ -3,6 +3,8 @@ logs/
 results/
 wandb/
 outputs/
+# 例外: 自带最小数据集里的 affordance 产物 (路径必须保持 AFFORDANCE_ROOT/outputs/... 的形状)
+!datasets/AffordanceModel/outputs/
 runs/
 __pycache__/
 *.egg-info/

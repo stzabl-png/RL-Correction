@@ -76,3 +76,46 @@ done
   需要时加 `--qwen-arbitration`（适用于把细粒度段本身当交付物的场景）。
 - Qwen 的 task_type / 物体名只是元数据；哪只手出结果由数据决定（有无连线帧）。
 - 单手旧管线（`qwen_interaction_object_filter.py`，按单一任务物体过滤）仍保留可用，见 git 历史版本说明。
+
+---
+
+## 多段版扩展（本仓新增，2026-08）
+
+原版④把全片压成**单个**交互窗口；多循环任务（如 stock_unstock_fridge 反复取放）
+改用下面两个新脚本，保留**每个**交互循环各自的「靠近-交互-离开」。
+
+### ②' 全长左右手交互视频 `render_per_hand_interaction_video.py`
+
+与②同样的手轨迹 + Qwen 判手逻辑，但输出**全长**视频（非仅连线帧）：每帧只画指定手
+的手框、其 hf-link 物体框与连线，另一只手的交互完全过滤；该手交互时加绿(右)/蓝(左)边框。
+
+```bash
+$PY -m experiments.hoi_detr.timeline.render_per_hand_interaction_video \
+  --video $VIDEO --detections $BASE/hoi_detr_probe/detections.json \
+  --output-dir <out>          # [--no-qwen] 跳过 Qwen 判手，用平均 x 兜底
+# 产物: {left,right}_hand_interactions.mp4 + per_hand_links.json(逐帧 link + 判手依据)
+```
+
+### ③' 多段三相位分割 `mark_multi_phase_segments.py`
+
+消费 ②' 的 `per_hand_links.json`。断口三级规则：
+**≤4 帧（`--bridge-gap`）自动桥接 → [5,30] 帧（`--qwen-gap-min/max`）Qwen 遮挡仲裁 →
+更长直接切段**；跨度 <6 帧（`--min-seg`）的段丢弃。仲裁对每个断口抽帧发 Qwen 两问
+（q1 手是否仍持物且物被遮挡；q2 断口前后是否同一物体/部件-整体），**双 yes 才桥接**，
+API 失败保守不桥接；每手调用上限 `--qwen-max-calls`(默认 8)，`--no-qwen-arbitration`
+可整体关闭（回退纯 link 基线）。每两个相邻交互段之间的空档从中点切开：前半=上一循环
+「离开」，后半=下一循环「靠近」。
+
+```bash
+$PY -m experiments.hoi_detr.timeline.mark_multi_phase_segments \
+  --video $VIDEO --detections $BASE/hoi_detr_probe/detections.json \
+  --per-hand-links <out>/per_hand_links.json --output-dir <out>/multi_phase
+# 产物: {left,right}_hand_multi_phase.mp4  可视化（顶部横幅按相位变色+循环编号；
+#         底部醒目三色进度条：蓝=靠近/绿=交互/橙=离开，带图例、相位分隔线、
+#         交互段起止帧号、三角游标）
+#       {left,right}_hand_multi_phase.json 各循环三相位边界 + qwen_gap_records
+#         （每个仲裁断口的 q1/q2 答案与是否桥接，查询图存 qwen_gap_queries/，可审计）
+```
+
+实测参考：11 个 [5,30] 断口人工核验，仲裁裁决 11/11 正确——sweep_dustpan 真放手
+不误桥（右手 3→1 循环、左手保持切分），lock_unlock_key 钥匙插锁的部件融合正确桥接。

@@ -24,15 +24,37 @@ class RewardWeights:
     lam_lift: float = 0.5
     lam_traj: float = 0.2            # 物体粗轨迹引导 (纪要: 小权重, 成功后 → 0)
     lam_imit: float = 0.1            # 人手模仿 (更弱, 随 λ_traj 同步退火)
+    # ---- "跟随"类奖励的两个开关 (无 GraspPose 设定下要关, 见下方说明) ----
+    imit_finger_w: float = 0.5       # r_imit 里手指通道的权重. 0 = 只约束腕位, 手指姿态自由.
+    traj_after_contact: float = 1.0  # 握住之后 r_traj 的折扣. 0 = 接触后不再逐帧跟物体参考.
     sigma_approach: float = 0.10     # exp 核宽度 (m)
     sigma_traj: float = 0.10
     # ---- affordance: 奖励指尖落在高 affordance 点 (=人手接触区/环). 饱和防"堆一侧".
     #      默认 0 = 关 (Grasp0 等不受影响); Grasp2 等小/扁物体训练时开.
     lam_afford: float = 0.0
     afford_sat: float = 0.5          # tanh 饱和尺度: Σ(指尖接触×afford)/sat
+    # ---- 终点势函数 (完整轨迹任务: 把"抓到"转化成"搬到位") ----
+    # 形式与 approach 同源: 势差分, 不发年金 —— 停在原地零收入, 远离目标付负.
+    # 只钉**终点**, 不钉中间路径 —— 重建的中间物体轨迹带噪, 逐帧跟随没有依据,
+    # 但"最终要到哪"是成功判据本身 (_success_step 的 place_tol), 是可信的.
+    #
+    # ⚠ 权重量纲: 势函数整条 episode 只付 (d_起 − d_终)/σ 这**一个总和**, 与年金项
+    #   (每步都付) 差一个 episode 长度的量级. Grasp2 物体总位移仅 0.19m, σ=0.1 →
+    #   总量 1.9 个单位; 若沿用 shaping 环的 0.5, 整条 episode 只值 0.95 分, 而
+    #   episode reward 是 467 (task 年金就占 364) —— 完全是噪声, 加了等于没加.
+    #   lam_goal=20 使其总量 ≈38, 与 contact 年金 (0.14×266≈38) 同量级.
+    lam_goal: float = 0.0            # 0 = 关 (飞手/grasp_only 保持旧行为)
+    sigma_goal: float = 0.10         # m
     # ---- cuRobo 预抓取路点引导 (只接近段生效; PPO 按 sr_ema 退火 lam_curobo→0) ----
     lam_curobo: float = 0.0          # 默认关; Exp1 由 train.py 置初值 (如 0.5), 再随能力退火
     sigma_curobo: float = 0.10       # 路点 exp 核宽 (m)
+    # ---- 抓取稳定性: 手物相对位姿漂移 (Run C, 2026-07-28) ----
+    # Run B 实测: 终点势把成功率拉回 0.10, 但 grip_drift_cm=6.7 —— 门开之后物体在掌心系
+    # 里漂 6.7cm, 说明形成的不是稳定包络, 是"边滑边带". 录像里的不自然动作对应的就是它.
+    # 形式是**年金式惩罚**(持续漂就持续扣), 因为"抓滑了还硬带着走"本身就该一直扣分;
+    # 留 deadband 是因为接触瞬间必然有一次沉降, 那一下不该罚.
+    w_grip: float = 0.0              # 0 = 关
+    grip_deadband: float = 0.02      # m, 这个量级内的沉降不罚
     # ---- 常驻正则 (不退火) ----
     w_act: float = 0.005             # 动作幅度
     w_rate: float = 0.01             # 动作变化率 (平滑)
@@ -72,6 +94,10 @@ def compute_reward(
     curobo_wp: torch.Tensor | None = None,       # (N,3) cuRobo 预抓取路点(桌面局部系); None=不用
     in_approach: torch.Tensor | None = None,     # (N,) bool 接近段掩码 (路点引导只在此段付)
     tip_afford: torch.Tensor | None = None,      # (N,5) 每指尖最近 affordance 点的 heatmap [0,1]
+    goal_pos: torch.Tensor | None = None,        # (N,3) 终点目标位 (桌面局部系); None=不用终点势
+    goal_gate: torch.Tensor | None = None,       # (N,) bool 是否已形成稳定抓取 (latch)
+    prev_goal_dist: torch.Tensor | None = None,  # (N,) 上一步物体到终点距离; env 持有, 就地更新
+    grip_drift: torch.Tensor | None = None,      # (N,) 门开以来物体在掌心系的漂移 (m)
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     """返回 (total (N,), 逐项 dict). 全向量化, 无循环.
 
@@ -101,14 +127,27 @@ def compute_reward(
     # 抬升: 高水位棘轮. 只付 (当前高度 − 历史最高), 保持/掉落/回爬旧高均为零.
     r_lift_sh = (lift - lift_hw).clamp(min=0.0) * act
     lift_hw.copy_(torch.maximum(lift_hw, lift * act))          # 就地更新高水位
-    r_traj = torch.exp(-(obj_pos - ref_obj_pos).norm(dim=1) / w.sigma_traj) * act
+    # 物体轨迹跟随. 这一项在接触前后是**两件不同的事**:
+    #   接触前 ref_obj_pos = 物体静置位 -> 它其实是"别把物体碰跑"的防扰动项 (要留,
+    #           手指有 69° 权限时尤其要留)
+    #   接触后 ref_obj_pos = 人的搬运路径 -> 才是真正的"逐帧跟随". 重建的物体轨迹本身
+    #           带噪, 而任务成功只由终点判据 (_success_step / place_tol) 定义 ——
+    #           逐帧钉着噪声参考走没有依据, 由 traj_after_contact 折扣掉.
+    traj_gate = torch.where(n_contact >= w.min_contacts,
+                            torch.full((N,), w.traj_after_contact, device=obj_pos.device),
+                            torch.ones(N, device=obj_pos.device))
+    r_traj = torch.exp(-(obj_pos - ref_obj_pos).norm(dim=1) / w.sigma_traj) * act * traj_gate
     # 手模仿: 手指 MAE (可加权, 远端 4x) + 腕位置误差. 圆柱对称 → 物体姿态不打分,
     # 腕姿态误差已由 wrench-PD 闭环, 此处只约束位置通道防漂.
+    # ⚠ 手指通道 (imit_finger_w) 只有在参考手指**本身是可信抓姿**时才成立 —— 即
+    #   use_grasp_prior=True (GraspPose 纯抓姿). 无 GraspPose 时参考手指来自人手重建 +
+    #   retarget, 是整条链上最脏的量, 拿它当模仿目标等于奖励"别修正"; 而且它与手指累积
+    #   残差的权限 (finger_total_max) 直接对着干. 该设定下置 0.
     fq_err = (finger_q - ref_finger_q).abs()
     if finger_weight is not None:
         fq_err = fq_err * finger_weight
     r_imit = torch.exp(-(2.0 * (wrist_pos - ref_wrist_pos).norm(dim=1)
-                         + 0.5 * fq_err.mean(dim=1))) * act
+                         + w.imit_finger_w * fq_err.mean(dim=1))) * act
 
     # ================= 第三层: 常驻正则 (负项, 不退火) =================
     p_act = -w.w_act * action.square().sum(dim=1)
@@ -128,6 +167,20 @@ def compute_reward(
         "pen_wrench": p_wrench,
         "pen_spike": p_spike,
     }
+    # 终点势: 只在**稳定抓取形成之后**付 —— 否则策略可以靠推/撞/抛把物体轰向目标刷分
+    # (录像里已经看到"快速摆手直接把物体打过去"的行为, 这条门是针对它的).
+    # ⚠ prev_goal_dist **每步都更新**, 与门开没开无关: 若只在门开时更新, 门打开那一刻
+    #   prev 还是回合开始的旧值, 会一次性白送整段距离的横财.
+    if goal_pos is not None:
+        d_goal = (obj_pos - goal_pos).norm(dim=1)
+        gate = act if goal_gate is None else (goal_gate.float() * act)
+        r_goal = ((prev_goal_dist - d_goal) / w.sigma_goal) * gate
+        prev_goal_dist.copy_(d_goal)
+        terms["goal"] = w.lam_goal * r_goal
+        # 抓取稳定性惩罚: 只在门开之后算 (门开之前手物还没建立关系, 谈不上漂移)
+        if grip_drift is not None and w.w_grip > 0.0:
+            over = (grip_drift - w.grip_deadband).clamp(min=0.0)
+            terms["pen_grip"] = -w.w_grip * over * gate
     # cuRobo 预抓取路点引导: 接近段内奖励腕靠近 cuRobo 的 close-起点位姿.
     # 势"到位"信号(非路径模仿) -> 教"快速够到预抓取位", 不印 cuRobo motion; 按能力退火.
     if curobo_wp is not None:                     # lam=0(退火完成)时仍留项, 保持日志键稳定

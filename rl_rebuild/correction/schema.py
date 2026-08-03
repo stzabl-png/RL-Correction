@@ -55,6 +55,16 @@ class RefTrajectory:
     human_finger: np.ndarray | None = None    # (L,22) SDK 序
     finger_names: list | None = None          # (22,) SDK 序关节名, env 按名映射到 USD 序
     grasp: GraspTarget | None = None          # ② (MVP=None)
+    # ---- 参考质量 (逐帧置信度的原料; 只记录, 当前不参与控制) ----
+    # 为什么要留: 参考轨迹的可信度**逐帧不同**, 而现在整条轨迹被当成同等可信
+    # (统一的 tube_radius / 统一的残差界). 这些量以前算完就打印丢掉了.
+    # 见 docs/DESIGN_LOOP.md §2.4.
+    obj_drift: np.ndarray | None = None       # (K,) 物体轨迹被判为离群/漂移的帧号
+                                              #      (fix_outliers 修过的帧, 位置是插值出来的)
+    # ref builder 对腕轨迹施加的平移 (3,). replay_grasp 的 re-anchor 把腕整体挪了一次
+    # (xy 恒 0, z = 掌心降到 affordance 高度 + clearance). 换用相机锚定摆放时这一次
+    # 平移**必须撤掉** —— 它是为"物体挪到掌心下方"那个旧锚算的, 换锚之后就是残留.
+    builder_wrist_shift: np.ndarray | None = None
 
     @property
     def L(self) -> int:
@@ -64,7 +74,7 @@ class RefTrajectory:
 @dataclass
 class ObjectSemantics:
     """物体语义 -> 物理参数. source="human" 为人工标注;
-    未来换 VLM producer (输入: 重建mesh渲染+视频关键帧) 输出同一结构, 即插即用.
+    未来换 VLM ref builder (输入: 重建mesh渲染+视频关键帧) 输出同一结构, 即插即用.
     mass/friction 是中心值, env 里按 ±范围做域随机化, 天然容忍估计误差."""
     label: str = "unknown"
     mass_kg: float = 0.2

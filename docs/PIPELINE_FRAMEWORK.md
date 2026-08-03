@@ -53,12 +53,12 @@
 rl_rebuild/correction/
   schema.py            # 数据契约: FrameConvention / RefTrajectory / GraspTarget / DataUnit / OutputTrajectory
   frames.py            # B1: 单一坐标约定 + 变换 + 002aa185 单测
-  producers/
+  ref_builders/
     recon_biv2ap.py    # ① video HOI recon (Path B: world_fused.npz) -> 手MANO + 物体6D
     retarget_mdm.py    # ①-手指: magicdexmate 封装 -> Sharpa 22 关节
     grasp_ocir.py      # ② OCIR/BODex(sharpa_right) -> GraspTarget (+接触)
     traj_curobo.py     # ③ cuRobo(sharpa_right) 规划到 ②grasp -> 可行接近轨迹(锚点)
-  assemble.py          # 把 producers 对齐到 env 系, 拼成 DataUnit
+  assemble.py          # 把 ref builders 对齐到 env 系, 拼成 DataUnit
   env/
     correction_env.py      # RL 修正 env (改/继承 SharpaWaveGraspXLEnv)
     correction_env_cfg.py
@@ -149,25 +149,25 @@ def selftest_002aa185():
 ```
 
 ```python
-# producers/recon_biv2ap.py   ①
+# ref_builders/recon_biv2ap.py   ①
 def load_recon(seq_dir) -> dict:
     """读 world_fused.npz/replay_world.npz(Path B, 非 ego_pipeline).
     返回 {hand_trans(2,N,3), hand_rot_aa(2,N,3), object_pose(M,4x4), fps_hand=30, fps_obj=15, side[0]=左[1]=右}."""
     # TODO: 只取右手[1]; object 4x4 -> 7(wxyz)
 
-# producers/retarget_mdm.py   ①-手指
+# ref_builders/retarget_mdm.py   ①-手指
 def retarget(hand_keypoints_21) -> np.ndarray:   # (22,) per frame
     """magicdexmate: 21关键点(只用腕+5指尖) -> Sharpa 22指关节(SDK序). 逐帧.
     ❗欠约束(中节/外展/CMC 优化器猜) = 不可信来源之一."""
     # TODO: 封装 magicdexmate.retarget; 重排 SDK->USD 序
 
-# producers/grasp_ocir.py     ②
+# ref_builders/grasp_ocir.py     ②
 def gen_grasp(mesh_path, affordance=None) -> GraspTarget:
     """OCIR/BODex(sharpa_right) 出干净 grasp+接触.
     MVP: 先用 poses/n4_pose1.npy 顶替(002aa185); OCIR clone 后替换."""
     # TODO: 读 BODex .npy(stage=1) -> GraspTarget; 或读 n4_pose1
 
-# producers/traj_curobo.py    ③ (锚点)
+# ref_builders/traj_curobo.py    ③ (锚点)
 def plan_traj(mesh_path, grasp: GraspTarget, start_pose) -> tuple:
     """cuRobo(sharpa_right) 规划 open->grasp(->lift) 可行接近轨迹.
     返回 (anchor_wrist(L,7), anchor_finger(L,22)). = 残差锚 + RSI 源."""
@@ -251,11 +251,11 @@ policy ─► harvest(t=0 rollout + 撤支撑测试 + 重采样) ─► OutputTr
 | 设计 § | 流水线阶段 | 模块 | 输入→输出契约 | 状态 |
 |---|---|---|---|---|
 | §5,§FRAME | 帧对齐 | `frames.py` | 各系统位姿 → env 系 | B1 先写 |
-| §1,§5 ① | 视频重建 | `producers/recon_biv2ap.py` | seq_dir → 手+物体(Path B) | 代码在,未接 |
-| §1,§5 ①指 | 重定向 | `producers/retarget_mdm.py` | 21kp → 22关节 | 已可用 |
-| §1,§5 ② | 抓取优化 | `producers/grasp_ocir.py` | mesh(+affordance) → GraspTarget | OCIR未clone,n4顶替 |
-| §1,§5 ③ | 可行规划 | `producers/traj_curobo.py` | mesh+② → 锚点轨迹 | cuRobo配置在,未接 |
-| §3 | 组装 | `assemble.py` | producers → DataUnit | 待写 |
+| §1,§5 ① | 视频重建 | `ref_builders/recon_biv2ap.py` | seq_dir → 手+物体(Path B) | 代码在,未接 |
+| §1,§5 ①指 | 重定向 | `ref_builders/retarget_mdm.py` | 21kp → 22关节 | 已可用 |
+| §1,§5 ② | 抓取优化 | `ref_builders/grasp_ocir.py` | mesh(+affordance) → GraspTarget | OCIR未clone,n4顶替 |
+| §1,§5 ③ | 可行规划 | `ref_builders/traj_curobo.py` | mesh+② → 锚点轨迹 | cuRobo配置在,未接 |
+| §3 | 组装 | `assemble.py` | ref builders → DataUnit | 待写 |
 | §2.1-2.7 | RL 修正 | `env/correction_env.py`+`reward.py` | DataUnit → policy | 待写 |
 | §2.6算法 | 训练 | 复用 `scripts/train.py` | env → ckpt | 复用 |
 | §4 | 收割 | `harvest.py` | policy+DataUnit → OutputTrajectory | 待写 |

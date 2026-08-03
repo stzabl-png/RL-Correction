@@ -98,6 +98,17 @@ def load(npz_path, mesh_path, usd_path="", clip_id="", hand="right",
             finger = F.resample(finger, L)
         fps = float(target_hz)
 
+    # 漂移帧号从**源时钟**映射到最终时钟 (重采样后帧号会变, 不映射就指向错的帧).
+    # 这些帧的物体位置是插值编出来的, 不是观测到的 —— 逐帧置信度的原料之一.
+    # ⚠ 必须走和 valid 同一套 nearest 重采样, 不能对帧号做四舍五入:
+    #   源 [39,40,41] 连续段四舍五入后是 [52,53,55], 中间漏掉 54 —— 连续坏段被打出洞,
+    #   而"连续段"恰恰是判断参考可不可信最重要的结构.
+    _dm = np.zeros(T, dtype=bool)
+    _dm[drift] = True
+    if target_hz is not None and target_hz != src_fps:
+        _dm = F.resample(_dm, len(obj_p_s), kind="nearest").astype(bool)
+    drift_out = np.flatnonzero(_dm)
+
     # ---- 派生量在最终时间轴上重算 ----
     wrist_q = F.sharpa_base_quat_from_joints(joints_s)
     tip_obj = np.linalg.norm(
@@ -115,6 +126,7 @@ def load(npz_path, mesh_path, usd_path="", clip_id="", hand="right",
         interaction_seg=_longest_true_run(interaction),
         human_finger=None if finger is None else finger.astype(np.float32),
         finger_names=finger_names,
+        obj_drift=drift_out,
     )
     # 初始物体位姿 = valid 段起始帧 + stable-pose 投影 (端盖压平, 物理稳定;
     # 参考轨迹姿态保持原样 — 43° 倾斜是姿态估计噪声, 由 RL/reward 消化)

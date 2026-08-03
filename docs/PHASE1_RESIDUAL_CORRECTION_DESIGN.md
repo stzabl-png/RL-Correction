@@ -134,7 +134,7 @@ r = r_track_hand  ·  r_track_object  ·  r_contact   ( × 物理正则因子 / 
 
 ---
 
-## 5. 数据管线 producers（状态 + 契约）
+## 5. 数据管线 ref builders（状态 + 契约）
 
 | Producer | 产出 | 状态 | 帧/契约要点 |
 |---|---|---|---|

@@ -23,7 +23,7 @@ RL 输出  = 28 维残差 (腕 ±2cm / ±0.05rad, 手指 ±0.1rad) 叠加在参�
 奖励     = 乘性核心 lift × grip × falling + shaping(approach/contact/lift/imit) + 正则
 ```
 
-- producer：`producers/ocir.py`(`load_ocir`)，读 OCIR 四类源(ocir_sequence / grasp_pose / curobo_traj)
+- ref builder：`ref_builders/ocir.py`(`load_ocir`)，读 OCIR 四类源(ocir_sequence / grasp_pose / curobo_traj)
 - clip 注册：`clips.py` 中 `_td_ocir(...)`，variant = `anchor`(cuRobo 骨干) / `human`(重建人手骨干)
 - `loose_grip_factor = 0.3`（允许一定的整手握持）
 - **状态**：`Grasp0` 单物体已跑通，确定性评测 **99.9%**（详见 `MANUAL.md`）
@@ -45,7 +45,7 @@ RL 输出  = 同 A 的 28 维残差
 奖励     = A 的全部 + 饱和 affordance 项 (只奖励指尖落在高 affordance 点)
 ```
 
-- producer：`producers/replay_grasp.py`(`load_replay_grasp`)
+- ref builder：`ref_builders/replay_grasp.py`(`load_replay_grasp`)
 - clip 注册：`clips.py` 中 `_replay_grasp(...)`，`source="replay_grasp"`
 - affordance：逐点热图 `affordance.npz`(`points_raw` (P,3) 物体系 + `heatmap` (P,) ∈[0,1])
 - `lam_afford = 0.4`（饱和 `tanh`，防止"所有手指堆到同一侧"）
@@ -94,7 +94,7 @@ RL 输出  = 同 A 的 28 维残差
 
 - **设定 A**：`Grasp0` 99.9% 已跑通；边界见 `MANUAL.md` §7（GraspPose 候选全 `ok=false`、
   摩擦模型不匹配等——当前结果是绕过而非解决这些问题）。
-- **设定 B**：**管线已全部跑通**（producer / re-anchor / 冻结腕 / affordance 奖励 / 训练可运行），
+- **设定 B**：**管线已全部跑通**（ref builder / re-anchor / 冻结腕 / affordance 奖励 / 训练可运行），
   但首个对象 `Grasp2`(甜甜圈) **尚未训练成功**：零残差基线能形成拇指+小指对置接触
   (0.81/5)，但抬升期物体被留在桌上——平放薄环的顶抓需要手指探到环下或勾进洞，
   当前"通用合拢 + 固定腕"产生的是侧碰而非可提起的握持。方法框架成立，对象选择待调整。

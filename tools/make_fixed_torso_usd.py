@@ -12,7 +12,7 @@
   躯干在这个任务里**全程不动**, 与其和求解器较劲, 不如直接从自由度里去掉:
   换成 fixed joint 之后它连"能不能撑住"这个问题都不存在了.
 
-做法: 复制原 USD (不动 MagicSim 的共享资产), 把指定关节
+做法: **展平**原 USD 到 assets/ (不动 MagicSim 的共享资产), 把指定关节
   PhysicsRevoluteJoint/PhysicsPrismaticJoint -> PhysicsFixedJoint,
   并把**锁定角度烘进 localRot0** —— fixed joint 约束的是 frame0 == frame1,
   而 revolute 在角度 θ 时是 frame0·R(axis,θ) == frame1, 所以
@@ -26,7 +26,6 @@ from __future__ import annotations
 import argparse
 import math
 import os
-import shutil
 
 from pxr import Gf, Usd, UsdPhysics
 
@@ -64,7 +63,16 @@ def main():
 
     if not a.check:
         os.makedirs(os.path.dirname(a.dst), exist_ok=True)
-        shutil.copy2(a.src, a.dst)          # 复制而不是引用: 24MB, 换来自包含无歧义
+        # ⚠ **必须 Flatten, 不能 shutil.copy** (2026-08-03 修).
+        #   MagicSim 的 DexMate 资产有两种布局:
+        #     ① 已展平的单文件 (本机就是这种, 160 个 reference 全是层内的)
+        #     ② 模块化: 顶层 vega_1p_sharpa.usd 引用同级
+        #        configuration/vega_1p_sharpa_{base,physics,robot,sensor}.usd
+        #   单文件拷贝把 USD 从它的引用树里拽出来 —— 对 ① 无害, 对 ② 会让所有
+        #   visuals/collisions 引用悬空. Isaac 不报错致命, 只是每个 link 退回默认
+        #   变换 ⟹ **机器人散架、双手往外摊开**. 同事直接 clone 后就是这个症状.
+        #   Flatten() 把组合结果烘进单层, 两种布局产出一致, 跨机器可搬.
+        Usd.Stage.Open(a.src).Flatten().Export(a.dst)
         path = a.dst
     else:
         path = a.src

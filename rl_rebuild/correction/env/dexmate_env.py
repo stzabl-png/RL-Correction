@@ -119,6 +119,9 @@ class DexmateCorrectionEnv(SharpaCorrectionEnv):
         self.finger_tgt_prev = torch.zeros(self.num_envs, 22, device=dev)
         self._substep = 0
         self.arm_err_ctr = torch.zeros(self.num_envs, dtype=torch.long, device=dev)
+        self.q_cmd = torch.zeros(self.num_envs, 7, device=dev)   # 策略自己的累积目标
+        self.q_base_prev = torch.zeros(self.num_envs, 7, device=dev)  # 上一步的参考(算前馈增量)
+        self.ee_jac = self.ee_id - 1        # 固定基座: jacobian 的 body 索引要 -1
         # 动态残差的归一化距离; reset 后第一次取观测时 _pre_physics_step 还没跑过, 先占位
         self._dyn_u = torch.ones(self.num_envs, device=dev)
 
@@ -127,6 +130,11 @@ class DexmateCorrectionEnv(SharpaCorrectionEnv):
 
         # ---- 从默认站姿出发的接近段: 把时间轴整体后移 home_steps ----
         self.home_steps = int(cfg.home_steps)
+        # grasp_only=False 时基类不定义 lift_step0/hold_step0 (那是硬编码抬升的产物).
+        # 完整轨迹模式下用不到它们, 但相位显示/日志会读, 给个等价定义:
+        #   参考播完 = settle + home + (L - t0), 之后是 hold.
+        if not cfg.grasp_only:
+            self.lift_step0 = self.hold_step0 = cfg.settle_steps + (self.L - self.t0)
         if self.home_steps > 0:
             self.q_home = self.hand.data.default_joint_pos[:, self.arm_jids].clone()  # (N,7)
             self.q_pregrasp = self.q_ref[self.grasp_start]                            # (7,)
@@ -218,7 +226,7 @@ class DexmateCorrectionEnv(SharpaCorrectionEnv):
         _ha = getattr(cfg, "head_anchor", "vega_1p_head_l3")
         rhead = bp[bn.index(_ha)].tolist() if _ha in bn else None
 
-        # ---- place_mode="producer": 保留 producer 已经摆好的手-物关系, 只做刚体平移 ----
+        # ---- place_mode="ref_builder": 保留 ref builder 已经摆好的手-物关系, 只做刚体平移 ----
         # replay_grasp 的摆放**已经为"抓得住"精心设计过**, 有四件 bimanual_align 不做的事:
         #   ① 物体锚在 affordance 加权重心(甜甜圈的"环"), 不是质心
         #   ② hover_gap=2cm: 复位时张开的手不戳进物体 (否则 PhysX 退穿透把物体弹飞 -> NaN)
@@ -227,7 +235,9 @@ class DexmateCorrectionEnv(SharpaCorrectionEnv):
         #   ④ 手指用固定合拢斜坡, 重建手指本就被丢弃
         # bimanual_align 解决的是另一个问题("把双手轨迹放进机器人的第一人称坐标系"),
         # 用它整体覆盖会把上面四条一起抹掉. 所以默认只在**需要时**做整体平移.
-        if cfg.place_mode == "producer":
+        if cfg.place_mode == "ref_builder":
+            if getattr(cfg, "anchor_mode", "camera") == "camera":
+                self._recheck_camera_anchor(bn, org)
             self._solve_ik_only(bn, org)
             return
 
@@ -293,6 +303,7 @@ class DexmateCorrectionEnv(SharpaCorrectionEnv):
             assert len(good), "整条 clip 都解不出 IK, 这条数据不能用"
             q[bad] = q[good[_np.abs(good[None] - bad[:, None]).argmin(1)]]
         self.q_ref = to(q)                                 # (L,7)
+        self._record_ik_quality(ok, pe, bad)
         a, b = res["inter"]["per_hand"][prim]              # 源帧号 -> env 帧号
         a, b = int(a * _sc), min(int(b * _sc), self.L - 1)
         print(f"[dexmate] IK: 全程可达 {ok.mean()*100:.1f}% | 接触段[{a},{b}] "
@@ -369,14 +380,71 @@ class DexmateCorrectionEnv(SharpaCorrectionEnv):
             u_ = sh.unsqueeze(1)
             q_base = torch.where(u_ < 1.0, (1 - u_) * self.q_home + u_ * self.q_pregrasp,
                                  q_base)
-        # 限位钳制: 仿真器也会挡, 但让目标就落在限位内, 策略才不会学"往限位外推"
         self.arm_tgt_prev = self.arm_tgt.clone()
-        self.arm_tgt = (q_base + arm_res).clamp(self.arm_lower, self.arm_upper)
+        if self.cfg.accumulate_action:
+            # 参考提供**增量**(前馈), 策略的修正在其上**累积** —— 两者缺一不可:
+            #   只累积不给前馈 -> 零动作时手臂冻在起点, 参考完全不起作用 (实测抬升 0.15cm)
+            #   只给前馈不累积 -> 退回旧行为, 偏差每步归零, 走不出 2cm
+            # 现在: 零动作 = 精确跟参考; 有动作 = 偏差**持续累加**, 直到管壁.
+            # ⚠ 前馈增量必须取自 **q_base 本身**, 不能取 q_ref[t]:
+            #   抬升段 q_base 来自预解的 q_lift, 而参考时钟 t 已被钳在 grasp_end,
+            #   q_ref[t]-q_ref[t-1] 恒为 0 —— 抬升增量会整个丢掉 (实测抬升 0.16cm).
+            q_cmd = self.q_cmd + (q_base - self.q_base_prev) + arm_res
+            # home 段仍走插值 (那一段是"把手送过去", 不是任务)
+            if sh is not None:
+                q_cmd = torch.where((sh < 1.0).unsqueeze(1), q_base, q_cmd)
+            self.q_cmd = q_cmd.clamp(self.arm_lower, self.arm_upper)
+            if sh is None:                # home 段不受管道约束 (那是转移, 不是任务)
+                self._tube_project(t)
+            self.arm_tgt = self.q_cmd
+        else:
+            self.arm_tgt = (q_base + arm_res).clamp(self.arm_lower, self.arm_upper)
+        self.q_base_prev = q_base
 
         finger_ref = self._contact_close_ref() if self.contact_close else self.ref_finger[t]
         self.finger_tgt_prev = self.finger_tgt.clone()
-        self.finger_tgt = (finger_ref + fin_res).clamp(self.dof_lower, self.dof_upper)
+        # 手指与臂同构: 参考给基线, 策略的修正在其上**累积** (dyn_res 缩的是每步增量).
+        self.finger_tgt = (finger_ref + self._accum_finger(fin_res)
+                           ).clamp(self.dof_lower, self.dof_upper)
         self._substep = 0
+
+    def _tube_project(self, t):
+        """末端偏离参考超过 tube_radius 就拉回管壁 (雅可比一步修正).
+
+        用**实际末端**而不是 FK(q_cmd) 算偏差: IsaacLab 直接给实际末端位姿和雅可比,
+        不用自己再算一遍 FK; 20Hz 下这点反馈滞后可以忽略.
+        管道的意义: 给策略自由(可累积), 同时保证"不会走得离人手太远" ——
+        相似度是**结构性**保证, 不是奖励项.
+        """
+        # ⚠ 用**实际末端**算偏差, 而实际落后于指令 —— 等它到 R 才拉已经晚了.
+        # 提前量: 从 soft_frac·R 就开始往回拉, 拉力随超出量线性增长.
+        R = self.cfg.tube_radius
+        Rs = R * self.cfg.tube_soft_frac
+        ee = self.wrist_pos_w - self.scene.env_origins          # (N,3)
+        center = self.ref_wrist_pos[t]
+        if getattr(self, "p_lift", None) is not None:
+            pr = self._smoothstep(self._lift_prog())
+            f = (pr * self.cfg.lift_steps).clamp(0, self.cfg.lift_steps)
+            i0 = f.floor().long().clamp(0, self.cfg.lift_steps - 1)
+            w = (f - i0.float()).unsqueeze(1)
+            center = torch.where((pr > 0).unsqueeze(1),
+                                 (1 - w) * self.p_lift[i0] + w * self.p_lift[i0 + 1],
+                                 center)
+        d = ee - center
+        n = d.norm(dim=1, keepdim=True)
+        over = (n - Rs).clamp(min=0.0)
+        if not bool((over > 0).any()):
+            return
+        # 世界系修正量: 沿偏离方向把末端拉回管壁
+        corr = -(d / n.clamp(min=1e-6)) * over * self.cfg.tube_kp
+        # ⚠ 分两步切: [:, int, :, list] 会触发 advanced-index 重排, 静默给出错的雅可比
+        jf = self.hand.root_physx_view.get_jacobians()
+        jac = jf[:, self.ee_jac, :3, :][:, :, self.arm_jids]     # (N,3,7) 位置部分
+        # 阻尼最小二乘伪逆, 奇异处不炸
+        JT = jac.transpose(1, 2)
+        A = jac @ JT + 1e-4 * torch.eye(3, device=self.device)
+        dq = (JT @ torch.linalg.solve(A, corr.unsqueeze(-1))).squeeze(-1)
+        self.q_cmd = (self.q_cmd + dq).clamp(self.arm_lower, self.arm_upper)
 
     def _apply_action(self) -> None:
         # 关节位置目标 —— 飞手那一整套 wrench-PD (增益/力钳制/坐标系转换/四元数归正)
@@ -465,9 +533,16 @@ class DexmateCorrectionEnv(SharpaCorrectionEnv):
             # 同一个网络输出在不同距离下含义不同 -> 策略在盲猜
             self._dyn_u.unsqueeze(1) if cfg.dyn_res
             else torch.zeros(self.num_envs, 0, device=self.device),     # 1 (dyn_res 时)
+            # 累积手指残差: 同理必须给 —— 动作是增量, 策略得知道积分器现在在哪
+            self.finger_res / cfg.finger_total_max if cfg.accumulate_finger
+            else torch.zeros(self.num_envs, 0, device=self.device),     # 22 (累积模式)
+            # 终点势门控: 奖励依赖它, 策略必须看得见 (否则信用分配靠猜)
+            self.goal_gate.float().unsqueeze(1) if self.use_goal
+            else torch.zeros(self.num_envs, 0, device=self.device),     # 1 (终点势时)
             self.actions_buf,                                           # 29
             obj_geom,
         ], dim=1).clamp(-cfg.clip_obs, cfg.clip_obs).nan_to_num(0.0)
+        self._check_obs_dim(obs)
 
         tip_f = torch.cat([s.data.force_matrix_w.view(self.num_envs, 1, 3)
                            for s in self._contact_sensors], dim=1).norm(dim=-1)
@@ -480,6 +555,20 @@ class DexmateCorrectionEnv(SharpaCorrectionEnv):
         if cfg.enable_pointcloud and pc_wrist is not None:
             out["pointcloud"] = pc_wrist.clamp(-cfg.clip_obs, cfg.clip_obs).nan_to_num(0.0)
         return out
+
+    def _success_step(self, obj_pos, contacts) -> torch.Tensor:
+        """完整轨迹任务的成功 = **物体最终落在人手结束交互时的位置附近**.
+
+        不看抬多高、不看怎么抓 —— 抓法交给 RL 自己找. 这才对应
+        "输入一条视频 -> 输出一条相似的、物理可行的轨迹".
+        (grasp_only 模式仍走基类的"抬够高+握住"判据.)
+        """
+        if self.cfg.grasp_only:
+            return super()._success_step(obj_pos, contacts)
+        in_hold = self._ref_t() >= (self.L - 1)
+        tgt = self.ref_obj_pos[self.L - 1]
+        near = (obj_pos - tgt).norm(dim=1) <= self.cfg.place_tol
+        return in_hold & near
 
     # ---- 终止 ---------------------------------------------------------
     def _get_dones(self):
@@ -511,14 +600,96 @@ class DexmateCorrectionEnv(SharpaCorrectionEnv):
         self.hand.set_joint_position_target(q, env_ids=env_ids)
         self.arm_tgt[env_ids] = (q[:, self.arm_jids] if getattr(self, "home_steps", 0) > 0
                                  else self.q_ref[starts])
+        self.q_cmd[env_ids] = self.arm_tgt[env_ids]      # 累积目标从参考起点开始
+        self.q_base_prev[env_ids] = self.arm_tgt[env_ids]
         self.finger_tgt[env_ids] = self.ref_finger[starts]
         self.arm_err_ctr[env_ids] = 0
 
+    def _record_ik_quality(self, ok, pe, bad) -> None:
+        """把 IK 的逐帧质量存下来 (以前算完打印就丢). **只记录, 不改任何控制行为.**
+
+        为什么需要: "不可达"有好几种, 而现在它们被同一句 `q[bad] = q[最近可达帧]` 抹平:
+          ① 姿态本身机械臂摆不出来 (关节限位/奇异)   -> ok=False
+          ② 重建轨迹本身有偏差 (比如插进桌子里)      -> ok 可能为 True 但 pos_err 大
+          ③ 够不到 (超臂展)                          -> 已由整体平移处理
+        顶替之后那一段 q_ref 是**编出来的**: 在 accumulate 模式下前馈增量恒为 0、
+        段边界跳变, 而 tube 中心仍用没被顶替的 ref_wrist_pos —— 两个约束互相打架,
+        日志上看不见. 存下来是做逐帧置信度的第一步 (docs/DESIGN_LOOP.md §2.4).
+        """
+        import numpy as _np
+        dev = self.device
+        L = len(ok)
+        subst = _np.zeros(L, dtype=bool)
+        subst[bad] = True
+        self.ref_ik_ok = torch.tensor(ok.astype(_np.float32), device=dev)      # (L,)
+        self.ref_ik_err = torch.tensor(_np.nan_to_num(pe, nan=_np.inf, posinf=1e3
+                                                      ).astype(_np.float32), device=dev)
+        self.ref_ik_subst = torch.tensor(subst, device=dev)                    # (L,) bool
+        # 连续坏段比孤立坏帧危险得多 (孤立帧被邻帧插值掩盖, 连续段是整段编造), 单独报出来
+        segs, s = [], None
+        for i in range(L + 1):
+            b = i < L and subst[i]
+            if b and s is None:
+                s = i
+            elif not b and s is not None:
+                segs.append((s, i - 1)); s = None
+        self.ref_bad_segs = segs
+        if segs:
+            longest = max(e - s + 1 for s, e in segs)
+            print(f"[ref质量] IK 顶替段 {len(segs)} 段 (最长 {longest} 帧): "
+                  f"{segs[:6]}{' ...' if len(segs) > 6 else ''}")
+        _f = _np.isfinite(pe) & ok
+        if _f.any():
+            print(f"[ref质量] 可达帧位置误差: 中位 {_np.median(pe[_f])*100:.2f}cm "
+                  f"95分位 {_np.percentile(pe[_f], 95)*100:.2f}cm "
+                  f"最大 {pe[_f].max()*100:.2f}cm")
+        d = getattr(self.du.ref, "obj_drift", None)
+        if d is not None and len(d):
+            print(f"[ref质量] 物体漂移帧 {len(d)} 个 (位置是插值出来的): {list(d[:12])}"
+                  f"{' ...' if len(d) > 12 else ''}")
+
+    def _recheck_camera_anchor(self, bn, org):
+        """把 ref builder 用**标称** ZED 摆好的参考, 按**实测** ZED 补一次残差平移.
+
+        为什么分两步: ref builder 跑在 `correction_env.__init__` 里 (clips.load_data_unit),
+        那时躯干还没在重力下沉降收敛 —— 这个方法所在的 `_place_and_solve_ik` 才等到收敛
+        (上面那段 settle 循环, 注释里记着"躯干偏 8.3° -> 末端差 9.5cm"). 所以 ref builder
+        只能用常数 `place_camera.ZED_NOMINAL`, 由这里用活值补差.
+        常数是对的 -> 这一步是 0; 常数漂了 -> 补上并打印, 不会静默摆错.
+
+        只补 xy: 相机锚定本来就只定 xy (z 由"物体贴桌" + "手全程最小抬升"两条独立约束
+        各自定死), 而 xy 平移不改变手离桌面的高度, 所以 clearance 不用重算.
+        """
+        import numpy as _np
+        from rl_rebuild.correction import place_camera as PC
+
+        dev = self.device
+        need = ("zed_left_camera", "zed_right_camera")
+        if not all(n in bn for n in need):
+            print(f"[dexmate] ⚠ 资产里没有 {need}, 跳过相机锚定残差修正 "
+                  f"(参考仍是 ref builder 用标称 ZED 摆的)")
+            return
+        bp = self.hand.data.body_pos_w[0].cpu().numpy() - org
+        zed = (bp[bn.index(need[0])] + bp[bn.index(need[1])]) / 2.0
+        d = zed[:2] - PC.ZED_NOMINAL[:2]
+        if float(_np.linalg.norm(d)) < 1e-3:
+            print(f"[dexmate] 相机锚定: 实测 ZED xy={_np.round(zed[:2], 4).tolist()} "
+                  f"与标称一致 (差 {float(_np.linalg.norm(d))*1000:.1f}mm), 无需修正")
+            return
+        v = torch.tensor([d[0], d[1], 0.0], dtype=torch.float32, device=dev)
+        self.ref_wrist_pos += v
+        self.ref_obj_pos += v
+        self.obj_init_pos = self.obj_init_pos + v
+        print(f"[dexmate] 相机锚定残差: 实测 ZED xy={_np.round(zed[:2], 4).tolist()} vs "
+              f"标称 {_np.round(PC.ZED_NOMINAL[:2], 4).tolist()} -> 参考整体补移 "
+              f"{_np.round(d*100, 2).tolist()}cm  "
+              f"(标称过期了就改 place_camera.ZED_NOMINAL)")
+
     def _solve_ik_only(self, bn, org):
-        """用 producer 已摆好的参考直接解 IK; 够不到时**整体刚体平移**进工作空间.
+        """用 ref builder 已摆好的参考直接解 IK; 够不到时**整体刚体平移**进工作空间.
 
         只平移、不旋转、不改手-物相对关系 —— 与用户约束一致
-        (物体只能平移不能旋转; 手↔物相对关系由 producer 定, 这里不动).
+        (物体只能平移不能旋转; 手↔物相对关系由 ref builder 定, 这里不动).
         """
         import numpy as _np
         from rl_rebuild.correction.kinematics import ArmIK, quat_to_R
@@ -561,6 +732,7 @@ class DexmateCorrectionEnv(SharpaCorrectionEnv):
             assert len(good), "整条 clip 都解不出 IK"
             q[bad] = q[good[_np.abs(good[None] - bad[:, None]).argmin(1)]]
         self.q_ref = torch.tensor(q, dtype=torch.float32, device=dev)
+        self._record_ik_quality(ok, pe, bad)
         # ---- 硬编码抬升的关节轨迹 ----
         # grasp_only 的成功判据就是"腕垂直升 lift_height, 物体跟不跟得上". 飞手直接在腕
         # 目标 z 上加斜坡; 关节空间里加不了, 必须**把抬升后的腕位姿逐级 IK 出来**.
@@ -576,12 +748,17 @@ class DexmateCorrectionEnv(SharpaCorrectionEnv):
                 qw = r["q"].copy()
             lift.append(qw.copy())
         self.q_lift = torch.tensor(_np.stack(lift), dtype=torch.float32, device=dev)
+        # 抬升段的末端位置 —— 管道中心要用它, 不能用 ref_wrist_pos[t]:
+        # 抬升不在参考轨迹里(参考时钟被钳在 grasp_end), 手一升 10cm 管道就以为偏了 10cm,
+        # 会把抬升整个拽回去 (实测抬升只剩 2.7cm).
+        self.p_lift = torch.tensor(_np.stack([ik.fk(q)[0] for q in lift]),
+                                   dtype=torch.float32, device=dev)
         _dz = float(_np.linalg.norm(ik.fk(lift[-1])[0] - ik.fk(lift[0])[0]))
         print(f"[dexmate] 抬升轨迹: {cfg.lift_steps} 级 x {cfg.lift_height*100:.0f}cm, "
               f"末端实际升 {_dz*100:.1f}cm")
         a = self.grasp_start
         b = min(self.grasp_end, self.L - 1)
-        print(f"[dexmate] place_mode=producer (保留 producer 摆放, 平移 "
+        print(f"[dexmate] place_mode=ref_builder (保留 ref builder 摆放, 平移 "
               f"{_np.round(shift, 4).tolist()}) | IK 全程可达 {ok.mean()*100:.1f}% | "
               f"抓取窗[{a},{b}] {ok[a:b+1].mean()*100:.1f}% | "
               f"位置误差中位 {_np.median(pe[ok])*100:.2f}cm | 顶替 {len(bad)} 帧")

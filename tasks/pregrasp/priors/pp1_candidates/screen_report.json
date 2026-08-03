@@ -1,0 +1,102 @@
+{
+ "clip": "Grasp1",
+ "tol_deg": 10.0,
+ "video_yaw": 73.5,
+ "obj_pos": [
+  0.018729998844487006,
+  0.059113721069529127,
+  0.8706118061302648
+ ],
+ "n_candidates": 4,
+ "gate1": {
+  "pp1_15_4": {
+   "ok": false,
+   "n_reach": 33,
+   "dpsi": 53.5,
+   "best_yaw": 20.0,
+   "best_err": 0.006876256944207378,
+   "band": "0-20, 140-275"
+  },
+  "pp1_21_7": {
+   "ok": true,
+   "n_reach": 28,
+   "dpsi": 1.5,
+   "best_yaw": 75.0,
+   "best_err": 0.0068864014400153925,
+   "band": "75-210"
+  },
+  "pp1_32_2": {
+   "ok": true,
+   "n_reach": 55,
+   "dpsi": 1.5,
+   "best_yaw": 75.0,
+   "best_err": 0.000729561418177586,
+   "band": "20-290"
+  },
+  "pp1_44_6": {
+   "ok": false,
+   "n_reach": 27,
+   "dpsi": 108.5,
+   "best_yaw": 325.0,
+   "best_err": 0.003175238889908575,
+   "band": "195-325"
+  }
+ },
+ "gate2": {
+  "pp1_21_7": {
+   "clip": "Grasp1",
+   "prior": "pp1_21_7.npz",
+   "Q_star": -0.39438221603631973,
+   "pads_star": 3.2890625,
+   "thumb_a_best": 1.0,
+   "cent": 0.2674355022609234,
+   "imb": 0.9278085306286812,
+   "tau_n": 0.39582691341638565,
+   "over_N": 0.5931401401758194,
+   "peak_pad_N": 12.745121121406555,
+   "cand_ok": 0.0,
+   "pad_forces": {
+    "thumb": 2.0854126811027527,
+    "index": 0.0,
+    "middle": 0.6010582968592644,
+    "ring": 1.0760335624217987,
+    "pinky": 2.6659702360630035
+   },
+   "max_pad_share": 0.4147127162777098,
+   "n_settings_pads_ok": 0,
+   "nominal_peak_pad_N": 12.618444601694742,
+   "min_pads_required": 4,
+   "H1_pads": false,
+   "H2_Q": false,
+   "pass": false
+  },
+  "pp1_32_2": {
+   "clip": "Grasp1",
+   "prior": "pp1_32_2.npz",
+   "Q_star": 0.0,
+   "pads_star": 0.0,
+   "thumb_a_best": 1.0,
+   "cent": 0.0,
+   "imb": 0.0,
+   "tau_n": 0.0,
+   "over_N": 0.0,
+   "peak_pad_N": 0.0,
+   "cand_ok": 0.0,
+   "pad_forces": {
+    "thumb": 0.0,
+    "index": 0.0,
+    "middle": 0.0,
+    "ring": 0.0,
+    "pinky": 0.0
+   },
+   "max_pad_share": 0.0,
+   "n_settings_pads_ok": 0,
+   "nominal_peak_pad_N": 1.3417880336443584,
+   "min_pads_required": 4,
+   "H1_pads": false,
+   "H2_Q": false,
+   "pass": false
+  }
+ },
+ "passed": []
+}

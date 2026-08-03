@@ -368,7 +368,7 @@ FilteredPairsAPI = 0
 4.1 的几何分析建立在两个错误前提上:
 
 **错误前提 1:我量的是 MANO 人手指尖,但机器人根本不按人手手指动。**
-`Grasp0~19` 走的是 `producers/replay_grasp.py`,它**明确丢弃重建的手指**
+`Grasp0~19` 走的是 `ref_builders/replay_grasp.py`,它**明确丢弃重建的手指**
 (`# 3. 傻瓜合拢斜坡 (丢弃不可信重建手指)`),换成一条固定的"张开→合拢"斜坡
 `_close_ramp`。所以拿 MANO 指尖算出来的"对指几何"和实际执行的手形无关。
 
@@ -385,11 +385,11 @@ FilteredPairsAPI = 0
 第三条是致命的:`grasp_only` 把物体**钉在桌上**,腕要是继续跟人手轨迹就直接飘走 =
 **抓空气**。这就是接触率掉到 0.1% 的直接原因。
 
-已加 `place_mode` 开关,默认 `"producer"` —— 保留 producer 的摆放,只在够不到时整体平移。
+已加 `place_mode` 开关,默认 `"ref builder"` —— 保留 ref builder 的摆放,只在够不到时整体平移。
 
 ## 真正的瓶颈:参考把手压进桌面,飞手能硬顶过去,真机械臂顶不动
 
-换回 producer 摆放后,暴露出真正的问题。用纯 FK 量 producer 参考自己的手部位置:
+换回 ref builder 摆放后,暴露出真正的问题。用纯 FK 量 ref builder 参考自己的手部位置:
 
 ```
 PreGrasp(手张开):  33 个手部 link 里 10 个在桌面之下, 最深 2.63cm

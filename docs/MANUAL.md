@@ -28,7 +28,8 @@ cd /home/lyh/Project/RL_Correction
 **⚠️ 所有命令前面必须加 `SHARPA_WANDB=0`。** 否则在带终端的会话里 wandb 会弹交互式登录提示
 把进程卡死（`rl_rebuild/utils/wandb_writer.py:14`）。headless 跑时它会自己降级，但别赌。
 
-**GPU**: 本机 RTX 5090 (32 GB)。远端双 A6000 见 memory `remote-a6000-deploy`（近期未用）。
+**GPU**: 本机 **RTX 4080 SUPER (16 GB)**（2026-07-31 起；此前是 RTX 5090 32GB，
+旧文档里的 600W 电源红线已不适用，新瓶颈是显存）。远端双 A6000 见 `docs/DEPLOY_A6000.md`。
 
 ---
 

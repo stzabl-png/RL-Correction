@@ -76,16 +76,41 @@ def _load_arm_residual():
 class DexmateCorrectionEnvCfg(SharpaCorrectionEnvCfg):
     # ---- 动作 / 观测 ----
     action_space = 29                 # 臂Δq7 + 指Δq22
+    # ---- 消融开关 (环境变量, 免改代码) ----
+    # 为什么要这个: 旧 run 的 checkpoint 观测维度与当前代码不同 (full2 是 172, 现在 195),
+    # 想拿基线做同口径确定性评测就必须能把新增通道关掉. 顺带让消融实验不用改文件.
+    #   RL_ACC_FINGER=0     关累积手指残差 (obs −22)
+    #   RL_LAM_GOAL=0       关终点势       (obs −1)
+    #   RL_W_GRIP=0         关抓取稳定罚   (不影响 obs)
+    #   RL_IMIT_FINGER_W    r_imit 手指通道权重 (旧默认 0.5)
+    #   RL_TRAJ_AFTER       接触后 r_traj 折扣  (旧默认 1.0)
+    accumulate_finger = os.environ.get("RL_ACC_FINGER", "1") == "1"
     # 本体58(臂7+指22 的 pos/vel) + 腕13 + 物体13 + 参考42 + 相位4 + 接触5 + 力矩7
-    # + 动态残差距离1 + 动作29
-    observation_space = 172
+    # + 动态残差距离1 + 动作29 = 172; 再按开关加 累积残差22 / 终点势门控1
+    observation_space = (172
+                         + (22 if os.environ.get("RL_ACC_FINGER", "1") == "1" else 0)
+                         + (1 if float(os.environ.get("RL_LAM_GOAL", "20.0")) > 0 else 0))
     dyn_res = True                    # DexMate 默认开动态残差 (飞手保持旧行为)
     # 阈值按**实测距离范围**定, 不能拍脑袋: grasp_only + 接近段关闭时, 掌心到物体表面
-    # 全程只在 3.45~11.20cm 之间 (腕被 producer 冻结在 PreGrasp, 只合手指).
+    # 全程只在 3.45~11.20cm 之间 (腕被 ref builder 冻结在 PreGrasp, 只合手指).
     # 用基类默认的 2/15cm 会让 u 卡在 0.34~0.57, 两端都够不到, 等于白开.
     # ⚠ 打开接近段(GRASP_APPROACH>0)后范围完全不同, 要重测重设.
     dyn_d_near = 0.005
     dyn_d_far = 0.05
+
+    # ---- 动作语义: 可累积增量 + 管道约束 ----
+    # 旧: arm_tgt = q_ref[t] + Δq  —— 偏差**不累积**, 任何时刻离参考不超过残差界(±2cm).
+    #     后果: 策略结构上走不到 2cm 以外, 只能靠"把物体摆得极准"来补偿.
+    #     摆放误差必须 <2cm, 这对任何自动摆放流水线都太苛刻 (实测 3/9 通过).
+    # 新: 策略维护自己的目标 q_cmd, 每步累积 Δq; 末端偏离参考超过 tube_radius 就拉回管壁.
+    #     参考退化成**弱引导**(管道中心 + 观测), 不再逐帧钉住手.
+    # 副产物: "像人"变成结构性保证 —— 每帧都在参考 tube_radius 内, 整条轨迹按构造就相似,
+    #         不需要再设相似度奖励.
+    accumulate_action = True
+    tube_radius = 0.05                # m, 末端允许偏离参考多远 (实测: 不可达帧需要的
+                                      # 修正量中位 4.2cm, 90分位 11.5cm —— 5cm 覆盖一半多)
+    tube_kp = 2.0                     # 拉回力度 (实际末端落后于指令, 需要过阻尼)
+    tube_soft_frac = 0.7              # 从 0.7R 就开始往回拉, 留出跟踪滞后的余量
 
     # ---- 臂关节残差界 (rad, j1..j7) ----
     # 不能用飞手那个 0.02 —— 那是**笛卡尔**量. 关节空间里同样的 Δq 在肩和腕上产生的
@@ -93,21 +118,29 @@ class DexmateCorrectionEnvCfg(SharpaCorrectionEnvCfg):
     arm_residual_max = _load_arm_residual()
 
     # ---- 参考摆放 ----
-    # "producer"  = 保留 producer(replay_grasp) 已摆好的手-物关系, 只在够不到时整体平移.
+    # "ref_builder" = 保留 ref builder(replay_grasp) 已摆好的手-物关系, 只在够不到时整体平移.
     #               replay_grasp 已经做了 affordance 锚定 / hover_gap / 抓取后冻结腕 /
     #               固定合拢斜坡 —— 这些都是为"抓得住"设计的, 不能覆盖.
     # "bimanual"  = 用 bimanual_align 重摆 (为"把双手轨迹放进机器人第一人称坐标系"设计).
-    #               实测在 grasp_only 单手抓取上会把 producer 的设计全抹掉, 接触率 17.3%->0.1%.
-    place_mode = "producer"
-    # 手在 PreGrasp 位相对物体整体抬高多少 (m). 传给 replay_grasp 的 hover_gap.
-    # ⚠ 飞手的 0.02 **不能直接用**: 那个参考会把手压进桌子 (合拢完成时 15 个手部 link
-    # 在桌面下, 最深 4.72cm). 飞手靠 wrench 硬顶过去(无力矩上限、关重力), 真机械臂顶不动
-    # —— 腕关节只有 25Nm, 结果是全关节饱和、末端误差 14.9cm、接触率 0%.
-    # 实测 (Grasp2, 64env×3回合, 零残差):
-    #   0.02 -> 跟踪 14.92cm  接触  0.0%  抬升 4.03cm   (手卡在桌子里)
-    #   0.06 -> 跟踪  0.89cm  接触 45.4%  抬升 4.16cm   ← 选定
-    #   0.09 -> 跟踪  0.31cm  接触 60.1%  抬升 0.93cm   (手太高, 碰得到握不住)
-    hover_gap = 0.06
+    #               实测在 grasp_only 单手抓取上会把 ref builder 的设计全抹掉, 接触率 17.3%->0.1%.
+    place_mode = "ref_builder"
+    # ref builder 内部用哪个锚 (place_mode="ref_builder" 时才有意义):
+    # "camera" = 相机/手/物体 xy 刚体同步平移, 手物相对关系保留重建原样 (默认).
+    # "palm"   = 旧的"把物体搬到掌心正下方", 会破坏相机对齐 -> 跨身抓取. 只为复现历史 run.
+    # ⚠ 换锚会改变物体位置和腕轨迹, 旧 checkpoint 的观测分布对不上, 别混用.
+    anchor_mode = "camera"
+    # PreGrasp 对齐: 把 gs 帧的腕挪到"锚点悬停在 affordance 正上方"的位置.
+    # 不开的话手离物体十几厘米 (重建里手根本没碰到物体), grasp 段结构上学不动.
+    # 锚点与 hover 在 place_camera.PREGRASP_ANCHOR / PREGRASP_HOVER_GAP.
+    # 环境变量 GRASP_PREGRASP_ALIGN=0 可关掉 (冒烟对照组).
+    pregrasp_align = True
+    # 悬停余量: None = 由几何推出 (让张开的手最低点离桌面留 clearance).
+    # ⚠ 旧的 0.06 是我在 Grasp2 上扫出来的魔数, 换成合拢中心锚点后不再需要 ——
+    # 之所以曾经要 6cm, 正是因为锚点差了 6.88cm, 手得抬高才不撞桌.
+    hover_gap = None
+    clearance = 0.015                 # m, 张开的手最低点离桌面留多少
+    # 合拢由**指尖到物体表面的距离**触发, 不按帧号. 这样手指跟着物体走而不是跟着时钟走.
+    contact_close = True
     reach_margin = 0.75               # m; 参考最远点离肩超过它就整体平移拉近 (臂展实测 0.809)
 
     # ---- 机器人 ----
@@ -180,6 +213,66 @@ class DexmateCorrectionEnvCfg(SharpaCorrectionEnvCfg):
                 stiffness=20.0, damping=2.0),
         },
     )
+
+    # ---- 手指自由度 ----
+    # 覆盖基类的 0.10 rad (5.7°). 几何下界实测: 要让指尖真的碰到物体, 6 条 clip 需要
+    # 28~59° (中位 45°) —— 5.7° 结构上就够不到, 策略再怎么学也抓不住
+    # (见 calib_finger_geom.py; 这也解释了为什么固定合拢构型换个物体就失效).
+    # 取下界的 1.5 倍留余量 = 1.2 rad (69°).
+    #
+    # ⚠ 但 69° **不能**当每步界给: sigma × 界 = 每步扰动, 实测 sigma=0.76 时早就把物体
+    #   打飞了. 所以这里走**累积**模式 (基类 accumulate_finger), 把两个界拆开:
+    #     finger_rate_max  0.10 rad (5.7°/步)  —— 标定过的"每步安全量", 保住毫米级容忍度
+    #     finger_total_max 1.2  rad (69°)      —— 攒够了才够得到物体, 这才是几何要求的量
+    #   dyn_res 缩放的是**每步增量**(远 ×0.2 = 1.1°/步, 近 ×1.0 = 5.7°/步),
+    #   累积上限不随距离缩 (否则手被推开一点就把攒下的握力泄掉).
+    # ⚠ accumulate_finger 在本类**开头**由 RL_ACC_FINGER 决定 (observation_space 也依赖它).
+    #   这里不要再赋一次 —— 类体里后写的会覆盖先写的, 而 observation_space 那行读的是
+    #   环境变量, 两者会不一致 (踩过: 基线评测报 "观测宽度 194 != observation_space 172").
+    finger_rate_max = 0.10
+    finger_total_max = 1.2
+    finger_residual_max = 1.2         # 只在 accumulate_finger=False 时生效 (对照实验用)
+
+    # ---- 跟随类奖励: 这一组 clip 走的是**无 GraspPose** 设定 (B 组) ----
+    # 没有 GraspPose -> 没有 cuRobo -> 参考手部轨迹里没有任何一段是验证过可行的.
+    #   手指模仿: 关 (置 0). 参考手指是 retarget 出来的噪声, 不是抓法.
+    #             抓法改由 contact(接触数) + afford(指尖落在人的接触区) + lift(棘轮) 定义
+    #             —— 全是物理/接触信号, 不依赖 GraspPose.
+    #   接触后的物体逐帧跟随: 关 (置 0). 成功由终点判据 (place_tol) 定义, 中间路径
+    #             是重建出来的带噪曲线, 没有理由逐帧钉住.
+    #   接触**前**的 r_traj 保留 —— 那一段实际含义是"别把物体碰跑", 手指有 69° 权限时
+    #             这条防扰动约束比以前更需要.
+    # 要跑对照 (Exp1 全先验) 时把这两个改回 0.5 / 1.0.
+    imit_finger_w = float(os.environ.get("RL_IMIT_FINGER_W", "0.0"))
+    traj_after_contact = float(os.environ.get("RL_TRAJ_AFTER", "0.0"))
+    # ---- 终点势 (2026-07-28 上线, Run A 的单一改动) ----
+    # accum run 的判读: 接触率 1.9%→76.5% 但成功率 2.9%(基线 9.8%) —— reward 的任务核
+    # 测"抬多高", 成功判据是"放到位", 两者不是一件事; 而关掉 traj_after_contact 又把
+    # 唯一指向目标的稠密信号删了. 终点势同时补这两个洞, 且不钉带噪的中间路径.
+    # lam_goal=20 是按"势函数总量 ≈ contact 年金总量"标定的, 推导见 reward.py.
+    lam_goal = float(os.environ.get("RL_LAM_GOAL", "20.0"))
+    sigma_goal = 0.10
+    goal_gate_steps = 10              # 连续 0.5s 双指接触才开门 (防推/撞/抛刷分)
+    # ---- 抓取稳定性 (2026-07-28 Run C 的单一改动) ----
+    # Run B 判读: 终点势把成功率从 0.029 拉回 0.10 (追平基线), 但 grip_drift_cm=6.7 —— H2 触发,
+    # 形成的不是稳定包络而是"边滑边带". 而 I1 未触发 (fast_frac 0.001), 所以选 C2 不选 C1.
+    w_grip = float(os.environ.get("RL_W_GRIP", "2.0"))
+    grip_deadband = 0.02
+
+    # ---- RSI (从轨迹中间起步) ----
+    # ⚠ 完整轨迹模式下必须关掉, 与 home_steps **不兼容**:
+    #   RSI 说"这回合从第 100 帧(搬运途中)起步", 而 home 段把手插值到 **PreGrasp 姿态**
+    #   —— 手在抓取位, 物体却在搬运途中, 手物完全对不上, 80% 的样本是无效的.
+    #   而且 ref_obj_pos 现在是真实轨迹, RSI 会把物体摆到搬运路径上的随机一点
+    #   (肉眼可见: 物体一会儿在两手中间, 一会儿跑到左手旁边).
+    #   基类默认 0.8 是给"腕冻结 + 物体常量"的 grasp_only 设计的, 那时两者不冲突.
+    rsi_prob = 0.0
+
+    # ---- 完整轨迹任务 (靠近 -> 抓住 -> 搬运 -> 放置 -> 归位) ----
+    # 分段全部由 phase_* 给出: 交互开始帧=抓住, 交互结束帧=放置.
+    grasp_only = False                # False = 跟完整人手轨迹, 不用硬编码抬升
+    freeze_wrist = False              # 抓取窗内腕不冻结, 跟着人手搬运
+    place_tol = 0.08                  # m, 物体最终位置离目标多近算成功
 
     # ---- 终止 ----
     # ⚠ 不能用"力矩饱和"当卡死判据: IsaacLab 的 applied_torque 是**近似公式**

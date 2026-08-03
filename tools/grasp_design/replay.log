@@ -1,0 +1,117 @@
+[INFO][AppLauncher]: Using device: cuda:0
+[INFO][AppLauncher]: Loading experience file: /home/lyh/luhr/MagicSim/Third_Party/IsaacLab/apps/isaaclab.python.headless.kit
+Loading user config located at: '/home/lyh/luhr/MagicSim/.venv/lib/python3.11/site-packages/isaacsim/kit/data/Kit/Isaac-Sim/5.1/user.config.json'
+[Info] [carb] Logging to file: /home/lyh/luhr/MagicSim/.venv/lib/python3.11/site-packages/isaacsim/kit/logs/Kit/Isaac-Sim/5.1/kit_20260728_201039.log
+2026-07-29T03:10:39Z [53ms] [Warning] [omni.usd_config.extension] Enable omni.materialx.libs extension to use MaterialX
+2026-07-29T03:10:39Z [298ms] [Warning] [carb] Acquiring non optional plugin interface which is not listed as dependency: [omni::physx::IPhysxBenchmarks v1.0] (plugin: <default plugin>), by client: omni.physics.physx.plugin. Add it to CARB_PLUGIN_IMPL_DEPS() macro of a client.
+2026-07-29T03:10:39Z [303ms] [Warning] [omni.isaac.dynamic_control] omni.isaac.dynamic_control is deprecated as of Isaac Sim 4.5. No action is needed from end-users.
+
+|---------------------------------------------------------------------------------------------|
+| Driver Version: 580.159.03    | Graphics API: Vulkan
+|=============================================================================================|
+| GPU | Name                             | Active | LDA | GPU Memory | Vendor-ID | LUID       |
+|     |                                  |        |     |            | Device-ID | UUID       |
+|     |                                  |        |     |            | Bus-ID    |            |
+|---------------------------------------------------------------------------------------------|
+| 0   | NVIDIA GeForce RTX 5090          | Yes: 0 |     | 32607   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2b85      | 8d059209.. |
+|     |                                  |        |     |            | 1         |            |
+|=============================================================================================|
+| OS: 24.04.4 LTS (Noble Numbat) ubuntu, Version: 24.04.4, Kernel: 7.0.0-28-generic
+| XServer Vendor: The X.Org Foundation, XServer Version: 12302006 (1.23.2.6)
+| Processor: Intel(R) Core(TM) i7-14700K
+| Bare Metal Cores: 20 | Bare Metal Logical Cores: 40
+| Available Cores:  28 
+|---------------------------------------------------------------------------------------------|
+| Total Memory (MB): 31892 | Free Memory: 21180
+| Total Page/Swap (MB): 32767 | Free Page/Swap: 24795
+|---------------------------------------------------------------------------------------------|
+2026-07-29T03:10:42Z [2,471ms] [Warning] [gpu.foundation.plugin] CPU performance profile is set to powersave. This profile sets the CPU to the lowest frequency reducing performance.
+2026-07-29T03:10:42Z [2,631ms] [Warning] [isaaclab.envs.direct_rl_env] Seed not set for the environment. The environment creation may not be deterministic.
+
+[36m======================================================================================[0m
+[36m[1m[INFO][IsaacLab]: Logging to file: /tmp/isaaclab/logs/isaaclab_2026-07-28_20-10-42.log[0m
+[36m======================================================================================[0m
+
+[33m20:10:42 [simulation_context.py] WARNING: The `enable_external_forces_every_iteration` parameter in the PhysxCfg is set to False. If you are experiencing noisy velocities, consider enabling this flag. You may need to slightly increase the number of velocity iterations (setting it to 1 or 2 rather than 0), together with this flag, to improve the accuracy of velocity updates.[0m
+[INFO]: Base environment:
+	Environment device    : cuda:0
+	Environment seed      : None
+	Physics step-size     : 0.004166666666666667
+	Rendering step-size   : 0.008333333333333333
+	Environment step-size : 0.05
+[33m20:10:42 [direct_rl_env.py] WARNING: The render interval (2) is smaller than the decimation (12). Multiple render calls will happen for each environment step.If this is not intended, set the render interval to be equal to the decimation.[0m
+[33m20:10:42 [prims.py] WARNING: Could not perform 'modify_rigid_body_properties' on any prims under: '/World/envs/env_0/Object'. This might be because of the following reasons:
+	(1) The desired attribute does not exist on any of the prims.
+	(2) The desired attribute exists on an instanced prim.
+		Discovered list of instanced prim paths: [][0m
+[33m20:10:42 [prims.py] WARNING: Could not perform 'modify_collision_properties' on any prims under: '/World/envs/env_0/Object'. This might be because of the following reasons:
+	(1) The desired attribute does not exist on any of the prims.
+	(2) The desired attribute exists on an instanced prim.
+		Discovered list of instanced prim paths: [][0m
+[33m20:10:42 [prims.py] WARNING: Could not perform 'modify_mass_properties' on any prims under: '/World/envs/env_0/Object'. This might be because of the following reasons:
+	(1) The desired attribute does not exist on any of the prims.
+	(2) The desired attribute exists on an instanced prim.
+		Discovered list of instanced prim paths: [][0m
+[setup] object 刚体化: 1 mesh, mass=0.1kg
+[33m20:10:42 [interactive_scene.py] WARNING: Collision filtering can only be automatically enabled when replicate_physics=True and using GPU simulation. Please call scene.filter_collisions(global_prim_paths) to filter collisions across environments.[0m
+[setup] 指尖SuperGrip×6 手身LowGrip×1 (指尖↔物=9.0, 掌↔物=0.6)
+[INFO]: Time taken for scene creation : 0.675687 seconds
+[INFO]: Scene manager:  <class InteractiveScene>
+	Number of environments: 1
+	Environment spacing   : 2.0
+	Source prim name      : /World/envs/env_0
+	Global prim paths     : []
+	Replicate physics     : False
+[INFO]: Starting the simulation. This may take a few seconds. Please wait...
+[INFO]: Time taken for simulation start : 0.771010 seconds
+[INFO]: Completed setting up the environment...
+[dexmate] 交互侧=right | 臂 ['R_arm_j1', 'R_arm_j2', 'R_arm_j3', 'R_arm_j4', 'R_arm_j5', 'R_arm_j6', 'R_arm_j7'] | 手 22 关节 | 末端 body=right_hand_C_MC
+[smooth] 剔除漂移帧 [39, 40, 41, 48, 71, 75, 76, 77]   物体位置最大修正 2.44 cm
+[init] stable-pose 投影: 修正倾斜 32.5 deg (t_init=0)
+[replay_grasp] L=166 PreGrasp帧 gs=45(src 34) 合拢至 ge=75 | 相机锚定 (手物相对关系保留重建原样) 物体原点 xy=(-0.051,-0.083) z=0.865 | 腕 path 平移 xy=9.7cm z=+0.00cm
+[debug] hand bodies: [('vega_1p_mobile', 1.0), ('dummy_base_x', 9.999999747378752e-05), ('dummy_base_y', 9.999999747378752e-05), ('vega_1p_base', 88.43486785888672), ('B_base_cam', 0.0030900000128895044), ('F_base_cam', 0.0030900000128895044), ('L_base_cam', 0.0030900000128895044), ('R_base_cam', 0.0030900000128895044), ('vega_1p_back_lidar', 0.004230000078678131), ('vega_1p_front_lidar', 0.1509999930858612), ('vega_1p_torso_l1', 8.832340240478516), ('vega_1p_torso_l2', 14.589259147644043), ('vega_1p_torso_l3', 5.328859806060791), ('arm_center', 1.0), ('vega_1p_L_arm_l1', 1.4135099649429321), ('vega_1p_R_arm_l1', 1.4240100383758545), ('vega_1p_head_l1', 0.43780001997947693), ('L_arm_l2', 1.405940055847168), ('R_arm_l2', 1.4059499502182007), ('vega_1p_head_l2', 0.6077200174331665), ('L_arm_l3', 1.1609400510787964), ('R_arm_l3', 1.1607999801635742), ('vega_1p_head_l3', 0.6327800154685974), ('L_arm_l4', 0.9320400357246399), ('R_arm_l4', 0.9320400357246399), ('zed_left_camera', 1.0), ('zed_depth_frame', 1.0), ('zed_right_camera', 1.0), ('L_arm_l5', 0.6458200216293335), ('R_arm_l5', 0.6458200216293335), ('vega_1p_L_arm_l6', 0.5541999936103821), ('vega_1p_R_arm_l6', 0.5537199974060059), ('L_arm_l7', 0.35802000761032104), ('R_arm_l7', 0.35802000761032104), ('L_arm_l8', 0.2006399929523468), ('R_arm_l8', 0.2006399929523468), ('L_ee', 1.0), ('left_hand_C_MC', 0.650600016117096), ('R_ee', 1.0), ('right_hand_C_MC', 0.650600016117096), ('left_index_MCP_VL', 0.0022100000642240047), ('left_middle_MCP_VL', 0.0022100000642240047), ('left_pinky_MC', 0.12541000545024872), ('left_ring_MCP_VL', 0.0022100000642240047), ('left_thumb_CMC_VL', 0.0024999999441206455), ('right_index_MCP_VL', 0.0022100000642240047), ('right_middle_MCP_VL', 0.0022100000642240047), ('right_pinky_MC', 0.12541000545024872), ('right_ring_MCP_VL', 0.0022100000642240047), ('right_thumb_CMC_VL', 0.0024999999441206455), ('left_index_PP', 0.04741000011563301), ('left_middle_PP', 0.04741000011563301), ('left_pinky_MCP_VL', 0.0022100000642240047), ('left_ring_PP', 0.04741000011563301), ('left_thumb_MC', 0.13586999475955963), ('right_index_PP', 0.04741000011563301), ('right_middle_PP', 0.04741000011563301), ('right_pinky_MCP_VL', 0.0022100000642240047), ('right_ring_PP', 0.04741000011563301), ('right_thumb_MC', 0.13586999475955963), ('left_index_MP', 0.018239999189972878), ('left_middle_MP', 0.018239999189972878), ('left_pinky_PP', 0.04741000011563301), ('left_ring_MP', 0.018239999189972878), ('left_thumb_MCP_VL', 7.999999797903001e-05), ('right_index_MP', 0.018239999189972878), ('right_middle_MP', 0.018239999189972878), ('right_pinky_PP', 0.04741000011563301), ('right_ring_MP', 0.018239999189972878), ('right_thumb_MCP_VL', 7.999999797903001e-05), ('left_index_DP', 0.004550000187009573), ('left_middle_DP', 0.004550000187009573), ('left_pinky_MP', 0.018239999189972878), ('left_ring_DP', 0.004550000187009573), ('left_thumb_PP', 0.030780000612139702), ('right_index_DP', 0.004550000187009573), ('right_middle_DP', 0.004550000187009573), ('right_pinky_MP', 0.018239999189972878), ('right_ring_DP', 0.004550000187009573), ('right_thumb_PP', 0.030780000612139702), ('left_index_elastomer', 9.999999747378752e-05), ('left_middle_elastomer', 9.999999747378752e-05), ('left_pinky_DP', 0.004550000187009573), ('left_ring_elastomer', 9.999999747378752e-05), ('left_thumb_DP', 0.009879999794065952), ('right_index_elastomer', 9.999999747378752e-05), ('right_middle_elastomer', 9.999999747378752e-05), ('right_pinky_DP', 0.004550000187009573), ('right_ring_elastomer', 9.999999747378752e-05), ('right_thumb_DP', 0.00788000039756298), ('left_index_fingertip', 9.999999974752427e-07), ('left_middle_fingertip', 9.999999974752427e-07), ('left_pinky_elastomer', 9.999999747378752e-05), ('left_ring_fingertip', 9.999999974752427e-07), ('left_thumb_elastomer', 9.999999747378752e-05), ('right_index_fingertip', 9.999999974752427e-07), ('right_middle_fingertip', 9.999999974752427e-07), ('right_pinky_elastomer', 9.999999747378752e-05), ('right_ring_fingertip', 9.999999974752427e-07), ('right_thumb_elastomer', 9.999999747378752e-05), ('left_pinky_fingertip', 9.999999974752427e-07), ('left_thumb_fingertip', 9.999999974752427e-07), ('right_pinky_fingertip', 9.999999974752427e-07), ('right_thumb_fingertip', 9.999999974752427e-07)]
+[debug] hand 总质量 141.872 kg
+[reward] 手指模仿通道已关 (无 GraspPose, 参考手指不可信); 抓法由 contact/afford/lift 三项决定
+[affordance] 2048 点 heatmap∈[0.00,0.63] | lam_afford=0.4 loose_grip=0.05
+[finger] 累积残差: rate ±5.7°/步 | total ±68.8° | decay 1.0
+[dexmate] 躯干已在 USD 里锁死 (fixed joint), 无沉降过程
+[dexmate] 相机锚定: 实测 ZED xy=[-0.40790000557899475, -0.0] 与标称一致 (差 0.4mm), 无需修正
+[ref质量] 可达帧位置误差: 中位 0.10cm 95分位 0.43cm 最大 0.49cm
+[ref质量] 物体漂移帧 11 个 (位置是插值出来的): [52, 53, 54, 55, 64, 94, 95, 100, 101, 102, 103]
+[dexmate] 抬升轨迹: 20 级 x 10cm, 末端实际升 9.9cm
+[dexmate] place_mode=producer (保留 producer 摆放, 平移 [0.0, 0.0, 0.0]) | IK 全程可达 100.0% | 抓取窗[45,75] 100.0% | 位置误差中位 0.10cm | 顶替 0 帧
+[dexmate] 从默认站姿出发: 40 步插值到 PreGrasp (关节空间距离 79.0°) | episode 266 步
+
+[replay] 轨迹 295 帧 @40Hz -> env 控制 20Hz, 取每 2 帧 = 148 控制步 (7.40s)
+[replay] 右臂 7 关节 + 右手 22 关节 (按名字对齐)
+
+[静置 40 步后]
+  物体 [-0.050599999725818634, -0.08330000191926956, 0.8632000088691711]  (设计位 [-0.0506, -0.0833, 0.8652], 差 0.20cm)
+  手基座 [0.3095000088214874, -0.22949999570846558, 1.3147000074386597]  (轨迹首帧规划位 —— 见下面逐步对比)
+
+============================================================================
+零动作开环回放结果 (188 控制步)
+============================================================================
+物体起点 [-0.050599999725818634, -0.08330000191926956, 0.8632000088691711]   终点 [0.12080000340938568, -0.2851000130176544, 0.8632000088691711]
+  净位移 26.47cm   最大离起点 30.03cm
+  最高离桌 +22.72cm   末了离桌 +1.32cm
+  水平净移 26.47cm  (设计目标 20.00cm)
+  离桌 >5cm 的步数 69/188  -> ✅ 物体被抓起来了
+
+阶段                步      物体离桌cm       物体离起点cm        手基座-规划 差cm
+seg0_P1          31        1.32          0.00              0.19
+seg1_P2          20        1.32          1.46              0.54
+SQUEEZE          15        2.38          1.73              0.27
+seg2_P3          20       14.92         13.71              0.19
+seg3_P3          10       22.68         21.44              0.23
+seg4_P4          21       22.40         29.98              0.43
+seg5_P5          10       12.10         23.92              0.72
+RELEASE          10       10.97         23.37              0.47
+seg6_P6          11        1.66         26.65              0.34
+HOLD             40        1.32         26.47              0.41
+
+[手臂开环跟踪] 手基座 实测 vs 规划: 中位 0.65cm  最大 7.56cm
+-> /tmp/claude-1000/-home-lyh/ac318f9c-b741-47b6-92b8-367748321e21/scratchpad/replay_log.npz
+2026-07-29T03:11:36Z [56,988ms] [Warning] [omni.physx.plugin] USD stage detach not called, holding a loose ptr to a stage!
+2026-07-29T03:11:37Z [57,384ms] [Warning] [carb] Recursive unloadAllPlugins() detected!

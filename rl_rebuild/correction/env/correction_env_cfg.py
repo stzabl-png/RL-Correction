@@ -51,6 +51,21 @@ class SharpaCorrectionEnvCfg(DirectRLEnvCfg):
     wrist_pos_residual_max = 0.02     # m    (旧 0.15: sigma 0.76 -> 每步 ±11.4cm 抖动)
     wrist_rot_residual_max = 0.05     # rad  (旧 0.3)
     finger_residual_max = 0.10        # rad  (旧 0.3; 保留 ±5.7° 握紧权限, 手指不推飞物体)
+    # ---- 手指残差累积 (rate 与 total 分离) ----
+    # 不累积时 finger_residual_max 一个数同时当"每步扰动界"和"总权限界", 而这两个需求
+    # 方向相反, 一个数满足不了:
+    #   每步要**小**: sigma × 界 = 每步扰动, 大了指尖一巴掌把物体扇飞 (上面那段实测)
+    #   总量要**大**: calib_finger_geom 实测指尖要真碰到物体需 28~59° (中位 45°),
+    #                 5.7° 是结构性够不着 —— 不是学不会, 是动不了那么多
+    # 累积模式把两者拆开: 每步只准动 finger_rate_max, 但残差在步间**累加**, 上限
+    # finger_total_max. 与臂的 accumulate_action 同构, 同样保持"零动作 = 精确跟参考".
+    # ⚠ 探索噪声在累积下是随机游走 (T 步后 ≈ sigma·rate·√T), total 钳制不是可选项,
+    #   是唯一的安全带; finger_res 也必须进观测, 否则策略看不见自己积了多少 (非马尔可夫).
+    accumulate_finger = False
+    finger_rate_max = 0.10            # rad/步; 累积模式下 res_scale 的手指段用它
+                                      # (= 旧 finger_residual_max, 那是标定过的"每步安全量")
+    finger_total_max = 1.2            # rad (69°); 累积残差的绝对上限 = 几何下界 45° × 1.5
+    finger_res_decay = 1.0            # 漏积分系数: <1 时残差每步自行向参考回落 (1.0 = 纯积分)
     # ---- 腕 wrench-PD 增益 (M0 标定对象) ----
     wrist_kp_pos = 3000.0
     wrist_kd_pos = 120.0
@@ -235,12 +250,35 @@ class SharpaCorrectionEnvCfg(DirectRLEnvCfg):
     contact_close = False             # True: 合拢由指尖-物体距离触发 (env 变量 GRASP_CONTACT_CLOSE)
     close_trigger_dist = 0.035        # m, 指尖离物体表面近于此则开始合拢
     close_speed_steps = 15            # 触发后合拢到位的步数
+    # ---- "跟随"类奖励 (无 GraspPose 设定下要关; 落到 RewardWeights 同名字段) ----
+    # 没有 GraspPose 就没有 cuRobo, 也就没有任何**经过验证可行**的手部参考:
+    # 参考手指 = 人手重建 + retarget 的产物, 是全链路噪声最大的量.
+    # 拿它当模仿目标 = 奖励"别修正", 与这个项目的前提(修正带噪重建)直接矛盾,
+    # 也与手指累积残差的 69° 权限对着干.
+    imit_finger_w = 0.5               # r_imit 手指通道权重; 0 = 只锚腕位, 手指姿态自由
+    traj_after_contact = 1.0          # 握住后 r_traj 折扣; 0 = 接触后不再逐帧跟物体参考
+    # ---- 终点势函数 (替代逐帧跟随, 给"物体该去哪"的方向) ----
+    # 权重量纲的推导见 reward.py 的 lam_goal 注释 (势函数总量 vs 年金项, 差一个 episode 长度).
+    lam_goal = 0.0                    # 0 = 关; 完整轨迹任务用 20 (与 contact 年金同量级)
+    sigma_goal = 0.10                 # m, 势差分的尺度
+    # 门控: 连续多少步 ≥min_contacts 指接触才算"形成稳定抓取", 之后 latch 保持整回合.
+    # 用 latch 而不是瞬时接触: 一次滑脱不该把方向信号整个剁断.
+    goal_gate_steps = 10              # 0.5s @20Hz
+    # ---- 抓取稳定性惩罚 (门开后手物相对位姿漂移; 0 = 关) ----
+    # 量纲: 漂 6.7cm 时每步扣 w_grip×(0.067−0.02)=0.094(w=2), 门开约 180 步 → 总量 ≈17,
+    # 与终点势总量(≈38)同量级但更小 —— 它是约束, 不该盖过方向信号.
+    w_grip = 0.0
+    grip_deadband = 0.02              # m, 接触瞬间的沉降不罚
     # ---- 数据先验开关 (消融实验: Exp1 两个都开, Exp2 都关) ----
     use_grasp_prior = False           # 抓握段手指模仿目标: True=GraspPose纯抓姿 / False=重建手指
     use_curobo_guide = False          # cuRobo 预抓取路点引导 (退火, 初值由 train.py 置)
     lam_curobo_init = 0.5             # use_curobo_guide 时 lam_curobo 初值 (PPO 按 sr_ema 退火)
     curobo_wean_sr = 0.25             # sr_ema 达此值时 lam_curobo 退到 0
     curobo_guide_frac = 0.4           # cuRobo 引导时间窗: active 段前此比例步 (初始阶段指引)
+    # ---- 诊断仪表 (docs/DESIGN_LOOP.md 的数据来源) ----
+    # 滚动窗口回合数. 太小 -> 曲线抖, 读不出趋势; 太大 -> 设计改动的效果被旧回合稀释.
+    # 256 ≈ 1024env 时 4 步左右的回合产出, 够平滑又跟得上.
+    diag_window = 256
     # ---- 参考数据 (clips.py 注册表按 clip_name 解析; configure_cfg 会改 object usd 路径) ----
     clip_name = "clip11"
     target_hz = 20.0                  # = 1 / (dt*decimation)

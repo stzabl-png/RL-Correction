@@ -18,10 +18,13 @@ data/
 **/cache/object.usd
 **/cache/human_fq_*.npz
 
-# ---- 派生资产 (由 tools/ 脚本从 MagicSim 共享资产生成, 25MB 二进制, 不入库) ----
-#   python tools/make_fixed_torso_usd.py   # 躯干/底盘/头 -> fixed joint
-#   python tools/add_arm_collision.py      # 补手臂碰撞几何 (必须在上一条之后跑)
-assets/*.usd
+# ---- 派生资产 ----
+# 2026-08-03: `assets/*.usd` **改为入库** (走 LFS). 原来不入库、让每台机器自己跑
+#   tools/ 脚本重建, 结果是同事 clone 后机器人散架 —— 因为重建依赖 MagicSim 那边的
+#   资产布局, 而那个布局各机器不一样 (见 tools/make_fixed_torso_usd.py 里的注释).
+#   25MB 走 LFS 完全扛得住, 比"每人重建一次"可靠. 重建配方仍在 docs/DEPLOY_NEW_MACHINE.md.
+assets/*.usd.bak
+*.bak_local
 
 # ---- 查看器运行时状态 ----
 .env_viewer.json

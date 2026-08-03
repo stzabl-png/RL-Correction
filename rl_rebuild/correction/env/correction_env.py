@@ -22,6 +22,7 @@ from isaaclab.utils.math import (axis_angle_from_quat, quat_apply,
 from rl_rebuild.correction import clips
 from rl_rebuild.correction import frames as F
 from rl_rebuild.correction.env.correction_env_cfg import SharpaCorrectionEnvCfg
+from rl_rebuild.correction.env.diagnostics import EpisodeDiagnostics
 from rl_rebuild.correction.env.reward import RewardWeights, compute_reward
 
 
@@ -120,6 +121,20 @@ class SharpaCorrectionEnv(DirectRLEnv):
 
         # ---- reward 相关状态 ----
         self.rw = RewardWeights()                       # 权重集中处; 退火=训练循环改这里
+        # "跟随"类奖励的处置 (无 GraspPose 时关掉手指模仿 / 接触后的逐帧物体跟随)
+        self.rw.imit_finger_w = float(cfg.imit_finger_w)
+        self.rw.traj_after_contact = float(cfg.traj_after_contact)
+        self.rw.lam_goal = float(cfg.lam_goal)
+        self.rw.sigma_goal = float(cfg.sigma_goal)
+        self.rw.w_grip = float(cfg.w_grip)
+        self.rw.grip_deadband = float(cfg.grip_deadband)
+        # 终点势只对"物体要被搬到某处"的完整轨迹任务有意义; grasp_only 的目标是抬起来
+        self.use_goal = cfg.lam_goal > 0.0 and not cfg.grasp_only
+        if cfg.lam_goal > 0.0 and cfg.grasp_only:
+            print("[reward] grasp_only 模式忽略终点势 (目标是抬升, 不是放置)")
+        if cfg.imit_finger_w == 0.0 and not cfg.use_grasp_prior:
+            print("[reward] 手指模仿通道已关 (无 GraspPose, 参考手指不可信);"
+                  " 抓法由 contact/afford/lift 三项决定")
         _lift = clips.clip_entry(cfg.clip_name).get("lift_target")
         if _lift:                                       # 按 clip 覆盖成功/满分抬升高度
             self.rw.lift_target = float(_lift)
@@ -165,6 +180,12 @@ class SharpaCorrectionEnv(DirectRLEnv):
         N = self.num_envs
         self.actions_buf = torch.zeros(N, cfg.action_space, device=dev)
         self.prev_actions = torch.zeros(N, cfg.action_space, device=dev)
+        # 累积手指残差 (accumulate_finger 时): 跨步状态, 必须进观测 + reset 清零
+        self.finger_res = torch.zeros(N, 22, device=dev)
+        if cfg.accumulate_finger:
+            print(f"[finger] 累积残差: rate ±{np.degrees(cfg.finger_rate_max):.1f}°/步"
+                  f" | total ±{np.degrees(cfg.finger_total_max):.1f}°"
+                  f" | decay {cfg.finger_res_decay}")
         self.prev_palm_dist = torch.zeros(N, device=dev)   # 势差分 shaping 状态
         self.lift_hw = torch.zeros(N, device=dev)          # 抬升高水位状态
         self.wrench_norm = torch.zeros(N, device=dev)
@@ -183,6 +204,16 @@ class SharpaCorrectionEnv(DirectRLEnv):
         _dop = np.diff(r.track_object[:, :3], axis=0, append=r.track_object[-1:, :3])
         self.ref_obj_vel = to(_dop * float(du.fps))                  # (L,3)
         self._ep_sums: dict[str, torch.Tensor] = {}        # 逐项 reward 的 episode 累计
+        # 诊断仪表 (滚动窗口, 可信分母). 每条量都对应一条**可证伪的设计假设**,
+        # 对照表见 docs/DESIGN_LOOP.md —— 曲线怎么长对应哪个设计错了, 事先写死.
+        self.diag = EpisodeDiagnostics(N, dev, window=cfg.diag_window)
+        self.obj_p0 = torch.zeros(N, 3, device=dev)        # 回合起始物体位 (扰动量基线)
+        self.grasped_once = torch.zeros(N, dtype=torch.bool, device=dev)
+        # ---- 终点势的跨步状态 ----
+        self.prev_goal_dist = torch.zeros(N, device=dev)   # 上一步物体到终点距离
+        self.contact_run = torch.zeros(N, dtype=torch.long, device=dev)  # 连续接触步数
+        self.goal_gate = torch.zeros(N, dtype=torch.bool, device=dev)    # latch: 稳定抓取成立
+        self.grip_rel0 = torch.zeros(N, 3, device=dev)     # 门开时物体在掌心系的位置 (测抓取稳定)
         # critic 特权观测的常量部分 (M2 域随机化后改为每 env 采样值)
         self.obj_mass = self.object.root_physx_view.get_masses().view(N, 1).to(dev)
         self.obj_fric = torch.full((N, 1), du.semantics.friction, device=dev)
@@ -238,12 +269,33 @@ class SharpaCorrectionEnv(DirectRLEnv):
         self.hand_jids = list(range(self.hand.num_joints))
         self.arm_jids: list[int] = []                      # 飞手没有臂
 
+    @property
+    def finger_bound(self) -> float:
+        """res_scale 的手指段用哪个界: 累积模式下动作是**每步增量**(rate),
+        非累积模式下动作直接就是残差本身 (旧的 finger_residual_max)."""
+        cfg = self.cfg
+        return cfg.finger_rate_max if cfg.accumulate_finger else cfg.finger_residual_max
+
+    def _accum_finger(self, fin_res: torch.Tensor) -> torch.Tensor:
+        """手指残差累积: 吃本步增量 (已乘 rate 界、已过 dyn_res 缩放), 返回叠加到参考上的残差.
+
+        非累积模式直接透传 —— 调用方不用分支.
+        ⚠ dyn_res 只缩放**增量**, 不缩放累积上限: 若上限也跟着距离缩, 手一旦被物体
+          推开一点, 已经攒下的握力就会被强行泄掉 (握不住 -> 更远 -> 泄更多, 正反馈).
+        """
+        cfg = self.cfg
+        if not cfg.accumulate_finger:
+            return fin_res
+        self.finger_res = (self.finger_res * cfg.finger_res_decay + fin_res).clamp(
+            -cfg.finger_total_max, cfg.finger_total_max)
+        return self.finger_res
+
     def _build_res_scale(self, to):
         cfg = self.cfg
         return to(np.concatenate([
             np.full(3, cfg.wrist_pos_residual_max),
             np.full(3, cfg.wrist_rot_residual_max),
-            np.full(22, cfg.finger_residual_max)]))
+            np.full(22, self.finger_bound)]))
 
     @property
     def wrist_pos_w(self) -> torch.Tensor:
@@ -620,7 +672,8 @@ class SharpaCorrectionEnv(DirectRLEnv):
             self.wrist_tgt_pos[:, 2] += self._lift_prog() * self.cfg.lift_height
         self.wrist_tgt_quat = quat_mul(_quat_from_aa(a[:, 3:6]), self.ref_wrist_quat[t])
         finger_ref = self._contact_close_ref() if self.contact_close else self.ref_finger[t]
-        self.finger_tgt = (finger_ref + a[:, 6:28]).clamp(self.dof_lower, self.dof_upper)
+        self.finger_tgt = (finger_ref + self._accum_finger(a[:, 6:28])
+                           ).clamp(self.dof_lower, self.dof_upper)
 
     def _apply_action(self) -> None:
         # 手指: 隐式 PD 位置目标
@@ -725,9 +778,19 @@ class SharpaCorrectionEnv(DirectRLEnv):
             progress,                                                   # 1
             phase,                                                      # 3
             self._tip_contacts(),                                       # 5
+            # 累积残差状态: **必须给**, 否则策略看不见自己已经积了多少 -> 非马尔可夫,
+            # 只能靠 finger_q 猜, 而恰恰在接触时(手指被物体挡住)两者差最大.
+            # 归一到 [-1,1] 与其他通道同量级.
+            self.finger_res / self.cfg.finger_total_max if cfg.accumulate_finger
+            else torch.zeros(self.num_envs, 0, device=self.device),     # 22 (累积模式)
+            # 终点势的门控状态: 奖励依赖它, 策略就必须看得见 —— 否则 reward 取决于
+            # 一个不可观测的 latch, 信用分配是瞎的
+            self.goal_gate.float().unsqueeze(1) if self.use_goal
+            else torch.zeros(self.num_envs, 0, device=self.device),     # 1 (终点势时)
             self.actions_buf,                                           # 28
             obj_geom,                                                   # 3P 物体几何(腕系)
         ], dim=1).clamp(-cfg.clip_obs, cfg.clip_obs).nan_to_num(0.0)     # NaN 防护: clamp 不吃 NaN
+        self._check_obs_dim(obs)
 
         # 特权通道 (HORA priv_info): 物体质量/摩擦真值 + 指尖接触力模长.
         # v3net: critic 吃 (obs+priv 原始), actor 只拿 priv 的 8 维嵌入 z
@@ -744,6 +807,19 @@ class SharpaCorrectionEnv(DirectRLEnv):
         if cfg.enable_pointcloud and pc_wrist is not None:
             out["pointcloud"] = pc_wrist.clamp(-cfg.clip_obs, cfg.clip_obs).nan_to_num(0.0)
         return out
+
+    def _check_obs_dim(self, obs: torch.Tensor) -> None:
+        """观测宽度对不上 cfg.observation_space 就当场报错.
+
+        不查的话要等到网络前向才炸, 报错里只有两个数字 —— 而 dyn_res / accumulate_finger
+        这类开关各自带一段**条件拼接**的通道, 开关一改就容易忘同步 observation_space.
+        """
+        n = int(obs.shape[1])
+        if n != self.cfg.observation_space:
+            raise RuntimeError(
+                f"观测宽度 {n} != cfg.observation_space {self.cfg.observation_space}"
+                f" (accumulate_finger={self.cfg.accumulate_finger} 带 22 维,"
+                f" dyn_res={self.cfg.dyn_res} 带 1 维) —— 改开关要同步改 observation_space")
 
     # ---- reward 输入采集 ----
     def _palm_pos(self) -> torch.Tensor:
@@ -793,7 +869,7 @@ class SharpaCorrectionEnv(DirectRLEnv):
     def _palm_obj_dist(self) -> torch.Tensor:
         """(N,) **手上任一接触点(掌心 + 5 指尖)到物体表面**的最小距离.
 
-        为什么不只用掌心: 抓取窗内腕是被冻结的(producer 的设计, 见 dexmate_env),
+        为什么不只用掌心: 抓取窗内腕是被冻结的(ref builder 的设计, 见 dexmate_env),
         掌心到物体的距离按构造几乎不变(实测全程只在 3.5~14cm 间晃), 拿它当"抓得多近"
         的信号是没有分辨力的 —— 真正在变的是**手指在合拢**.
         取 6 个点的最小值, 接近段由掌心/整手主导, 抓取段由指尖主导, 两段都有分辨力.
@@ -864,6 +940,20 @@ class SharpaCorrectionEnv(DirectRLEnv):
             curobo_wp = self.curobo_wp.expand(self.num_envs, 3)
             in_approach = active & (t < self.inter0)
 
+        tip_afford = self._tip_affordance()
+        # ---- 终点势的门控: 连续 goal_gate_steps 步 ≥2 指接触 -> latch 打开, 保持整回合 ----
+        goal_pos = None
+        if self.use_goal:
+            n_c = contacts.sum(dim=1)
+            self.contact_run = torch.where(n_c >= self.rw.min_contacts,
+                                           self.contact_run + 1,
+                                           torch.zeros_like(self.contact_run))
+            newly_open = (~self.goal_gate) & (self.contact_run >= self.cfg.goal_gate_steps)
+            if newly_open.any():
+                # 门开瞬间记下物体在掌心系的位置 —— 之后的漂移就是"抓得稳不稳"
+                self.grip_rel0[newly_open] = self._obj_in_palm(obj_pos)[newly_open]
+            self.goal_gate |= self.contact_run >= self.cfg.goal_gate_steps
+            goal_pos = self.ref_obj_pos[self.L - 1].expand(self.num_envs, 3)
         # grasp_only: 模仿项的腕参考要含硬编码抬升, 否则"提上去"这件事本身会被 imit 扣分
         ref_wrist = self.ref_wrist_pos[t]
         if self.cfg.grasp_only:
@@ -890,14 +980,106 @@ class SharpaCorrectionEnv(DirectRLEnv):
             finger_weight=self.finger_weight,
             curobo_wp=curobo_wp,
             in_approach=in_approach,
-            tip_afford=self._tip_affordance(),
+            tip_afford=tip_afford,
+            goal_pos=goal_pos,
+            goal_gate=self.goal_gate if self.use_goal else None,
+            prev_goal_dist=self.prev_goal_dist,
+            grip_drift=self._grip_drift(obj_pos) if self.use_goal else None,
         )
+        self._update_diag(active, contacts, obj_pos, tip_afford, terms)
         # 逐项 episode 累计 (reward hacking 账本)
         for k, v in terms.items():
             if k not in self._ep_sums:
                 self._ep_sums[k] = torch.zeros(self.num_envs, device=self.device)
             self._ep_sums[k] += v
-        # 成功判定素材: hold 段内 (参考帧到末尾, 抬≥目标 且 ≥2 指接触) 计数 (RSI 兼容)
+        self.hold_ok += self._success_step(obj_pos, contacts).long()
+        return total
+
+    def _obj_in_palm(self, obj_pos) -> torch.Tensor:
+        """物体位置换算到掌心系 (N,3). 抓稳了这个量应该基本不动 —— 手物相对位姿漂移
+        就是"稳定抓取"的直接度量, 比"接触了几根手指"更贴近我们真正要的东西."""
+        rel = obj_pos - (self._palm_pos() - self.scene.env_origins)
+        return quat_apply(quat_conjugate(self.wrist_quat_w), rel)
+
+    def _grip_drift(self, obj_pos) -> torch.Tensor:
+        """(N,) 门开以来物体在掌心系里漂了多远 (m). 抓稳了应该几乎不动."""
+        return (self._obj_in_palm(obj_pos) - self.grip_rel0).norm(dim=1).nan_to_num(0.0)
+
+    def _update_diag(self, active, contacts, obj_pos, tip_afford, terms) -> None:
+        """采集诊断量. **每一条都对应 docs/DESIGN_LOOP.md 里一条可证伪的设计假设** ——
+        加新指标前先想清楚"它长成什么样能说明我哪个设计错了", 想不出来就别加.
+        """
+        cfg = self.cfg
+        d = self.diag
+        d.tick(active)
+        n_contact = contacts.sum(dim=1)
+        # [假设 A] 手指够得到物体 (总权限 finger_total_max 足够)
+        d.add("contact2_frac", (n_contact >= 2).float(), active)
+        d.add("contact_any_frac", (n_contact >= 1).float(), active)
+        # [假设 B] rate/total 拆分是对的: 每步够温柔, 总量够到位
+        if cfg.accumulate_finger:
+            fr = self.finger_res.abs()
+            d.add("fres_used_deg", torch.rad2deg(fr.mean(dim=1)), active)
+            d.add("fres_sat_frac",
+                  (fr.amax(dim=1) >= 0.95 * cfg.finger_total_max).float(), active)
+        fa = self.actions_buf[:, -22:].abs().mean(dim=1)      # 手指段动作用量 ∈[0,1]
+        d.add("frate_util", fa, active)
+        # [假设 C] 给手指 69° 权限不会把物体在抓住之前碰跑
+        # ⚠ 必须钳制 + 去 NaN: 物理发散的回合物体会跑到几百米外, 而这是个"回合内取 max、
+        #   窗口内取 mean"的量 —— 一个发散回合就能把 256 回合的均值顶到 5 万 cm,
+        #   读出来完全是垃圾 (2026-07-27 accum run 实测 51593cm). 超界的单独计数,
+        #   "发散了几成回合"本来就该是独立的一条信息, 不该混进"推开多远".
+        pre = active & ~self.grasped_once
+        disp = ((obj_pos - self.obj_p0).norm(dim=1) * 100.0).nan_to_num(1e4)
+        d.add("obj_disturb_cm", disp.clamp(max=100.0), pre, mode="max")
+        d.add("diverge_frac", (disp > 100.0).float(), active)
+        self.grasped_once |= n_contact >= self.rw.min_contacts
+        # [假设 D] 抓住之后握得住 (抬得起来)
+        lift_cm = ((obj_pos[:, 2] - self.obj_rest_z) * 100.0).nan_to_num(1e4)
+        d.add("lift_peak_cm", lift_cm.clamp(-100.0, 100.0), active, mode="max")
+        # [假设 G] 成功判据本身: 完整轨迹任务的成功 = 物体最终落在人手结束位 place_tol 内.
+        # 单独测它 —— reward 的 task 核测的是"抬多高", 与这个判据**不是同一件事**.
+        if not cfg.grasp_only:
+            goal = self.ref_obj_pos[self.L - 1]
+            dg = (((obj_pos - goal).norm(dim=1)) * 100.0).nan_to_num(1e4).clamp(max=200.0)
+            d.add("place_err_cm", dg, active & (self._ref_t() >= self.L - 1))
+            d.add("goal_d_cm", dg, active)                 # 全程到终点的距离
+        # [假设 H] 终点势的门确实会打开 —— 门若从没开, "有没有用"根本无从谈起
+        if self.use_goal:
+            d.add("goal_gate_frac", self.goal_gate.float(), active)
+            # 抓取稳定性: 门开之后物体在掌心系里漂了多远 (抓稳了应该基本不动)
+            drift = ((self._obj_in_palm(obj_pos) - self.grip_rel0).norm(dim=1) * 100.0
+                     ).nan_to_num(1e4).clamp(max=100.0)
+            d.add("grip_drift_cm", drift, active & self.goal_gate)
+        # [假设 I] 策略不是靠"打"物体完成任务 (录像里看到的快速摆手)
+        spd = self.object.data.root_lin_vel_w.norm(dim=1).nan_to_num(1e4)
+        d.add("obj_speed_max", spd.clamp(max=20.0), active, mode="max")
+        d.add("fast_frac", (spd > self.rw.spike_vel).float(), active)
+        # [假设 J] 策略的残差出得了力. 力矩顶满时残差**静默失效**, 信用分配被污染 ——
+        # 开自碰撞会大幅推高饱和度 (零动作实测 0.24 -> 0.96), 必须盯着.
+        tq = getattr(self, "arm_torque_norm", None)
+        if tq is not None:
+            d.add("torque_sat_frac", (tq >= 0.95).float().mean(dim=1), active)
+            d.add("torque_mean", tq.mean(dim=1).nan_to_num(0.0).clamp(max=2.0), active)
+        # [假设 E] 没有 GraspPose 时, affordance 能顶替它指出"该抓哪儿"
+        if tip_afford is not None:
+            touching = active & (n_contact >= 1)
+            d.add("afford_hit", (contacts * tip_afford).sum(dim=1), touching)
+        # [假设 F] 奖励配比: 引导项不该盖过任务核. 这里重算一份逐项均值 ——
+        # _reset_idx 里那份 ep_rew/* 走的是 extras 单点路径, 分母同样不可信.
+        # ⚠ 必须按 term_clamp 钳 —— compute_reward 返回的 terms 是**未钳制**的原始值,
+        #   而策略实际拿到的是 clamp(min=term_clamp) 之后的. 不钳的话某一项发散到 -40
+        #   (实测 rew_approach), 而它对策略的真实影响上限是 -10, E1 那条"引导项压过任务核"
+        #   的判读就会被一个根本没生效的数字触发.
+        for k, v in terms.items():
+            d.add(f"rew_{k}", v.clamp(min=self.rw.term_clamp))
+        self.extras.update(d.publish())
+
+    def _success_step(self, obj_pos, contacts) -> torch.Tensor:
+        """(N,) 本步是否计入成功. 子类可覆盖成别的任务判据.
+
+        默认(飞手 / grasp_only): hold 段内 抬够高 且 ≥min_contacts 指接触.
+        """
         if self.cfg.grasp_only:
             in_hold = self.episode_length_buf >= self.hold_step0   # 硬编码抬升完成之后才判
         else:
@@ -906,8 +1088,7 @@ class SharpaCorrectionEnv(DirectRLEnv):
                      else self.rw.lift_target)
         lifted = (obj_pos[:, 2] - self.obj_rest_z) >= _lift_thr
         held = contacts.sum(dim=1) >= self.rw.min_contacts
-        self.hold_ok += (in_hold & lifted & held).long()
-        return total
+        return in_hold & lifted & held
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         t = self._ref_t()
@@ -979,6 +1160,8 @@ class SharpaCorrectionEnv(DirectRLEnv):
         for k, v in self._ep_sums.items():
             log[f"ep_rew/{k}"] = (v[env_ids] / ep_len).mean().item()
             v[env_ids] = 0.0
+        if hasattr(self, "_last_stuck"):      # DexMate 特有: 臂持续追不上目标 (撞桌/自碰撞/力矩不够)
+            log["term/stuck"] = self._last_stuck[env_ids].float().mean().item()
         if hasattr(self, "_last_fell"):
             log["term/fell"] = self._last_fell[env_ids].float().mean().item()
             log["term/obj_div"] = self._last_obj_div[env_ids].float().mean().item()
@@ -994,6 +1177,16 @@ class SharpaCorrectionEnv(DirectRLEnv):
         self.lift_hw[env_ids] = 0.0
         self.actions_buf[env_ids] = 0.0
         self.prev_actions[env_ids] = 0.0
+        self.finger_res[env_ids] = 0.0                   # 累积残差: 跨步状态, 必须清
         self.wrench_norm[env_ids] = 0.0
+        # 诊断: 先结算本回合 (必须在清零之前), 再重置本回合基线
+        self.diag.finish(env_ids)
+        self.obj_p0[env_ids] = obj_p
+        self.grasped_once[env_ids] = False
+        # 终点势跨步状态: prev 必须初始化成"当前距离", 否则第一步白送一整段距离的横财
+        self.contact_run[env_ids] = 0
+        self.goal_gate[env_ids] = False
+        self.grip_rel0[env_ids] = 0.0
+        self.prev_goal_dist[env_ids] = (obj_p - self.ref_obj_pos[self.L - 1]).norm(dim=1)
         # 势差分状态: 用参考起始腕位到物体位的距离近似 (首个 active 步会精确重置)
         self.prev_palm_dist[env_ids] = (self.ref_wrist_pos[starts] - obj_p).norm(dim=1)

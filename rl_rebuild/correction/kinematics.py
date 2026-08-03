@@ -243,51 +243,98 @@ class ArmIK:
         return self.u.link_pose(link, d, self.base_T, self.anchor_link)
 
     # ---- IK ----
-    def solve(self, p_tgt, R_tgt, q0=None, iters=200, pos_tol=5e-3, rot_tol=0.05,
-              w_rot=0.35, damp=0.05, step_clip=0.25):
-        """DLS 逆解, 带限位夹紧。
+    def _cost(self, q, p_tgt, R_tgt, w_rot):
+        p, R = self.fk(q)
+        ep = p_tgt - p
+        er = _so3_log(R_tgt @ R.T)
+        return float(np.linalg.norm(ep)), float(np.linalg.norm(er)), ep, er
 
-        w_rot   姿态误差权重。抓取任务里位置比姿态重要得多, 且 7 自由度臂
-                在工作空间边缘常常"位置到得了、姿态到不了"; 压低姿态权重能让
-                求解器优先保住位置, 更贴近实际训练里 RL 会做的取舍。
+    def solve(self, p_tgt, R_tgt, q0=None, iters=200, pos_tol=5e-3, rot_tol=0.05,
+              w_rot=0.35, damp=0.05, step_clip=0.25,
+              damp_min=1e-4, damp_max=10.0):
+        """Levenberg-Marquardt 逆解, 带限位夹紧.
+
+        为什么不用固定阻尼的 DLS: 实测会陷在局部极小爬不出来 —— Grasp12 的目标离肩
+        只有 0.471m(臂展 0.809)、无关节顶限位、姿态容差放到 90°, 固定阻尼仍差 11cm.
+        LM 的做法是**步长接受/拒绝**: 改善了就减阻尼(更像牛顿法, 收敛快),
+        变差了就退回并加阻尼(更像梯度下降, 更稳), 阻尼撞到上限说明真的到头了.
+
+        w_rot   姿态误差权重. 抓取任务里位置比姿态重要得多, 且 7 自由度臂在工作空间
+                边缘常常"位置到得了、姿态到不了"; 压低姿态权重让求解器优先保住位置.
         返回 dict: q, pos_err(m), rot_err(rad), ok, iters_used, at_limit
         """
         q = (np.clip(q0, self.lower, self.upper) if q0 is not None
-             else np.clip(np.zeros(self.n), self.lower, self.upper))
-        pe = re = np.inf
+             else self.q_default.copy())
+        pe, re, ep, er = self._cost(q, p_tgt, R_tgt, w_rot)
+        best = (pe ** 2 + (w_rot * re) ** 2, q.copy(), pe, re)
         used = 0
         for used in range(1, iters + 1):
-            p, R = self.fk(q)
-            ep = p_tgt - p
-            er = _so3_log(R_tgt @ R.T)
-            pe, re = float(np.linalg.norm(ep)), float(np.linalg.norm(er))
             if pe < pos_tol and re < rot_tol:
                 break
-            e = np.concatenate([ep, w_rot * er])
             J = self.jacobian(q)
-            J[3:] *= w_rot
+            J = np.vstack([J[:3], w_rot * J[3:]])
+            e = np.concatenate([ep, w_rot * er])
             dq = J.T @ np.linalg.solve(J @ J.T + (damp ** 2) * np.eye(6), e)
             m = np.max(np.abs(dq))
             if m > step_clip:
                 dq *= step_clip / m
-            q = np.clip(q + dq, self.lower, self.upper)
+            q_try = np.clip(q + dq, self.lower, self.upper)
+            pe_t, re_t, ep_t, er_t = self._cost(q_try, p_tgt, R_tgt, w_rot)
+            c_try = pe_t ** 2 + (w_rot * re_t) ** 2
+            if c_try < best[0]:                       # 接受: 减阻尼, 更激进
+                q, pe, re, ep, er = q_try, pe_t, re_t, ep_t, er_t
+                best = (c_try, q.copy(), pe, re)
+                damp = max(damp * 0.5, damp_min)
+            else:                                     # 拒绝: 加阻尼, 更保守
+                damp = min(damp * 2.0, damp_max)
+                if damp >= damp_max:
+                    break                             # 阻尼撞顶 = 这个初值到头了
+        _, q, pe, re = best
         at = np.isclose(q, self.lower, atol=1e-4) | np.isclose(q, self.upper, atol=1e-4)
         return dict(q=q, pos_err=pe, rot_err=re, ok=bool(pe < pos_tol and re < rot_tol),
                     iters_used=used, at_limit=at)
 
-    def solve_traj(self, P, Q, q_init=None, **kw):
+    def solve_best(self, p_tgt, R_tgt, seeds, **kw):
+        """多起点求解, 取最好的一个.
+
+        单一热启动的致命弱点: 一帧陷进局部极小, 后面每一帧都从这个坏解出发, 整段被带偏
+        (实测 Grasp0 连续 102/117 帧失败就是这个特征). 多给几个初值就能跳出去.
+        """
+        best = None
+        for q0 in seeds:
+            r = self.solve(p_tgt, R_tgt, q0=q0, **kw)
+            if r["ok"]:
+                return r
+            c = r["pos_err"] ** 2 + (kw.get("w_rot", 0.35) * r["rot_err"]) ** 2
+            if best is None or c < best[0]:
+                best = (c, r)
+        return best[1]
+
+    def solve_traj(self, P, Q, q_init=None, n_restart=6, seed=0, **kw):
         """整条轨迹逐帧求解, 上一帧解作为下一帧热启动 (保证关节连续).
 
         q_init 默认取默认站姿 —— 第一帧从机器人实际待机姿态出发, 而不是零位,
         否则解出来的第一帧可能落在一个机器人根本不会经过的分支上。
+        n_restart 帧解不出时额外试几个初值 (默认站姿 + 随机), 0 = 关掉多起点。
         """
+        rng = np.random.default_rng(seed)
         out = []
         q = self.q_default.copy() if q_init is None else np.asarray(q_init, float).copy()
+        q_ok = q.copy()                                # 最近一次**成功**的解
         for p, quat in zip(P, Q):
-            r = self.solve(p, quat_to_R(quat), q0=q, **kw)
-            # 只有解得动的帧才继承; 失败帧继续用上一次成功解热启动, 避免烂解传染
-            if r["ok"] or q is None:
-                q = r["q"].copy()
+            R = quat_to_R(quat)
+            r = self.solve(p, R, q0=q, **kw)
+            if not r["ok"] and n_restart > 0:
+                seeds = [self.q_default, q_ok] + [
+                    rng.uniform(self.lower, self.upper) for _ in range(max(n_restart - 2, 0))]
+                r2 = self.solve_best(p, R, seeds, **kw)
+                # 多起点的解可能跳到另一个分支; 只在**确实解出来**时才采纳,
+                # 否则保留热启动的解 —— 轨迹连续性比单帧精度更重要.
+                if r2["ok"]:
+                    r = r2
+            if r["ok"]:
+                q_ok = r["q"].copy()
+            q = r["q"].copy()
             out.append(r)
         return out
 

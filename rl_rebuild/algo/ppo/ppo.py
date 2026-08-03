@@ -92,7 +92,8 @@ class PPO(object):
         # ---- Optim ----
         self.last_lr = float(self.ppo_config['learning_rate'])
         self.weight_decay = self.ppo_config.get('weight_decay', 0.0)
-        self.optimizer = torch.optim.Adam(self.model.parameters(), self.last_lr, weight_decay=self.weight_decay)
+        _betas = tuple(self.ppo_config.get('adam_betas', (0.9, 0.999)))
+        self.optimizer = torch.optim.Adam(self.model.parameters(), self.last_lr, betas=_betas, weight_decay=self.weight_decay)
         # ---- PPO Train Param ----
         self.e_clip = self.ppo_config['e_clip']
         self.clip_value = self.ppo_config['clip_value']
@@ -374,7 +375,8 @@ class PPO(object):
                 self.optimizer.zero_grad()
                 loss.backward()
                 if self.truncate_grads:
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_norm)
+                    _gn = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_norm)
+                    self.writer.add_scalar('info/grad_norm', float(_gn), self.agent_steps)
                 self.optimizer.step()
 
                 with torch.no_grad():

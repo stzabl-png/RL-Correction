@@ -9,7 +9,7 @@ import os
 from rl_rebuild.correction.load_replay import (CLIP11, CLIP11_MESH,
                                                CLIP11_SEMANTICS, load)
 from rl_rebuild.correction import paths
-from rl_rebuild.correction.producers.ocir import load_ocir
+from rl_rebuild.correction.ref_builders.ocir import load_ocir
 from rl_rebuild.correction.schema import DataUnit, ObjectSemantics
 
 _OCIR = os.path.join(paths.OCIR_ROOT, "data", "testing")
@@ -166,12 +166,16 @@ def interact_hand(clip_name: str, default: str = "right") -> str:
 def load_data_unit(cfg) -> DataUnit:
     e = clip_entry(cfg.clip_name)
     if e["source"] == "replay_grasp":
-        from rl_rebuild.correction.producers.replay_grasp import load_replay_grasp
+        from rl_rebuild.correction.ref_builders.replay_grasp import load_replay_grasp
         return load_replay_grasp(e["npz"], e["mesh"], usd_path=e["usd"],
                                  # 交互手从 phase_* 自动判定, 不能写死 "right":
                                  # Grasp10/12 在重建里是**左手**交互, 写死右手 = 拿垃圾数据
                                  # (实测 Grasp12 的物体被摆到 x=-0.58, 在机器人底座后面)
                                  hand=interact_hand(cfg.clip_name),
+                                 clearance=getattr(cfg, "clearance", None),
+                                 freeze_wrist=getattr(cfg, "freeze_wrist", True),
+                                 anchor_mode=getattr(cfg, "anchor_mode", None),
+                                 pregrasp_align=getattr(cfg, "pregrasp_align", None),
                                  clip_id=cfg.clip_name, target_hz=cfg.target_hz,
                                  table_height=cfg.table_top_z, affordance_npz=e.get("affordance"),
                                  # 手离物体的悬停高度: DexMate 需要比飞手大得多 (飞手能把手

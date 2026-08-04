@@ -57,8 +57,11 @@ parser.add_argument("--cone", action="store_true",
 parser.add_argument("--grasp_first", action="store_true",
                     help="先抓后飞门控 (§2.17): 阶段A 全回合从抖动 GraspPose 起步纯练抓取, "
                          "sr/from_grasp 慢 EMA ≥ gf_target 后放行接近分支")
-parser.add_argument("--gf_target", type=float, default=0.9,
-                    help="门控毕业线 (抖动起点分布上的抓取成功率慢 EMA)")
+parser.add_argument("--gf_target", type=float, default=0.8,
+                    help="门控毕业线 (抖动起点分布上的抓取成功率 EMA; 0.9 会与技能平台期打平, 永不触发)")
+parser.add_argument("--start_jitter", action="store_true",
+                    help="直接抓取回合起点用抖动池 (±eps0 包络), 不依赖 --grasp_first. "
+                         "用途: 给已会飞的 ckpt 补'从到达偏差状态起抓'这门课 (O1 交接断裂的解药)")
 # 大batch(3072)调参覆盖 (不填=用 ppo.yaml 默认)
 parser.add_argument("--kl_threshold", type=float, default=None, help="覆盖 kl_threshold (放开策略步长)")
 parser.add_argument("--mini_epochs", type=int, default=None, help="覆盖 mini_epochs (每batch多更新)")
@@ -134,7 +137,9 @@ class MilestonePPO(PPO):
         if gated and raw is not None:
             fg = self.extra_info.get("sr/from_grasp")
             if fg is not None:
-                self._fg_slow = 0.995 * getattr(self, "_fg_slow", 0.0) + 0.005 * float(fg)
+                # 0.95 而非课程惯用的 0.995: 毕业是一次性事件, 0.995 的半衰期 (~2M 步)
+                # 会让进度条比技能本身晚数百万步; 0.95 仍要求 ~1M 步的持续高成功率.
+                self._fg_slow = 0.95 * getattr(self, "_fg_slow", 0.0) + 0.05 * float(fg)
                 self.writer.add_scalar("curr/gate_fg_slow", self._fg_slow, self.agent_steps)
                 if self._fg_slow >= getattr(self, "_gf_target", 0.9):
                     self._gate_open = True
@@ -274,7 +279,7 @@ agent._no_imit = args.no_imit    # F 组: 模仿罚恒 0        # 笨拙课程�
 agent._ar_ema = args.ar_ema      # N3 组: 可行性课程 EMA 速度
 agent._grasp_first = args.grasp_first
 agent._gf_target = args.gf_target
-if args.grasp_first:
+if args.grasp_first or args.start_jitter:
     # ---- §2.17 阶段A 起点抖动池 (用户设计, 2026-08-03) ----
     # 覆盖课程全程合法到达误差的包络 U(0, eps_pos0)×U(0, eps_rot0): 接近段到达
     # 永远 ≤ 当时的 eps ≤ 这个包络, 毕业 = 在这个分布上抓取 ≥ gf_target ——

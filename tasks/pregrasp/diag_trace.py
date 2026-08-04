@@ -18,6 +18,7 @@ parser.add_argument("--clip", type=str, default="Grasp3")
 parser.add_argument("--grasp_prior", type=str, required=True)
 parser.add_argument("--prior_yaw", type=float, default=-1.0)
 parser.add_argument("--stance_prefix", type=int, default=0)
+parser.add_argument("--orient_blend", action="store_true", help="必须与训练一致")
 parser.add_argument("--num_envs", type=int, default=4)
 parser.add_argument("--steps", type=int, default=320)
 parser.add_argument("--out", type=str, default="trace.npz")
@@ -51,6 +52,7 @@ apply_grasp_prior(env_cfg, args.grasp_prior, args.prior_yaw, approach=True)
 env_cfg.direct_grasp_prob = 0.0
 env_cfg.approach_t0_max = 0.0
 env_cfg.stance_prefix_frames = args.stance_prefix
+env_cfg.orient_blend = args.orient_blend
 env_cfg.scene.num_envs = args.num_envs
 raw = GraspTaskEnv(env_cfg)
 raw.gentle = 1.0

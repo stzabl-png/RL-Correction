@@ -60,7 +60,9 @@ def load(npz_path, mesh_path, usd_path="", clip_id="", hand="right",
     if qpos_path.exists():
         q = np.load(qpos_path, allow_pickle=True)
         assert len(q["finger_qpos"]) == T, "ref_qpos 与 replay 帧数不一致, 请重新导出"
-        if "source_mtime" in q.files:
+        # 自带快照 (datasets/) 跳过 mtime 判定: 两份文件是一起提交的必然配套,
+        # 而 git 不保留 mtime, 不跳过的话别人 clone 完这条断言必然误报. 见 paths.is_bundled.
+        if "source_mtime" in q.files and not paths.is_bundled(npz_path):
             import os
             assert abs(float(q["source_mtime"]) - os.path.getmtime(npz_path)) < 1.0, \
                 f"ref_qpos 过期 (源 {npz_path} 已重新生成), 先跑 export_qpos.py"

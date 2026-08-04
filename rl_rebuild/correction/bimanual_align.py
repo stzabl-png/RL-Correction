@@ -32,6 +32,7 @@ import os
 import numpy as np
 
 from rl_rebuild.correction import frames as F
+from rl_rebuild.correction import paths
 
 # 单手任务时目标点相对该手默认位向前(+X)推的距离. 对所有 clip 同一个值, 非 per-clip 调参.
 REACH_FORWARD = 0.15
@@ -88,10 +89,15 @@ def stable_quat(mesh_path, ref_quat=None, cache_name="stable_poses.json"):
     """
     cache = os.path.join(os.path.dirname(mesh_path), cache_name)
     key = f"{os.path.basename(mesh_path)}:{os.path.getmtime(mesh_path):.0f}"
+    # 自带快照 (datasets/): key 里的 mtime 在别人 clone 后必然对不上, 只比文件名。
+    # 快照的 mesh 和缓存是一起提交的, 不可能不配套。不跳过的话就要在 Isaac 进程里
+    # 现算 1~2 分钟 —— 那正是这个缓存要避免的段错误 (exit 139). 见 paths.is_bundled.
+    lax = paths.is_bundled(mesh_path)
     if os.path.exists(cache):
         try:
             c = json.load(open(cache))
-            if c.get("key") == key:
+            if c.get("key") == key or (lax and str(c.get("key", "")).split(":")[0]
+                                       == os.path.basename(mesh_path)):
                 Q = [np.array(q, float) for q in c["quats"]]
                 P = np.array(c["probs"], float)
                 i = _pick_stable(Q, P, ref_quat)

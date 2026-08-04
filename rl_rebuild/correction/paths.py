@@ -21,6 +21,20 @@ import os
 _BUNDLED = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "datasets"))
 
 
+def is_bundled(path: str) -> bool:
+    """这个文件是不是仓库自带最小数据集里的?
+
+    用途: `datasets/` 里的几份产物是**作为一组冻结快照一起提交**的, 彼此必然配套。
+    而 git **不保留 mtime** —— clone 之后所有文件的 mtime 都是克隆时刻, 于是上游
+    那些"按 mtime 判新鲜度"的检查 (ref_qpos 的 source_mtime 断言、stable_poses 的
+    缓存 key) 在别人机器上必然误判。对自带快照跳过 mtime 判定, 其余路径照旧。
+    """
+    try:
+        return os.path.commonpath([os.path.abspath(path), _BUNDLED]) == _BUNDLED
+    except ValueError:          # 跨盘符 (Windows) 时 commonpath 会抛
+        return False
+
+
 def _root(env_var: str, default: str, bundled: str) -> str:
     """环境变量 > 本机默认路径(存在才用) > 仓库自带最小集 > 本机默认路径(保留原报错)."""
     p = os.environ.get(env_var)

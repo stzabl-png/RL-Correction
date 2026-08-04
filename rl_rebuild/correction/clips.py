@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import json
 import os
 
 from rl_rebuild.correction.load_replay import (CLIP11, CLIP11_MESH,
@@ -39,6 +40,29 @@ def _td_ocir(dataset, obj, grasp_file="grasp_pose_6.json", lift_target=0.08):
     )
 
 
+def _td_static(dataset, obj, mass_kg=None, friction=None):
+    """TrainingData entry for a static SAM3D/FoundationPose reconstruction."""
+
+    base = f"{_TD}/{dataset}/{obj}"
+    meta_path = os.path.join(base, "meta.json")
+    metadata = {}
+    if os.path.isfile(meta_path):
+        with open(meta_path, encoding="utf-8") as handle:
+            metadata = json.load(handle)
+    mass_kg = float(metadata.get("mass_kg", 0.2) if mass_kg is None else mass_kg)
+    friction = float(metadata.get("friction", 0.5) if friction is None else friction)
+    return dict(
+        source="static_reconstruction",
+        npz=f"{base}/retarget/replay_world.npz",
+        mesh=f"{base}/reconstruction/object_mesh_scaled_final.obj",
+        usd=f"{base}/cache/object.usd",
+        runtime_object_physics=False,
+        place_mode="object_only",
+        semantics=ObjectSemantics(
+            label=f"{dataset}/{obj}", mass_kg=mass_kg, friction=friction),
+    )
+
+
 # =============================================================================
 # 设定 A — RL 学习 **GraspPose 能处理**的物体 (普遍偏大, 可整手包络)
 #   骨干 = cuRobo 规划的 close 轨迹, RL 只做残差修正. 详见 docs/TRAINING_SETUPS_A_B.md
@@ -52,6 +76,8 @@ CLIPS = {
     ),
     "pp0_human": _td_ocir("egodex", "pp0"),
     "pp55_human": _td_ocir("egodex", "pp55", grasp_file="failed_grasp_002.json"),
+    # Staged from the selected Test-video reconstruction.
+    "task1_static_smoke": _td_static("egodex", "task1_static_smoke"),
 }
 CLIPS["pp0_anchor"] = dict(CLIPS["pp0_human"], variant="anchor")
 CLIPS["pp55_anchor"] = dict(CLIPS["pp55_human"], variant="anchor")
@@ -100,13 +126,15 @@ def configure_cfg(cfg, name: str):
     e = clip_entry(name)
     cfg.clip_name = name
     cfg.object_cfg.spawn.usd_path = e["usd"]
+    if "place_mode" in e:
+        cfg.place_mode = e["place_mode"]
     return cfg
 
 
 def ensure_object_usd(name: str):
     """ocir 源: object.obj -> 物理烘焙 USD (缓存). 需 Kit 已启动 (env _setup_scene 内调)."""
     e = clip_entry(name)
-    if e["source"] != "ocir":
+    if e["source"] not in ("ocir", "static_reconstruction"):
         return e["usd"]
     usd = e["usd"]
     if os.path.exists(usd) and os.path.getmtime(usd) >= os.path.getmtime(e["mesh"]):
@@ -152,6 +180,16 @@ def interact_hand(clip_name: str, default: str = "right") -> str:
     e = CLIPS.get(clip_name, {})
     if not e.get("npz"):
         return default
+    if e.get("source") == "static_reconstruction":
+        try:
+            import numpy as _np
+            from rl_rebuild.correction.recon_kailang.static_reconstruction import (
+                first_interaction,
+            )
+            with _np.load(e["npz"], allow_pickle=True) as data:
+                return first_interaction(data, e.get("hand"))[0]
+        except Exception:
+            return default
     try:
         import numpy as _np
         d = _np.load(e["npz"], allow_pickle=True)
@@ -165,6 +203,16 @@ def interact_hand(clip_name: str, default: str = "right") -> str:
 
 def load_data_unit(cfg) -> DataUnit:
     e = clip_entry(cfg.clip_name)
+    if e["source"] == "static_reconstruction":
+        from rl_rebuild.correction.recon_kailang.static_reconstruction import (
+            load_static_reconstruction,
+        )
+        return load_static_reconstruction(
+            e["npz"], e["mesh"], usd_path=e["usd"], clip_id=cfg.clip_name,
+            hand=e.get("hand"), target_hz=cfg.target_hz,
+            table_height=cfg.table_top_z,
+            table_half=min(cfg.table_size[0], cfg.table_size[1]) / 2.0,
+            semantics=e["semantics"], verbose=True)
     if e["source"] == "replay_grasp":
         from rl_rebuild.correction.ref_builders.replay_grasp import load_replay_grasp
         return load_replay_grasp(e["npz"], e["mesh"], usd_path=e["usd"],

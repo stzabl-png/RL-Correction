@@ -41,7 +41,8 @@ def _longest_true_run(mask):
 def load(npz_path, mesh_path, usd_path="", clip_id="", hand="right",
          table_height=0.85, obj_gap=0.01, scene_rot="identity", quat_order="wxyz",
          smooth_sigma=2.0, outlier_mult=3.0, target_hz=None,
-         semantics: ObjectSemantics | None = None, verbose=False) -> DataUnit:
+         semantics: ObjectSemantics | None = None, verbose=False,
+         initial_pose_mode="stable") -> DataUnit:
     d = np.load(npz_path, allow_pickle=True)
     T = len(d["frames"])
     src_fps = float(d["fps"])
@@ -130,19 +131,29 @@ def load(npz_path, mesh_path, usd_path="", clip_id="", hand="right",
         finger_names=finger_names,
         obj_drift=drift_out,
     )
-    # 初始物体位姿 = valid 段起始帧 + stable-pose 投影 (端盖压平, 物理稳定;
-    # 参考轨迹姿态保持原样 — 43° 倾斜是姿态估计噪声, 由 RL/reward 消化)
+    # 初始物体位姿. 旧 clip 默认做 stable-pose 投影; static reconstruction
+    # 显式使用 preserve, 因为其 FoundationPose 朝向是场景布置的权威输入.
     t_init = ref.valid_seg[0]
     mesh_verts = F.load_obj_verts(mesh_path)
-    init_q, fix_deg = F.stable_pose_projection(mesh_verts, track_object[t_init, 3:7].astype(np.float64))
+    if initial_pose_mode == "stable":
+        init_q, fix_deg = F.stable_pose_projection(
+            mesh_verts, track_object[t_init, 3:7].astype(np.float64))
+    elif initial_pose_mode == "preserve":
+        init_q = track_object[t_init, 3:7].astype(np.float64)
+        init_q = init_q / np.linalg.norm(init_q)
+        fix_deg = 0.0
+    else:
+        raise ValueError(
+            f"initial_pose_mode must be stable/preserve, got {initial_pose_mode!r}"
+        )
     v_rot = F.rot_apply(np.broadcast_to(init_q, (len(mesh_verts), 4)), mesh_verts)
     init_pose = np.concatenate([
         [track_object[t_init, 0], track_object[t_init, 1],
          table_height + obj_gap - v_rot[:, 2].min()], init_q])
-    if verbose:
+    if verbose and initial_pose_mode == "stable":
         print(f"[init] stable-pose 投影: 修正倾斜 {fix_deg:.1f} deg (t_init={t_init})")
 
-    return DataUnit(
+    data_unit = DataUnit(
         clip_id=clip_id, mesh_path=str(mesh_path), usd_path=str(usd_path),
         object_init_pose=init_pose.astype(np.float32),
         goal_object_pose=track_object[-1].astype(np.float32),
@@ -150,6 +161,8 @@ def load(npz_path, mesh_path, usd_path="", clip_id="", hand="right",
         frame=FrameConvention(table_height=table_height),
         semantics=semantics or ObjectSemantics(),
     )
+    d.close()
+    return data_unit
 
 
 if __name__ == "__main__":

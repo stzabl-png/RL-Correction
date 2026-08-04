@@ -129,7 +129,10 @@ class DexmateCorrectionEnv(SharpaCorrectionEnv):
         self._place_and_solve_ik()
 
         # ---- 从默认站姿出发的接近段: 把时间轴整体后移 home_steps ----
-        self.home_steps = int(cfg.home_steps)
+        # Static reconstruction uses the video hand only as an object-placement
+        # marker. Keep both robot arms in their configured default pose.
+        self.home_steps = (0 if cfg.place_mode == "object_only"
+                           else int(cfg.home_steps))
         # grasp_only=False 时基类不定义 lift_step0/hold_step0 (那是硬编码抬升的产物).
         # 完整轨迹模式下用不到它们, 但相位显示/日志会读, 给个等价定义:
         #   参考播完 = settle + home + (L - t0), 之后是 hold.
@@ -235,6 +238,9 @@ class DexmateCorrectionEnv(SharpaCorrectionEnv):
         #   ④ 手指用固定合拢斜坡, 重建手指本就被丢弃
         # bimanual_align 解决的是另一个问题("把双手轨迹放进机器人的第一人称坐标系"),
         # 用它整体覆盖会把上面四条一起抹掉. 所以默认只在**需要时**做整体平移.
+        if cfg.place_mode == "object_only":
+            self._use_object_only_reference(bn, org)
+            return
         if cfg.place_mode == "ref_builder":
             if getattr(cfg, "anchor_mode", "camera") == "camera":
                 self._recheck_camera_anchor(bn, org)
@@ -684,6 +690,69 @@ class DexmateCorrectionEnv(SharpaCorrectionEnv):
               f"标称 {_np.round(PC.ZED_NOMINAL[:2], 4).tolist()} -> 参考整体补移 "
               f"{_np.round(d*100, 2).tolist()}cm  "
               f"(标称过期了就改 place_camera.ZED_NOMINAL)")
+
+    def _use_object_only_reference(self, body_names, env_origin):
+        """Keep the robot at its configured pose and validate object reach.
+
+        The reconstructed human wrist is used only by the static ref builder
+        to place the object. It is never replayed as a robot command, no IK is
+        solved, and the placed object is never shifted to make it reachable.
+        """
+        cfg, dev = self.cfg, self.device
+        origin = torch.as_tensor(env_origin, dtype=torch.float32, device=dev)
+        default_q = self.hand.data.default_joint_pos[0]
+
+        arm = default_q[self.arm_jids].clone()
+        finger = default_q[self.hand_jids].clone()
+        wrist_pos = self.hand.data.body_pos_w[0, self.ee_id] - origin
+        wrist_quat = self.hand.data.body_quat_w[0, self.ee_id].clone()
+
+        self.q_ref = arm.unsqueeze(0).repeat(self.L, 1)
+        self.ref_finger = finger.unsqueeze(0).repeat(self.L, 1)
+        self.ref_wrist_pos = wrist_pos.unsqueeze(0).repeat(self.L, 1)
+        self.ref_wrist_quat = wrist_quat.unsqueeze(0).repeat(self.L, 1)
+        self.ref_obj_pos = self.obj_init_pos.unsqueeze(0).repeat(self.L, 1)
+        self.ref_obj_quat = self.obj_init_quat.unsqueeze(0).repeat(self.L, 1)
+        self.ref_obj_vel.zero_()
+        self.open_pose = finger.clone()
+        self.closed_pose = finger.clone()
+        self.q_lift = None
+
+        side = "R" if cfg.hand_side == "right" else "L"
+        shoulder_candidates = (
+            f"vega_1p_{side}_arm_l1",
+            f"{side}_arm_l1",
+        )
+        shoulder_name = next(
+            (name for name in shoulder_candidates if name in body_names), None)
+        if shoulder_name is None:
+            raise KeyError(
+                f"DexMate asset has none of the shoulder bodies "
+                f"{shoulder_candidates}"
+            )
+        shoulder = (
+            self.hand.data.body_pos_w[0, body_names.index(shoulder_name)] - origin
+        ).cpu().numpy()
+
+        vertices = F.load_obj_verts(self.du.mesh_path)
+        center_local = 0.5 * (vertices.min(axis=0) + vertices.max(axis=0))
+        object_quat = self.obj_init_quat.cpu().numpy()
+        object_center = (
+            F.rot_apply(object_quat[None], center_local[None])[0]
+            + self.obj_init_pos.cpu().numpy()
+        )
+        distance = float(np.linalg.norm(object_center - shoulder))
+        if distance > cfg.reach_margin:
+            raise ValueError(
+                f"{cfg.clip_name}: placed object centre is {distance:.3f}m from "
+                f"the {cfg.hand_side} shoulder; limit is "
+                f"{cfg.reach_margin:.3f}m. object_only placement is not shifted"
+            )
+        print(
+            f"[dexmate] place_mode=object_only | robot reference=default pose "
+            f"(no human replay / no IK) | object-centre reach {distance:.3f}m "
+            f"<= {cfg.reach_margin:.3f}m"
+        )
 
     def _solve_ik_only(self, bn, org):
         """用 ref builder 已摆好的参考直接解 IK; 够不到时**整体刚体平移**进工作空间.

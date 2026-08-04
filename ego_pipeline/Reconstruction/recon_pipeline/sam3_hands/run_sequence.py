@@ -33,7 +33,15 @@ def _load_sam3_common():
     return mod
 
 
-def run_sam3_hands(job: VideoJob, *, gpu: int, visualize: bool, force: bool, frame_idx: int) -> dict:
+def run_sam3_hands(
+    job: VideoJob,
+    *,
+    gpu: int,
+    visualize: bool,
+    force: bool,
+    frame_idx: int,
+    checkpoint: Path | None,
+) -> dict:
     sam3 = _load_sam3_common()
     step_dir = interim_step_dir(job.dataset, job.video_id, "sam3_hands")
     video_path = resolve_repo_path(job.video_path)
@@ -49,6 +57,7 @@ def run_sam3_hands(job: VideoJob, *, gpu: int, visualize: bool, force: bool, fra
     config = sam3.Sam3RunConfig(
         output_dir=step_dir,
         frame_idx=frame_idx,
+        checkpoint=resolve_repo_path(checkpoint) if checkpoint is not None else None,
         visualize=False,
         cleanup_intermediates=True,
     )
@@ -113,6 +122,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--video", type=Path, required=True)
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--frame-idx", type=int, default=0)
+    parser.add_argument("--checkpoint", type=Path, default=None, help="Optional local SAM3/SAM3.1 checkpoint")
     parser.add_argument("--visualize", action="store_true", help="Write combined L+R hand mask MP4 under vis/")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args(argv)
@@ -122,7 +132,14 @@ def main(argv: list[str] | None = None) -> int:
         video_id=args.video_id,
         video_path=resolve_repo_path(args.video),
     )
-    run_sam3_hands(job, gpu=args.gpu, visualize=args.visualize, force=args.force, frame_idx=args.frame_idx)
+    run_sam3_hands(
+        job,
+        gpu=args.gpu,
+        visualize=args.visualize,
+        force=args.force,
+        frame_idx=args.frame_idx,
+        checkpoint=args.checkpoint,
+    )
     return 0
 
 

@@ -420,8 +420,11 @@ def _run_sam3d_scale_one(
     if ratio > 2.0 or ratio < 0.5:
         warnings.append(f"Stage-2/stage-1 scale ratio is unstable: {ratio:.4f}.")
 
-    final_mesh = raw_mesh.copy()
-    final_mesh.vertices = np.asarray(raw_mesh.vertices, dtype=np.float64) * stage2["scale"]
+    # The production scale contract uses the SAM3D visible-surface estimate.
+    # FoundationPose remains a diagnostic orientation check here and supplies
+    # the downstream per-frame pose, but it must not rescale the final mesh.
+    final_result = stage1
+    final_mesh = stage1_mesh.copy()
     final_mesh_path = step_dir / "object_mesh_scaled_final.obj"
     final_mesh.export(str(final_mesh_path))
 
@@ -432,23 +435,23 @@ def _run_sam3d_scale_one(
         clean_mask=valid_depth_mask,
         obs_points=obs_points,
         mesh=raw_mesh,
-        v_ref_cam=stage2["v_ref_cam"],
+        v_ref_cam=final_result["v_ref_cam"],
         k_mat=k_mat,
         out_path=step_dir / "debug_final_scale_overlay.png",
         frame_idx=frame_idx,
-        scale_result=stage2,
-        label="final | orientation=FoundationPose stage-1",
+        scale_result=final_result,
+        label=f"final | SAM3D orientation={r0_source}",
     )
     debug_3d = _write_debug_3d(
         obs_points=obs_points,
         stage1_points=stage1["visible_mesh_points"],
-        final_points=stage2["visible_mesh_points"],
+        final_points=final_result["visible_mesh_points"],
         out_path=step_dir / "debug_scale_3d.png",
         scale1=stage1["scale"],
-        scale2=stage2["scale"],
+        scale2=final_result["scale"],
     )
 
-    projected_final = _project_mesh_mask(raw_mesh, stage2["v_ref_cam"], k_mat, rgb_bgr.shape)
+    projected_final = _project_mesh_mask(raw_mesh, final_result["v_ref_cam"], k_mat, rgb_bgr.shape)
     final_iou = _mask_iou(projected_final, component_mask)
     if final_iou < 0.05:
         warnings.append(f"Projected final mesh has low overlap with object mask: IoU={final_iou:.4f}.")
@@ -457,7 +460,7 @@ def _run_sam3d_scale_one(
         "object_id": object_id,
         "reference_frame_idx": frame_idx,
         "scale_stage1": float(stage1["scale"]),
-        "scale_final": float(stage2["scale"]),
+        "scale_final": float(final_result["scale"]),
         "sam3d_orientation_used_stage1": r0.tolist(),
         "sam3d_orientation_source_stage1": r0_source,
         "foundationpose_orientation_used_stage2": r1.tolist(),
@@ -468,8 +471,8 @@ def _run_sam3d_scale_one(
         "num_clean_mask_pixels": int(clean_mask.sum()),
         "num_component_mask_pixels": int(component_mask.sum()),
         "num_hand_mask_pixels_removed": int(np.logical_and(component_mask, hand_mask).sum()),
-        "observed_pointcloud_center": stage2["observed_center"].tolist(),
-        "mesh_center_raw": stage2["mesh_center"].tolist(),
+        "observed_pointcloud_center": final_result["observed_center"].tolist(),
+        "mesh_center_raw": final_result["mesh_center"].tolist(),
         "observed_principal_axis_length_stage1": float(stage1["observed_principal_axis_length"]),
         "visible_mesh_principal_axis_length_stage1": float(stage1["visible_mesh_principal_axis_length"]),
         "observed_principal_axis_length_stage2": float(stage2["observed_principal_axis_length"]),
@@ -488,7 +491,8 @@ def _run_sam3d_scale_one(
         "debug_foundationpose_overlay": str(fp_overlay),
         "debug_final_scale_overlay": str(final_overlay),
         "debug_scale_3d": str(debug_3d),
-        "scale_method": "visible_surface_principal_axis_after_foundationpose_orientation",
+        "scale_method": "sam3d_visible_surface_principal_axis",
+        "foundationpose_stage2_diagnostic_only": True,
         "warnings": warnings,
     }
     metadata_path = step_dir / "scale_fpalign_scale_metadata.json"

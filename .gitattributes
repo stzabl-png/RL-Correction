@@ -1,5 +1,6 @@
 # 文本规范化
 * text=auto
+*.sh text eol=lf
 
 # 二进制资产:标为 binary,避免行尾转换损坏 / diff 噪音
 *.usd    binary

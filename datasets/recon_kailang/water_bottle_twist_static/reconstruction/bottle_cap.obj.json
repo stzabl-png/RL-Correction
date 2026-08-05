@@ -1,0 +1,13 @@
+{
+  "asset": "bottle_cap.obj",
+  "source": "license-clear PCO-1810 CAD substitute generated with BOSL2",
+  "source_units_to_m": 0.001,
+  "vertices": 1836,
+  "faces": 3668,
+  "watertight": true,
+  "extents_m": [
+    0.034955999374389646,
+    0.034955999374389646,
+    0.017
+  ]
+}

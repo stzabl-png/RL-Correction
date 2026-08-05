@@ -4,11 +4,12 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
 
-from rl_rebuild.correction import frames as F
+from rl_rebuild.correction import clips, frames as F
 from rl_rebuild.correction.recon_kailang.static_reconstruction import (
     first_interaction,
     load_static_reconstruction,
@@ -116,6 +117,66 @@ class StaticReconstructionPlacementTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "exceeds table"):
             load_static_reconstruction(
                 str(outside), str(self.mesh), table_half=0.6, target_hz=None)
+
+    def test_explicit_valid_placement_frame_preserves_interaction_label(self):
+        with np.load(self.replay, allow_pickle=True) as data:
+            payload = {key: data[key] for key in data.files}
+        payload["valid_right"] = np.array([0, 0, 0, 1], dtype=np.float32)
+        payload["joints_right"] = payload["joints_right"].copy()
+        payload["joints_right"][3, :, :2] = np.array([10.35, 4.75])
+        fallback = Path(self.tmp.name) / "fallback.npz"
+        np.savez_compressed(fallback, **payload)
+
+        _, placement = load_static_reconstruction(
+            str(fallback), str(self.mesh), hand="right", placement_frame=3,
+            target_hz=None, return_placement=True,
+        )
+
+        self.assertEqual(placement.source_frame, 2)
+        self.assertEqual(placement.placement_frame, 3)
+        self.assertEqual(placement.aligned_frame, 3)
+
+    def test_invalid_explicit_placement_frame_is_rejected(self):
+        with np.load(self.replay, allow_pickle=True) as data:
+            payload = {key: data[key] for key in data.files}
+        payload["valid_right"] = np.array([0, 0, 0, 1], dtype=np.float32)
+        fallback = Path(self.tmp.name) / "invalid_fallback.npz"
+        np.savez_compressed(fallback, **payload)
+        with self.assertRaisesRegex(ValueError, "is not a valid hand frame"):
+            load_static_reconstruction(
+                str(fallback), str(self.mesh), hand="right", placement_frame=2,
+                target_hz=None,
+            )
+
+    def test_clip_semantics_override_placeholder_cfg_mass(self):
+        cfg = SimpleNamespace(
+            clip_name="",
+            place_mode="",
+            object_cfg=SimpleNamespace(
+                spawn=SimpleNamespace(
+                    usd_path="placeholder.usd",
+                    mass_props=SimpleNamespace(mass=0.2),
+                )
+            ),
+        )
+        clips.configure_cfg(cfg, "water_bottle_twist_static")
+        self.assertEqual(cfg.clip_name, "water_bottle_twist_static")
+        self.assertAlmostEqual(cfg.object_cfg.spawn.mass_props.mass, 0.53)
+        self.assertEqual(cfg.place_mode, "object_only")
+
+    def test_bottle_mass_override_does_not_change_existing_static_clip(self):
+        cfg = SimpleNamespace(
+            clip_name="",
+            place_mode="",
+            object_cfg=SimpleNamespace(
+                spawn=SimpleNamespace(
+                    usd_path="placeholder.usd",
+                    mass_props=SimpleNamespace(mass=0.2),
+                )
+            ),
+        )
+        clips.configure_cfg(cfg, "task1_static_smoke")
+        self.assertAlmostEqual(cfg.object_cfg.spawn.mass_props.mass, 0.2)
 
     def test_static_staging_is_complete_and_atomic(self):
         root = Path(self.tmp.name)

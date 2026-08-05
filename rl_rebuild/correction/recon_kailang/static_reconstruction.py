@@ -31,6 +31,7 @@ class StaticPlacement:
     pose: np.ndarray
     hand: str
     source_frame: int
+    placement_frame: int
     aligned_frame: int
     wrist_xy: np.ndarray
     center_xy: np.ndarray
@@ -83,6 +84,7 @@ def compute_static_placement(
     aligned_length: int,
     *,
     hand: str | None = None,
+    placement_frame: int | None = None,
     table_height: float = 0.85,
     obj_gap: float = 0.002,
     table_half: float = 0.6,
@@ -97,8 +99,20 @@ def compute_static_placement(
     source_length = len(replay["obj_pose"])
     if source_length < 1 or aligned_length < 1:
         raise ValueError("empty replay/aligned trajectory")
+    if placement_frame is None:
+        placement_frame = source_frame
+    placement_frame = int(placement_frame)
+    if not 0 <= placement_frame < source_length:
+        raise ValueError(
+            f"placement_frame {placement_frame} outside [0,{source_length - 1}]"
+        )
+    valid_key = f"valid_{side}"
+    if valid_key in replay.files and not bool(replay[valid_key][placement_frame]):
+        raise ValueError(
+            f"{side} placement_frame {placement_frame} is not a valid hand frame"
+        )
     aligned_frame = 0 if source_length == 1 else int(round(
-        source_frame * (aligned_length - 1) / (source_length - 1)
+        placement_frame * (aligned_length - 1) / (source_length - 1)
     ))
 
     joints = np.asarray(aligned_joints, dtype=np.float64)
@@ -177,6 +191,7 @@ def compute_static_placement(
         pose=pose,
         hand=side,
         source_frame=source_frame,
+        placement_frame=placement_frame,
         aligned_frame=aligned_frame,
         wrist_xy=wrist[:2].astype(np.float32),
         center_xy=center_world[:2].astype(np.float32),
@@ -194,6 +209,7 @@ def load_static_reconstruction(
     usd_path: str = "",
     clip_id: str = "",
     hand: str | None = None,
+    placement_frame: int | None = None,
     table_height: float = 0.85,
     obj_gap: float = 0.002,
     table_half: float = 0.6,
@@ -229,6 +245,7 @@ def load_static_reconstruction(
             data_unit.ref.mano_joints,
             data_unit.ref.L,
             hand=side,
+            placement_frame=placement_frame,
             table_height=table_height,
             obj_gap=obj_gap,
             table_half=table_half,
@@ -247,6 +264,7 @@ def load_static_reconstruction(
     if verbose:
         print(
             f"[static] hand={placement.hand} contact={placement.source_frame} "
+            f"placement={placement.placement_frame} "
             f"aligned={placement.aligned_frame} centre_xy="
             f"{placement.center_xy.round(4).tolist()} gap="
             f"{placement.bottom_gap_m * 1000:.1f}mm table_margin="

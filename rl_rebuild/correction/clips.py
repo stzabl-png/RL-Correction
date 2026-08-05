@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import json
 import os
 
 from rl_rebuild.correction.load_replay import (CLIP11, CLIP11_MESH,
@@ -16,6 +17,7 @@ _OCIR = os.path.join(paths.OCIR_ROOT, "data", "testing")
 _CACHE = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../data/ocir_cache"))
 # 自包含训练数据根 (stage_training_data.py 归置的 数据集/物体 布局)
 _TD = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../TrainingData"))
+_DATASETS = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../datasets"))
 
 
 def _td_ocir(dataset, obj, grasp_file="grasp_pose_6.json", lift_target=0.08):
@@ -39,6 +41,72 @@ def _td_ocir(dataset, obj, grasp_file="grasp_pose_6.json", lift_target=0.08):
     )
 
 
+def _td_static(dataset, obj, mass_kg=None, friction=None):
+    """TrainingData entry for a static SAM3D/FoundationPose reconstruction."""
+
+    base = f"{_TD}/{dataset}/{obj}"
+    meta_path = os.path.join(base, "meta.json")
+    metadata = {}
+    if os.path.isfile(meta_path):
+        with open(meta_path, encoding="utf-8") as handle:
+            metadata = json.load(handle)
+    mass_kg = float(metadata.get("mass_kg", 0.2) if mass_kg is None else mass_kg)
+    friction = float(metadata.get("friction", 0.5) if friction is None else friction)
+    return dict(
+        source="static_reconstruction",
+        npz=f"{base}/retarget/replay_world.npz",
+        mesh=f"{base}/reconstruction/object_mesh_scaled_final.obj",
+        usd=f"{base}/cache/object.usd",
+        runtime_object_physics=False,
+        place_mode="object_only",
+        semantics=ObjectSemantics(
+            label=f"{dataset}/{obj}", mass_kg=mass_kg, friction=friction),
+    )
+
+
+def _water_bottle_static(screw_mode: str | None = None):
+    """Bundled two-part PCO-1810 bottle scene used for reconstruction QA."""
+
+    base = os.path.join(_DATASETS, "recon_kailang", "water_bottle_twist_static")
+    entry = dict(
+        source="static_reconstruction",
+        npz=os.path.join(base, "retarget", "replay_world.npz"),
+        mesh=os.path.join(base, "reconstruction", "bottle_body.obj"),
+        usd=os.path.join(base, "cache", "bottle_body.usd"),
+        runtime_object_physics=False,
+        override_cfg_mass=True,
+        flatten_converted_usd=True,
+        place_mode="object_only",
+        hand="left",
+        placement_frame=31,
+        semantics=ObjectSemantics(
+            label="PCO-1810 filled bottle body", mass_kg=0.53, friction=0.5),
+        secondary=dict(
+            label="PCO-1810 cap",
+            mesh=os.path.join(base, "reconstruction", "bottle_cap.obj"),
+            usd=os.path.join(base, "cache", "bottle_cap.usd"),
+            hand="right",
+            placement_frame=13,
+            semantics=ObjectSemantics(
+                label="PCO-1810 cap", mass_kg=0.003, friction=0.4),
+        ),
+    )
+    if screw_mode is not None:
+        entry["secondary"]["assembly"] = dict(
+            pitch_m=0.00318,
+            turns=2.0,
+            closed_offset_m=0.180,
+            direction=1,
+            mode=screw_mode,
+            capture_radial_m=0.003,
+            capture_axial_m=0.003,
+            capture_tilt_deg=10.0,
+            capture_yaw_deg=30.0,
+            max_angular_velocity_rad_s=20.0,
+        )
+    return entry
+
+
 # =============================================================================
 # 设定 A — RL 学习 **GraspPose 能处理**的物体 (普遍偏大, 可整手包络)
 #   骨干 = cuRobo 规划的 close 轨迹, RL 只做残差修正. 详见 docs/TRAINING_SETUPS_A_B.md
@@ -52,6 +120,11 @@ CLIPS = {
     ),
     "pp0_human": _td_ocir("egodex", "pp0"),
     "pp55_human": _td_ocir("egodex", "pp55", grasp_file="failed_grasp_002.json"),
+    # Staged from the selected Test-video reconstruction.
+    "task1_static_smoke": _td_static("egodex", "task1_static_smoke"),
+    "water_bottle_twist_static": _water_bottle_static(),
+    "water_bottle_twist_assembled": _water_bottle_static("preengaged"),
+    "water_bottle_twist_screw_on": _water_bottle_static("capture"),
 }
 CLIPS["pp0_anchor"] = dict(CLIPS["pp0_human"], variant="anchor")
 CLIPS["pp55_anchor"] = dict(CLIPS["pp55_human"], variant="anchor")
@@ -100,13 +173,41 @@ def configure_cfg(cfg, name: str):
     e = clip_entry(name)
     cfg.clip_name = name
     cfg.object_cfg.spawn.usd_path = e["usd"]
+    if e.get("override_cfg_mass", False):
+        # The base cfg carries a 0.2 kg placeholder. This task must use the
+        # bottle semantics instead of silently overriding the converted USD.
+        cfg.object_cfg.spawn.mass_props.mass = float(e["semantics"].mass_kg)
+    if "place_mode" in e:
+        cfg.place_mode = e["place_mode"]
     return cfg
+
+
+def _flatten_usd_file(usd: str) -> None:
+    """Make a converted mesh USD self-contained before another conversion.
+
+    IsaacLab's MeshConverter reuses ``<usd_dir>/Props/instanceable_meshes.usd``.
+    Two assets in one cache directory would otherwise overwrite each other's
+    referenced geometry.
+    """
+
+    from pxr import Usd
+    stage = Usd.Stage.Open(usd)
+    if stage is None:
+        raise RuntimeError(f"failed to open converted USD: {usd}")
+    for prim in stage.Traverse():
+        if prim.IsInstanceable():
+            prim.SetInstanceable(False)
+    flattened = stage.Flatten()
+    temporary = usd + ".flattening.tmp.usd"
+    if not flattened.Export(temporary):
+        raise RuntimeError(f"failed to flatten converted USD: {usd}")
+    os.replace(temporary, usd)
 
 
 def ensure_object_usd(name: str):
     """ocir 源: object.obj -> 物理烘焙 USD (缓存). 需 Kit 已启动 (env _setup_scene 内调)."""
     e = clip_entry(name)
-    if e["source"] != "ocir":
+    if e["source"] not in ("ocir", "static_reconstruction"):
         return e["usd"]
     usd = e["usd"]
     if os.path.exists(usd) and os.path.getmtime(usd) >= os.path.getmtime(e["mesh"]):
@@ -142,8 +243,56 @@ def ensure_object_usd(name: str):
             prim.SetInstanceable(False)
             n_off += 1
     stage.GetRootLayer().Save()
+    if e.get("flatten_converted_usd", False):
+        _flatten_usd_file(usd)
     print(f"[clips] object.obj -> {usd} (convexDecomposition, mass={sem.mass_kg}kg, "
           f"instanceable off ×{n_off})")
+    return usd
+
+
+def ensure_mesh_usd(mesh: str, usd: str, semantics: ObjectSemantics):
+    """Convert one auxiliary mesh to a cached rigid-body USD.
+
+    This mirrors ``ensure_object_usd`` for task-specific secondary assets that
+    are deliberately not registered as the environment's primary object.
+    Kit must already be running.
+    """
+
+    if os.path.exists(usd) and os.path.getmtime(usd) >= os.path.getmtime(mesh):
+        return usd
+    import isaaclab.sim as sim_utils
+    from isaaclab.sim.converters import MeshConverter, MeshConverterCfg
+    from isaaclab.sim.schemas.schemas_cfg import ConvexDecompositionPropertiesCfg
+    os.makedirs(os.path.dirname(usd), exist_ok=True)
+    MeshConverter(MeshConverterCfg(
+        asset_path=mesh,
+        usd_dir=os.path.dirname(usd),
+        usd_file_name=os.path.basename(usd),
+        force_usd_conversion=True,
+        mesh_collision_props=ConvexDecompositionPropertiesCfg(),
+        collision_props=sim_utils.CollisionPropertiesCfg(
+            collision_enabled=True, contact_offset=0.002, rest_offset=0.0),
+        mass_props=sim_utils.MassPropertiesCfg(mass=semantics.mass_kg),
+        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+            solver_position_iteration_count=8,
+            solver_velocity_iteration_count=0,
+            max_depenetration_velocity=1000.0,
+            sleep_threshold=0.005, stabilization_threshold=0.0025),
+    ))
+    from pxr import Usd
+    stage = Usd.Stage.Open(usd)
+    n_off = 0
+    for prim in stage.Traverse():
+        if prim.IsInstanceable():
+            prim.SetInstanceable(False)
+            n_off += 1
+    stage.GetRootLayer().Save()
+    _flatten_usd_file(usd)
+    print(
+        f"[clips] auxiliary mesh -> {usd} "
+        f"(convexDecomposition, mass={semantics.mass_kg}kg, "
+        f"instanceable off x{n_off})"
+    )
     return usd
 
 
@@ -152,6 +301,16 @@ def interact_hand(clip_name: str, default: str = "right") -> str:
     e = CLIPS.get(clip_name, {})
     if not e.get("npz"):
         return default
+    if e.get("source") == "static_reconstruction":
+        try:
+            import numpy as _np
+            from rl_rebuild.correction.recon_kailang.static_reconstruction import (
+                first_interaction,
+            )
+            with _np.load(e["npz"], allow_pickle=True) as data:
+                return first_interaction(data, e.get("hand"))[0]
+        except Exception:
+            return default
     try:
         import numpy as _np
         d = _np.load(e["npz"], allow_pickle=True)
@@ -165,6 +324,17 @@ def interact_hand(clip_name: str, default: str = "right") -> str:
 
 def load_data_unit(cfg) -> DataUnit:
     e = clip_entry(cfg.clip_name)
+    if e["source"] == "static_reconstruction":
+        from rl_rebuild.correction.recon_kailang.static_reconstruction import (
+            load_static_reconstruction,
+        )
+        return load_static_reconstruction(
+            e["npz"], e["mesh"], usd_path=e["usd"], clip_id=cfg.clip_name,
+            hand=e.get("hand"), placement_frame=e.get("placement_frame"),
+            target_hz=cfg.target_hz,
+            table_height=cfg.table_top_z,
+            table_half=min(cfg.table_size[0], cfg.table_size[1]) / 2.0,
+            semantics=e["semantics"], verbose=True)
     if e["source"] == "replay_grasp":
         from rl_rebuild.correction.ref_builders.replay_grasp import load_replay_grasp
         return load_replay_grasp(e["npz"], e["mesh"], usd_path=e["usd"],

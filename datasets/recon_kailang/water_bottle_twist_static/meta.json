@@ -1,0 +1,42 @@
+{
+  "schema_version": "water_bottle_twist_step4_v2",
+  "source_video": "water_bottle.mp4",
+  "source_video_frames": 170,
+  "source_video_fps": 30.0,
+  "body": {
+    "mesh": "reconstruction/bottle_body.obj",
+    "mass_kg": 0.53,
+    "mass_assumption": "500 mL filled PET bottle",
+    "friction": 0.5,
+    "hand": "left",
+    "interaction_frame": 15,
+    "placement_frame": 31
+  },
+  "cap": {
+    "mesh": "reconstruction/bottle_cap.obj",
+    "mass_kg": 0.003,
+    "mass_assumption": "single PCO-1810 HDPE closure",
+    "friction": 0.4,
+    "hand": "right",
+    "interaction_frame": 13,
+    "placement_frame": 13
+  },
+  "screw": {
+    "standard": "PCO-1810",
+    "handedness": "right",
+    "pitch_m": 0.00318,
+    "turns": 2.0,
+    "travel_m": 0.00636,
+    "closed_cap_origin_offset_m": 0.18,
+    "max_angular_velocity_rad_s": 20.0,
+    "capture_radial_m": 0.003,
+    "capture_axial_m": 0.003,
+    "capture_tilt_deg": 10.0,
+    "capture_yaw_deg": 30.0,
+    "implementation": "Direct-GPU tensor helical constraint",
+    "preengaged_clip": "water_bottle_twist_assembled",
+    "free_cap_clip": "water_bottle_twist_screw_on"
+  },
+  "placement_note": "The left hand is invalid at interaction frame 15; frame 31 is the first valid in-window left-hand trajectory sample and is used only for body placement.",
+  "asset_note": "PCO-1810 threaded CAD substitutes are used until the licensed SAPIEN/PartNet asset is available. Visible threads are render geometry; the scalable physical coupling is analytic."
+}

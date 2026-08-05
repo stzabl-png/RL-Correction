@@ -111,8 +111,8 @@ class SharpaCorrectionEnv(DirectRLEnv):
         print(f"[debug] hand bodies: {list(zip(self.hand.body_names, masses.tolist()))}")
         print(f"[debug] hand 总质量 {masses.sum():.3f} kg")
 
-        # 摩擦: 手与物体的表面材质由 _setup_scene 绑定的 SuperGrip 统一设定
-        # (3.0/3.0/multiply, 复刻 grasp 验证器); 此处不再用 physx view 覆盖.
+        # 摩擦: _setup_scene 按 clip 来源绑定. static reconstruction 使用语义摩擦;
+        # 其余已验证 clip 沿用 SuperGrip. 此处不再用 physx view 覆盖.
 
         # 目标缓存 (每控制步更新, 每物理子步使用)
         self.wrist_tgt_pos = torch.zeros(self.num_envs, 3, device=dev)
@@ -419,8 +419,11 @@ class SharpaCorrectionEnv(DirectRLEnv):
         spawn_ground_plane(prim_path="/World/ground", cfg=GroundPlaneCfg())
         self.scene.clone_environments(copy_from_source=False)
         self.scene.filter_collisions()
-        # ---- SuperGrip 摩擦材质: 复刻 grasp 验证器 (isaac_sim/report.json) ----
-        # static=dynamic=3.0, combine=multiply => 手↔物 3.0×3.0=9.0, 物↔桌 3.0×0.5=1.5.
+        # ---- 摩擦材质 ----
+        # 已验证 OCIR/replay clip 继续复刻 SuperGrip; static reconstruction 必须
+        # 使用 clip semantics 的物体摩擦, 不能被统一的 3.0 覆盖.
+        # 对现有验证 clip: static=dynamic=3.0, combine=multiply =>
+        # 手↔物 3.0×3.0=9.0, 物↔桌 3.0×0.5=1.5.
         # UsdFileCfg 不支持 physics_material, 故 clone 后显式绑定到每个 env 的
         # Object 与 Robot (bind 带 apply_nested, 自动覆盖全部 collider 子孙; 与验证器
         # 的 strongerThanDescendants 绑定同构). 手↔桌由 filter_collisions 过滤.
@@ -435,16 +438,26 @@ class SharpaCorrectionEnv(DirectRLEnv):
             static_friction=0.2, dynamic_friction=0.2, restitution=0.0,
             friction_combine_mode="multiply", restitution_combine_mode="multiply")
         low.func("/World/Materials/LowGrip", low)
-        n_grip = n_low = 0
+        object_material = "/World/Materials/SuperGrip"
+        if entry["source"] == "static_reconstruction":
+            object_mu = float(entry["semantics"].friction)
+            clip_object = sim_utils.RigidBodyMaterialCfg(
+                static_friction=object_mu, dynamic_friction=object_mu,
+                restitution=0.0, friction_combine_mode="average",
+                restitution_combine_mode="multiply")
+            object_material = "/World/Materials/ClipObject"
+            clip_object.func(object_material, clip_object)
+        n_object = n_grip = n_low = 0
         for p in sim_utils.find_matching_prim_paths("/World/envs/env_.*/Object"):
-            sim_utils.bind_physics_material(p, "/World/Materials/SuperGrip"); n_grip += 1
+            sim_utils.bind_physics_material(p, object_material); n_object += 1
         for p in sim_utils.find_matching_prim_paths("/World/envs/env_.*/Robot"):
             sim_utils.bind_physics_material(p, "/World/Materials/LowGrip",
                                             stronger_than_descendants=False); n_low += 1
         for name in self.cfg.fingertip_bodies:                       # 指尖覆盖回 SuperGrip
             for p in sim_utils.find_matching_prim_paths(f"/World/envs/env_.*/Robot/{name}"):
                 sim_utils.bind_physics_material(p, "/World/Materials/SuperGrip"); n_grip += 1
-        print(f"[setup] 指尖SuperGrip×{n_grip} 手身LowGrip×{n_low} (指尖↔物=9.0, 掌↔物=0.6)")
+        print(f"[setup] 物体材质={object_material}×{n_object} "
+              f"指尖SuperGrip×{n_grip} 手身LowGrip×{n_low}")
         self.scene.articulations["robot"] = self.hand
         self.scene.rigid_objects["object"] = self.object
         # 指尖接触传感器 (冠军 env 同款模式)

@@ -1,0 +1,48 @@
+# PPO wiring for the base DexmateCorrectionEnv used by static reconstructions.
+# The privileged state is mass (1), friction (1), and five fingertip forces.
+seed: 42
+algo: PPO
+device: cuda
+network:
+  mlp:
+    units: [256, 128]
+  priv_mlp:
+    units: [64, 32, 8]
+  separate_critic: true
+  actor_priv_dim: 7
+  sigma_floor: 0.02
+  sigma_init: 0.1
+  mu_init_scale: 0.01
+
+load_path: null
+
+algorithm:
+  experiment_name: static_reconstruction
+  normalize_input: true
+  normalize_value: true
+  value_bootstrap: true
+  num_actors: 64
+  normalize_advantage: true
+  gamma: 0.99
+  tau: 0.95
+  learning_rate: 3.0e-4
+  kl_threshold: 0.05
+  max_lr: 3.0e-4
+  min_lr: 3.0e-5
+  horizon_length: 32
+  minibatch_size: 512
+  mini_epochs: 2
+  critic_warmup_iters: 0
+  clip_value: true
+  critic_coef: 1
+  entropy_coef: 0.001
+  e_clip: 0.2
+  bounds_loss_coef: 0.0001
+  truncate_grads: true
+  grad_norm: 1.0
+  save_best_after: 0
+  save_frequency: 1
+  max_agent_steps: 8192
+  priv_info: true
+  priv_info_dim: 7
+  priv_info_embed_dim: 8

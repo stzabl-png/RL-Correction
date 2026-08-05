@@ -58,6 +58,20 @@ R = + contact + stability + progress + success
 - 外部依赖路径通过环境变量配置：`RR_ROOT`（重建/retarget 仓）、`AFFORDANCE_ROOT`、`OCIR_ROOT`
   （见 `rl_rebuild/correction/paths.py`）
 
+### 静态视频重建接入
+
+对于已经由 Step3 选定交互 episode/最佳 mask、并完成 SAM3D + FoundationPose
+重建的静态物体，本分支提供一条与设定 A/B 隔离的 object-only 接入路径：
+
+- 原有 Step4 桌面和 DexMate 机器人保持不变，不额外重建桌子；
+- 以 `phase_left/right` 的第一交互帧 wrist XY 放置物体；
+- 保留 FoundationPose 朝向，并将旋转后网格最低点放到桌面上方 2 mm；
+- 人手轨迹只用于放置审计和视频叠加，不驱动机器人，也不改变机器人默认姿态；
+- 提供 OBJ→USD、桌面边界/可达性门控、物理 smoke test、最小 PPO 和场景录制入口。
+
+完整输入契约、命令、验收阈值与已验证的 Test 视频结果集中在 Kailang 的署名目录
+[`rl_rebuild/correction/recon_kailang/`](rl_rebuild/correction/recon_kailang/README.md)。
+
 ### 训练环境：飞手 → DexMate 真机械臂
 
 原先的训练环境用一只**飞着的** SharpaWave 右手（浮动根刚体，被凭空的 wrench 推动，且关掉重力）。
@@ -86,19 +100,24 @@ python -m rl_rebuild.correction.eval_policy --robot dexmate --clip Grasp2 --zero
 ./rl_rebuild/correction/view.sh --speed 0.5        # GUI，跑的就是训练那个 env
 ```
 
-#### ⚠ 首次使用要先生成派生机器人资产
+#### ⚠ 首次使用必须先拉取 Git LFS 资产
 
-机器人 USD 需要两处修改才能用于训练（原始资产在 MagicSim 仓，**不修改它**，
-在本仓 `assets/` 下生成派生副本；25MB 二进制不入库）：
+固定躯干且补齐碰撞的机器人 USD 已随仓库通过 Git LFS 提供。不要再用旧版脚本从
+MagicSim 模块化资产做单文件复制；那会留下悬空外部引用，并在 Isaac Sim 中表现为机器人散架。
+
+`git lfs install` 应在 clone 前执行；对于已经 clone 的工作区，至少运行并核验：
 
 ```bash
-python tools/make_fixed_torso_usd.py   # 躯干/底盘/头 -> fixed joint（原版躯干撑不住，
-                                       # 手臂基座每回合漂 10.5cm）
-python tools/add_arm_collision.py      # 补手臂碰撞几何（原版 52 个碰撞体全在手上，
-                                       # 手臂能穿过桌子）—— 必须在上一条之后跑
+git lfs install
+git lfs pull
+file assets/vega_1p_sharpa_fixedtorso.usd
+git lfs ls-files | wc -l
 ```
 
-不生成会**静默得到完全不同的物理**，env 启动时会大声报警。
+在 `4b43270` 基线上，`file` 应显示 `USD crate, version 0.9.0`，文件约 25 MB，
+LFS 文件数应不少于 250。若得到 ASCII pointer 或机器人仍散架，请按
+[`docs/DEPLOY_NEW_MACHINE.md`](docs/DEPLOY_NEW_MACHINE.md) 的 LFS 与外部引用检查处理，
+不要自行重建或覆盖仓库内 USD。
 
 #### 当前状态
 

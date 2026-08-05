@@ -1,0 +1,11 @@
+# 由 Shadow 模板 `32_Ventral` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [0.8679, 0.3491, 0.3171, 0.3491, 0.0696, -0.1745, -0.3491, 0.0000, 0.0000, 0.2743, 0.1342, 1.2954, 0.8351, 0.4426, 0.1023, 1.2043, 0.8371, 0.0173, 0.5392, 0.0978, 1.0654, 0.9337]
+
+contact:
+  right_hand_C_MC: 0
+  right_index_MP: 0
+  right_middle_DP: 1
+  right_pinky_DP: 1
+  right_pinky_MC: 2
+  right_ring_DP: 0
+  right_thumb_DP: 1

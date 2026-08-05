@@ -1,0 +1,7 @@
+# Thumb-index-middle precision pinch, ~2.5cm aperture.
+qpos: [1.75, 0.3, -0.39, 0.12, 0.05, 0.4, 0.0, 1.0, 0.9, 0.4, 0.0, 1.0, 0.9, 0.4, 0.0, 1.0, 0.9, 0.05, 0.4, 0.0, 1.0, 0.9]
+
+contact:
+  right_index_DP: 0
+  right_middle_DP: 1
+  right_thumb_DP: 1

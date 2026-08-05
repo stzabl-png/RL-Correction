@@ -1,0 +1,101 @@
+diff --git a/dexonomy/config/op/grasp.yaml b/dexonomy/config/op/grasp.yaml
+index fe14bb6..c4e43db 100644
+--- a/dexonomy/config/op/grasp.yaml
++++ b/dexonomy/config/op/grasp.yaml
+@@ -2,6 +2,7 @@ grasp:
+   step: 20
+   substep: 10
+   cdist: 0.001    # target hand-object contact distance
++  plane_margin: 0.02  # repulsion cushion of real table planes during refinement; lower for thin/flat objects
+   filter:
+     limit:
+       thre: 0.0  # max value out of the joint qpos limit
+diff --git a/dexonomy/config/op/init.yaml b/dexonomy/config/op/init.yaml
+index e8d9599..f393e0d 100644
+--- a/dexonomy/config/op/init.yaml
++++ b/dexonomy/config/op/init.yaml
+@@ -23,8 +23,9 @@ filter:
+   loss:
+     pos_thre: 0.001  # max distance between hand contacts and object contacts, unit: m
+     normal_thre: 0.3  # max angle between hand contacts and object contacts, unit: rad
+-  collision: 
++  collision:
+     plane_thre: 0.02  # min distance between hand skeleton and plane, unit: m
++    hard_plane: True  # enforce the plane constraint strictly (no quota padding of below-plane poses)
+   qp: 
+     batch_size: 30000
+     thre: 0.01  # max qp error for a valid grasp
+diff --git a/dexonomy/op/gen_grasp.py b/dexonomy/op/gen_grasp.py
+index d584c01..4843797 100644
+--- a/dexonomy/op/gen_grasp.py
++++ b/dexonomy/op/gen_grasp.py
+@@ -137,7 +137,10 @@ def _single_grasp(param):
+     sim_env = MuJoCo_OptEnv(
+         hand_cfg=HandCfg(xml_path=cfg.hand.xml_path, freejoint=True),
+         scene_cfg=scene_cfg,
+-        sim_cfg=MuJoCo_OptCfg(obj_margin=pregrasp_cfg.cdist),
++        sim_cfg=MuJoCo_OptCfg(
++            obj_margin=pregrasp_cfg.cdist,
++            plane_margin=grasp_cfg.get("plane_margin", 0.02),
++        ),
+         debug_render=cfg.debug_render,
+         debug_view=cfg.debug_view,
+     )
+diff --git a/dexonomy/op/gen_init.py b/dexonomy/op/gen_init.py
+index c964c5f..a6b6635 100644
+--- a/dexonomy/op/gen_init.py
++++ b/dexonomy/op/gen_init.py
+@@ -99,7 +99,17 @@ class InitFilter:
+             torch_quaternion_to_matrix(grasp_pose[..., 3:]),
+             grasp_pose[..., :3].view(-1, 1, 3),
+         )
+-        valid_bool1 = self.coll_env.check_plane(hand_skt_w, obj_id, coll_cfg.plane_thre)
++        # col_plane is defined in the object frame, but the object is at obj_pose
++        # during matching — check the skeleton in the object frame (unscaled),
++        # otherwise the plane filter silently checks against a wrongly-placed plane.
++        hand_skt_o_unscaled = torch_inv_transform_points(
++            hand_skt_w,
++            torch_quaternion_to_matrix(obj_pose[..., 3:]),
++            obj_pose[..., :3].view(-1, 1, 3),
++        )
++        valid_bool1 = self.coll_env.check_plane(
++            hand_skt_o_unscaled, obj_id, coll_cfg.plane_thre
++        )
+         hand_skt_o = torch_inv_transform_points(
+             hand_skt_w,
+             torch_quaternion_to_matrix(obj_pose[..., 3:]),
+@@ -191,10 +201,34 @@ class InitFilter:
+         return valid_bool
+ 
+     def forward(self, data: dict):
++        # Hard plane constraint: below-table poses are physically infeasible, so
++        # they must not be padded back by valid_index_padding's quota mechanism.
++        coll_cfg = self.cfg.get("collision", None)
++        if coll_cfg is not None and coll_cfg.get("hard_plane", False):
++            valid_bool = self._plane_valid(data)
++            valid_idx = torch.where(valid_bool)[0]
++            for k, v in data.items():
++                data[k] = v[valid_idx]
++            logging.debug(f"hard plane filtering remain {len(valid_idx)}")
+         for i, f in enumerate(self.valid_filter):
+             data = self._wrapped_filter(data, f, len(self.valid_filter) - i - 1)
+         return data
+ 
++    def _plane_valid(self, data):
++        hand_skt_w = torch_transform_points(
++            data["hand_skt_h"],
++            torch_quaternion_to_matrix(data["grasp_pose"][..., 3:]),
++            data["grasp_pose"][..., :3].view(-1, 1, 3),
++        )
++        hand_skt_o_unscaled = torch_inv_transform_points(
++            hand_skt_w,
++            torch_quaternion_to_matrix(data["obj_pose"][..., 3:]),
++            data["obj_pose"][..., :3].view(-1, 1, 3),
++        )
++        return self.coll_env.check_plane(
++            hand_skt_o_unscaled, data["obj_id"], self.cfg.collision.plane_thre
++        )
++
+ 
+ class HandObjMatcher:
+ 

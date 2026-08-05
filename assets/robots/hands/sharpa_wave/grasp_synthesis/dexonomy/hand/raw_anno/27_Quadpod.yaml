@@ -1,0 +1,8 @@
+# 由 Shadow 模板 `27_Quadpod` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [1.0100, 0.1341, 0.1155, -0.0096, 0.2903, -0.0443, -0.3491, 0.9874, 0.3530, -0.0741, -0.2266, 1.0087, 0.2632, 0.4213, -0.1625, 0.6467, 0.2796, 0.2618, 0.7972, -0.1472, 1.0787, 0.9707]
+
+contact:
+  right_index_DP: 0
+  right_middle_DP: 1
+  right_ring_DP: 0
+  right_thumb_DP: 1

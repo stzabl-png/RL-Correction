@@ -1,0 +1,8 @@
+# 由 Shadow 模板 `7_Prismatic_3_Finger` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [1.0396, 0.1319, 0.2047, -0.0191, 0.3831, -0.1745, -0.3413, 1.1090, 0.5240, -0.0200, -0.2071, 1.1456, 0.4351, 0.1148, -0.1266, 0.9018, 0.4183, 0.2618, 0.9391, -0.1422, 1.2318, 1.2149]
+
+contact:
+  right_index_DP: 0
+  right_middle_DP: 1
+  right_ring_DP: 0
+  right_thumb_DP: 1

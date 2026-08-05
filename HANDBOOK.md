@@ -10,6 +10,21 @@
 
 ---
 
+## −1. 先确认走哪条路线
+
+本分支有两套 GraspPose 合成实现:
+
+- **Dexonomy(当前默认)** —— 分类学模板驱动,可指定抓取类型。
+  **本手册不覆盖它**,看 [`docs/dexonomy.md`](docs/dexonomy.md)。
+  一句话:`conda activate dexonomy && tools/grasp_pipeline.sh <mesh.obj> <名字>`
+  (在上游 Dexonomy 克隆里跑,适配层安装见该文档 §1)。
+- **BODex(备选)** —— 力闭合优化,人手锚定 / affordance 播种。**下面全是它**。
+
+两条路线共用物体导入约定、Isaac PhysX 验证口径和喂给 Step4 的数据契约。
+选择依据见 [`README.md` 的"两条合成路线"](README.md#两条合成路线dexonomy默认--bodex备选)。
+
+---
+
 ## 0. 一分钟上手(最常用的一条命令)
 
 **从一条已重建+retarget 的 take,一条命令生成 GraspPose 并用 cuRobo 驱动出"接近→抓取→抬起"验证视频:**

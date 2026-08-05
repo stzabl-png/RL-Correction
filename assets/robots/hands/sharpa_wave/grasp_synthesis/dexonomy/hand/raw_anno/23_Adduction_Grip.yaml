@@ -1,0 +1,8 @@
+# 由 Shadow 模板 `23_Adduction_Grip` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [0.8873, -0.0757, 0.2519, 0.0592, 0.4513, -0.0802, -0.2830, 0.9945, 0.7443, -0.0508, -0.0355, 1.1022, 0.8187, 0.3052, 0.0540, 1.3372, 1.0830, 0.1071, 0.7511, 0.1275, 1.2865, 1.0488]
+
+contact:
+  right_index_DP: 0
+  right_index_MP: 1
+  right_middle_DP: 1
+  right_middle_MP: 1

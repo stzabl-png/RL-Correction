@@ -44,6 +44,27 @@ A trajectory quality reward (`+ contact + stability + progress + success − pen
 
 `τ_raw` 与 `O` 来自 **Step2**(`Reconstruct_and_Retarget`);本分支产出的 `τ_opt` 再喂给 **Step4**(RL correction)。
 
+### 两条合成路线:Dexonomy(默认) / BODex(备选)
+
+本分支现在有**两套** GraspPose 合成实现,共用同一套物体导入、Isaac PhysX 验证和
+下游契约,区别只在"抓取从哪来":
+
+| | **Dexonomy —— 当前默认** | BODex —— 备选,仍可用 |
+| --- | --- | --- |
+| 抓取来源 | **分类学模板**:38 种人类抓取类型各自作初值 | 力闭合优化自由涌现 |
+| 抓取类型 | 可指定(`TMPL=1_Large_Diameter` 等) | 不可控 |
+| 风格迭代 | 成功抓取可回灌为新模板 | 无 |
+| 桌面约束 | init 阶段硬约束 + grasp 阶段真实 geom | 后处理惩罚 |
+| 人手锚定 | 由 Step4 的候选筛选承担 | `anchored_bodex/` 直接锚到 `τ_raw` |
+| 文档 | [`docs/dexonomy.md`](docs/dexonomy.md) | [`docs/anchored_bodex.md`](docs/anchored_bodex.md) · [`docs/bodex_curobo_v2.md`](docs/bodex_curobo_v2.md) |
+
+**为什么换默认**:BODex 回答"这个物体能不能抓稳",Dexonomy 回答"用**哪一种人类抓法**
+抓稳"。Step4 的参考轨迹里人手是有类型的,抓取先验也应该有类型 —— 而且能指定类型,
+才谈得上"生成到满意为止"而不是改物体摆放去迁就抓取。
+
+BODex 那套**没有删除也没有冻结**,anchored / affordance-seeded 两层对"必须贴着人手
+示范"的场景仍然是更直接的解法。
+
 ---
 
 ## 实现:GraspPose_Optimization
@@ -106,6 +127,7 @@ process) -- see [docs/isaac_sim.md](docs/isaac_sim.md).
 
 | Document | Contents |
 | --- | --- |
+| [docs/dexonomy.md](docs/dexonomy.md) | **默认路线** — Dexonomy 分类学模板合成:适配层安装、一键管线、八步分解、数据格式、坐标系约定与历史教训 |
 | [docs/bodex_curobo_v2.md](docs/bodex_curobo_v2.md) | Core algorithm, CLI flags, outputs, hand asset config, limitations |
 | [docs/anchored_bodex.md](docs/anchored_bodex.md) | Human-demo-guided synthesis: demo data prep, calibration, guidance, visualization |
 | [docs/affordance_seeding.md](docs/affordance_seeding.md) | Affordance-model "expected grasp area" seeding: one-command synthesis that restricts seeds to a predicted grasp region (vendored model + checkpoint) |

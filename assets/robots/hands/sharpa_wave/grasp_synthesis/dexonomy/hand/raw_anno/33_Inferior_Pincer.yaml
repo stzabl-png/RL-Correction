@@ -1,0 +1,8 @@
+# 由 Shadow 模板 `33_Inferior_Pincer` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [1.0549, 0.0830, -0.0614, -0.0616, 0.0533, 0.5427, -0.2449, 0.5537, 0.2910, -0.0253, -0.1810, 0.8775, 0.6260, -0.1745, -0.0768, 0.4158, 0.4923, 0.0787, 0.0193, -0.0470, 0.3403, 0.3047]
+
+contact:
+  right_index_DP: 0
+  right_index_MP: 0
+  right_thumb_DP: 1
+  right_thumb_PP: 1

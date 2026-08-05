@@ -26,6 +26,10 @@ nohup.out
 # NOTE: the Sharpa Wave hand assets under assets/robots/ were committed
 # upstream before this rule and stay tracked, so the repo still runs.
 /assets/
+#   The Dexonomy adaptation layer (assets/robots/hands/sharpa_wave/grasp_synthesis/
+#   dexonomy/, 6.5MB) is likewise force-added -- it is the SharpaWave hand definition
+#   + 38 taxonomy templates + the upstream patch, i.e. our contribution, not a
+#   redistributed dataset. See docs/dexonomy.md.
 /third_party/
 /envs/
 *.pt

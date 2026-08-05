@@ -1,0 +1,11 @@
+# 由 Shadow 模板 `12_Precision_Disk` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [0.7695, -0.1233, 0.3941, 0.2061, 0.3464, 0.0643, -0.1684, 0.5997, 0.6185, 0.0349, 0.0605, 0.6261, 0.6254, -0.0277, 0.2208, 0.6797, 0.6857, 0.0147, 0.0224, 0.3469, 0.8322, 0.6933]
+
+contact:
+  right_hand_C_MC: 2
+  right_index_DP: 1
+  right_middle_DP: 1
+  right_pinky_DP: 1
+  right_ring_DP: 0
+  right_thumb_DP: 0
+  right_thumb_PP: 0

@@ -180,6 +180,20 @@ class GraspTaskCfg(DexmateCorrectionEnvCfg):
     cone_r0 = 0.03               # m, 起点管半径 (紧贴参考)
     cone_margin = 0.05           # m, 终点余量 (保证管口罩住真实 GraspPose)
     w_cone = 1000.0              # 出管罚系数 (×超出量² m²; 出管 5cm ≈ -2.5/步)
+    # ============ PickAndPlace: 搬运+放置段 (§2.19, 2026-08-04) ============
+    # 开 = 抬升验证通过后不结束, 接 TRANSPORT(跟随人手搬运参考) + PLACE(脚本化松手).
+    # 成功判据变为: 物体落在人手示范放置位 ±place_tol 且静置. 搬运目标用**相对量**
+    # (进搬运时的物体位 + 人手腕位移), 对重建的绝对偏移免疫.
+    place_task = False
+    place_tol = 0.03             # m, 放置判定半径
+    place_settle_steps = 10      # 松手+达标后静置步数 (0.5s) 才算成功
+    place_release_rate = 0.05    # 松手斜坡: closure 每步下降 (~0.9s 全开)
+    w_carry = 6.0                # 搬运段物体跟踪势差分权重 (与 w_align 同级)
+    # 搬运段残差降档: 热启动策略在到达态学的"减速稳住"本能会抵消搬运前馈 (探针实测
+    # 腕只走 46% 参考位移), ff 必须主导, 残差只留防滑微调 (§2.19 P1a 干预)
+    carry_res_scale = 0.25
+    carry_extra_steps = 30       # 搬运预算 = (re-gs) + 这个
+    place_budget_steps = 60      # 放置段预算 (松手 + 静置 + 余量)
     approach_extra_steps = 20    # 接近段预算的**终点** (gs + 这个)
     approach_extra0 = 120        # 预算的**起点**: 给足时间探索 (gs+120 ≈ 7.6s)
     eps_pos0 = 0.030             # 切换阈值起点 (松): 3cm

@@ -59,6 +59,8 @@ parser.add_argument("--grasp_first", action="store_true",
                          "sr/from_grasp 慢 EMA ≥ gf_target 后放行接近分支")
 parser.add_argument("--gf_target", type=float, default=0.8,
                     help="门控毕业线 (抖动起点分布上的抓取成功率 EMA; 0.9 会与技能平台期打平, 永不触发)")
+parser.add_argument("--place", action="store_true",
+                    help="PickAndPlace (§2.19): 抬升验证后接 搬运+放置, 成功=放到人手示范位 ±3cm; 评测须同 flag")
 parser.add_argument("--start_jitter", action="store_true",
                     help="直接抓取回合起点用抖动池 (±eps0 包络), 不依赖 --grasp_first. "
                          "用途: 给已会飞的 ckpt 补'从到达偏差状态起抓'这门课 (O1 交接断裂的解药)")
@@ -230,6 +232,13 @@ env_cfg.cone_trust = args.cone
 if args.grasp_first:      # 阶段 A: 100% 直接抓取回合 (毕业后训练钩子放行回 0.5)
     assert args.approach, "--grasp_first 是接近任务的课程, 必须配 --approach"
     env_cfg.direct_grasp_prob = 1.0
+if args.place:
+    assert args.approach, "--place 基于端到端任务, 必须配 --approach"
+    env_cfg.place_task = True
+    env_cfg.episode_length_s = 20.0   # 回合变长 (搬运+放置 ~100 步), 抬高兜底上限
+    # grasp_only 时代把 gs 后的腕参考冻结 (物体钉桌上, 腕飘走=抓空气); place 的物体
+    # 是真实物理且就该被搬走 —— 解冻, 参考播完整的 靠近→抓住→搬运→放置 (ref builder 注释)
+    env_cfg.freeze_wrist = False
 _prior = args.prior_npz or (os.path.join(_HERE, "priors", f"{args.clip}.npz")
                             if args.grasp_prior else None)
 if _prior:

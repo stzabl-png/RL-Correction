@@ -1,0 +1,192 @@
+[INFO][AppLauncher]: Using device: cuda:0
+[INFO][AppLauncher]: Loading experience file: /home/yanghong/miniconda3/envs/isaac/lib/python3.11/site-packages/isaaclab/apps/isaaclab.python.headless.kit
+Loading user config located at: '/home/yanghong/miniconda3/envs/isaac/lib/python3.11/site-packages/isaacsim/kit/data/Kit/Isaac-Sim/5.1/user.config.json'
+[Info] [carb] Logging to file: /home/yanghong/miniconda3/envs/isaac/lib/python3.11/site-packages/isaacsim/kit/logs/Kit/Isaac-Sim/5.1/kit_20260804_040300.log
+2026-08-04T11:03:00Z [128ms] [Warning] [omni.usd_config.extension] Enable omni.materialx.libs extension to use MaterialX
+2026-08-04T11:03:01Z [527ms] [Warning] [omni.platforminfo.plugin] failed to open the default display.  Can't verify X Server version.
+2026-08-04T11:03:01Z [678ms] [Warning] [carb] Acquiring non optional plugin interface which is not listed as dependency: [omni::physx::IPhysxBenchmarks v1.0] (plugin: <default plugin>), by client: omni.physics.physx.plugin. Add it to CARB_PLUGIN_IMPL_DEPS() macro of a client.
+2026-08-04T11:03:01Z [687ms] [Warning] [omni.isaac.dynamic_control] omni.isaac.dynamic_control is deprecated as of Isaac Sim 4.5. No action is needed from end-users.
+2026-08-04T11:03:05Z [4,590ms] [Warning] [carb.cudainterop.plugin] CUDA_VISIBLE_DEVICES environment variable is set.
+2026-08-04T11:03:05Z [4,590ms] [Warning] [carb.cudainterop.plugin] Note CUDA device enumeration and Omniverse device enumeration are different.
+2026-08-04T11:03:05Z [4,590ms] [Warning] [carb.cudainterop.plugin] Setting CUDA_VISIBLE_DEVICES can lead to undesired behavior or crashes.
+2026-08-04T11:03:06Z [5,578ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-04T11:03:06Z [5,578ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-04T11:03:06Z [5,579ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-04T11:03:06Z [5,579ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-04T11:03:06Z [5,580ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-04T11:03:06Z [5,580ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-04T11:03:06Z [5,581ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-04T11:03:06Z [5,581ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-04T11:03:06Z [5,582ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-04T11:03:06Z [5,582ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-04T11:03:06Z [5,583ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-04T11:03:06Z [5,583ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-04T11:03:06Z [5,584ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-04T11:03:06Z [5,584ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-04T11:03:06Z [5,586ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-04T11:03:06Z [5,586ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-04T11:03:06Z [5,586ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-04T11:03:06Z [5,586ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-04T11:03:06Z [5,586ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-04T11:03:06Z [5,586ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-04T11:03:06Z [5,586ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-04T11:03:06Z [5,586ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-04T11:03:06Z [5,586ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-04T11:03:06Z [5,586ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-04T11:03:06Z [5,586ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-04T11:03:06Z [5,586ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-08-04T11:03:06Z [5,586ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA RTX A6000
+2026-08-04T11:03:06Z [5,586ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+
+|---------------------------------------------------------------------------------------------|
+| Driver Version: 580.173.02    | Graphics API: Vulkan
+|=============================================================================================|
+| GPU | Name                             | Active | LDA | GPU Memory | Vendor-ID | LUID       |
+|     |                                  |        |     |            | Device-ID | UUID       |
+|     |                                  |        |     |            | Bus-ID    |            |
+|---------------------------------------------------------------------------------------------|
+| 0   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 0d3ee663.. |
+|     |                                  |        |     |            | 1         |            |
+|---------------------------------------------------------------------------------------------|
+| 1   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 4967f214.. |
+|     |                                  |        |     |            | 24        |            |
+|---------------------------------------------------------------------------------------------|
+| 2   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 2f400868.. |
+|     |                                  |        |     |            | 41        |            |
+|---------------------------------------------------------------------------------------------|
+| 3   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | e5c3fc4f.. |
+|     |                                  |        |     |            | 61        |            |
+|---------------------------------------------------------------------------------------------|
+| 4   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 8027f48d.. |
+|     |                                  |        |     |            | 81        |            |
+|---------------------------------------------------------------------------------------------|
+| 5   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | c5bdf925.. |
+|     |                                  |        |     |            | a1        |            |
+|---------------------------------------------------------------------------------------------|
+| 6   | NVIDIA RTX A6000                 |        |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | fe7dd5e4.. |
+|     |                                  |        |     |            | c1        |            |
+|---------------------------------------------------------------------------------------------|
+| 7   | NVIDIA RTX A6000                 | Yes: 0 |     | 49386   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 02f04da2.. |
+|     |                                  |        |     |            | e1        |            |
+|=============================================================================================|
+| OS: 24.04.4 LTS (Noble Numbat) ubuntu, Version: 24.04.4, Kernel: 6.17.0-14-generic
+| Processor: AMD EPYC 7513 32-Core Processor
+| Cores: 64 | Logical Cores: 128
+|---------------------------------------------------------------------------------------------|
+| Total Memory (MB): 1031890 | Free Memory: 988349
+| Total Page/Swap (MB): 8191 | Free Page/Swap: 8191
+|---------------------------------------------------------------------------------------------|
+2026-08-04T11:03:06Z [6,041ms] [Warning] [gpu.foundation.plugin] IOMMU is enabled.
+2026-08-04T11:03:06Z [6,042ms] [Warning] [gpu.foundation.plugin] Detected IOMMU is enabled. Running CUDA peer-to-peer bandwidth and latency validation.
+Unidirectional P2P=Enabled Bandwidth (P2P Writes) Matrix (GB/s)
+   D\D     0 
+     0 675.24 
+P2P=Enabled Latency (P2P Writes) Matrix (us)
+   GPU     0 
+     0   1.73 
+
+   CPU     0 
+     0   2.33 
+2026-08-04T11:03:06Z [6,097ms] [Warning] [omni.kvdb.plugin] Disabling key-value database because another kit process is locking it
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+2026-08-04T11:03:07Z [6,611ms] [Warning] [isaaclab.envs.direct_rl_env] Seed not set for the environment. The environment creation may not be deterministic.
+
+[36m======================================================================================[0m
+[36m[1m[INFO][IsaacLab]: Logging to file: /tmp/isaaclab/logs/isaaclab_2026-08-04_04-03-07.log[0m
+[36m======================================================================================[0m
+
+[33m04:03:07 [simulation_context.py] WARNING: The `enable_external_forces_every_iteration` parameter in the PhysxCfg is set to False. If you are experiencing noisy velocities, consider enabling this flag. You may need to slightly increase the number of velocity iterations (setting it to 1 or 2 rather than 0), together with this flag, to improve the accuracy of velocity updates.[0m
+[INFO]: Base environment:
+	Environment device    : cuda:0
+	Environment seed      : None
+	Physics step-size     : 0.004166666666666667
+	Rendering step-size   : 0.008333333333333333
+	Environment step-size : 0.05
+[33m04:03:07 [direct_rl_env.py] WARNING: The render interval (2) is smaller than the decimation (12). Multiple render calls will happen for each environment step.If this is not intended, set the render interval to be equal to the decimation.[0m
+[33m04:03:14 [prims.py] WARNING: Could not perform 'modify_rigid_body_properties' on any prims under: '/World/envs/env_0/Object'. This might be because of the following reasons:
+	(1) The desired attribute does not exist on any of the prims.
+	(2) The desired attribute exists on an instanced prim.
+		Discovered list of instanced prim paths: [][0m
+[33m04:03:14 [prims.py] WARNING: Could not perform 'modify_collision_properties' on any prims under: '/World/envs/env_0/Object'. This might be because of the following reasons:
+	(1) The desired attribute does not exist on any of the prims.
+	(2) The desired attribute exists on an instanced prim.
+		Discovered list of instanced prim paths: [][0m
+[33m04:03:14 [prims.py] WARNING: Could not perform 'modify_mass_properties' on any prims under: '/World/envs/env_0/Object'. This might be because of the following reasons:
+	(1) The desired attribute does not exist on any of the prims.
+	(2) The desired attribute exists on an instanced prim.
+		Discovered list of instanced prim paths: [][0m
+[setup] object 刚体化: 1 mesh, mass=0.1kg
+[33m04:03:31 [interactive_scene.py] WARNING: Collision filtering can only be automatically enabled when replicate_physics=True and using GPU simulation. Please call scene.filter_collisions(global_prim_paths) to filter collisions across environments.[0m
+[setup] 指尖SuperGrip×6144 手身LowGrip×1024 (指尖↔物=9.0, 掌↔物=0.6)
+[INFO]: Time taken for scene creation : 134.511763 seconds
+[INFO]: Scene manager:  <class InteractiveScene>
+	Number of environments: 1024
+	Environment spacing   : 2.0
+	Source prim name      : /World/envs/env_0
+	Global prim paths     : []
+	Replicate physics     : False
+[INFO]: Starting the simulation. This may take a few seconds. Please wait...
+[INFO]: Time taken for simulation start : 138.860097 seconds
+[INFO]: Completed setting up the environment...
+[dexmate] 交互侧=right | 臂 ['R_arm_j1', 'R_arm_j2', 'R_arm_j3', 'R_arm_j4', 'R_arm_j5', 'R_arm_j6', 'R_arm_j7'] | 手 22 关节 | 末端 body=right_hand_C_MC
+[smooth] 剔除漂移帧 []   物体位置最大修正 2.00 cm
+[init] stable-pose 投影: 修正倾斜 0.0 deg (t_init=0)
+[replay_grasp] L=73 PreGrasp帧 gs=32(src 24) 合拢至 ge=62 | 相机锚定 (手物相对关系保留重建原样) 物体原点 xy=(0.061,-0.287) z=0.865 | 腕 path 平移 xy=29.3cm z=+0.00cm
+[debug] hand bodies: [('vega_1p_mobile', 1.0), ('dummy_base_x', 9.999999747378752e-05), ('dummy_base_y', 9.999999747378752e-05), ('vega_1p_base', 88.43486785888672), ('B_base_cam', 0.0030900000128895044), ('F_base_cam', 0.0030900000128895044), ('L_base_cam', 0.0030900000128895044), ('R_base_cam', 0.0030900000128895044), ('vega_1p_back_lidar', 0.004230000078678131), ('vega_1p_front_lidar', 0.1509999930858612), ('vega_1p_torso_l1', 8.832340240478516), ('vega_1p_torso_l2', 14.589259147644043), ('vega_1p_torso_l3', 5.328859806060791), ('arm_center', 1.0), ('vega_1p_L_arm_l1', 1.4135099649429321), ('vega_1p_R_arm_l1', 1.4240100383758545), ('vega_1p_head_l1', 0.43780001997947693), ('L_arm_l2', 1.405940055847168), ('R_arm_l2', 1.4059499502182007), ('vega_1p_head_l2', 0.6077200174331665), ('L_arm_l3', 1.1609400510787964), ('R_arm_l3', 1.1607999801635742), ('vega_1p_head_l3', 0.6327800154685974), ('L_arm_l4', 0.9320400357246399), ('R_arm_l4', 0.9320400357246399), ('zed_left_camera', 1.0), ('zed_depth_frame', 1.0), ('zed_right_camera', 1.0), ('L_arm_l5', 0.6458200216293335), ('R_arm_l5', 0.6458200216293335), ('vega_1p_L_arm_l6', 0.5541999936103821), ('vega_1p_R_arm_l6', 0.5537199974060059), ('L_arm_l7', 0.35802000761032104), ('R_arm_l7', 0.35802000761032104), ('L_arm_l8', 0.2006399929523468), ('R_arm_l8', 0.2006399929523468), ('L_ee', 1.0), ('left_hand_C_MC', 0.650600016117096), ('R_ee', 1.0), ('right_hand_C_MC', 0.650600016117096), ('left_index_MCP_VL', 0.0022100000642240047), ('left_middle_MCP_VL', 0.0022100000642240047), ('left_pinky_MC', 0.12541000545024872), ('left_ring_MCP_VL', 0.0022100000642240047), ('left_thumb_CMC_VL', 0.0024999999441206455), ('right_index_MCP_VL', 0.0022100000642240047), ('right_middle_MCP_VL', 0.0022100000642240047), ('right_pinky_MC', 0.12541000545024872), ('right_ring_MCP_VL', 0.0022100000642240047), ('right_thumb_CMC_VL', 0.0024999999441206455), ('left_index_PP', 0.04741000011563301), ('left_middle_PP', 0.04741000011563301), ('left_pinky_MCP_VL', 0.0022100000642240047), ('left_ring_PP', 0.04741000011563301), ('left_thumb_MC', 0.13586999475955963), ('right_index_PP', 0.04741000011563301), ('right_middle_PP', 0.04741000011563301), ('right_pinky_MCP_VL', 0.0022100000642240047), ('right_ring_PP', 0.04741000011563301), ('right_thumb_MC', 0.13586999475955963), ('left_index_MP', 0.018239999189972878), ('left_middle_MP', 0.018239999189972878), ('left_pinky_PP', 0.04741000011563301), ('left_ring_MP', 0.018239999189972878), ('left_thumb_MCP_VL', 7.999999797903001e-05), ('right_index_MP', 0.018239999189972878), ('right_middle_MP', 0.018239999189972878), ('right_pinky_PP', 0.04741000011563301), ('right_ring_MP', 0.018239999189972878), ('right_thumb_MCP_VL', 7.999999797903001e-05), ('left_index_DP', 0.004550000187009573), ('left_middle_DP', 0.004550000187009573), ('left_pinky_MP', 0.018239999189972878), ('left_ring_DP', 0.004550000187009573), ('left_thumb_PP', 0.030780000612139702), ('right_index_DP', 0.004550000187009573), ('right_middle_DP', 0.004550000187009573), ('right_pinky_MP', 0.018239999189972878), ('right_ring_DP', 0.004550000187009573), ('right_thumb_PP', 0.030780000612139702), ('left_index_elastomer', 9.999999747378752e-05), ('left_middle_elastomer', 9.999999747378752e-05), ('left_pinky_DP', 0.004550000187009573), ('left_ring_elastomer', 9.999999747378752e-05), ('left_thumb_DP', 0.009879999794065952), ('right_index_elastomer', 9.999999747378752e-05), ('right_middle_elastomer', 9.999999747378752e-05), ('right_pinky_DP', 0.004550000187009573), ('right_ring_elastomer', 9.999999747378752e-05), ('right_thumb_DP', 0.00788000039756298), ('left_index_fingertip', 9.999999974752427e-07), ('left_middle_fingertip', 9.999999974752427e-07), ('left_pinky_elastomer', 9.999999747378752e-05), ('left_ring_fingertip', 9.999999974752427e-07), ('left_thumb_elastomer', 9.999999747378752e-05), ('right_index_fingertip', 9.999999974752427e-07), ('right_middle_fingertip', 9.999999974752427e-07), ('right_pinky_elastomer', 9.999999747378752e-05), ('right_ring_fingertip', 9.999999974752427e-07), ('right_thumb_elastomer', 9.999999747378752e-05), ('left_pinky_fingertip', 9.999999974752427e-07), ('left_thumb_fingertip', 9.999999974752427e-07), ('right_pinky_fingertip', 9.999999974752427e-07), ('right_thumb_fingertip', 9.999999974752427e-07)]
+[debug] hand 总质量 141.872 kg
+[reward] 手指模仿通道已关 (无 GraspPose, 参考手指不可信); 抓法由 contact/afford/lift 三项决定
+[affordance] 2048 点 heatmap∈[0.00,0.72] | lam_afford=0.4 loose_grip=0.05
+[finger] 累积残差: rate ±5.7°/步 | total ±68.8° | decay 1.0
+[dexmate] 躯干已在 USD 里锁死 (fixed joint), 无沉降过程
+[dexmate] 相机锚定: 实测 ZED xy=[-0.40790000557899475, 0.0] 与标称一致 (差 0.4mm), 无需修正
+[ref质量] 可达帧位置误差: 中位 0.04cm 95分位 0.18cm 最大 0.45cm
+[dexmate] 抬升轨迹: 20 级 x 5cm, 末端实际升 4.7cm
+[dexmate] place_mode=ref_builder (保留 ref builder 摆放, 平移 [0.0, 0.0, 0.0]) | IK 全程可达 100.0% | 抓取窗[32,62] 100.0% | 位置误差中位 0.04cm | 顶替 0 帧
+[pregrasp] 表面法向已采样 (512, 3) (cent 用局部法向, 形状无关)
+[collide] 臂连杆 9 个 (['vega_1p_R_arm_l1', 'R_arm_l2', 'R_arm_l3', 'R_arm_l4', 'R_arm_l5', 'vega_1p_R_arm_l6', 'R_arm_l7', 'R_arm_l8', 'R_ee']) | 需避让 16 个 (躯干/头/另一臂)
+[prior] 物体按 Dexonomy 规范姿态摆放 (原点 z=0.8649, 高度 2.56cm)
+[prior] 物体 yaw **钉死** 215° (来自 Gate 1 的 best_yaw, 与视频一致) | 该角 IK err 0.30cm
+[prior] 物体 yaw 旋转 215° 使抓姿朝向机械臂 (绕竖轴旋转, 物体仍平放于桌面)
+[prior]   抬升斜坡: 第 4 级实际抬 9.81mm (要求 10mm) | IK 直解失败 0/20 级
+[prior] GraspPose 已接入: tasks/pregrasp/priors/Grasp3_candidates/8_5.npz
+[prior]   IK grasp err 0.30cm | pregrasp err 0.23cm | pre->grasp 最大关节差 0.0°
+[score] 接触分数图已开: 512 个表面点; 只在 verify 斜坡到顶取快照, 按力占比加权
+[pregrasp] v2 稳定抓握+微抬升验证: 起点=PreGrasp(帧32) | 合拢参考 0.025/步 | 候选 ≥4垫 向心≥0.3 保持4步 | 验证升 10mm (4级) | episode ≤ 153 步
+[v3net] separate critic ON (priv 32 raw -> critic; actor embeds first 7)
+RunningMeanStd:  (151,)
+RunningMeanStd:  (1,)
+[eval] loading logs/先抓后飞_无混合/2026-08-03_20-19-32/stage1_nn/last.pth
+
+[eval] 确定性 mu | clip=Grasp3 | 1024 env × 450 步 × 2 口径
+
+==================================================================
+[口径A: c0=0 (标准起点, 正式口径)]  成功率 = 99.24%   (11951/12043 回合)
+  成功回合中位长度: 34 步
+  失败构成: thrown=1 (1%)  pushed=9 (10%)  timeout=24 (26%)
+  验证失败(重试)事件总数: 357  (平均 0.0 次/回合)
+  逐垫有效接触率: 拇=0.23 食=0.41 中=0.56 环=0.25 小=0.53
+  物体抖动偏移 |xy| : 成功回合均值 2.28mm vs 失败回合均值 2.82mm   (差异大 → 失败集中在抖动边角)
+
+==================================================================
+[口径B: c0~U(0,0.9) (训练分布对照)]  成功率 = 99.06%   (13326/13452 回合)
+  成功回合中位长度: 30 步
+  失败构成: pushed=4 (3%)  timeout=78 (62%)
+  验证失败(重试)事件总数: 336  (平均 0.0 次/回合)
+  逐垫有效接触率: 拇=0.33 食=0.45 中=0.66 环=0.40 小=0.62
+  物体抖动偏移 |xy| : 成功回合均值 2.29mm vs 失败回合均值 2.53mm   (差异大 → 失败集中在抖动边角)
+
+==================================================================
+  正式成功率 (c0=0, 确定性): 99.24%   训练分布对照: 99.06%
+  判据: ≥4 垫有效力接触 + 向心达标 + 物体不动 0.2s → 腕升 1cm → 物体升 ≥5mm 且 ≥3 垫保持 0.25s
+==================================================================

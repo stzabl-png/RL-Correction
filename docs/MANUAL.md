@@ -253,3 +253,28 @@ sd=d.get('model',d)
 | `logs/correction_<clip>_<tag>/<时间戳>/` | `stage1_nn/`(ckpt) `stage1_tb/`(TensorBoard) `videos/` |
 | `videos_compare/` | 对比视频：OCIR验证器 / 零残差 / 失败策略 / 训练后成功 |
 | `data/` | 消融曲线 npz |
+
+## 8. Approach+Pick 冠军配方 (2026-08-04 复现盖章)
+
+端到端任务(对称站姿→接近→抓稳→抬升)的**唯一推荐配方**——三个 seed 复现确认
+(确定性端到端 99.99% / 100.00% / 93.93%, 台账 §2.12~§2.18, 经验总结
+`logs/overnight_20260803/无混合期中_8p5M/README.md`):
+
+```bash
+SHARPA_WANDB=0 PYTHONPATH=. $PY -m tasks.pregrasp.train --headless \
+  --clip Grasp3 --num_envs 1024 \
+  --prior_npz tasks/pregrasp/priors/Grasp3_candidates/8_5.npz --prior_yaw 215 \
+  --approach --stance_prefix 60 --kl_threshold 0.02 --grasp_first --gf_target 0.8
+```
+
+- **配方保持显式 flag, 不烘进 cfg 默认值**(2026-08-04 决定: 改默认影响所有旧入口,
+  显式传参 + 本节文档更可控)。
+- 四组件缺一不可: `--stance_prefix 60`(站姿起步) / `--grasp_first`(先抓后飞门控,
+  自带 ±3cm/15° 抖动起点池) / `--gf_target 0.8`(毕业线, 别设 0.9 会与技能平台打平) /
+  `--kl_threshold 0.02`。
+- **评测/录像必须带 `--approach --stance_prefix 60`**(端到端口径), 否则测的是
+  从 PreGrasp 起步的半程。
+- 已证伪勿再试: 姿态混合(orient_blend, 到位后抓不住) / 锥形信任管(cone, 路径畸形) /
+  kl 0.01/0.05 / 混训不加门控(幸存靠运气 2/6+)。
+- 判读只看 `sr/from_approach`(TB 低估, 正式数字以确定性评测为准) 与
+  `curr/gate_fg_slow`(毕业进度)。

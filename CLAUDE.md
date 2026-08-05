@@ -13,9 +13,11 @@ B=GraspPose 处理不了的小/扁物体，靠 affordance 学指尖抓取）。
 旧 correction 任务的入口/诊断脚本已清理（git 历史可寻），`rl_rebuild` 只余引擎+被继承的底层 env。
 
 ## 一句话
-PPO 训练**残差策略**：在参考手部轨迹上叠加小幅修正，让飞手 SharpaWave 在 IsaacSim 里抓起桌上物体。
-`pp0` 单物体已跑通（冠军 run = `logs/Grasp0`，**带点云**，确定性评测 **99.9%**）。
-命名约定：run = `Grasp<物体号>`（0 对应 pp0）；点云已是默认输入，不再单独标 tag。
+PPO 训练**残差策略**：在参考手部轨迹上叠加小幅修正，让 DexMate+SharpaWave 在 IsaacSim
+里完成 端到端 Approach+Pick（对称站姿→接近→抓稳→抬升）。**冠军配方已复现盖章**
+（2026-08-04，端到端确定性 99.99%/100.00%/93.93% 三 seed，配方见 `MANUAL.md` §8）。
+**全部成功成果收录在 `results/part2/basic_pick_place/`**（按数据集物体号组织，含 ckpt/
+TB/评测/录像；旧 `logs/Grasp0` 等已迁入，见该目录 README 的新旧对照表）。
 
 ## 立刻会犯错的几件事
 

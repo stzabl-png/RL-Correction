@@ -79,6 +79,7 @@ class GraspTaskEnv(DexmateCorrectionEnv):
                     _wq0 + _s.unsqueeze(1) * (_q1 - _wq0), dim=1),
                  self.ref_wrist_quat], 0)
             self.grasp_start = int(self.grasp_start) + _K
+            self.grasp_end = int(self.grasp_end) + _K   # 放置帧标注同步顺延 (place 用)
             self.L = int(self.L) + _K          # 基类 clip 长度与 q_ref 保持一致
             _d = float((self.ref_wrist_pos[_K] - self.ref_wrist_pos[0]).norm()) * 100
             print(f"[stance_prefix] K={_K} 帧 | 站姿->轨迹起点 腕直线 {_d:.1f}cm "
@@ -284,6 +285,34 @@ class GraspTaskEnv(DexmateCorrectionEnv):
                   f"{int(self.phase_timeout_t[Phase.PREGRASP])} 步 | 切换 "
                   f"<{cfg.eps_pos*100:.2f}cm & <{np.degrees(cfg.eps_rot):.1f}° 保持"
                   f"{cfg.switch_hold}步 | 直接抓取起步比例 {cfg.direct_grasp_prob:.2f}")
+            # 前馈播放到哪一帧为止: pick_lift 到 gs; place 任务播完搬运段 (下面覆盖)
+            self._ff_end = self.gs
+
+        # ---- PickAndPlace: 搬运+放置段 (§2.19) ----
+        if cfg.place_task:
+            assert cfg.approach, "--place 基于端到端任务 (需 --approach)"
+            _re = int(min(self.grasp_end, self.q_ref.shape[0] - 1))
+            assert _re > self.gs + 3, f"搬运参考太短: gs={self.gs} re={_re}"
+            self.re = _re
+            self._ff_end = _re
+            # 搬运位移参考 = 人手腕相对抓取帧的位移 (相对量, 对重建绝对偏移免疫);
+            # 物体目标(t) = 进搬运时的实测物体位 + carry_delta[t]. 与 ref builder 的
+            # track_object 同构 (replay_grasp.py "物体参考=抓取帧物体位+腕相对位移").
+            self.carry_delta = (self.ref_wrist_pos[:_re + 1]
+                                - self.ref_wrist_pos[self.gs]).clone()
+            self.phase_timeout_t[Phase.TRANSPORT] = (_re - self.gs) + cfg.carry_extra_steps
+            self.phase_timeout_t[Phase.PLACE] = cfg.place_budget_steps
+            self.ep_total += int(self.phase_timeout_t[Phase.TRANSPORT]) \
+                + int(cfg.place_budget_steps)
+            self.carry_anchor = torch.zeros(N, 3, device=dev)
+            self.carry_prev_d = torch.zeros(N, device=dev)
+            self.place_target = torch.zeros(N, 3, device=dev)
+            self.settle_ctr = torch.zeros(N, dtype=torch.long, device=dev)
+            print(f"[place] PickAndPlace 开: 搬运参考 {_re - self.gs} 帧, 末端位移 "
+                  f"{float(self.carry_delta[_re].norm()) * 100:.1f}cm | 预算 搬运 "
+                  f"{int(self.phase_timeout_t[Phase.TRANSPORT])} + 放置 "
+                  f"{cfg.place_budget_steps} 步 | 容差 {cfg.place_tol * 100:.0f}cm | "
+                  f"松手斜坡 {cfg.place_release_rate}/步")
 
         # ---- 参考接触指集 (静态): prior 的 c=1 手型下, 哪几个垫离表面 <8mm ----
         # 单 prior 的 run 里是常数 (零信息量), 留给 P5 的 prior-conditioned 蒸馏.
@@ -510,25 +539,32 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         # 接近段 (方案 C): q_cmd += 参考增量(前馈) + 残差·远松近紧缩放, 只钳关节限位
         # 抓取段        : q_cmd += 残差,            钳在 arm_center ± arm_dev_max
         in_app = self.task_phase == Phase.PREGRASP
+        in_carry = self.task_phase == Phase.TRANSPORT   # place_task 才会出现
+        in_ctrl = in_app | in_carry                     # 前馈+残差、只钳关节限位 的相位集
         res = a[:, 0:7] * self.arm_res_scale
         if self.cfg.approach:
             # 前馈 = 参考轨迹**自己**这一步走了多少 (只出现差分, 绝对位置不进公式).
             # 零动作 ⟹ 逐帧复现人手的速度剖面 —— 这条性质是 repo 两次成功的共同依赖
             # (dexmate_env.py:384-392 的注释: 只累积不给前馈 ⟹ 手臂冻在起点).
-            t = self.ref_t.clamp(max=self.gs)
+            # place: 前馈播到 _ff_end=re, 搬运段零动作 = 复现人手的搬运动作.
+            t = self.ref_t.clamp(max=self._ff_end)
             q_base = self.q_ref[t]
-            ff = (q_base - self.ref_q_prev) * (in_app & (self.ref_t < self.gs)
+            ff = (q_base - self.ref_q_prev) * (in_ctrl & (self.ref_t < self._ff_end)
                                                ).float().unsqueeze(1)
             self.ref_q_prev = q_base
-            # 远松近紧: 手要自己走完那 ~16cm, 但接触前必须回到毫米级
+            # 远松近紧: 手要自己走完那 ~16cm, 但接触前必须回到毫米级 (只在接近段)
             d_pos = (self._anchor_w() - self._target_w()).norm(dim=1)
             u = ((d_pos - self.cfg.dyn_d_near)
                  / max(self.cfg.dyn_d_far - self.cfg.dyn_d_near, 1e-6)).clamp(0.0, 1.0)
             s_arm = 1.0 + u * (self.cfg.dyn_arm_far - 1.0) * in_app.float()
             res = res * s_arm.unsqueeze(1)
+            if self.cfg.place_task:
+                # 搬运段残差降档 (§2.19 P1a): ff 主导复现人手搬运, 残差只做防滑微调
+                res = torch.where(in_carry.unsqueeze(1),
+                                  res * self.cfg.carry_res_scale, res)
             self.res_step_cm = (res.abs().mean(dim=1) * 100.0)          # 诊断: 残差用量
             q_new = self.q_cmd + ff * gate.unsqueeze(1) + res
-            self.q_cmd = torch.where(in_app.unsqueeze(1),
+            self.q_cmd = torch.where(in_ctrl.unsqueeze(1),
                                      q_new.clamp(self.arm_lower, self.arm_upper),
                                      q_new.clamp(self.band_lo, self.band_hi))
         else:
@@ -545,11 +581,18 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         # 合拢: 参考斜坡 + 策略调制 (零动作 = 匀速合到 c_grasp 停; a_c=-1 停住;
         # 比 nominal 更深的挤压只能由 a_c>0 主动选择)
         # ⚠ 接近段整条手指通道**门控关闭** —— 手必须张开着飞过去, 否则是握着拳头去碰物体.
-        hand_gate = gate * (~in_app).float()
+        # place: 搬运段手指冻结在抓握深度 (握稳搬运), 放置段脚本化松手 (下方覆盖).
+        in_place = self.task_phase == Phase.PLACE
+        hand_gate = gate * (~(in_app | in_carry | in_place)).float()
         ref = cfg.closure_ref_rate * (self.closure < cfg.c_grasp).float()
         self.closure = (self.closure
                         + hand_gate * (ref + a[:, 7] * cfg.closure_rate_max)
                         ).clamp(cfg.closure_min, cfg.closure_max)
+        if cfg.place_task:
+            # 脚本化松手斜坡 (与微抬升同哲学: 廉价可靠的物理裁判, 不学释放时序)
+            self.closure = torch.where(
+                in_place, (self.closure - cfg.place_release_rate).clamp(min=0.0),
+                self.closure)
         # 每指残差: 指 i 的模板深度 = clip(c + δ_i)
         self.fin_delta = (self.fin_delta
                           + a[:, 8:13] * cfg.delta_rate_max * hand_gate.unsqueeze(1)
@@ -725,7 +768,9 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         if cfg.approach:
             in_app = ph == Phase.PREGRASP
             # 参考时钟是**外生**的: 每步 +1, 与机器人在哪、做得好不好无关 (DESIGN_LOOP A4)
-            self.ref_t = torch.where(in_app & active, self.ref_t + 1, self.ref_t)
+            # place: 搬运段时钟同样外生推进 (gs -> re), 播放人手搬运剖面
+            _adv = (in_app | (ph == Phase.TRANSPORT)) & active
+            self.ref_t = torch.where(_adv, self.ref_t + 1, self.ref_t)
             ok = in_app & active & (d_pos < cfg.eps_pos) & (d_rot < cfg.eps_rot) & \
                 (self.wrist_linvel_w.norm(dim=1) < cfg.switch_vel_max)
             self.switch_run = torch.where(ok, self.switch_run + 1,
@@ -776,6 +821,34 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         self.verify_ok_run = torch.where(vf_ok, self.verify_ok_run + 1,
                                          torch.zeros_like(self.verify_ok_run))
         success = self.verify_ok_run >= cfg.verify_hold_steps
+        if cfg.place_task:
+            # ---- §2.19: 验证通过不再=成功, 而是进搬运; 成功=放置达标 ----
+            to_carry = success & (ph == Phase.LIFT)
+            if to_carry.any():
+                self.ref_t[to_carry] = self.gs          # 搬运时钟从抓取帧起播
+                # ⚠ ref_q_prev 必须同步跳到 gs —— 接近分支到达时 ref_t 停在 ~41,
+                # 不同步的话下一步前馈 = 几十帧关节差一次打出 (瞬间猛甩)
+                self.ref_q_prev[to_carry] = self.q_ref[self.gs]
+                self.carry_anchor[to_carry] = obj_pos[to_carry]
+                self.place_target[to_carry] = obj_pos[to_carry] + self.carry_delta[self.re]
+                self.carry_prev_d[to_carry] = 0.0       # 进入时物体即在目标上 (delta=0)
+                self.verify_k[to_carry] = 0
+                self.verify_ok_run[to_carry] = 0
+                ph = torch.where(to_carry, torch.full_like(ph, Phase.TRANSPORT), ph)
+            in_carry_d = ph == Phase.TRANSPORT
+            to_place = in_carry_d & (self.ref_t >= self.re)
+            if to_place.any():
+                # 带子重定心到当前位形 (同切换路径的理由): 放置段回到带内微调模式
+                self._set_arm_center(to_place, self.q_cmd)
+                ph = torch.where(to_place, torch.full_like(ph, Phase.PLACE), ph)
+            in_place_d = ph == Phase.PLACE
+            released = in_place_d & (self.closure <= 0.05)
+            _near = (obj_pos - self.place_target).norm(dim=1) < cfg.place_tol
+            _still = obj_spd < 0.05
+            _ok_p = released & _near & _still
+            self.settle_ctr = torch.where(_ok_p, self.settle_ctr + 1,
+                                          torch.zeros_like(self.settle_ctr))
+            success = self.settle_ctr >= cfg.place_settle_steps
         newly_success = success & ~self.succeeded
         self.succeeded |= success
         # 验证失败: ① 斜坡到顶+3 步物体没跟上来 (rise<3mm); ② **尝试预算耗尽**
@@ -801,7 +874,8 @@ class GraspTaskEnv(DexmateCorrectionEnv):
 
         # ---- 失败 ----
         fell = active & (obj_pos[:, 2] < cfg.table_top_z - cfg.fall_below)
-        thrown = active & (obj_pos[:, 2] > cfg.table_top_z + cfg.max_obj_height)
+        _maxh = 0.35 if cfg.place_task else cfg.max_obj_height   # 搬运会抬高物体
+        thrown = active & (obj_pos[:, 2] > cfg.table_top_z + _maxh)
         # 推走终止距离随笨拙课程收紧: gentle 0.2 -> 10cm (学习期宽容), 1.0 -> 4cm
         g01 = (self.gentle - 0.2) / 0.8
         push_dist = cfg.push_fail_dist_loose + \
@@ -896,6 +970,16 @@ class GraspTaskEnv(DexmateCorrectionEnv):
                 out_c = (e_dev - r_cone).clamp(min=0.0)
                 terms["cone"] = -cfg.w_cone * in_app * out_c.square()
                 self.cone_out_cm = out_c * 100.0 * in_app
+            # -- PickAndPlace: 搬运段物体跟踪势差分 (§2.19) --
+            # 目标(t) = 进搬运时的物体位 + 人手腕相对位移; 差分支付, 与 w_align 同数学.
+            if cfg.place_task:
+                in_cr = (self.task_phase == Phase.TRANSPORT).float()
+                tgt_c = self.carry_anchor \
+                    + self.carry_delta[self.ref_t.clamp(max=self.re)]
+                d_cr = (s["obj_pos"] - tgt_c).norm(dim=1)
+                terms["carry"] = cfg.w_carry * (self.carry_prev_d - d_cr) \
+                    .clamp(-0.05, 0.05) * in_cr
+                self.carry_prev_d = torch.where(in_cr.bool(), d_cr, self.carry_prev_d)
 
         # -- 密集: 逐垫接近进度 (有效接触数够了就关, 该拿质量分了) --
         d_pad = (self.prev_pad_d - s["pad_d"]).clamp(-0.05, 0.05).mean(dim=1)
@@ -1222,6 +1306,9 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         self.verify_k[env_ids] = 0
         self.verify_ok_run[env_ids] = 0
         self.got_candidate[env_ids] = False
+        if cfg.place_task:
+            self.settle_ctr[env_ids] = 0
+            self.carry_prev_d[env_ids] = 0.0
         self.succeeded[env_ids] = False
         self.pad_touched[env_ids] = False
         self.any_contact[env_ids] = False

@@ -1,0 +1,32 @@
+{
+ "1%": {
+  "agent_steps": 65536,
+  "epoch": 1,
+  "wall_min": 0.4
+ },
+ "10%": {
+  "agent_steps": 229376,
+  "epoch": 6,
+  "wall_min": 2.3
+ },
+ "25%": {
+  "agent_steps": 557056,
+  "epoch": 16,
+  "wall_min": 6.2
+ },
+ "50%": {
+  "agent_steps": 1343488,
+  "epoch": 40,
+  "wall_min": 15.8
+ },
+ "80%": {
+  "agent_steps": 5406720,
+  "epoch": 164,
+  "wall_min": 62.1
+ },
+ "90%": {
+  "agent_steps": 6750208,
+  "epoch": 205,
+  "wall_min": 77.4
+ }
+}

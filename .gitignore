@@ -1,5 +1,8 @@
 # ---- 训练/运行产物 ----
 logs/
+# results/ 整体不入库, 但**冠军存档**例外 —— 让外部协作者能完整复现一条成功训练。
+# 例外目录用 `git add -f` 强制跟踪 (已跟踪的文件不再受 ignore 约束), 见
+# results/part2/basic_pick_place/3/Approach_Pick_冠军seed42/README.md
 results/
 wandb/
 outputs/

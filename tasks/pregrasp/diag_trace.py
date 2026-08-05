@@ -19,6 +19,7 @@ parser.add_argument("--grasp_prior", type=str, required=True)
 parser.add_argument("--prior_yaw", type=float, default=-1.0)
 parser.add_argument("--stance_prefix", type=int, default=0)
 parser.add_argument("--orient_blend", action="store_true", help="必须与训练一致")
+parser.add_argument("--place", action="store_true", help="必须与训练一致 (记录搬运/放置几何)")
 parser.add_argument("--num_envs", type=int, default=4)
 parser.add_argument("--steps", type=int, default=320)
 parser.add_argument("--out", type=str, default="trace.npz")
@@ -53,6 +54,10 @@ env_cfg.direct_grasp_prob = 0.0
 env_cfg.approach_t0_max = 0.0
 env_cfg.stance_prefix_frames = args.stance_prefix
 env_cfg.orient_blend = args.orient_blend
+if args.place:
+    env_cfg.place_task = True
+    env_cfg.episode_length_s = 20.0
+    env_cfg.freeze_wrist = False
 env_cfg.scene.num_envs = args.num_envs
 raw = GraspTaskEnv(env_cfg)
 raw.gentle = 1.0
@@ -67,7 +72,7 @@ agent.set_eval()
 N = raw.num_envs
 L = raw.q_ref.shape[0]
 rec = {k: [] for k in ("d_pos", "d_rot", "phase", "ref_t",
-                       "wrist_pos", "ref_pos", "done")}
+                       "wrist_pos", "ref_pos", "done", "obj_pos", "closure")}
 obs_dict = env.reset()
 with torch.no_grad():
     for t in range(args.steps):
@@ -85,6 +90,8 @@ with torch.no_grad():
         rec["ref_t"].append(raw.ref_t.cpu().numpy())
         rec["wrist_pos"].append((raw.wrist_pos_w - raw.scene.env_origins).cpu().numpy())
         rec["ref_pos"].append(raw.ref_wrist_pos[tt].cpu().numpy())
+        rec["obj_pos"].append((raw._sig["obj_pos"]).cpu().numpy())
+        rec["closure"].append(raw.closure.cpu().numpy())
         d = done.bool() if torch.is_tensor(done) else torch.tensor(done).bool()
         rec["done"].append(d.cpu().numpy())
 
@@ -94,6 +101,11 @@ out["grasp_quat"] = raw._grasp_quat_w.cpu().numpy()
 out["ref_wrist_pos_full"] = raw.ref_wrist_pos.cpu().numpy()
 out["gs"] = raw.gs
 out["prefix"] = args.stance_prefix
+if args.place:
+    out["re"] = raw.re
+    out["carry_delta"] = raw.carry_delta.cpu().numpy()
+    out["place_target"] = raw.place_target.cpu().numpy()   # (N,3) 各env当前值
+    out["obj_init"] = raw.obj_init_pos.cpu().numpy()
 np.savez(args.out, **out)
 print(f"[trace] 写出 {args.out}: {args.steps} 步 × {N} env, gs={raw.gs}, L={L}")
 app.close()

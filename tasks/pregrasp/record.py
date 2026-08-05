@@ -32,6 +32,8 @@ parser.add_argument("--stance_prefix", type=int, default=0,
                     help="必须与训练时相同 (0=无前缀)")
 parser.add_argument("--orient_blend", action="store_true",
                     help="必须与训练时相同 (改 obs 的参考通道)")
+parser.add_argument("--place", action="store_true",
+                    help="必须与训练时相同 (成功判据=放置达标)")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 args.enable_cameras = True                     # 离屏渲染必需
@@ -72,6 +74,10 @@ if args.grasp_prior:
 elif args.approach:
     raise SystemExit("--approach 必须配 --grasp_prior (对齐势的终点来自 GraspPose)")
 env_cfg.orient_blend = args.orient_blend   # 与 approach 无关: 参考通道常开, obs 必须对齐
+if args.place:
+    env_cfg.place_task = True
+    env_cfg.episode_length_s = 20.0
+    env_cfg.freeze_wrist = False   # 与训练一致: gs 后腕参考解冻 (搬运段)
 if args.approach:
     env_cfg.direct_grasp_prob = 0.0   # 全部回合从接近段起步
     env_cfg.approach_t0_max = 0.0     # 从人手轨迹 t=0 (q_ref[0]) 出发

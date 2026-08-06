@@ -1,0 +1,13 @@
+# 由右手模板 `31_Ring.yaml` 镜像而来 (tools/retarget_shadow_templates.py mirror)
+# 左右手精确镜像: qpos 原样, 仅 body 名换前缀; 勿翻转任何关节符号。
+# 由 Shadow 模板 `31_Ring` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [0.8094, -0.0370, 0.0711, 0.0102, 0.2801, 0.0425, -0.3278, 0.8807, 0.5188, 0.0257, -0.2061, 0.4915, 0.2048, -0.1745, -0.1296, 0.2883, 0.6422, 0.0402, -0.1709, 0.0086, 0.4633, 0.2885]
+
+contact:
+  left_hand_C_MC: 2
+  left_index_DP: 0
+  left_index_MP: 0
+  left_index_PP: 0
+  left_middle_PP: 0
+  left_thumb_DP: 1
+  left_thumb_PP: 1

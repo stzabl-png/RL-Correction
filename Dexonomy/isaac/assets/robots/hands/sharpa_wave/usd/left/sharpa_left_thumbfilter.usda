@@ -1,0 +1,17 @@
+#usda 1.0
+(
+    defaultPrim = "Left_Sharpa_Wave"
+    doc = "Left-hand mirror of sharpa_right_tuned_thumbfilter.usda. Thin overlay over sharpa_left.usd adding exactly ONE opinion: a PhysicsFilteredPairsAPI on left_thumb_MC exempting its collision against left_hand_C_MC (palm). Same rationale as the right hand: the two links are two joints apart through the collider-less left_thumb_CMC_VL virtual link, so PhysX's automatic adjacent-body filter misses the pair, and the convex-decomposition bulge plus baked rest offsets form a permanent contact wedge that seizes the thumb CMC joints. Measured 2026-08-05 on bottle_cap/10_1: without this overlay left_thumb_CMC_AA tracked +1.385 rad target with actual -0.217 rad (1.60 rad error, joint fully seized); every other joint tracked to <0.56 rad. The left hand is an exact mirror of the right (see Dexonomy/tools/sharpa_wave/mirror_left_spheres.py), so the same single pair is the right fix. No other pair is filtered."
+)
+
+def "Left_Sharpa_Wave" (
+    prepend references = @./sharpa_left.usd@
+)
+{
+    over "left_thumb_MC" (
+        prepend apiSchemas = ["PhysicsFilteredPairsAPI"]
+    )
+    {
+        prepend rel physics:filteredPairs = </Left_Sharpa_Wave/left_hand_C_MC>
+    }
+}

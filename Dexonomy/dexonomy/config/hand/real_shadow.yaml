@@ -1,0 +1,6 @@
+xml_path: ${asset_root}/hand/real_shadow/real_right.xml 
+color: [0.863157, 0.0865002, 0.0802199, 1.0]
+arm_hand:
+  xml_path: ${asset_root}/hand/real_shadow/real_right_ur10e.xml 
+  ee_name: "hand:rh_palm"
+  skip_table_cbody: ["shoulder_link"]

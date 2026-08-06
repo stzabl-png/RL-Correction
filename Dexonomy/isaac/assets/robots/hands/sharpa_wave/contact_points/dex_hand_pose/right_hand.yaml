@@ -1,0 +1,314 @@
+side: "right"
+
+asset:
+  usd_path: "../asset/right_sharpa_wave/right_sharpa_wave/right_sharpa_wave.usd"
+  urdf_path: "../asset/right_sharpa_wave/right_sharpa_wave.urdf"
+
+root:
+  wrist_link: "right_hand_C_MC"
+  palm_link: "right_hand_C_MC"
+
+frame_convention:
+  palm_normal_local: [1.0, 0.0, 0.0]
+  finger_forward_local: [0.0, 0.0, 1.0]
+  thumb_opposition_local: [0.0, 1.0, 0.0]
+
+links:
+  tips:
+    thumb: "right_thumb_DP"
+    index: "right_index_DP"
+    middle: "right_middle_DP"
+    ring: "right_ring_DP"
+    little: "right_pinky_DP"
+
+  contact_candidate_links:
+    - "right_hand_C_MC"
+    - "right_thumb_MC"
+    - "right_thumb_PP"
+    - "right_thumb_DP"
+    - "right_index_PP"
+    - "right_index_MP"
+    - "right_index_DP"
+    - "right_middle_PP"
+    - "right_middle_MP"
+    - "right_middle_DP"
+    - "right_ring_PP"
+    - "right_ring_MP"
+    - "right_ring_DP"
+    - "right_pinky_MC"
+    - "right_pinky_PP"
+    - "right_pinky_MP"
+    - "right_pinky_DP"
+
+  collision_link_names:
+    - "right_hand_C_MC"
+    - "right_thumb_MC"
+    - "right_thumb_PP"
+    - "right_thumb_DP"
+    - "right_index_PP"
+    - "right_index_MP"
+    - "right_index_DP"
+    - "right_middle_PP"
+    - "right_middle_MP"
+    - "right_middle_DP"
+    - "right_ring_PP"
+    - "right_ring_MP"
+    - "right_ring_DP"
+    - "right_pinky_MC"
+    - "right_pinky_PP"
+    - "right_pinky_MP"
+    - "right_pinky_DP"
+
+joints:
+  controllable:
+    - "right_thumb_CMC_FE"
+    - "right_thumb_CMC_AA"
+    - "right_thumb_MCP_FE"
+    - "right_thumb_MCP_AA"
+    - "right_thumb_IP"
+    - "right_index_MCP_FE"
+    - "right_index_MCP_AA"
+    - "right_index_PIP"
+    - "right_index_DIP"
+    - "right_middle_MCP_FE"
+    - "right_middle_MCP_AA"
+    - "right_middle_PIP"
+    - "right_middle_DIP"
+    - "right_ring_MCP_FE"
+    - "right_ring_MCP_AA"
+    - "right_ring_PIP"
+    - "right_ring_DIP"
+    - "right_pinky_CMC"
+    - "right_pinky_MCP_FE"
+    - "right_pinky_MCP_AA"
+    - "right_pinky_PIP"
+    - "right_pinky_DIP"
+
+  groups:
+    thumb:
+      - "right_thumb_CMC_FE"
+      - "right_thumb_CMC_AA"
+      - "right_thumb_MCP_FE"
+      - "right_thumb_MCP_AA"
+      - "right_thumb_IP"
+    index:
+      - "right_index_MCP_FE"
+      - "right_index_MCP_AA"
+      - "right_index_PIP"
+      - "right_index_DIP"
+    middle:
+      - "right_middle_MCP_FE"
+      - "right_middle_MCP_AA"
+      - "right_middle_PIP"
+      - "right_middle_DIP"
+    ring:
+      - "right_ring_MCP_FE"
+      - "right_ring_MCP_AA"
+      - "right_ring_PIP"
+      - "right_ring_DIP"
+    little:
+      - "right_pinky_CMC"
+      - "right_pinky_MCP_FE"
+      - "right_pinky_MCP_AA"
+      - "right_pinky_PIP"
+      - "right_pinky_DIP"
+
+  limits:
+    right_thumb_CMC_FE: [-0.1745, 1.9199]
+    right_thumb_CMC_AA: [-0.3491, 0.3491]
+    right_thumb_MCP_FE: [-0.5236, 1.3963]
+    right_thumb_MCP_AA: [-0.3491, 0.3491]
+    right_thumb_IP: [0.0, 1.7453]
+    right_index_MCP_FE: [-0.17453293, 1.5708]
+    right_index_MCP_AA: [-0.3491, 0.3491]
+    right_index_PIP: [0.0, 1.7453]
+    right_index_DIP: [0.0, 1.3963]
+    right_middle_MCP_FE: [-0.17453293, 1.5708]
+    right_middle_MCP_AA: [-0.3491, 0.3491]
+    right_middle_PIP: [0.0, 1.7453]
+    right_middle_DIP: [0.0, 1.3963]
+    right_ring_MCP_FE: [-0.17453293, 1.5708]
+    right_ring_MCP_AA: [-0.3491, 0.3491]
+    right_ring_PIP: [0.0, 1.7453]
+    right_ring_DIP: [0.0, 1.3963]
+    right_pinky_CMC: [0.0, 0.2618]
+    right_pinky_MCP_FE: [-0.17453293, 1.5708]
+    right_pinky_MCP_AA: [-0.3491, 0.3491]
+    right_pinky_PIP: [0.0, 1.7453]
+    right_pinky_DIP: [0.0, 1.3963]
+
+default_postures:
+  neutral: &neutral
+    right_index_MCP_FE: 0.0
+    right_index_MCP_AA: 0.0
+    right_index_PIP: 0.0
+    right_index_DIP: 0.0
+    right_middle_MCP_FE: 0.0
+    right_middle_MCP_AA: 0.0
+    right_middle_PIP: 0.0
+    right_middle_DIP: 0.0
+    right_ring_MCP_FE: 0.0
+    right_ring_MCP_AA: 0.0
+    right_ring_PIP: 0.0
+    right_ring_DIP: 0.0
+    right_pinky_CMC: 0.0
+    right_pinky_MCP_FE: 0.0
+    right_pinky_MCP_AA: 0.0
+    right_pinky_PIP: 0.0
+    right_pinky_DIP: 0.0
+    right_thumb_CMC_FE: 0.0
+    right_thumb_CMC_AA: 0.0
+    right_thumb_MCP_FE: 0.0
+    right_thumb_MCP_AA: 0.0
+    right_thumb_IP: 0.0
+
+  open_hand: *neutral
+
+  cat3_palm_first:
+    <<: *neutral
+    right_thumb_CMC_FE: -0.1745
+    right_thumb_CMC_AA: -0.3491
+
+  light_close:
+    right_index_MCP_FE: 0.45
+    right_index_MCP_AA: 0.0
+    right_index_PIP: 0.55
+    right_index_DIP: 0.35
+    right_middle_MCP_FE: 0.45
+    right_middle_MCP_AA: 0.0
+    right_middle_PIP: 0.55
+    right_middle_DIP: 0.35
+    right_ring_MCP_FE: 0.45
+    right_ring_MCP_AA: 0.0
+    right_ring_PIP: 0.55
+    right_ring_DIP: 0.35
+    right_pinky_CMC: 0.08
+    right_pinky_MCP_FE: 0.45
+    right_pinky_MCP_AA: 0.0
+    right_pinky_PIP: 0.55
+    right_pinky_DIP: 0.35
+    right_thumb_CMC_FE: 0.45
+    right_thumb_CMC_AA: 0.12
+    right_thumb_MCP_FE: 0.35
+    right_thumb_MCP_AA: 0.0
+    right_thumb_IP: 0.35
+
+  medium_close:
+    right_index_MCP_FE: 0.85
+    right_index_MCP_AA: 0.0
+    right_index_PIP: 0.95
+    right_index_DIP: 0.60
+    right_middle_MCP_FE: 0.85
+    right_middle_MCP_AA: 0.0
+    right_middle_PIP: 0.95
+    right_middle_DIP: 0.60
+    right_ring_MCP_FE: 0.85
+    right_ring_MCP_AA: 0.0
+    right_ring_PIP: 0.95
+    right_ring_DIP: 0.60
+    right_pinky_CMC: 0.12
+    right_pinky_MCP_FE: 0.85
+    right_pinky_MCP_AA: 0.0
+    right_pinky_PIP: 0.95
+    right_pinky_DIP: 0.60
+    right_thumb_CMC_FE: 0.70
+    right_thumb_CMC_AA: 0.18
+    right_thumb_MCP_FE: 0.55
+    right_thumb_MCP_AA: 0.0
+    right_thumb_IP: 0.55
+
+  cat2_hold_close:
+    right_index_MCP_FE: 1.00
+    right_index_MCP_AA: 0.0
+    right_index_PIP: 0.80
+    right_index_DIP: 0.45
+    right_middle_MCP_FE: 1.00
+    right_middle_MCP_AA: 0.0
+    right_middle_PIP: 0.80
+    right_middle_DIP: 0.45
+    right_ring_MCP_FE: 0.90
+    right_ring_MCP_AA: 0.0
+    right_ring_PIP: 0.75
+    right_ring_DIP: 0.40
+    right_pinky_CMC: 0.12
+    right_pinky_MCP_FE: 0.85
+    right_pinky_MCP_AA: 0.0
+    right_pinky_PIP: 0.70
+    right_pinky_DIP: 0.40
+    right_thumb_CMC_FE: 0.65
+    right_thumb_CMC_AA: 0.15
+    right_thumb_MCP_FE: 0.45
+    right_thumb_MCP_AA: 0.0
+    right_thumb_IP: 0.45
+
+  cat3_fingers_down:
+    right_index_MCP_FE: 0.95
+    right_index_MCP_AA: 0.0
+    right_index_PIP: 1.20
+    right_index_DIP: 0.75
+    right_middle_MCP_FE: 0.98
+    right_middle_MCP_AA: 0.0
+    right_middle_PIP: 1.25
+    right_middle_DIP: 0.78
+    right_ring_MCP_FE: 0.95
+    right_ring_MCP_AA: 0.0
+    right_ring_PIP: 1.15
+    right_ring_DIP: 0.72
+    right_pinky_CMC: 0.16
+    right_pinky_MCP_FE: 0.90
+    right_pinky_MCP_AA: 0.0
+    right_pinky_PIP: 1.05
+    right_pinky_DIP: 0.68
+    right_thumb_CMC_FE: 0.35
+    right_thumb_CMC_AA: 0.05
+    right_thumb_MCP_FE: 0.25
+    right_thumb_MCP_AA: 0.0
+    right_thumb_IP: 0.25
+
+  cat3_side_press:
+    right_index_MCP_FE: 0.28
+    right_index_MCP_AA: 0.0
+    right_index_PIP: 0.32
+    right_index_DIP: 0.16
+    right_middle_MCP_FE: 0.30
+    right_middle_MCP_AA: 0.0
+    right_middle_PIP: 0.34
+    right_middle_DIP: 0.17
+    right_ring_MCP_FE: 0.28
+    right_ring_MCP_AA: 0.0
+    right_ring_PIP: 0.32
+    right_ring_DIP: 0.16
+    right_pinky_CMC: 0.04
+    right_pinky_MCP_FE: 0.26
+    right_pinky_MCP_AA: 0.0
+    right_pinky_PIP: 0.30
+    right_pinky_DIP: 0.15
+    right_thumb_CMC_FE: 0.0
+    right_thumb_CMC_AA: 0.0
+    right_thumb_MCP_FE: 0.08
+    right_thumb_MCP_AA: 0.0
+    right_thumb_IP: 0.08
+
+  cat3_push_hold:
+    right_index_MCP_FE: 0.70
+    right_index_MCP_AA: 0.0
+    right_index_PIP: 1.00
+    right_index_DIP: 0.65
+    right_middle_MCP_FE: 0.72
+    right_middle_MCP_AA: 0.0
+    right_middle_PIP: 1.05
+    right_middle_DIP: 0.68
+    right_ring_MCP_FE: 0.70
+    right_ring_MCP_AA: 0.0
+    right_ring_PIP: 0.95
+    right_ring_DIP: 0.60
+    right_pinky_CMC: 0.14
+    right_pinky_MCP_FE: 0.65
+    right_pinky_MCP_AA: 0.0
+    right_pinky_PIP: 0.90
+    right_pinky_DIP: 0.58
+    right_thumb_CMC_FE: 0.15
+    right_thumb_CMC_AA: 0.0
+    right_thumb_MCP_FE: 0.15
+    right_thumb_MCP_AA: 0.0
+    right_thumb_IP: 0.15

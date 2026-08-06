@@ -1,0 +1,22 @@
+# 由右手模板 `15_Fixed_Hook.yaml` 镜像而来 (tools/retarget_shadow_templates.py mirror)
+# 左右手精确镜像: qpos 原样, 仅 body 名换前缀; 勿翻转任何关节符号。
+# 由 Shadow 模板 `15_Fixed_Hook` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [0.4678, 0.0050, -0.4127, 0.1028, 0.0000, 0.2017, -0.0723, 1.1734, 0.6569, 0.2693, -0.0367, 1.2593, 0.5837, 0.2657, -0.0216, 1.1431, 0.6307, 0.0955, 0.2869, 0.0430, 1.0029, 0.6321]
+
+contact:
+  left_hand_C_MC:
+    - 0
+    - 2
+  left_index_DP: 0
+  left_index_MP: 1
+  left_index_PP: 0
+  left_middle_DP: 1
+  left_middle_MP: 1
+  left_middle_PP: 0
+  left_pinky_DP: 0
+  left_pinky_MP: 0
+  left_pinky_PP: 0
+  left_ring_DP: 1
+  left_ring_MP: 0
+  left_ring_PP: 0
+  left_thumb_PP: 1

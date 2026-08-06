@@ -1,0 +1,11 @@
+# 由右手模板 `fingertip_mid.yaml` 镜像而来 (tools/retarget_shadow_templates.py mirror)
+# 左右手精确镜像: qpos 原样, 仅 body 名换前缀; 勿翻转任何关节符号。
+# Five-fingertip precision grasp, ~4cm aperture.
+qpos: [1.66, 0.15, -0.51, 0.08, 0.11, 0.6, 0.0, 0.7, 0.5, 0.6, 0.0, 0.7, 0.5, 0.6, 0.0, 0.7, 0.5, 0.05, 0.6, 0.0, 0.7, 0.5]
+
+contact:
+  left_index_DP: 0
+  left_middle_DP: 1
+  left_ring_DP: 0
+  left_pinky_DP: 1
+  left_thumb_DP: 1

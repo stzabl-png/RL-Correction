@@ -1,0 +1,20 @@
+# 由 Shadow 模板 `3_Medium_Wrap` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [0.7877, 0.1788, 0.0819, 0.1820, 0.3094, 0.0527, -0.3491, 1.1433, 0.5103, 0.1598, -0.3154, 1.1238, 0.4892, 0.2476, -0.2567, 0.9071, 0.5278, 0.0403, 0.2879, -0.1924, 0.7453, 0.4960]
+
+contact:
+  right_hand_C_MC:
+    - 0
+    - 2
+  right_index_DP: 0
+  right_index_MP: 1
+  right_index_PP: 0
+  right_middle_DP: 1
+  right_middle_MP: 1
+  right_middle_PP: 0
+  right_pinky_DP: 0
+  right_pinky_MP: 0
+  right_pinky_PP: 0
+  right_ring_DP: 0
+  right_ring_MP: 0
+  right_ring_PP: 0
+  right_thumb_DP: 1

@@ -1,0 +1,13 @@
+__pycache__/
+*.egg-info
+
+.vscode
+*.npy
+# 手部模板/标注是仓库交付物, 不受 *.npy 规则约束
+!assets/hand/**/*.npy
+
+debug*
+output*
+assets/object
+MUJOCO_LOG.TXT
+task/

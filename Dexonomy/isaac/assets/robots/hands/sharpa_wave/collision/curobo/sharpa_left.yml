@@ -1,0 +1,93 @@
+robot: left_sharpa_wave
+collision_spheres:
+  left_index_PP:
+  - center: [0.023, -0.001, 0.001]
+    radius: 0.012
+  - center: [0.039, 0.0, 0.005]
+    radius: 0.0112
+  left_index_MP:
+  - center: [0.014, -0.001, 0.0]
+    radius: 0.0096
+  - center: [0.024, -0.005, 0.0]
+    radius: 0.0096
+  left_index_DP:
+  - center: [0.017, -0.003, 0.0]
+    radius: 0.0079
+  - center: [0.007, -0.003, 0.001]
+    radius: 0.0079
+  left_middle_PP:
+  - center: [0.019, 0.0, 0.001]
+    radius: 0.011
+  - center: [0.039, 0.0, 0.004]
+    radius: 0.0102
+  left_middle_MP:
+  - center: [0.011, -0.001, 0.0]
+    radius: 0.0096
+  - center: [0.024, -0.004, 0.0]
+    radius: 0.0096
+  left_middle_DP:
+  - center: [0.006, -0.003, 0.001]
+    radius: 0.0079
+  - center: [0.016, -0.003, 0.0]
+    radius: 0.0079
+  left_pinky_PP:
+  - center: [0.024, 0.0, 0.001]
+    radius: 0.011
+  - center: [0.04, 0.0, 0.002]
+    radius: 0.0102
+  left_pinky_MP:
+  - center: [0.01, -0.002, 0.0]
+    radius: 0.0096
+  - center: [0.025, -0.003, 0.0]
+    radius: 0.0096
+  left_pinky_DP:
+  - center: [0.005, -0.003, -0.001]
+    radius: 0.0079
+  - center: [0.015, -0.003, 0.0]
+    radius: 0.0079
+  left_ring_PP:
+  - center: [0.022, 0.0, 0.001]
+    radius: 0.011
+  - center: [0.036, 0.0, 0.003]
+    radius: 0.0102
+  left_ring_MP:
+  - center: [0.014, -0.001, 0.0]
+    radius: 0.0096
+  - center: [0.024, -0.005, 0.0]
+    radius: 0.0096
+  left_ring_DP:
+  - center: [0.015, -0.003, 0.0]
+    radius: 0.0079
+  - center: [0.006, -0.003, 0.001]
+    radius: 0.0079
+  left_thumb_PP:
+  - center: [0.017, 0.0, 0.002]
+    radius: 0.0116
+  - center: [0.03, 0.0, 0.003]
+    radius: 0.0109
+  left_thumb_MC:
+  - center: [0.045, -0.01, -0.008]
+    radius: 0.018
+  - center: [0.03, -0.008, -0.012]
+    radius: 0.0167
+  left_thumb_DP:
+  - center: [0.007, -0.002, 0.0]
+    radius: 0.0086
+  - center: [0.018, -0.004, 0.001]
+    radius: 0.008
+  left_hand_C_MC:
+  - center: [-0.004, 0.005, 0.059]
+    radius: 0.0227
+  - center: [-0.005, 0.002, 0.021]
+    radius: 0.0227
+  - center: [-0.007, -0.016, 0.057]
+    radius: 0.0212
+  - center: [-0.005, 0.022, 0.018]
+    radius: 0.0197
+  left_pinky_MC:
+  - center: [0.006, 0.002, 0.041]
+    radius: 0.0148
+  - center: [0.005, 0.007, 0.026]
+    radius: 0.0142
+  - center: [0.008, 0.007, 0.012]
+    radius: 0.0142

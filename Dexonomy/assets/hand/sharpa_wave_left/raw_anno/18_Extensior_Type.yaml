@@ -1,0 +1,13 @@
+# 由右手模板 `18_Extensior_Type.yaml` 镜像而来 (tools/retarget_shadow_templates.py mirror)
+# 左右手精确镜像: qpos 原样, 仅 body 名换前缀; 勿翻转任何关节符号。
+# 由 Shadow 模板 `18_Extensior_Type` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [1.3287, -0.1287, 0.6950, -0.2156, 0.5437, 0.0285, -0.1080, 0.3553, 0.3613, -0.0427, 0.0087, 0.4164, 0.4251, -0.0372, 0.1260, 0.3746, 0.4294, 0.0000, -0.0899, 0.2095, 0.4528, 0.4178]
+
+contact:
+  left_hand_C_MC: 0
+  left_index_DP: 1
+  left_middle_DP: 1
+  left_pinky_DP: 1
+  left_ring_DP: 0
+  left_thumb_DP: 0
+  left_thumb_PP: 0

@@ -1,0 +1,16 @@
+# 由 Shadow 模板 `17_Index_Finger_Extension` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [0.7899, 0.1870, -0.0419, 0.3491, 0.1335, -0.1745, -0.3223, 0.0000, 0.2304, 0.1297, 0.1600, 1.1204, 0.8645, 0.3369, 0.1670, 0.9575, 0.8159, 0.1322, 0.5523, 0.2067, 0.7843, 0.7459]
+
+contact:
+  right_hand_C_MC: 2
+  right_index_DP: 1
+  right_index_MP: 0
+  right_index_PP: 0
+  right_middle_DP: 1
+  right_middle_PP: 0
+  right_pinky_DP: 1
+  right_pinky_MC: 1
+  right_pinky_PP: 0
+  right_ring_DP: 0
+  right_ring_PP: 0
+  right_thumb_DP: 1

@@ -1,0 +1,14 @@
+# 由 Shadow 模板 `11_Power_Sphere` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [1.0044, 0.1678, 0.0746, -0.0145, 0.2428, 0.1376, -0.3491, 0.9991, 0.3663, -0.0069, -0.2829, 1.0603, 0.3096, 0.1529, -0.1645, 0.8237, 0.3167, 0.2256, 0.4954, -0.0260, 0.4816, 0.3275]
+
+contact:
+  right_index_DP: 0
+  right_index_MP: 1
+  right_middle_DP: 1
+  right_middle_MP: 1
+  right_pinky_DP: 0
+  right_pinky_MP: 0
+  right_ring_DP: 1
+  right_ring_MP: 0
+  right_thumb_DP: 1
+  right_thumb_PP: 1

@@ -1,0 +1,22 @@
+# 由右手模板 `1_Large_Diameter.yaml` 镜像而来 (tools/retarget_shadow_templates.py mirror)
+# 左右手精确镜像: qpos 原样, 仅 body 名换前缀; 勿翻转任何关节符号。
+# 由 Shadow 模板 `1_Large_Diameter` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [1.0940, -0.0188, 0.1356, -0.1084, 0.4047, -0.1090, -0.1762, 0.9119, 0.6132, -0.0401, -0.1491, 0.8642, 0.6056, 0.0371, -0.1246, 0.7186, 0.6076, 0.0987, 0.0176, -0.0844, 0.7110, 0.5600]
+
+contact:
+  left_hand_C_MC: 2
+  left_index_DP: 0
+  left_index_MP: 0
+  left_index_PP: 0
+  left_middle_DP: 1
+  left_middle_MP: 0
+  left_middle_PP: 0
+  left_pinky_DP: 0
+  left_pinky_MC: 2
+  left_pinky_MP: 0
+  left_pinky_PP: 0
+  left_ring_DP: 0
+  left_ring_MP: 0
+  left_ring_PP: 0
+  left_thumb_DP: 1
+  left_thumb_PP: 0

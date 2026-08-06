@@ -1,0 +1,9 @@
+# 由 Shadow 模板 `21_Tripod_Variation` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [1.0620, 0.3355, 0.3226, 0.3491, 0.5466, -0.1745, 0.2814, 1.0573, 0.6635, 0.0555, 0.2415, 1.0978, 0.6172, 0.3524, 0.1774, 0.9247, 0.5939, 0.2005, 0.8453, 0.2776, 1.4403, 1.1438]
+
+contact:
+  right_hand_C_MC: 2
+  right_index_DP: 0
+  right_middle_DP: 1
+  right_ring_DP: 0
+  right_thumb_DP: 1

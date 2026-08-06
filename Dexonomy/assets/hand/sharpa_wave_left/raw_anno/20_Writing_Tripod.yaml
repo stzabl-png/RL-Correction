@@ -1,0 +1,10 @@
+# 由右手模板 `20_Writing_Tripod.yaml` 镜像而来 (tools/retarget_shadow_templates.py mirror)
+# 左右手精确镜像: qpos 原样, 仅 body 名换前缀; 勿翻转任何关节符号。
+# 由 Shadow 模板 `20_Writing_Tripod` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [1.1077, 0.3491, 0.3543, 0.3352, 0.5431, -0.1745, 0.3491, 0.0000, 0.0777, 0.2758, 0.2438, 1.2279, 0.7101, 0.5345, 0.2497, 1.5748, 1.0997, 0.1902, 0.5985, 0.3491, 1.4292, 1.1145]
+
+contact:
+  left_hand_C_MC: 2
+  left_index_DP: 1
+  left_middle_MP: 0
+  left_thumb_DP: 1

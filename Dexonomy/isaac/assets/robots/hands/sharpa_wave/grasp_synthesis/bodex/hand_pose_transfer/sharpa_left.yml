@@ -1,0 +1,9 @@
+# 左手的 base_link 位姿变换。与右手一样是单位变换 —— 该文件描述的是
+# "BODex 抓姿的根位姿 -> 手 base_link" 的固定偏移, 左右手都不需要偏移。
+# ⚠ Isaac 验证 (simulate_grasp_traj) 用不到它, 但 load_sharpa_wave_right 会校验
+#   yml 里声明的**所有**路径存在, 缺了就直接 FileNotFoundError。
+left_hand_C_MC:
+  r: [[1.0, 0.0, 0.0],
+      [0.0, 1.0, 0.0],
+      [0.0, 0.0, 1.0]]
+  t: [0.0, 0.0, 0.0]

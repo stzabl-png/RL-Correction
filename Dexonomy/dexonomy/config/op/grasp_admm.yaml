@@ -1,0 +1,39 @@
+grasp:
+  device: "cpu" # only cpu for now
+  gpus: [0, 1, 2, 3] # only used when device is cuda
+  process_per_gpu: 4 # only used when device is cuda
+  step: 50 # outer ADMM iterations, 100 for better quality
+  substep: 10 # simulator substeps
+  step_obj: 1 # object contact point steps in ADMM
+  step_hand: 1 # hand contact point steps in ADMM
+  rho_admm: 1e3 # rho in ADMM, 1e2 should also work
+  lr_obj: 2e-4 # object contact point learning rate
+  square_res: True # use squared force residual
+  cdist: 0.001    # target hand-object contact distance
+  fix_hand_local_cp: False # fix the hand contact points in local link frames
+  opt_miu_coef: [0.1, 0]
+  filter:
+    limit:
+      thre: 0.0  # max value out of the joint qpos limit
+    collision: 
+      hh_thre: 0.0  # min hand-hand distance for collision-free grasp
+      ho_thre: 0.0  # min hand-object distance for collision-free grasp
+    contact: 
+      thre: 0.002  # max hand-object distance for a valid contact
+      check_body: True  # check if the required contact bodies are in contact
+    qp:
+      thre: 0.001  # the qp error should be less than this threshold
+      miu_coef: [0.6, 0.0]  # tangential and torsional friction coefficient
+  
+pregrasp:
+  step: 20
+  substep: 10  
+  cdist: 0.045    # target hand-object contact distance
+  filter:
+    limit:
+      thre: 0.0  # max value out of the joint qpos limit
+    collision: 
+      hh_thre: 0.0  # min hand-hand distance for collision-free pregrasp
+      ho_thre: 0.04  # min hand-object distance for collision-free pregrasp
+
+cust_log_dir: ${log_dir}

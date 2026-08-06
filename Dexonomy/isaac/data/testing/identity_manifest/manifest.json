@@ -1,0 +1,475 @@
+{
+  "selected_root": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest",
+  "sequences": [
+    {
+      "sequence_id": "egodex_pp11",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_egodex_pp11.yml"
+    },
+    {
+      "sequence_id": "egodex_pp0",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_egodex_pp11.yml"
+    },
+    {
+      "sequence_id": "egodex_pp0_anchored",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_pp55",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp0",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp1",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp2",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp3",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp4",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp5",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp6",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp7",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp8",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp9",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp10",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp11",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp12",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp13",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp14",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp15",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp16",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp17",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp0_base",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp1_base",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp2_base",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp3_base",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp4_base",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp5_base",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp6_base",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp7_base",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp8_base",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp9_base",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp10_base",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp11_base",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp12_base",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp13_base",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp14_base",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp15_base",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp16_base",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp17_base",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp0_t",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp1_t",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp2_t",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp3_t",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp4_t",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp5_t",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp6_t",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp7_t",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp8_t",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp9_t",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp10_t",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp11_t",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp12_t",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp13_t",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp14_t",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp15_t",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp16_t",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp17_t",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp0_f",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp1_f",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp2_f",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp3_f",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp4_f",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp5_f",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp6_f",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp7_f",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp8_f",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp9_f",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp10_f",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp11_f",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp12_f",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp13_f",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp14_f",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp15_f",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp16_f",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp17_f",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp0_tf",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp1_tf",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp2_tf",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp3_tf",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp4_tf",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp5_tf",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp6_tf",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp7_tf",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp8_tf",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp9_tf",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp10_tf",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp11_tf",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp12_tf",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp13_tf",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp14_tf",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp15_tf",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp16_tf",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    },
+    {
+      "sequence_id": "egodex_grasp17_tf",
+      "canonical_camera": "cam0",
+      "meta": "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/meta_identity.yml"
+    }
+  ]
+}

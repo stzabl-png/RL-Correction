@@ -1,0 +1,415 @@
+{
+ "10_Power_Disk": {
+  "shadow_fingers": 5,
+  "shadow_distal": 5,
+  "shadow_bodies": 11,
+  "shadow_finger_names": [
+   "ff",
+   "lf",
+   "mf",
+   "rf",
+   "th"
+  ]
+ },
+ "11_Power_Sphere": {
+  "shadow_fingers": 5,
+  "shadow_distal": 5,
+  "shadow_bodies": 10,
+  "shadow_finger_names": [
+   "ff",
+   "lf",
+   "mf",
+   "rf",
+   "th"
+  ]
+ },
+ "12_Precision_Disk": {
+  "shadow_fingers": 5,
+  "shadow_distal": 5,
+  "shadow_bodies": 7,
+  "shadow_finger_names": [
+   "ff",
+   "lf",
+   "mf",
+   "rf",
+   "th"
+  ]
+ },
+ "13_Precision_Sphere": {
+  "shadow_fingers": 5,
+  "shadow_distal": 5,
+  "shadow_bodies": 5,
+  "shadow_finger_names": [
+   "ff",
+   "lf",
+   "mf",
+   "rf",
+   "th"
+  ]
+ },
+ "14_Tripod": {
+  "shadow_fingers": 3,
+  "shadow_distal": 3,
+  "shadow_bodies": 3,
+  "shadow_finger_names": [
+   "ff",
+   "mf",
+   "th"
+  ]
+ },
+ "15_Fixed_Hook": {
+  "shadow_fingers": 5,
+  "shadow_distal": 4,
+  "shadow_bodies": 14,
+  "shadow_finger_names": [
+   "ff",
+   "lf",
+   "mf",
+   "rf",
+   "th"
+  ]
+ },
+ "16_Lateral": {
+  "shadow_fingers": 2,
+  "shadow_distal": 1,
+  "shadow_bodies": 2,
+  "shadow_finger_names": [
+   "ff",
+   "th"
+  ]
+ },
+ "17_Index_Finger_Extension": {
+  "shadow_fingers": 5,
+  "shadow_distal": 5,
+  "shadow_bodies": 12,
+  "shadow_finger_names": [
+   "ff",
+   "lf",
+   "mf",
+   "rf",
+   "th"
+  ]
+ },
+ "18_Extensior_Type": {
+  "shadow_fingers": 5,
+  "shadow_distal": 5,
+  "shadow_bodies": 7,
+  "shadow_finger_names": [
+   "ff",
+   "lf",
+   "mf",
+   "rf",
+   "th"
+  ]
+ },
+ "19_Distal": {
+  "shadow_fingers": 5,
+  "shadow_distal": 3,
+  "shadow_bodies": 8,
+  "shadow_finger_names": [
+   "ff",
+   "lf",
+   "mf",
+   "rf",
+   "th"
+  ]
+ },
+ "1_Large_Diameter": {
+  "shadow_fingers": 5,
+  "shadow_distal": 5,
+  "shadow_bodies": 16,
+  "shadow_finger_names": [
+   "ff",
+   "lf",
+   "mf",
+   "rf",
+   "th"
+  ]
+ },
+ "20_Writing_Tripod": {
+  "shadow_fingers": 3,
+  "shadow_distal": 2,
+  "shadow_bodies": 4,
+  "shadow_finger_names": [
+   "ff",
+   "mf",
+   "th"
+  ]
+ },
+ "21_Tripod_Variation": {
+  "shadow_fingers": 4,
+  "shadow_distal": 4,
+  "shadow_bodies": 5,
+  "shadow_finger_names": [
+   "ff",
+   "mf",
+   "rf",
+   "th"
+  ]
+ },
+ "22_Parallel_Extension": {
+  "shadow_fingers": 5,
+  "shadow_distal": 5,
+  "shadow_bodies": 11,
+  "shadow_finger_names": [
+   "ff",
+   "lf",
+   "mf",
+   "rf",
+   "th"
+  ]
+ },
+ "23_Adduction_Grip": {
+  "shadow_fingers": 2,
+  "shadow_distal": 2,
+  "shadow_bodies": 4,
+  "shadow_finger_names": [
+   "ff",
+   "mf"
+  ]
+ },
+ "24_Tip_Pinch": {
+  "shadow_fingers": 2,
+  "shadow_distal": 2,
+  "shadow_bodies": 2,
+  "shadow_finger_names": [
+   "ff",
+   "th"
+  ]
+ },
+ "25_Lateral_Tripod": {
+  "shadow_fingers": 3,
+  "shadow_distal": 2,
+  "shadow_bodies": 3,
+  "shadow_finger_names": [
+   "ff",
+   "mf",
+   "th"
+  ]
+ },
+ "26_Sphere_4_Finger": {
+  "shadow_fingers": 5,
+  "shadow_distal": 5,
+  "shadow_bodies": 15,
+  "shadow_finger_names": [
+   "ff",
+   "lf",
+   "mf",
+   "rf",
+   "th"
+  ]
+ },
+ "27_Quadpod": {
+  "shadow_fingers": 4,
+  "shadow_distal": 4,
+  "shadow_bodies": 4,
+  "shadow_finger_names": [
+   "ff",
+   "mf",
+   "rf",
+   "th"
+  ]
+ },
+ "28_Sphere_3_Finger": {
+  "shadow_fingers": 4,
+  "shadow_distal": 4,
+  "shadow_bodies": 12,
+  "shadow_finger_names": [
+   "ff",
+   "mf",
+   "rf",
+   "th"
+  ]
+ },
+ "29_Stick": {
+  "shadow_fingers": 5,
+  "shadow_distal": 4,
+  "shadow_bodies": 13,
+  "shadow_finger_names": [
+   "ff",
+   "lf",
+   "mf",
+   "rf",
+   "th"
+  ]
+ },
+ "2_Small_Diameter": {
+  "shadow_fingers": 4,
+  "shadow_distal": 4,
+  "shadow_bodies": 13,
+  "shadow_finger_names": [
+   "ff",
+   "lf",
+   "mf",
+   "rf"
+  ]
+ },
+ "30_Palmar": {
+  "shadow_fingers": 5,
+  "shadow_distal": 5,
+  "shadow_bodies": 15,
+  "shadow_finger_names": [
+   "ff",
+   "lf",
+   "mf",
+   "rf",
+   "th"
+  ]
+ },
+ "31_Ring": {
+  "shadow_fingers": 3,
+  "shadow_distal": 2,
+  "shadow_bodies": 7,
+  "shadow_finger_names": [
+   "ff",
+   "mf",
+   "th"
+  ]
+ },
+ "32_Ventral": {
+  "shadow_fingers": 5,
+  "shadow_distal": 4,
+  "shadow_bodies": 7,
+  "shadow_finger_names": [
+   "ff",
+   "lf",
+   "mf",
+   "rf",
+   "th"
+  ]
+ },
+ "33_Inferior_Pincer": {
+  "shadow_fingers": 2,
+  "shadow_distal": 2,
+  "shadow_bodies": 4,
+  "shadow_finger_names": [
+   "ff",
+   "th"
+  ]
+ },
+ "3_Medium_Wrap": {
+  "shadow_fingers": 5,
+  "shadow_distal": 5,
+  "shadow_bodies": 14,
+  "shadow_finger_names": [
+   "ff",
+   "lf",
+   "mf",
+   "rf",
+   "th"
+  ]
+ },
+ "4_Adducted_Thumb": {
+  "shadow_fingers": 5,
+  "shadow_distal": 5,
+  "shadow_bodies": 11,
+  "shadow_finger_names": [
+   "ff",
+   "lf",
+   "mf",
+   "rf",
+   "th"
+  ]
+ },
+ "5_Light_Tool": {
+  "shadow_fingers": 5,
+  "shadow_distal": 5,
+  "shadow_bodies": 13,
+  "shadow_finger_names": [
+   "ff",
+   "lf",
+   "mf",
+   "rf",
+   "th"
+  ]
+ },
+ "6_Prismatic_4_Finger": {
+  "shadow_fingers": 5,
+  "shadow_distal": 5,
+  "shadow_bodies": 5,
+  "shadow_finger_names": [
+   "ff",
+   "lf",
+   "mf",
+   "rf",
+   "th"
+  ]
+ },
+ "7_Prismatic_3_Finger": {
+  "shadow_fingers": 4,
+  "shadow_distal": 4,
+  "shadow_bodies": 4,
+  "shadow_finger_names": [
+   "ff",
+   "mf",
+   "rf",
+   "th"
+  ]
+ },
+ "8_Prismatic_2_Finger": {
+  "shadow_fingers": 3,
+  "shadow_distal": 3,
+  "shadow_bodies": 3,
+  "shadow_finger_names": [
+   "ff",
+   "mf",
+   "th"
+  ]
+ },
+ "9_Palmar_Pinch": {
+  "shadow_fingers": 2,
+  "shadow_distal": 2,
+  "shadow_bodies": 2,
+  "shadow_finger_names": [
+   "ff",
+   "th"
+  ]
+ },
+ "fingertip_large": {
+  "shadow_fingers": 5,
+  "shadow_distal": 5,
+  "shadow_bodies": 5,
+  "shadow_finger_names": [
+   "ff",
+   "lf",
+   "mf",
+   "rf",
+   "th"
+  ]
+ },
+ "fingertip_middle": {
+  "shadow_fingers": 5,
+  "shadow_distal": 5,
+  "shadow_bodies": 5,
+  "shadow_finger_names": [
+   "ff",
+   "lf",
+   "mf",
+   "rf",
+   "th"
+  ]
+ },
+ "mug": {
+  "shadow_fingers": 4,
+  "shadow_distal": 3,
+  "shadow_bodies": 8,
+  "shadow_finger_names": [
+   "ff",
+   "mf",
+   "rf",
+   "th"
+  ]
+ },
+ "fingertip_mid": {
+  "shadow_fingers": 5,
+  "shadow_distal": 5,
+  "shadow_bodies": 5,
+  "origin": "sharpa_authored (非 Shadow 来源)"
+ },
+ "fingertip_small": {
+  "shadow_fingers": 3,
+  "shadow_distal": 3,
+  "shadow_bodies": 3,
+  "origin": "sharpa_authored (非 Shadow 来源)"
+ }
+}

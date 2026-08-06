@@ -1,0 +1,69 @@
+name: sharpa_wave_left
+side: left
+urdf_path: urdf/left_sharpa_wave/left_sharpa_wave.urdf
+# ⚠ 左手**没有** Articulation_Bodex 的 tuned_instanceable 调校版 (上游只出了右手)。
+# 这里用左手基础 USD: 它已带 22 个手指关节 + 26 个碰撞体 + 掌心世界锚定 root_joint
+# (body0 为空), 与右手 bodex_reference 同语义。驱动增益由 simulate_grasp_traj.py
+# 运行时按 SHARPA_DRIVE_GAINS 表写入, 不依赖 USD 里烘焙的值。
+# 未做: 右手那层 thumbfilter 覆盖 (拇指 MC <-> 掌心碰撞对豁免) —— 若开自碰撞后
+# 左手拇指 CMC 卡死, 需要照右手做一份镜像覆盖层。
+usd_path: usd/left/sharpa_left_thumbfilter.usda
+base_link: left_hand_C_MC
+ee_link: left_hand_C_MC
+joint_order:
+  - left_thumb_CMC_FE
+  - left_thumb_CMC_AA
+  - left_thumb_MCP_FE
+  - left_thumb_MCP_AA
+  - left_thumb_IP
+  - left_index_MCP_FE
+  - left_index_MCP_AA
+  - left_index_PIP
+  - left_index_DIP
+  - left_middle_MCP_FE
+  - left_middle_MCP_AA
+  - left_middle_PIP
+  - left_middle_DIP
+  - left_ring_MCP_FE
+  - left_ring_MCP_AA
+  - left_ring_PIP
+  - left_ring_DIP
+  - left_pinky_CMC
+  - left_pinky_MCP_FE
+  - left_pinky_MCP_AA
+  - left_pinky_PIP
+  - left_pinky_DIP
+joint_limits:
+  left_thumb_CMC_FE: [-0.1745, 1.9199]
+  left_thumb_CMC_AA: [-0.3491, 0.3491]
+  left_thumb_MCP_FE: [-0.5236, 1.3963]
+  left_thumb_MCP_AA: [-0.3491, 0.3491]
+  left_thumb_IP: [0.0, 1.7453]
+  left_index_MCP_FE: [-0.17453293, 1.5708]
+  left_index_MCP_AA: [-0.3491, 0.3491]
+  left_index_PIP: [0.0, 1.7453]
+  left_index_DIP: [0.0, 1.3963]
+  left_middle_MCP_FE: [-0.17453293, 1.5708]
+  left_middle_MCP_AA: [-0.3491, 0.3491]
+  left_middle_PIP: [0.0, 1.7453]
+  left_middle_DIP: [0.0, 1.3963]
+  left_ring_MCP_FE: [-0.17453293, 1.5708]
+  left_ring_MCP_AA: [-0.3491, 0.3491]
+  left_ring_PIP: [0.0, 1.7453]
+  left_ring_DIP: [0.0, 1.3963]
+  left_pinky_CMC: [0.0, 0.2618]
+  left_pinky_MCP_FE: [-0.17453293, 1.5708]
+  left_pinky_MCP_AA: [-0.3491, 0.3491]
+  left_pinky_PIP: [0.0, 1.7453]
+  left_pinky_DIP: [0.0, 1.3963]
+contact_points:
+  config_path: contact_points/dex_hand_pose/contact_points.yaml
+  side_key: left_points
+  default_category: cat2
+collision_spheres:
+  path: collision/curobo/sharpa_left.yml
+bodex:
+  robot_config: robot_configs/curobo_sharpa_left.yml
+  collision_spheres: collision/curobo/sharpa_left.yml
+  hand_pose_transfer: grasp_synthesis/bodex/hand_pose_transfer/sharpa_left.yml
+  grasp_synthesis_config: grasp_synthesis/bodex/fc.yml

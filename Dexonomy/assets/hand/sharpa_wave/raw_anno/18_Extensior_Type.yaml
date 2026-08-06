@@ -1,0 +1,11 @@
+# 由 Shadow 模板 `18_Extensior_Type` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [1.3287, -0.1287, 0.6950, -0.2156, 0.5437, 0.0285, -0.1080, 0.3553, 0.3613, -0.0427, 0.0087, 0.4164, 0.4251, -0.0372, 0.1260, 0.3746, 0.4294, 0.0000, -0.0899, 0.2095, 0.4528, 0.4178]
+
+contact:
+  right_hand_C_MC: 0
+  right_index_DP: 1
+  right_middle_DP: 1
+  right_pinky_DP: 1
+  right_ring_DP: 0
+  right_thumb_DP: 0
+  right_thumb_PP: 0

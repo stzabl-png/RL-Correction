@@ -1,0 +1,121 @@
+# Small-object 3-finger tripod grasp config for the Sharpa right hand.
+# UltraDexGrasp-style tripod: force closure is solved over index + middle +
+# thumb fingertip contacts only; ring and pinky are tucked in the seed pose and
+# excluded from the contact set, so the per-sphere collision bias keeps them
+# >=2mm away from the object. Three-stage output (pregrasp -> grasp -> squeeze)
+# comes from save_qpos + the squeeze extrapolation in plan_batch_env.py.
+# Object scale is preserved: the USD pipeline exports scene_cfg with scale 1.0
+# in the converted USD frame, so grasp poses stay in the input USD frame.
+world:
+  type: scene_cfg
+  template_path: object/DGN_5k_test/scene_cfg/**/floating/*.npy  # overridden by run_usd_grasp_pipeline.py --world-template
+  start:
+  end:
+
+robot_file: "sharpa_right.yml"
+robot_file_with_arm:
+base_cfg_file: "base_grasp.yml"
+particle_file: "particle_grasp_debug.yml"
+gradient_file: "gradient_grasp_fc.yml"
+
+exp_name: debug
+seed_num: 2048
+seeder_cfg:
+  obj_sample:
+    num: 128
+    inflate: 0.1
+    convex_hull: True
+    collision_free: True
+  ik_init_q:
+  load_path:
+  skip_transfer: False
+  t:
+  r:
+  # Joint seed values (URDF joint order). Thumb/index/middle as in fc.yml;
+  # ring and pinky start tucked toward the palm so they stay clear of small
+  # objects while the tripod fingers close.
+  q: [1.3963,  # right_thumb_CMC_FE   ~80deg opposition (range: -0.1745 ~ 1.9199)
+      -0.32,   # right_thumb_CMC_AA   (range: -0.3491 ~ 0.3491)
+      0.4538,  # right_thumb_MCP_FE   (range: -0.5236 ~ 1.3963)
+      0.0,     # right_thumb_MCP_AA   (range: -0.3491 ~ 0.3491)
+      0.6458,  # right_thumb_IP       (range: 0 ~ 1.7453)
+      0.2705,  # right_index_MCP_FE   (range: -0.1745 ~ 1.5708)
+      0.0,     # right_index_MCP_AA   (range: -0.3491 ~ 0.3491)
+      0.6807,  # right_index_PIP      (range: 0 ~ 1.7453)
+      0.7156,  # right_index_DIP      (range: 0 ~ 1.3963)
+      0.2705,  # right_middle_MCP_FE  (range: -0.1745 ~ 1.5708)
+      0.0,     # right_middle_MCP_AA  (range: -0.3491 ~ 0.3491)
+      0.6807,  # right_middle_PIP     (range: 0 ~ 1.7453)
+      0.7156,  # right_middle_DIP     (range: 0 ~ 1.3963)
+      1.3,     # right_ring_MCP_FE    (tucked; range: -0.1745 ~ 1.5708)
+      0.0,     # right_ring_MCP_AA    (range: -0.3491 ~ 0.3491)
+      1.4,     # right_ring_PIP       (tucked; range: 0 ~ 1.7453)
+      1.1,     # right_ring_DIP       (tucked; range: 0 ~ 1.3963)
+      0.0,     # right_pinky_CMC      (range: 0 ~ 0.2618)
+      1.3,     # right_pinky_MCP_FE   (tucked; range: -0.1745 ~ 1.5708)
+      0.0,     # right_pinky_MCP_AA   (range: -0.3491 ~ 0.3491)
+      1.4,     # right_pinky_PIP      (tucked; range: 0 ~ 1.7453)
+      1.1]     # right_pinky_DIP      (tucked; range: 0 ~ 1.3963)
+  # Pull seed palm axes toward -Z (the door plane) so the palm faces the
+  # outward door normal instead of the bar's sides/ends. 0 disables.
+  palm_down_bias: 1.5
+  jitter_angle: [[-180, -15, -15], [180, 15, 15]]
+  jitter_dist: [[0.0, -0.03, -0.03], [0.03, 0.03, 0.03]]
+
+grasp_contact_strategy:
+  # Tripod contact set: distal fingertip sphere of index, middle, and thumb
+  # (sphere order differs per link in spheres/sharpa_right.yml). Ring/pinky are
+  # not contacts, so the collision cost keeps every one of their spheres >=2mm
+  # away from the object surface.
+  contact_points_name: ['right_index_DP/0',
+                        'right_middle_DP/1',
+                        'right_thumb_DP/1']
+  opt_progress: [0.0, 0.6, 0.8]
+  # Small-object standoff schedule (UltraDexGrasp 3-finger): hover at 9mm for
+  # 80% of optimization, then close to touch.
+  distance: [0.009, 0.009, 0.0]
+  contact_query_mode: [-1, 0, 0]
+  save_qpos: [False, True]
+  max_ge_stage: 0
+
+grasp_cfg:
+  task_dict:
+    f: [0, 0, 1]
+    p: [0, 0, 0]
+    t: [0, 0, 0]
+    gamma: 180
+  ge_param:
+    type: 'qp'
+    miu_coef: [0.3, 0]
+    solver_type: 'batch_reluqp'
+    k_lower: 0.3
+    # Contact index order: 0 index, 1 middle, 2 thumb.
+    # Each row is [contact_id_list, lower_bound]: sum(pressure) >= lower_bound.
+    pressure_constraints:
+      [[[0, 1, 2], 0.4],   # the tripod as a whole stays engaged
+       [[2], 0.5]]         # thumb opposes index+middle with the dominant force
+    enable_density: False
+    solve_interval: 5
+
+mogen_init: [1.2741,  # right_thumb_CMC_FE   (q=1.4835 - 0.2094)
+             -0.32,   # right_thumb_CMC_AA   (unchanged, directional)
+             0.2444,  # right_thumb_MCP_FE   (q=0.4538 - 0.2094)
+             0.0,     # right_thumb_MCP_AA   (unchanged, directional)
+             0.4364,  # right_thumb_IP       (q=0.6458 - 0.2094)
+             0.0611,  # right_index_MCP_FE   (q=0.2705 - 0.2094)
+             0.0,     # right_index_MCP_AA   (unchanged, directional)
+             0.4713,  # right_index_PIP      (q=0.6807 - 0.2094)
+             0.5062,  # right_index_DIP      (q=0.7156 - 0.2094)
+             0.0611,  # right_middle_MCP_FE  (q=0.2705 - 0.2094)
+             0.0,     # right_middle_MCP_AA  (unchanged, directional)
+             0.4713,  # right_middle_PIP     (q=0.6807 - 0.2094)
+             0.5062,  # right_middle_DIP     (q=0.7156 - 0.2094)
+             1.3,     # right_ring_MCP_FE    (tucked, matches seed)
+             0.0,     # right_ring_MCP_AA    (unchanged, directional)
+             1.4,     # right_ring_PIP       (tucked, matches seed)
+             1.1,     # right_ring_DIP       (tucked, matches seed)
+             0.0,     # right_pinky_CMC      (unchanged, at 0)
+             1.3,     # right_pinky_MCP_FE   (tucked, matches seed)
+             0.0,     # right_pinky_MCP_AA   (unchanged, directional)
+             1.4,     # right_pinky_PIP      (tucked, matches seed)
+             1.1]     # right_pinky_DIP      (tucked, matches seed)

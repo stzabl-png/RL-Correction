@@ -412,6 +412,14 @@ def setup_hand_drives(stage, ref_path: str, *, armature: float, joint_friction: 
         if not prim.IsA(UsdPhysics.RevoluteJoint):
             continue
         name = prim.GetName()
+        # 左右手共用同一套增益: 两手是精确镜像 (link 位置差 <0.002mm)、关节限位逐位
+        # 相同, 所以按去前缀的关节名查表, 左手不必单独调参。
+        if name not in SHARPA_PER_JOINT_DRIVES:
+            _bare = name.split("_", 1)[1] if name.startswith(("left_", "right_")) else name
+            for _pref in ("right_", "left_"):
+                if _pref + _bare in SHARPA_PER_JOINT_DRIVES:
+                    name = _pref + _bare
+                    break
         if name not in SHARPA_PER_JOINT_DRIVES:
             skipped.append(name)
             continue
@@ -574,6 +582,81 @@ def govern_contact_targets(
     error = desired - actual
     limited = np.abs(error) > lead
     return actual + np.clip(error, -lead, lead), int(limited.sum())
+
+
+FINGER_NAMES = ("thumb", "index", "middle", "ring", "pinky")
+
+
+def read_object_hand_contacts() -> tuple[set, float]:
+    """Fingers currently in contact with the object, from the last physics
+    step's PhysX contact report (the object carries PhysxContactReportAPI in
+    --eval-mode contact), plus the summed contact impulse magnitude. Hand
+    links are classified by finger name in the link path; anything else on
+    the hand (palm, base) reports as "palm"."""
+    from omni.physx import get_physx_simulation_interface
+    from pxr import PhysicsSchemaTools
+
+    headers, contact_data = get_physx_simulation_interface().get_contact_report()
+    fingers: set = set()
+    impulse_sum = 0.0
+    for header in headers:
+        path0 = str(PhysicsSchemaTools.intToSdfPath(header.actor0))
+        path1 = str(PhysicsSchemaTools.intToSdfPath(header.actor1))
+        if path0.startswith(OBJECT_WRAP):
+            other = path1
+        elif path1.startswith(OBJECT_WRAP):
+            other = path0
+        else:
+            continue
+        if not other.startswith(HAND_WRAP):
+            continue
+        link = other.rsplit("/", 1)[-1].lower()
+        fingers.add(next((f for f in FINGER_NAMES if f in link), "palm"))
+        for i in range(header.num_contact_data):
+            c = contact_data[header.contact_data_offset + i]
+            impulse_sum += float(np.linalg.norm([c.impulse.x, c.impulse.y, c.impulse.z]))
+    return fingers, impulse_sum
+
+
+def compute_contact_metrics(
+    fingers_track: list,
+    impulse_track: list,
+    object_track: list,
+    object_quat_track: list,
+    *,
+    sustain_frames: int,
+    max_drift_m: float,
+    max_tilt_deg: float,
+) -> dict:
+    """Grasp-POINT quality judgement, no lifting involved: after the slow
+    close/squeeze, is the hand in sustained opposed contact (thumb + at least
+    one opposing finger) without having shoved or toppled the object?"""
+    window = fingers_track[-max(1, int(sustain_frames)):]
+    need = 0.8 * len(window)
+    counts: dict = {}
+    for frame_fingers in window:
+        for f in frame_fingers:
+            counts[f] = counts.get(f, 0) + 1
+    sustained = sorted(f for f, c in counts.items() if c >= need)
+    thumb = "thumb" in sustained
+    opposing = [f for f in sustained if f in ("index", "middle", "ring", "pinky")]
+    positions = np.stack(object_track, axis=0)
+    drift = float(np.linalg.norm(positions[-1] - positions[0]))
+    rel = quat_wxyz_to_matrix(np.asarray(object_quat_track[-1], dtype=np.float64)) @ \
+        quat_wxyz_to_matrix(np.asarray(object_quat_track[0], dtype=np.float64)).T
+    tilt_deg = float(np.degrees(np.arccos(np.clip(rel[2, 2], -1.0, 1.0))))
+    ok = bool(thumb and opposing and drift <= float(max_drift_m) and tilt_deg <= float(max_tilt_deg))
+    return {
+        "eval_mode": "contact",
+        "contact_fingers_sustained": sustained,
+        "thumb_in_contact": thumb,
+        "n_opposing_fingers": len(opposing),
+        "object_drift_m": drift,
+        "object_tilt_deg": tilt_deg,
+        "mean_contact_impulse": float(np.mean(impulse_track[-max(1, int(sustain_frames)):])) if impulse_track else 0.0,
+        "contact_success": ok,
+        "grasp_success": ok,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -933,7 +1016,19 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
     )
     set_world_pose(stage, OBJECT_WRAP, obj_pos_isaac_all[0], obj_quat_isaac_all[0])
 
+    contact_eval = str(args.eval_mode) == "contact"
+    if contact_eval:
+        if args.carry_mode == CARRY_MODE_KINEMATIC:
+            raise ValueError("--eval-mode contact requires --carry-mode friction (a real rigid object)")
+        from pxr import PhysxSchema as _PhysxSchema
+
+        contact_api = _PhysxSchema.PhysxContactReportAPI.Apply(stage.GetPrimAtPath(OBJECT_WRAP))
+        contact_api.CreateThresholdAttr().Set(0.0)
+        log("eval-mode contact: PhysxContactReportAPI on object, threshold 0")
+
     phase("building hand")
+    # load_sharpa_wave_right 只是按 yml 读配置, 与手别无关; 左手传
+    # --asset-config .../sharpa_wave_left.yml 即可 (见该 yml 的头部注释)。
     hand_usd_path = Path(args.hand_usd) if args.hand_usd else load_sharpa_wave_right(args.asset_config).usd_path
     hand_report = build_hand(stage, hand_usd_path, args)
     # Friction targets model where high friction lives. "both" (default, the
@@ -1020,6 +1115,8 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
     object_track: list[np.ndarray] = []
     object_quat_track: list[np.ndarray] = []
     object_angular_speed_track: list[float] = []
+    contact_fingers_track: list[set] = []
+    contact_impulse_track: list[float] = []
     frame_paths: list[Path] = []
     joint_error_per_step: list[float] = []
     drive_target_error_per_step: list[float] = []
@@ -1112,6 +1209,10 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
         pos, quat = current_object_pose()
         object_track.append(pos)
         object_quat_track.append(quat)
+        if contact_eval:
+            frame_fingers, frame_impulse = read_object_hand_contacts()
+            contact_fingers_track.append(frame_fingers)
+            contact_impulse_track.append(frame_impulse)
         if object_reader is not None:
             _, angular_velocity = object_reader.velocity()
             object_angular_speed_track.append(float(np.linalg.norm(angular_velocity)))
@@ -1143,6 +1244,10 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
         pos, quat = current_object_pose()
         object_track.append(pos)
         object_quat_track.append(quat)
+        if contact_eval:
+            frame_fingers, frame_impulse = read_object_hand_contacts()
+            contact_fingers_track.append(frame_fingers)
+            contact_impulse_track.append(frame_impulse)
         if object_reader is not None:
             _, angular_velocity = object_reader.velocity()
             object_angular_speed_track.append(float(np.linalg.norm(angular_velocity)))
@@ -1157,6 +1262,19 @@ def simulate_grasp_traj(app, args: argparse.Namespace, progress=None) -> dict:
         lift_threshold=float(args.lift_threshold),
         drop_threshold=float(args.drop_threshold),
     )
+    if contact_eval:
+        metrics.update(compute_contact_metrics(
+            contact_fingers_track, contact_impulse_track,
+            object_track, object_quat_track,
+            sustain_frames=int(args.contact_sustain_frames),
+            max_drift_m=float(args.max_object_drift),
+            max_tilt_deg=float(args.max_object_tilt_deg),
+        ))
+        np.savez_compressed(
+            out_dir / "contact_track.npz",
+            fingers_per_step=np.asarray(["|".join(sorted(fs)) for fs in contact_fingers_track]),
+            impulse_per_step=np.asarray(contact_impulse_track, dtype=np.float64),
+        )
     np.savez_compressed(
         out_dir / "object_track.npz",
         position_world=np.asarray(object_track, dtype=np.float64),
@@ -1305,6 +1423,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--settle-steps", type=int, default=60)
     parser.add_argument("--video-fps", type=float, default=None)
     parser.add_argument("--carry-mode", choices=[CARRY_MODE_FRICTION, CARRY_MODE_KINEMATIC], default=CARRY_MODE_FRICTION)
+    parser.add_argument("--eval-mode", choices=["lift", "contact"], default="lift",
+                        help="lift (default): success = sustained >=2cm carry lift. contact: no lifting judged; "
+                             "success = after the slow close/squeeze the hand holds sustained opposed contact "
+                             "(thumb + an opposing finger) without shoving (>--max-object-drift) or toppling "
+                             "(>--max-object-tilt-deg) the object. Pair with a no-carry slow-squeeze trajectory.")
+    parser.add_argument("--contact-sustain-frames", type=int, default=15,
+                        help="eval-mode contact: a finger counts as in sustained contact when present in >=80%% of "
+                             "the last N tracked frames (trajectory + settle).")
+    parser.add_argument("--max-object-drift", type=float, default=0.03,
+                        help="eval-mode contact: max object displacement (m) from its resting pose before the grasp "
+                             "points are judged to have shoved the object.")
+    parser.add_argument("--max-object-tilt-deg", type=float, default=30.0,
+                        help="eval-mode contact: max tilt of the object's +z axis (deg) before it counts as toppled.")
     parser.add_argument("--lift-threshold", type=float, default=0.02)
     parser.add_argument("--drop-threshold", type=float, default=0.005)
     parser.add_argument("--tabletop-z", type=float, default=0.0)

@@ -1,0 +1,32 @@
+{
+  "demo_id": "9",
+  "status": "pending_reconstruction",
+  "reference_npz": "reference.npz",
+  "left_grasp_prior": "",
+  "right_grasp_prior": "",
+  "cup": {
+    "label": "black handleless cup",
+    "mesh": "",
+    "usd": "",
+    "mass_kg": null,
+    "friction": null,
+    "initial_pose_wxyz": null,
+    "opening_center_local": null,
+    "opening_axis_local": null,
+    "opening_radius_m": null
+  },
+  "bottle": {
+    "label": "brown bottle",
+    "mesh": "",
+    "usd": "",
+    "mass_kg": null,
+    "friction": null,
+    "initial_pose_wxyz": null,
+    "opening_center_local": null,
+    "opening_axis_local": null,
+    "opening_radius_m": null
+  },
+  "video_to_sim_wxyz": null,
+  "grasp_approval": null,
+  "schema_version": 1
+}

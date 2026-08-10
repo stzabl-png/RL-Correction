@@ -23,7 +23,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export RECON_FINAL_ROOT="$BIV2AP/Output/ReconstructOutput"
 export RECON_INTERIM_ROOT="$BIV2AP/Output/ReconstructOutput/interim"
 export RECON_FINAL_NESTED=1   # final 目录镜像原数据集嵌套: A__B__C -> A/B/C
-# SAM3 版本自动选择:Blackwell/5090 -> sam3;其它显卡 -> sam3.1,零检出则自动回退 sam3。
+# SAM3 版本: 默认 sam3(2026-08-10 固化)。sam3.1 在 4080S/Ada 检不出手(代码内注释),
+# 在 A6000 是 gated 模型会 401, Blackwell 本来就要降级 —— 三种卡全都该用 sam3。
+: "${SAM3_VERSION:=sam3}"; export SAM3_VERSION
 
 # 内置数据集 root(其它数据集用 --root 指定)
 declare -A DATASET_ROOTS=(
@@ -31,12 +33,13 @@ declare -A DATASET_ROOTS=(
   [egodex]="$EGODEX_ROOT"
 )
 
-DATASET=hoi4d; ROOT=""; N=10; WEB=0; TAKES=(); PASS=()
+DATASET=hoi4d; ROOT=""; N=10; WEB=0; AUTOLABEL=1; TAKES=(); PASS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --dataset) DATASET="$2"; shift 2 ;;
     --root)    ROOT="$2"; shift 2 ;;
     --web)     WEB=1; shift ;;
+    --no-auto-label) AUTOLABEL=0; shift ;;
     [0-9]*)    N="$1"; shift ;;
     -*)        PASS+=("$1"); shift ;;   # 透传 run_batch_queue（--force 等）
     *)         TAKES+=("$1"); shift ;;  # take 路径/父目录/视频/id
@@ -76,7 +79,20 @@ if [[ "$WEB" == 1 ]]; then
     --video-list "$LIST" --gpu-ids 0 --preview-device cuda --preview-gpu 0 \
     --http-host 0.0.0.0 --http-port 8765 ${PASS[@]+"${PASS[@]}"}
 else
-  echo "[reconstruct] 本地模式(--skip-label);未标注请先 ./label.sh 或加 --web"
+  # v17A 自动标注(2026-08-10 接入): 清单里没有标注缓存的视频, 先自动出物体 mask
+  # (HOI-DETR 检测 + SAM2 实例传播 + 开朗 adapter 落格式, 幂等)。
+  # --no-auto-label 关闭; hoi4d 的清单是 take id 不是视频路径, 不走这条。
+  if [[ "$AUTOLABEL" == 1 && "$DATASET" != "hoi4d" ]]; then
+    echo "[reconstruct] v17A 自动标注检查(--no-auto-label 可跳过)"
+    while IFS= read -r vp; do
+      [[ -f "$vp" ]] || continue
+      conda run --no-capture-output -n base python "$HERE/bin/auto_label_v17a.py" \
+        --dataset "$DATASET" --dataset-root "$ROOT" --video "$vp" || {
+          echo "[reconstruct] 自动标注失败: $vp — 兜底: ./reconstruct.sh <视频> --dataset $DATASET --web 人工标注" >&2
+          exit 1; }
+    done < "$LIST"
+  fi
+  echo "[reconstruct] 本地模式(--skip-label);自动标注已就位或请先 ./label.sh / --web"
   exec conda run --no-capture-output -n base python "$RECON/run_batch_queue.py" \
     --dataset "$DATASET" --dataset-root "$ROOT" \
     --video-list "$LIST" --skip-label --gpu-ids 0 ${PASS[@]+"${PASS[@]}"}

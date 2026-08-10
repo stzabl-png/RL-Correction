@@ -87,7 +87,7 @@ else
     echo "[reconstruct] v17A 自动标注检查(--no-auto-label 可跳过)"
     while IFS= read -r vp; do
       [[ -f "$vp" ]] || continue
-      conda run --no-capture-output -n base python "$HERE/bin/auto_label_v17a.py" \
+      conda run --no-capture-output -n hawor python "$HERE/bin/auto_label_v17a.py" \
         --dataset "$DATASET" --dataset-root "$ROOT" --video "$vp" || {
           echo "[reconstruct] 自动标注失败: $vp — 兜底: ./reconstruct.sh <视频> --dataset $DATASET --web 人工标注" >&2
           exit 1; }

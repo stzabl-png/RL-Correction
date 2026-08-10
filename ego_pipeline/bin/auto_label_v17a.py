@@ -8,7 +8,12 @@
        实例   默认 instance_0001 —— v17A 编号语义 = 第一个被接触的物体(任务主物体)
        重建帧 默认该实例最早的 accepted 帧 —— 通常手尚未接触、遮挡最小
        (2026-08-10 pour/11 人工选择的复刻: 杯子 f3 静置桌面)
-  4. 开朗的 adapter 转 sam2_object 落盘格式(+label_prompt+完成标记), 重建管线自动跳过标注
+  4. 只落 label_prompt.json(一帧+一个点), 重建管线自己的 SAM2 传播全片
+     (2026-08-10 改: 原先走 import_v17a_masks.py 直接搬 v17A 的 mask, 等于把 v17A
+      "挑重建帧"的严格质量门 min_largest_component_fraction=0.9 也套到了全片覆盖上。
+      screw27 实测: 手臂横在瓶前使 135/140 帧被判 fragmented_mask, 搬过来只剩 5 帧,
+      接触检测塌成 左[] 右[[152,154]]。改成只给点后同一实例同一帧拿到 188/188 帧,
+      与人工标注 IoU 0.78、无一帧跟丢。质量门继续管选帧, 不再决定覆盖。)
 
 ⚠ adapter 只认 episode 级 mask_sequence.json (schema persistent_mask_sequence_v1),
   不是视频级 video_mask_sequence.json —— 开朗文档里的示例有误, 别改回去。
@@ -75,6 +80,52 @@ def find_episode_manifest(out_dir: Path) -> Path | None:
     return best
 
 
+def write_label_prompt(manifest: dict, inst: str, frame: int, sam2_dir: Path,
+                       object_name: str) -> tuple[float, float]:
+    """Hand the pipeline a click, not v17A's masks.
+
+    v17A's per-frame gate (min_largest_component_fraction=0.9) exists to answer
+    "which single frame is good enough to reconstruct from".  Importing its masks
+    wholesale made that gate decide FULL-VIDEO coverage as well, which is a different
+    question with a much looser answer.  Measured on screw_unscrew_bottle_cap/27: a
+    forearm across the bottle splits the mask on 135 of 140 frames, so importing gave
+    5 usable frames and contact detection collapsed to left[] right[[152,154]].  Feeding
+    the same instance and frame in as a prompt point instead, and letting the pipeline's
+    own SAM2 propagate, gives all 188 frames -- IoU 0.78 against a human label, with no
+    frame lost or drifting.
+
+    The click is the mask's pole of inaccessibility (deepest interior pixel), not its
+    centroid: a centroid can fall outside a C-shaped or hand-split mask and would prompt
+    SAM2 on background.
+    """
+    import cv2
+    import numpy as np
+
+    entry = None
+    for f in manifest["frames"]:
+        if int(f["frame_idx"]) == int(frame):
+            entry = (f.get("objects") or {}).get(inst)
+            break
+    if entry is None:
+        raise SystemExit(f"[auto-label] X 帧{frame} 没有 {inst} 的记录")
+    src = entry.get("mask") or entry.get("raw_mask")
+    if not src or not Path(src).is_file():
+        raise SystemExit(f"[auto-label] X 帧{frame} 的 mask 文件缺失: {src}")
+    m = cv2.imread(str(src), cv2.IMREAD_GRAYSCALE)
+    if m is None or not (m > 127).any():
+        raise SystemExit(f"[auto-label] X 帧{frame} 的 mask 为空: {src}")
+    dist = cv2.distanceTransform((m > 127).astype("uint8"), cv2.DIST_L2, 5)
+    y, x = np.unravel_index(int(np.argmax(dist)), dist.shape)
+
+    sam2_dir.mkdir(parents=True, exist_ok=True)
+    prompt = {"schema_version": "sam2_object_prompt_v2",
+              "objects": [{"object_id": "object_0", "frame_idx": int(frame),
+                           "points": [[float(x), float(y)]], "labels": [1],
+                           "locked": True, "name": object_name}]}
+    (sam2_dir / "label_prompt.json").write_text(json.dumps(prompt, indent=1))
+    return float(x), float(y)
+
+
 def pick(manifest: dict, instance: str, recon_frame: str) -> tuple[str, int]:
     ids = manifest.get("object_ids") or []
     if not ids:
@@ -114,6 +165,10 @@ def main(argv=None) -> int:
         if is_step_complete(sam2_dir, "sam2_object") and not os.environ.get("AUTO_LABEL_FORCE"):
             print(f"[auto-label] 标注已就位, 跳过 {vid}")
             return 0
+        # prompt 已写但 sam2_object 还没跑完(上次中断/人工改过 prompt) -> 别覆盖
+        if (sam2_dir / "label_prompt.json").is_file() and not os.environ.get("AUTO_LABEL_FORCE"):
+            print(f"[auto-label] label_prompt 已存在, 跳过 {vid} (AUTO_LABEL_FORCE=1 重写)")
+            return 0
     except Exception as e:  # noqa: BLE001 - 查不了就当没有, 继续跑
         print(f"[auto-label] 完成态检查失败({e}), 继续", flush=True)
 
@@ -151,15 +206,16 @@ def main(argv=None) -> int:
     if manifest_path is None:
         raise SystemExit("[auto-label] X v17A 没产出 ready 的 episode manifest")
 
-    inst, frame = pick(json.loads(manifest_path.read_text()), a.instance, a.recon_frame)
+    if sam2_dir is None:                      # the completeness probe above failed
+        sys.path.insert(0, str(RECON_PIPELINE))
+        from _common.paths import interim_step_dir  # noqa: E402
+        sam2_dir = interim_step_dir(a.dataset, vid, "sam2_object")
+    manifest = json.loads(manifest_path.read_text())
+    inst, frame = pick(manifest, a.instance, a.recon_frame)
     print(f"[auto-label] 选择: {inst} @ 帧{frame}  ({manifest_path})")
-    run("3/3 adapter 转 sam2_object 格式", [
-        *HAWOR_CMD, RECON_ROOT / "recon_kailang" / "v17_mask_adapter" / "import_v17a_masks.py",
-        "--dataset", a.dataset, "--video-id", vid, "--video", video,
-        "--manifest", manifest_path, "--source-object-id", inst,
-        "--reconstruction-frame", frame, "--object-name", a.object_name],
-        cwd=RECON_ROOT)
-    print(f"[auto-label] ✓ {vid}: {inst} 帧{frame} -> sam2_object 就位")
+    n = write_label_prompt(manifest, inst, frame, sam2_dir, a.object_name)
+    print(f"[auto-label] ✓ {vid}: {inst} 帧{frame} -> label_prompt.json "
+          f"(点 {n}), sam2_object 将自行传播全片")
     return 0
 
 

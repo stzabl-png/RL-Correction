@@ -3,10 +3,11 @@
 
 ⚠ 人工点选是 **FALLBACK**, 不是唯一入口 —— 物体 mask 已有全自动路线, 别据本文件推断
 "每条视频都要人点一次":
-  - ego_pipeline/bin/auto_label_v17a.py   reconstruct.sh 默认自动调用(2026-08-10 接入):
-    v17A(HOI-DETR+SAM2) 自动发现实例 → 开朗 adapter 直接落 sam2_object 产物, 本步整个跳过
-  - tools/v17a_to_label_prompt.py         另一条: v17A 只回答"哪帧/哪里" → 产 label_prompt.json,
-    由本管线的 SAM2 像有人点过一样传播全片(多物体版 tools/v17a_multi_object_prompt.py)
+  - ego_pipeline/bin/auto_label_v17a.py   reconstruct.sh 默认自动调用: v17A(HOI-DETR+SAM2)
+    自动发现实例并选帧, 取 mask 内切极点当点击, **只写 label_prompt.json** —— 本管线的
+    SAM2 像有人点过一样传播全片(2026-08-10 定稿; 早期直接搬 v17A mask 的做法已废弃,
+    v17A 的选帧质量门会把全片覆盖砍成几帧, screw27 实测 5/188 → 改后 188/188)
+  - tools/v17a_to_label_prompt.py         同机制的独立工具(多物体版 v17a_multi_object_prompt.py)
 只有自动路线失败/需要人工裁决时才用本工具(reconstruct.sh --web)。
 """
 

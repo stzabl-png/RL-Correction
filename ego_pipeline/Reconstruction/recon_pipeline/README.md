@@ -106,9 +106,9 @@ pipeline working outputs and success logs.
 ## Labeling only
 
 > ⚠ **人工标注是 fallback，默认路线是全自动**：`reconstruct.sh` 会在标注缺失时自动调
-> `ego_pipeline/bin/auto_label_v17a.py`（v17A 发现实例 → adapter 落 sam2_object 产物，
-> 无需任何人工点选）。另一条自动路线是 `tools/v17a_to_label_prompt.py`（v17A 产
-> label_prompt，由 SAM2 传播）。只有自动失败或需要人工裁决时才用下面的交互工具。
+> `ego_pipeline/bin/auto_label_v17a.py`（v17A 发现实例选帧 → 取 mask 内切极点写
+> label_prompt.json → 本管线 SAM2 传播全片，无需任何人工点选）。独立工具版是
+> `tools/v17a_to_label_prompt.py`。只有自动失败或需要人工裁决时才用下面的交互工具。
 
 The object-labeling backend is SAM2, installed in the integrated `sam3` environment. SAM2 preview runs after each click/undo. CPU preview is the default so labeling does not reserve GPU memory while reconstruction workers run. The labeling UI supports multiple object slots (`1`-`9`, `o` for new object, `x`/`Delete` to delete the active object); each object can be prompted on a different frame and is reconstructed downstream.
 

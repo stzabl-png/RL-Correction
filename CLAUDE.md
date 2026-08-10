@@ -18,7 +18,8 @@ GitHub = stzabl-png/RL-Correction 的 Step2_NoisyRecon 分支(本目录就是其
 1. **物体标注默认全自动, 人工点选只是 fallback。** `label_object.py` 的 "Interactive"
    docstring 和 run_pipeline 的 `--label-mode` 报错都只描述 fallback 路线——**不要**据此
    推断"每条视频要人工标注 2 分钟"。自动路线: `ego_pipeline/bin/auto_label_v17a.py`
-   (reconstruct.sh 标注缺失时自动调) / `tools/v17a_to_label_prompt.py`(label prompt 版)。
+   (reconstruct.sh 标注缺失时自动调; 机制=v17A 选帧取内切极点只写 label_prompt,
+   SAM2 自己传播全片 —— **不要**改回直接搬 v17A mask, 选帧质量门会把覆盖砍成几帧)。
 2. **跑数据一律远程 UCB 8 卡**(yanghong@169.229.192.185), 本地 4080S 16GB 只做开发——
    sam3d/sam3d_scale/fp_pose 三步峰值 26~27GB, 本地必 OOM。见 REMOTE_RUNBOOK。
 3. **远程选卡只认 `--gpu N` 传参**: 步骤脚本会覆写 CUDA_VISIBLE_DEVICES, 外部 export 无效。

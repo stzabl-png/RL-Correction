@@ -829,8 +829,10 @@ def play_one_pass():
 
 
 # ---- run -------------------------------------------------------------------
+# --object-usd is nargs="+", so it is always a list -- basename() on it raised TypeError
+# and killed every multi-object run before the first frame.
 print(f"[run] mode={args.mode} hands={[h['side'] for h in HANDS]} "
-      f"object={os.path.basename(args.object_usd) if obj_present else '(hidden)'}")
+      f"object={[os.path.basename(u) for u in args.object_usd] if obj_present else '(hidden)'}")
 dd = draw_trajectories()
 try:
     if args.headless or args.auto:

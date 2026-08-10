@@ -749,7 +749,7 @@ def _build_step_cmd(
     script = STEP_SCRIPTS[step]
     cmd = ["conda", "run", "-n", STEP_ENVS[step]]
     if step == "vipe":
-        cmd.extend(["uv", "run", "python", str(script.resolve())])
+        cmd.extend(["uv", "run", "--no-sync", "python", str(script.resolve())])
         cwd = REPO_ROOT / "third_party" / "vipe"
     else:
         cmd.extend(["python", str(script.relative_to(REPO_ROOT))])

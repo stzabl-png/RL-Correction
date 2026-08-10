@@ -41,6 +41,30 @@ R&R = GitHub stzabl-png/RL-Correction 的工作区, 分支 Step2_NoisyRecon
    （几 MB 的保险，Jiakai 的远端仓库也还在）；确认无进程、无残余引用后 `rm -rf`
 8. **收尾**：提交推送 Step2_NoisyRecon；更新 RL_Correction 侧文档与记忆
 
-## 执行记录
+## 执行记录（2026-08-10 全部完成）
 
-（执行时逐项补充）
+1. ✅ 快照提交 23 项本地改动（contact/v17a 工具集等），删 3 个 .bak
+2. ✅ merge origin/Step2_NoisyRecon（confidence 工具链）+ origin/agent/v17a-auto-mask-reconstruction（开朗），两路均无冲突
+3. ✅ rsync HV2RD/recon_pipeline 覆盖 vendor 份 → 恢复开朗的 sam3_hands/sam3d_scale/README 三个文件
+   （sam3_hands/sam3d_scale 两份 copy 原本逐字节相同，换底无损；README 的 HV2RD 版无独有内容）
+4. ✅ mv third_party(32GB)/data(1.1MB) → ego_pipeline/Reconstruction/ 下（同盘秒完成；
+   .gitignore 原有规则已覆盖）；5 个子模块 .git 指针拆除，pin 存 docs/hv2rd_archive/submodule_pins.txt
+5. ✅ 指针修复：repo_paths.sh/.py 摘除 HV2RD_ROOT（RECON_PIPELINE 远端本已指仓内）；
+   删 sync_recon.sh（两份 copy 同步器，使命结束）；build_db.sh、RL_Correction/step1 paths.py
+   指向新 third_party；init_submodules.sh 改读固化 pin
+6. ✅ 验证：py_compile 全过；vipe editable 安装的烤死路径已修（__editable__*_finder.py 的
+   MAPPING）且 uv run 加 --no-sync（不加会联网重解析卡死）；sam2/FoundationPose 新位置
+   import 通过；reconstruct.sh --dry-run 9 步成链、分层 video_id 正确
+   （★merge 曾把 EGODEX_ROOT 默认改成同事机器的 Data/EgoDex，已改回本机 V2AP 路径）；
+   confidence 步幂等跳过正常
+7. ✅ 归档：hv2rd_full_history.bundle(24MB 全历史) + 未提交 patch + status/log 快照
+   → docs/hv2rd_archive/；确认无进程占用后 rm -rf HV2RD
+8. ✅ 提交推送 Step2_NoisyRecon
+
+## 迁移后的坑备忘
+
+- vipe 必须 `uv run --no-sync`（step_launcher/run_batch_queue 已内置）；若将来真要
+  uv sync，先备份 .venv —— sync 可能按 pyproject 重装 8.4GB 环境
+- editable 安装（vipe）换路径要修 site-packages 的 `__editable__*_finder.py`
+- 子模块已转普通目录：升级上游版本时按 submodule_pins.txt 的 commit 对齐
+- 同事机器如依赖 HV2RD_ROOT / Data/EgoDex 布局，用同名环境变量覆盖，别改默认值

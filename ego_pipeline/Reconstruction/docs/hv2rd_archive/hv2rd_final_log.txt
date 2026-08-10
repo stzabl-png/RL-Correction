@@ -1,0 +1,5 @@
+2edd6d7 docs: reflect SAM3-gated infiller + fuse trajectory cleaning in PIPELINE.md
+894bb35 feat(fuse): light-touch outlier cleaning for world trajectories
+178bdcc feat(hawor): evidence-gated infilling via SAM3 hand presence
+6db98e4 docs: note hawor env needs OpenEXR for ViPE depth handoff
+39d3ef4 fix: add ViPE depth handoff for HaWoR SLAM

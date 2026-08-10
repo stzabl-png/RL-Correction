@@ -19,10 +19,9 @@ _RP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${THIRD_PARTY:=$RR_ROOT/third_party}"   # 注意:third_party 不入 git,需自行准备
 
 # ---------- 外部依赖(可用同名环境变量覆盖) ----------
-: "${HV2RD_ROOT:=/home/bangdu/HumanVideo2RobotData}"
 : "${RECON_PIPELINE:=$RR_ROOT/ego_pipeline/Reconstruction/recon_pipeline}"
 : "${V2AP_ROOT:=/home/lyh/Project/V2AP}"
-: "${EGODEX_ROOT:=$RR_DATA_ROOT/EgoDex}"
+: "${EGODEX_ROOT:=$V2AP_ROOT/data/egocentric/egodex}"
 : "${HAWOR_PYTHON:=/home/lyh/anaconda3/envs/hawor/bin/python}"
 : "${ISAAC_PYTHON:=$THIRD_PARTY/MagicDexMate/.venv-isaac/bin/python}"
 
@@ -34,5 +33,5 @@ _RP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export A2G_ROOT EGODEX_RAW_ROOT HAWOR_DATA VIPE_ROOT HOI4D_RELEASE
 
 export RR_ROOT RR_DATA_ROOT RR_OUTPUT_ROOT RECON_OUTPUT RETARGET_OUTPUT THIRD_PARTY
-export HV2RD_ROOT RECON_PIPELINE V2AP_ROOT EGODEX_ROOT HAWOR_PYTHON ISAAC_PYTHON
+export RECON_PIPELINE V2AP_ROOT EGODEX_ROOT HAWOR_PYTHON ISAAC_PYTHON
 unset _RP_DIR

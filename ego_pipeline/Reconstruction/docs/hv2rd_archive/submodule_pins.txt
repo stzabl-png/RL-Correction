@@ -1,0 +1,26 @@
+# HV2RD third_party 子模块 pin (2026-08-10 收编时状态, 迁移后已转普通目录)
+-a1b694b83e633c2cb6115b9063d940a687759392 third_party/FoundationPose
+-66c7d4108d58a716deccd192cb7645170cdc7bd7 third_party/hawor
+-f91db411c50efee93d8db7aeb323885650f6f722 third_party/sam-3d-objects
+-2b90b9f5ceec907a1c18123530e92e794ad901a4 third_party/sam2
+-a29e1e7733c98cd58c48e047279e4fcdbd523e41 third_party/sam3
+
+# 各子模块远端:
+[submodule "third_party/vipe"]
+	path = third_party/vipe
+	url = https://github.com/nv-tlabs/vipe.git
+[submodule "third_party/hawor"]
+	path = third_party/hawor
+	url = https://github.com/ThunderVVV/HaWoR.git
+[submodule "third_party/sam3"]
+	path = third_party/sam3
+	url = https://github.com/jiaka1chen/sam3.git
+[submodule "third_party/sam-3d-objects"]
+	path = third_party/sam-3d-objects
+	url = https://github.com/facebookresearch/sam-3d-objects.git
+[submodule "third_party/FoundationPose"]
+	path = third_party/FoundationPose
+	url = https://github.com/NVlabs/FoundationPose.git
+[submodule "third_party/sam2"]
+	path = third_party/sam2
+	url = https://github.com/facebookresearch/sam2.git

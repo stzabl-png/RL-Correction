@@ -54,6 +54,7 @@ def vipe_run_sequence_cmd(
     cmd = [
         "uv",
         "run",
+        "--no-sync",   # venv 是收编迁移来的现成环境; 不加会触发 uv 联网重解析(卡死/重装风险)
         "python",
         str(script_path.resolve()),
         "--dataset",

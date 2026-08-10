@@ -3,7 +3,7 @@
 设计:
 - `RR_ROOT`(本仓根)**自动从本文件位置推导**,所以 clone 到任何机器/任何目录都能直接跑,
   无需设任何环境变量。
-- 外部依赖(HumanVideo2RobotData / V2AP / hawor 环境)保留开发机的默认值,
+- 外部依赖(V2AP / hawor 环境)保留开发机的默认值,
   但都可用**同名环境变量覆盖**,别人 clone 后按自己机器 export 即可。
 
 用法:
@@ -40,12 +40,11 @@ THIRD_PARTY: Path = RR_ROOT / "third_party"          # 注意:third_party 不入
 
 # ---------- 外部依赖(可用同名环境变量覆盖) ----------
 # Jiakai 的重建仓(recon_pipeline 的上游)
-HV2RD_ROOT: Path = _env_path("HV2RD_ROOT", "/home/bangdu/HumanVideo2RobotData")
 RECON_PIPELINE: Path = _env_path("RECON_PIPELINE", EGO_PIPELINE / "Reconstruction/recon_pipeline")
 
 # V2AP(FoundationPose / isaac_ros_ws / egodex 原始数据)
 V2AP_ROOT: Path = _env_path("V2AP_ROOT", "/home/lyh/Project/V2AP")
-EGODEX_ROOT: Path = _env_path("EGODEX_ROOT", DATA_ROOT / "EgoDex")
+EGODEX_ROOT: Path = _env_path("EGODEX_ROOT", V2AP_ROOT / "data/egocentric/egodex")
 FOUNDATIONPOSE_ROOT: Path = _env_path("FOUNDATIONPOSE_ROOT", V2AP_ROOT / "thirdparty/foundationpose")
 ISAAC_ROS_WS: Path = _env_path("ISAAC_ROS_WS", V2AP_ROOT / "thirdparty/isaac_ros_ws")
 

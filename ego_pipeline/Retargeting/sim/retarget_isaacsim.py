@@ -45,7 +45,11 @@ import sys
 parser = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument("--traj", required=True, help="trajectory .npz")
-parser.add_argument("--object-usd", default=None, help="object USD (see scripts/obj_to_usd.py)")
+parser.add_argument("--object-usd", default=None, nargs="+",
+                    help="object USD(s) (see scripts/obj_to_usd.py). Several may be given "
+                         "for a paired scene (bottle + cap): they are matched in order to "
+                         "obj_pose_all in the trajectory npz. All objects share one scene "
+                         "transform, so their relative geometry is preserved.")
 parser.add_argument("--no-object", action="store_true",
                     help="replay hands + hand tracks only (no object mesh, no amber track); "
                          "the object pose is still used for gravity/recenter")
@@ -256,8 +260,16 @@ if not hand_joints_raw:
 n_hands = len(hand_joints_raw)
 
 T = max(len(a) for a in hand_joints_raw.values())
-obj_pose = (np.asarray(data["obj_pose"], np.float64) if "obj_pose" in data
-            else np.tile([0, 0, 0, 1, 0, 0, 0], (T, 1)).astype(np.float64))
+# obj_pose_all (n,T,7) when the reconstruction tracked several objects in one pass;
+# obj_pose (T,7) is object 0 and stays the reference for gravity/recenter so results are
+# comparable with single-object runs.
+if "obj_pose_all" in data:
+    obj_poses = [np.asarray(p, np.float64) for p in np.asarray(data["obj_pose_all"], np.float64)]
+elif "obj_pose" in data:
+    obj_poses = [np.asarray(data["obj_pose"], np.float64)]
+else:
+    obj_poses = [np.tile([0, 0, 0, 1, 0, 0, 0], (T, 1)).astype(np.float64)]
+obj_pose = obj_poses[0]
 
 # ---- global scene placement: rotate camera-frame data into a z-up world, then
 # recenter the object onto the table. Applied to every hand + the object so their
@@ -310,6 +322,14 @@ for side in hand_joints_raw:
     hand_joints_raw[side] = np.einsum("ij,tkj->tki", Rs, hand_joints_raw[side]) + scene_shift
 obj_pos_w = obj_pos_w + scene_shift
 obj_pose = np.concatenate([obj_pos_w, obj_quat_w], axis=1)
+# every other object rides the identical Rs + scene_shift; using a per-object transform
+# would destroy the relative placement that made a single-pass reconstruction necessary
+_others = []
+for _p in obj_poses[1:]:
+    _pos = np.einsum("ij,tj->ti", Rs, _p[:, :3]) + scene_shift
+    _quat = np.stack([quat_mul(qs, _p[i, 3:7]) for i in range(len(_p))])
+    _others.append(np.concatenate([_pos, _quat], axis=1))
+obj_poses = [obj_pose] + _others
 
 pos_off = np.array([float(x) for x in args.wrist_pos_offset.split(",")])
 rot_off = np.array([float(x) for x in args.wrist_rot_offset.split(",")])
@@ -500,8 +520,19 @@ if args.table:
           f"top slab {th * 100:g} cm @ z={args.table_height:g} m")
 
 obj_present = (args.object_usd is not None) and not args.no_object
+OBJ_PATHS = []
 if obj_present:
-    add_reference_to_stage(os.path.abspath(args.object_usd), "/World/Object")
+    if len(args.object_usd) > len(obj_poses):
+        raise SystemExit(f"{len(args.object_usd)} object USDs given but the trajectory has "
+                         f"{len(obj_poses)} object pose stream(s)")
+    if len(args.object_usd) < len(obj_poses):
+        print(f"[setup] {len(obj_poses)} object trajectories, {len(args.object_usd)} USD(s) "
+              f"given -- replaying only the first {len(args.object_usd)}")
+        obj_poses = obj_poses[: len(args.object_usd)]
+    for i, u in enumerate(args.object_usd):
+        path = f"/World/Object_{i}" if len(args.object_usd) > 1 else "/World/Object"
+        add_reference_to_stage(os.path.abspath(u), path)
+        OBJ_PATHS.append(path)
 elif args.object_usd is None and not args.no_object:
     raise SystemExit("need --object-usd, or pass --no-object to replay hands only")
 
@@ -509,11 +540,13 @@ elif args.object_usd is None and not args.no_object:
 # by the same amount so the hand-object relative geometry is preserved exactly.
 if obj_present and args.scene_rot == "obj0":
     try:
-        prim = stage.GetPrimAtPath("/World/Object")
+        prim = stage.GetPrimAtPath(OBJ_PATHS[0])
         rng = UsdGeom.Imageable(prim).ComputeLocalBound(
             Usd.TimeCode.Default(), UsdGeom.Tokens.default_).ComputeAlignedRange()
         rest = -float(rng.GetMin()[2])                 # lift so canonical bottom hits the origin z
-        obj_pose[:, 2] += rest
+        for _p in obj_poses:                           # same lift for all, keeps them paired
+            _p[:, 2] += rest
+        obj_pose = obj_poses[0]
         for h in HANDS:
             h["base_pos"][:, 2] += rest
         if obj_place is not None:
@@ -528,12 +561,17 @@ for h in HANDS:
     bind_color(f"/World/Hand_{h['side']}", hand_rgb)
 
 physics = args.mode == "physics"
-obj = None
-if obj_present:
+if physics and len(OBJ_PATHS) > 1:
+    raise SystemExit("--mode physics supports a single object; a multi-object scene needs "
+                     "per-object mass/collision tuning that is not modelled here. Use "
+                     "--mode render to inspect the trajectories.")
+OBJS = []
+for i, path in enumerate(OBJ_PATHS):
     if physics and args.collision != "none":
-        add_object_physics("/World/Object", args.obj_mass, args.collision)
-    obj = (SingleRigidPrim("/World/Object", name="obj") if physics
-           else SingleXFormPrim("/World/Object", name="obj"))
+        add_object_physics(path, args.obj_mass, args.collision)
+    OBJS.append(SingleRigidPrim(path, name=f"obj{i}") if physics
+                else SingleXFormPrim(path, name=f"obj{i}"))
+obj = OBJS[0] if OBJS else None
 for h in HANDS:
     h["art"] = SingleArticulation(f"/World/Hand_{h['side']}", name=f"hand_{h['side']}")
 
@@ -586,15 +624,21 @@ def place_at(idx):
                 ArticulationAction(joint_positions=q))
         else:
             h["art"].set_joint_positions(q)
-    if not physics and obj is not None and obj_place is None:
-        oi = min(idx, len(obj_pose) - 1)
-        obj.set_world_pose(obj_pose[oi, :3], obj_pose[oi, 3:7])
+    if not physics and obj_place is None:
+        for o, pose in zip(OBJS, obj_poses):
+            oi = min(idx, len(pose) - 1)
+            o.set_world_pose(pose[oi, :3], pose[oi, 3:7])
 
 
-def obj_init_pose():
+def obj_init_pose(k: int = 0):
     if obj_place is not None:
         return obj_place, np.array([1.0, 0.0, 0.0, 0.0])
-    return obj_pose[0, :3], obj_pose[0, 3:7]
+    return obj_poses[k][0, :3], obj_poses[k][0, 3:7]
+
+
+def place_objects_at_start():
+    for k, o in enumerate(OBJS):
+        o.set_world_pose(*obj_init_pose(k))
 
 
 # place hands + object at frame 0
@@ -602,7 +646,7 @@ for h in HANDS:
     h["art"].set_world_pose(position=h["base_pos"][0], orientation=h["base_quat"][0])
     h["art"].set_joint_positions(h["finger_qpos"][0][h["sdk2isaac"]])
 if obj is not None:
-    obj.set_world_pose(*obj_init_pose())
+    place_objects_at_start()
     if physics:
         obj.set_linear_velocity(np.zeros(3)); obj.set_angular_velocity(np.zeros(3))
 
@@ -682,7 +726,9 @@ def draw_trajectories():
 
     show_obj_track = obj_present and obj_place is None and not physics  # no track if static/dynamic
     if show_obj_track:
-        polyline(obj_pose[:, :3], obj_color, 5.0)
+        obj_palette = [obj_color, (0.20, 0.95, 0.55, 1.0), (0.95, 0.55, 0.20, 1.0)]
+        for k, pose in enumerate(obj_poses):
+            polyline(pose[:, :3], obj_palette[k % len(obj_palette)], 5.0)
     for h in HANDS:
         polyline(h["base_pos"], hand_color.get(h["side"], (1, 1, 1, 1)), 3.0)
     print("[viz] trajectory lines: "
@@ -694,7 +740,7 @@ def draw_trajectories():
 def reset_to_start():
     place_at(0)
     if obj is not None and (physics or obj_place is not None):
-        obj.set_world_pose(*obj_init_pose())
+        place_objects_at_start()
         if physics:
             obj.set_linear_velocity(np.zeros(3)); obj.set_angular_velocity(np.zeros(3))
 

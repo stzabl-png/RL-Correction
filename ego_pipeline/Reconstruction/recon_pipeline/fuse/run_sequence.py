@@ -27,6 +27,7 @@ from _common.paths import final_video_dir, interim_step_dir, write_step_completi
 from _common.viz import encode_fuse_vis_mp4, vis_path  # noqa: E402
 from fp_pose.fp_common import ob_in_cam_to_world  # noqa: E402
 from sam2_object.sam2_object_common import OBJECT_MASK_ID  # noqa: E402
+from trajectory_cleaning import CleanConfig, clean_hand_payload, clean_object_world  # noqa: E402
 
 DEFAULT_HAWOR_PYTHON = Path(os.environ.get("HAWOR_PYTHON", "/home/jiakaichen/miniconda3/envs/hawor/bin/python"))
 FINAL_SCHEMA_VERSION = "recon_world_v4"
@@ -480,6 +481,19 @@ def _render_fuse_vis_subprocess(
         return None
 
 
+def _intrinsics_source(dataset: str) -> str:
+    """"dataset_constant" if a frozen camera file governed this reconstruction."""
+    try:
+        from _common.paths import final_video_dir  # noqa: WPS433
+
+        root = final_video_dir(dataset, "_probe").parent
+        while root.name != dataset and root.parent != root:
+            root = root.parent
+        return "dataset_constant" if (root / "dataset_camera.json").is_file() else "per_video"
+    except Exception:
+        return "per_video"
+
+
 def fuse_world_sequence(
     *,
     dataset: str,
@@ -662,6 +676,10 @@ def fuse_world_sequence(
         "c2w": c2w_zup,
         "c2w_vipe_world": c2w_vipe_world,
         "K": k_mat,
+        # Where K came from. dataset_camera_consensus.py must skip takes built from a frozen
+        # constant when it recomputes that constant, otherwise the estimate would validate
+        # itself and the consensus would drift toward whatever it already was.
+        "intrinsics_source": _intrinsics_source(dataset),
         "object_ob_in_cam": np.stack(object_ob_in_cam) if object_ob_in_cam else np.zeros((0, 4, 4)),
         "object_frame_indices": np.array(frame_indices, dtype=np.int32),
         "object_ob_in_world": ob_world_zup,
@@ -678,6 +696,34 @@ def fuse_world_sequence(
     }
     if hand_payload is not None:
         save_kwargs.update(hand_payload)
+
+    # Light-touch outlier cleaning of the fused world trajectories (hands + object).
+    # Isolated spikes (e.g. a depth glitch flinging the object away for a few frames)
+    # are detected robustly and replaced from neighbouring frames (interp) or held /
+    # ignored, so the overall trajectory stays sane; a per-frame confidence is written
+    # for downstream RL correction. See fuse/trajectory_cleaning.py.
+    _clean_cfg = CleanConfig()
+    _hand_trans = save_kwargs.get("hand_trans")
+    _hand_valid = save_kwargs.get("hand_valid")
+    if hand_payload is not None and {"hand_rot"}.issubset(save_kwargs):
+        _ht, _hr, _hv, _hconf = clean_hand_payload(
+            save_kwargs["hand_trans"], save_kwargs["hand_rot"], save_kwargs["hand_valid"], _clean_cfg
+        )
+        save_kwargs["hand_trans"] = _ht
+        save_kwargs["hand_rot"] = _hr
+        save_kwargs["hand_valid"] = _hv
+        save_kwargs["hand_confidence"] = _hconf
+        _hand_trans, _hand_valid = _ht, _hv
+    ob_w = save_kwargs.get("object_ob_in_world")
+    if isinstance(ob_w, np.ndarray) and ob_w.ndim == 3 and ob_w.shape[0] == num_frames:
+        _ob_clean, _ob_conf = clean_object_world(ob_w, _hand_trans, _hand_valid, _clean_cfg)
+        save_kwargs["object_ob_in_world"] = _ob_clean
+        save_kwargs["object_confidence"] = _ob_conf
+        _all = save_kwargs.get("object_ob_in_world_all")
+        if isinstance(_all, np.ndarray) and _all.ndim == 4 and _all.shape[0] >= 1 and _all.shape[1] == num_frames:
+            _all = _all.copy()
+            _all[0] = _ob_clean
+            save_kwargs["object_ob_in_world_all"] = _all
 
     final_npz = out_dir / FINAL_NPZ
     np.savez(final_npz, **save_kwargs)

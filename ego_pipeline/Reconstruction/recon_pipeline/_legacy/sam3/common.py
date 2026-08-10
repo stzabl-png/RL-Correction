@@ -406,6 +406,8 @@ def resolve_sam3_version_for_device(
 
 def build_predictor(
     *,
+    # 2026-08-08: 4080S(Ada) 上 sam3.1 文字提示检不出手(传播 0/N 帧),而 sam3 正常
+    # (auto_blackwell_fallback 只在 Blackwell 触发,Ada 不降级)。用环境变量覆盖,默认不变。
     version: str = "sam3.1",
     checkpoint: str | None = None,
     compile_model: bool = False,
@@ -444,7 +446,9 @@ def build_predictor(
 class Sam3RunConfig:
     output_dir: Path
     frame_idx: int = 0
-    version: str = "sam3.1"
+    # 2026-08-08: 4080S(Ada) 上 sam3.1 文字提示检不出手(传播 0/N 帧), sam3 正常。
+    # auto_blackwell_fallback 只在 Blackwell 触发, Ada 不降级 -> 用环境变量覆盖, 默认不变。
+    version: str = os.environ.get("SAM3_VERSION", "sam3.1")
     checkpoint: Path | None = None
     compile_model: bool = False
     use_fa3: bool | None = None

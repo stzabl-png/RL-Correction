@@ -786,6 +786,25 @@ def run_hawor_sequence(
                     pred_betas,
                     pred_valid,
                 )
+        elif config.sam3_filter and filter_keep_valid is not None:
+            # The SAM3 gate decides which frames HaWoR got right, but restoring its verdict
+            # used to live only inside the infiller branch -- and this pipeline runs with
+            # the infiller off. The filter therefore ran, wrote its artifact, and was then
+            # discarded: measured on screw_unscrew_bottle_cap/2, it rejected 30 left-hand
+            # frames (containment 0.0 against the left mask, i.e. the hand was placed on the
+            # opposite side of the image) yet world_space_res.pth came out with all 170
+            # frames marked valid. Downstream had no way to know those frames were junk.
+            pred_valid = filter_keep_valid
+            from pose_smoothing import save_world_poses
+
+            save_world_poses(
+                Path(seq_folder) / "world_space_res.pth",
+                pred_trans,
+                pred_rot,
+                pred_hand_pose,
+                pred_betas,
+                pred_valid,
+            )
 
         if config.smooth_poses:
             from pose_smoothing import save_world_poses, smooth_world_poses

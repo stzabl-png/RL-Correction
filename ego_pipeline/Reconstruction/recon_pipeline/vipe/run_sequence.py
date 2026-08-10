@@ -144,6 +144,52 @@ def _estimate_gravity_artifact(step_dir: Path, video_id: str, video_path: Path) 
     return {"gravity_npz": str(out_path), "gravity_world": gravity_world.tolist(), "up_world": up_world.tolist()}
 
 
+def _dataset_camera_overrides(dataset: str, video_path: Path) -> tuple[list[str], str]:
+    """Feed a frozen dataset-wide camera constant to ViPE, if one exists.
+
+    Intrinsics belong to the camera, not the clip, so estimating them per video only adds
+    noise -- and on footage where the head barely moves, monocular SLAM has no parallax and
+    the estimate can run away entirely (measured on EgoDex: 2.6x the true focal on static
+    clips). Freezing one constant per dataset also makes clips mutually comparable, which is
+    what a sim consuming the whole dataset needs.
+
+    The constant lives in <recon final root>/<dataset>/dataset_camera.json, written by
+    tools/dataset_camera_consensus.py. Absent -> unchanged per-clip estimation.
+    """
+    import json
+
+    from _common.paths import final_video_dir  # noqa: WPS433
+
+    try:
+        root = final_video_dir(dataset, "_probe").parent
+        while root.name != dataset and root.parent != root:
+            root = root.parent
+        cam_path = root / "dataset_camera.json"
+    except Exception:
+        return [], "per_video"
+    if not cam_path.is_file():
+        return [], "per_video"
+    cam = json.loads(cam_path.read_text())
+
+    # a focal in pixels only applies at the resolution it was measured at
+    import cv2  # noqa: WPS433
+
+    vcap = cv2.VideoCapture(str(video_path))
+    w = int(vcap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(vcap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    vcap.release()
+    if [w, h] != list(cam.get("image_size", [])):
+        print(f"[vipe] {cam_path.name} is for {cam.get('image_size')} but this video is "
+              f"{[w, h]}; falling back to per-clip intrinsics", flush=True)
+        return [], "per_video"
+
+    k = [cam["fx"], cam["fy"], cam["cx"], cam["cy"]]
+    print(f"[vipe] using frozen {dataset} camera fx={k[0]:.1f} (frozen {cam.get('frozen_at')})",
+          flush=True)
+    return ([f"streams.intrinsics=[{k[0]},{k[1]},{k[2]},{k[3]}]",
+             "pipeline.init.intrinsics=gt"], "dataset_constant")
+
+
 def run_vipe(job, *, gpu: int, visualize: bool, force: bool) -> dict:
     from _common.gravity import vipe_gravity_path
     from _common.paths import interim_step_dir, is_step_complete, resolve_repo_path, write_step_completion
@@ -172,11 +218,13 @@ def run_vipe(job, *, gpu: int, visualize: bool, force: bool) -> dict:
 
     step_dir.mkdir(parents=True, exist_ok=True)
     log_path = step_dir / ".logs" / f"{job.video_id}.log"
+    overrides, intr_source = _dataset_camera_overrides(job.dataset, video_path)
     config = vipe.VipeRunConfig(
         input_path=video_path,
         output_dir=step_dir.resolve(),
         vipe_root=vipe.VIPE_ROOT,
         discard_nonessential_artifacts=not visualize,
+        extra_overrides=overrides,
     )
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu)
     print(f"[vipe] running {job.video_id} → {step_dir}", flush=True)

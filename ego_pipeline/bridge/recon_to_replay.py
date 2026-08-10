@@ -87,12 +87,16 @@ def main() -> int:
     jl[valid_l < 0.5] = np.nan
     jr[valid_r < 0.5] = np.nan
 
-    # object pose -> (Tv,7) [x,y,z, qw,qx,qy,qz] (already gravity_z_up_world)
-    obj_pose = np.zeros((Tv, 7), dtype=np.float32)
-    obj_pose[:, :3] = obj_w[:, :3, 3]
-    q_xyzw = Rotation.from_matrix(obj_w[:, :3, :3]).as_quat()  # scalar-last
-    obj_pose[:, 3] = q_xyzw[:, 3]
-    obj_pose[:, 4:7] = q_xyzw[:, :3]
+    def _to_pose7(mats: np.ndarray) -> np.ndarray:
+        """(T,4,4) -> (T,7) [x,y,z, qw,qx,qy,qz] (already gravity_z_up_world)."""
+        out = np.zeros((len(mats), 7), dtype=np.float32)
+        out[:, :3] = mats[:, :3, 3]
+        q_xyzw = Rotation.from_matrix(mats[:, :3, :3]).as_quat()   # scalar-last
+        out[:, 3] = q_xyzw[:, 3]
+        out[:, 4:7] = q_xyzw[:, :3]
+        return out
+
+    obj_pose = _to_pose7(obj_w)
 
     payload = dict(
         joints_left=jl, joints_right=jr,
@@ -101,6 +105,24 @@ def main() -> int:
         frames=np.arange(Tv, dtype=np.int32),
         fps=np.float32(args.fps),
     )
+
+    # A paired scene (bottle + cap, tool + workpiece) has to come out of ONE
+    # reconstruction pass -- ViPE's focal estimate is not deterministic, so tracking the
+    # objects in separate runs puts them in different world frames and any later merge
+    # silently misplaces one against the other. When the recon carried several objects,
+    # export them all here. `obj_pose` stays the first object so every existing consumer
+    # (contact extraction, load_replay, the single-object Isaac replay) is unaffected.
+    if "object_ob_in_world_all" in d.files:
+        all_w = np.asarray(d["object_ob_in_world_all"], dtype=np.float64)   # (n,Tv,4,4)
+        if all_w.ndim == 4 and all_w.shape[1] == Tv:
+            payload["obj_pose_all"] = np.stack([_to_pose7(all_w[i]) for i in range(len(all_w))])
+            if "object_ids" in d.files:
+                payload["object_ids"] = np.asarray(d["object_ids"])
+            if "object_valid_all" in d.files:
+                payload["obj_valid_all"] = np.asarray(d["object_valid_all"], dtype=bool)
+            if len(all_w) > 1:
+                print(f"[recon_to_replay] {len(all_w)} objects exported as obj_pose_all "
+                      f"(obj_pose stays object 0 for backward compatibility)", flush=True)
     # Per-frame reconstruction confidence (1 real, 0.5 interpolated, 0.3 held, 0 ignored)
     # from fuse's trajectory cleaning, so downstream RL correction knows which frames
     # to trust. Hand confidence is @Th -> resampled to the video timeline like valid_*.

@@ -153,12 +153,7 @@ def _remove_previous_outputs(step_dir: Path, video_id: str) -> None:
         step_dir / "vis" / f"{video_id}.mp4",
         completion_marker(step_dir, STEP),
     ):
-        # Path.unlink(missing_ok=...) is Python 3.8+; the HOI-DETR runtime env
-        # can be Python 3.7, so guard for portability.
-        try:
-            path.unlink()
-        except FileNotFoundError:
-            pass
+        path.unlink(missing_ok=True)
 
 
 def _move_staged_file(staging_dir: Path, step_dir: Path, relative_path: Path) -> None:
@@ -264,10 +259,7 @@ def _run_inference(
                 print(f"[{STEP}] processed video frame {frame_idx}", flush=True)
     finally:
         cap.release()
-        try:
-            scratch_image.unlink()  # missing_ok is Python 3.8+; guard for py3.7
-        except FileNotFoundError:
-            pass
+        scratch_image.unlink(missing_ok=True)
     inference_seconds = time.perf_counter() - inference_started
 
     if frame_idx < 1:

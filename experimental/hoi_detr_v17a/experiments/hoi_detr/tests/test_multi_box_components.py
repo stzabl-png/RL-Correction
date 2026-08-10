@@ -11,6 +11,7 @@ from experiments.hoi_detr.multi_box_components import (
     confirm_new_component_track,
     refine_known_masks_from_candidates,
     select_component_anchor_proposals,
+    validate_composite_residual_motion,
 )
 
 
@@ -107,6 +108,90 @@ class MultiBoxComponentTests(unittest.TestCase):
         failed = confirm_new_component_track(proposals[:1], min_consecutive_frames=3)
         self.assertEqual(
             failed["status"], "failed_no_temporally_confirmed_new_component"
+        )
+
+    def test_composite_residual_requires_motion_relative_to_known_instance(self):
+        known_masks = {}
+        proposals = []
+        envelopes = {}
+        for frame_idx in range(3):
+            known = _rect(10, 35, 10, 35)
+            residual = _rect(35, 55, 10, 35)
+            candidate_id = f"c{frame_idx}"
+            known_masks[frame_idx] = {"known": known}
+            envelopes[candidate_id] = known | residual
+            proposals.append(
+                {
+                    "status": "new_component_proposal",
+                    "proposal_type": "composite_residual",
+                    "frame_idx": frame_idx,
+                    "candidate_id": candidate_id,
+                    "proposal_area": int(np.count_nonzero(residual)),
+                    "proposal_score": 0.9,
+                    "mask": residual,
+                }
+            )
+        confirmation = {
+            "status": "success",
+            "seed_frame": 0,
+            "track_frames": [0, 1, 2],
+            "selected": proposals[0],
+        }
+
+        result = validate_composite_residual_motion(
+            confirmation,
+            frame_proposals=proposals,
+            known_masks_by_frame=known_masks,
+            interaction_envelopes_by_candidate_id=envelopes,
+            min_existing_coverage_for_residual=0.85,
+            min_jointly_visible_frames=3,
+            min_relative_displacement_diagonals=0.03,
+        )
+
+        self.assertEqual(
+            result["status"], "failed_no_independent_composite_residual_motion"
+        )
+
+    def test_independently_moving_composite_residual_passes_motion_check(self):
+        known_masks = {}
+        proposals = []
+        envelopes = {}
+        for frame_idx, offset in enumerate((0, 8, 16)):
+            known = _rect(10, 35, 10, 35)
+            residual = _rect(40, 55, 10 + offset, 25 + offset)
+            candidate_id = f"c{frame_idx}"
+            known_masks[frame_idx] = {"known": known}
+            envelopes[candidate_id] = known | residual
+            proposals.append(
+                {
+                    "status": "new_component_proposal",
+                    "proposal_type": "composite_residual",
+                    "frame_idx": frame_idx,
+                    "candidate_id": candidate_id,
+                    "proposal_area": int(np.count_nonzero(residual)),
+                    "proposal_score": 0.9,
+                    "mask": residual,
+                }
+            )
+        confirmation = {
+            "status": "success",
+            "seed_frame": 0,
+            "track_frames": [0, 1, 2],
+            "selected": proposals[0],
+        }
+
+        result = validate_composite_residual_motion(
+            confirmation,
+            frame_proposals=proposals,
+            known_masks_by_frame=known_masks,
+            interaction_envelopes_by_candidate_id=envelopes,
+            min_existing_coverage_for_residual=0.85,
+            min_jointly_visible_frames=3,
+            min_relative_displacement_diagonals=0.03,
+        )
+
+        self.assertEqual(
+            result["status"], "success_independent_composite_residual_motion"
         )
 
     def test_anchor_selection_bounds_gap_and_preserves_seed(self):

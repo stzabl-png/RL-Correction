@@ -34,8 +34,10 @@ if str(RECON_ROOT) not in sys.path:
 from _common.paths import FINAL_ROOT, final_video_dir, is_step_complete, write_step_completion  # noqa: E402
 
 STEP = "confidence"
+_DEV_TOOLS = Path("/home/lyh/Project/RL_Correction/steps/step2_reconstruction")   # 开发机
+_REPO_TOOLS = RECON_ROOT.parent.parent / "confidence"                             # 仓内快照(远程机)
 TOOLS = Path(os.environ.get(
-    "RL_CONF_TOOLS", "/home/lyh/Project/RL_Correction/steps/step2_reconstruction"))
+    "RL_CONF_TOOLS", str(_DEV_TOOLS if _DEV_TOOLS.is_dir() else _REPO_TOOLS)))
 POSEQA = Path(os.environ.get(
     "POSEQA_ROOT", str(FINAL_ROOT.parent.parent / "Data" / "VideoPrior" / "poseqa")))
 

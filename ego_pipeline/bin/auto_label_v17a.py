@@ -38,7 +38,10 @@ from repo_paths import RECON_PIPELINE  # noqa: E402
 RECON_ROOT = RECON_PIPELINE.parent            # ego_pipeline/Reconstruction
 V17A_ROOT = RR_ROOT / "experimental" / "hoi_detr_v17a"
 TP = RECON_ROOT / "third_party"
-HAWOR_PY = os.environ.get("HAWOR_PYTHON", "/home/lyh/anaconda3/envs/hawor/bin/python")
+_HAWOR_PY = os.environ.get("HAWOR_PYTHON", "/home/lyh/anaconda3/envs/hawor/bin/python")
+# 远程机没有本机 anaconda 路径 → 退回 conda run(hawor env 两台服务器都有)
+HAWOR_CMD = ([_HAWOR_PY] if Path(_HAWOR_PY).is_file()
+             else ["conda", "run", "--no-capture-output", "-n", "hawor", "python"])
 
 
 def video_id_for(video: Path, root: Path) -> str:
@@ -151,7 +154,7 @@ def main(argv=None) -> int:
     inst, frame = pick(json.loads(manifest_path.read_text()), a.instance, a.recon_frame)
     print(f"[auto-label] 选择: {inst} @ 帧{frame}  ({manifest_path})")
     run("3/3 adapter 转 sam2_object 格式", [
-        HAWOR_PY, RECON_ROOT / "recon_kailang" / "v17_mask_adapter" / "import_v17a_masks.py",
+        *HAWOR_CMD, RECON_ROOT / "recon_kailang" / "v17_mask_adapter" / "import_v17a_masks.py",
         "--dataset", a.dataset, "--video-id", vid, "--video", video,
         "--manifest", manifest_path, "--source-object-id", inst,
         "--reconstruction-frame", frame, "--object-name", a.object_name],

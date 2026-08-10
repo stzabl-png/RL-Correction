@@ -22,6 +22,11 @@ parser.add_argument("--clip", default="task1_static_smoke")
 parser.add_argument("--num_envs", type=int, default=1)
 parser.add_argument("--steps", type=int, default=80)
 parser.add_argument("--report", default="", help="Optional JSON report path.")
+parser.add_argument(
+    "--manifest",
+    default="",
+    help="Optional manifest path; defaults beside --report when a report is requested.",
+)
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 
@@ -41,6 +46,11 @@ from pxr import Usd, UsdPhysics  # noqa: E402
 from rl_rebuild.correction import clips, frames as F  # noqa: E402
 from rl_rebuild.correction.env.dexmate_env import DexmateCorrectionEnv  # noqa: E402
 from rl_rebuild.correction.env.dexmate_env_cfg import DexmateCorrectionEnvCfg  # noqa: E402
+from rl_rebuild.correction.recon_kailang.run_manifest import (  # noqa: E402
+    artifact,
+    finish_manifest,
+    start_manifest,
+)
 
 
 def _geometry_metrics(env: DexmateCorrectionEnv, vertices: np.ndarray) -> dict:
@@ -116,6 +126,38 @@ def main() -> int:
         raise ValueError(f"{args.clip!r} is not a static_reconstruction clip")
     if args.num_envs < 1 or args.steps < 1:
         raise ValueError("--num_envs and --steps must be positive")
+
+    manifest_path = None
+    if args.manifest:
+        manifest_path = Path(args.manifest).expanduser().resolve()
+    elif args.report:
+        manifest_path = (
+            Path(args.report).expanduser().resolve().parent
+            / "step4_validation_manifest.json"
+        )
+    running_manifest = None
+    if manifest_path is not None:
+        inputs = {
+            "mesh": artifact(entry["mesh"]),
+            "replay_world": artifact(entry["npz"]),
+            "usd_before_launch": artifact(entry["usd"]),
+        }
+        running_manifest = start_manifest(
+            manifest_path.parent,
+            final_name=manifest_path.name,
+            stage="step4_static_reconstruction_physics_smoke",
+            entrypoint=__file__,
+            command=sys.argv,
+            inputs=inputs,
+            parameters={
+                "clip": args.clip,
+                "num_envs": args.num_envs,
+                "steps": args.steps,
+                "device": args.device,
+                "headless": args.headless,
+            },
+            expected_outputs=["physics_smoke.json", "object.usd"],
+        )
 
     cfg = DexmateCorrectionEnvCfg()
     clips.configure_cfg(cfg, args.clip)
@@ -221,6 +263,20 @@ def main() -> int:
             report_path.parent.mkdir(parents=True, exist_ok=True)
             report_path.write_text(payload + "\n", encoding="utf-8")
             print(f"[static-smoke] report: {report_path}", flush=True)
+        if running_manifest is not None:
+            manifest_outputs = {"object_usd": artifact(entry["usd"])}
+            if args.report:
+                manifest_outputs["physics_smoke_report"] = artifact(
+                    Path(args.report).expanduser().resolve()
+                )
+            completed_manifest = finish_manifest(
+                running_manifest,
+                status="ready" if not failures else "failed",
+                outputs=manifest_outputs,
+                validation={"passed": not failures, "checks": checks},
+                failure=None if not failures else {"failed_checks": failures},
+            )
+            print(f"[static-smoke] manifest: {completed_manifest}", flush=True)
         if failures:
             print(
                 "[static-smoke] FAIL: " + ", ".join(failures),

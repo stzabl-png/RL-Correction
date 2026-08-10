@@ -205,6 +205,16 @@ class StaticReconstructionPlacementTest(unittest.TestCase):
         self.assertTrue((destination / "retarget" / "ref_qpos.npz").is_file())
         self.assertTrue((destination / "cache").is_dir())
         self.assertTrue((destination / "meta.json").is_file())
+        provenance = destination / "provenance" / "step4_staging_run_manifest.json"
+        self.assertTrue(provenance.is_file())
+        run_manifest = json.loads(provenance.read_text(encoding="utf-8"))
+        self.assertEqual(run_manifest["status"], "ready")
+        self.assertEqual(run_manifest["stage"], "step4_static_reconstruction_staging")
+        self.assertTrue(run_manifest["outputs"]["mesh"]["exists"])
+        self.assertEqual(
+            run_manifest["outputs"]["mesh"]["path"],
+            "reconstruction/object_mesh_scaled_final.obj",
+        )
         meta = json.loads((destination / "meta.json").read_text(encoding="utf-8"))
         self.assertEqual(
             meta["manifest"]["retarget"], ["replay_world.npz", "ref_qpos.npz"]

@@ -20,6 +20,8 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from .run_manifest import artifact, finish_manifest, start_manifest
+
 
 _TD = Path(__file__).resolve().parents[2] / "TrainingData"
 _RECON_REQUIRED = ("object_mesh_scaled_final.obj", "world_fused.npz")
@@ -75,6 +77,34 @@ def stage_static(
     destination.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{name}.staging-", dir=destination.parent))
     try:
+        provenance = staging / "provenance"
+        inputs = {
+            "object_mesh_scaled_final": artifact(
+                recon / "object_mesh_scaled_final.obj"),
+            "world_fused": artifact(recon / "world_fused.npz"),
+            "replay_world": artifact(ret / "replay_world.npz"),
+        }
+        running_manifest = start_manifest(
+            provenance,
+            final_name="step4_staging_run_manifest.json",
+            stage="step4_static_reconstruction_staging",
+            entrypoint=__file__,
+            command=["python", "-m", __name__],
+            inputs=inputs,
+            parameters={
+                "dataset": dataset,
+                "name": name,
+                "src_clip": src_clip,
+                "mass_kg": mass_kg,
+                "friction": friction,
+            },
+            expected_outputs=[
+                "reconstruction/object_mesh_scaled_final.obj",
+                "reconstruction/world_fused.npz",
+                "retarget/replay_world.npz",
+                "meta.json",
+            ],
+        )
         copied = {
             "reconstruction": _copy_selected(
                 recon, staging / "reconstruction", _RECON_REQUIRED + _RECON_OPTIONAL),
@@ -82,6 +112,15 @@ def stage_static(
                 ret, staging / "retarget", _RETARGET_REQUIRED + _RETARGET_OPTIONAL),
         }
         (staging / "cache").mkdir()
+        upstream_manifests = []
+        for source, target_name in (
+            (recon / "run_manifest.json", "reconstruction_run_manifest.json"),
+            (ret / "run_manifest.json", "retarget_run_manifest.json"),
+        ):
+            if source.is_file():
+                provenance.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, provenance / target_name)
+                upstream_manifests.append(target_name)
         meta = {
             "dataset": dataset,
             "object": name,
@@ -96,9 +135,35 @@ def stage_static(
                 "z": "rotated mesh minimum = table_top_z + 0.002m",
             },
             "manifest": copied,
+            "provenance": upstream_manifests,
         }
         (staging / "meta.json").write_text(
             json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        staged_outputs = {
+            "mesh": artifact(
+                staging / "reconstruction" / "object_mesh_scaled_final.obj",
+                label="reconstruction/object_mesh_scaled_final.obj",
+            ),
+            "world_fused": artifact(
+                staging / "reconstruction" / "world_fused.npz",
+                label="reconstruction/world_fused.npz",
+            ),
+            "replay_world": artifact(
+                staging / "retarget" / "replay_world.npz",
+                label="retarget/replay_world.npz",
+            ),
+            "meta": artifact(staging / "meta.json", label="meta.json"),
+        }
+        finish_manifest(
+            running_manifest,
+            status="ready",
+            outputs=staged_outputs,
+            validation={
+                "required_reconstruction_files_present": True,
+                "required_retarget_files_present": True,
+                "atomic_destination": True,
+            },
+        )
         os.replace(staging, destination)
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)

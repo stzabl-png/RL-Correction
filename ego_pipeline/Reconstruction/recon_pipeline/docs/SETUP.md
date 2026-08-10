@@ -17,7 +17,7 @@ git submodule update --init \
 | vipe | `cu128` + `cd third_party/vipe && uv run python …` | `third_party/vipe/docs/installation.md` |
 | sam3_hands | `sam3` | `third_party/sam3/README.md` |
 | sam2_object | `sam3` (includes editable `third_party/sam2`) | `third_party/sam2/INSTALL.md` |
-| hawor | `hawor` | `third_party/hawor` upstream setup plus MANO files |
+| hawor | `hawor` (also needs `OpenEXR` — reads ViPE depth EXRs for SLAM) | `third_party/hawor` upstream setup plus MANO files |
 | sam3d | SAM3D env (PyTorch3D, kaolin) | `third_party/sam-3d-objects/README.md` |
 | sam3d_scale | FoundationPose/SAM3D-compatible env with `scipy` | `third_party/FoundationPose/readme.md`, `third_party/sam-3d-objects/README.md` |
 | fp_pose | `foundationpose` (see below) | `third_party/FoundationPose/readme.md` |
@@ -115,3 +115,10 @@ Not used by `recon_pipeline`. See [fp_pose/ISAAC_ROS.md](../fp_pose/ISAAC_ROS.md
 ViPE depth may not be metric. Tune `--depth-scale` on `sam3d_scale/run_sequence.py` before the object mesh is scaled, then keep the same depth scale when running `fp_pose/run_sequence.py` if you override its default. Start with `1.0`, then adjust using known object size or HOI4D GT if available.
 
 If `sam3d_scale` or `fp_pose` fails on import with `ModuleNotFoundError: scipy`, install SciPy in the active FoundationPose-compatible environment. If `fuse` fails on import with `ModuleNotFoundError: joblib`, run it in the HaWoR environment or install `joblib` in the lightweight visualization environment.
+
+If `hawor` fails with `ValueError: Decoded EXR depth is all zero. ViPE depth artifacts use a HALF Z channel; install/use OpenEXR in this environment to read them correctly.`, the `hawor` env is missing the `OpenEXR` Python package. The ViPE→HaWoR depth handoff (`write_hawor_slam_from_vipe`) reads ViPE's HALF `Z`-channel depth EXRs; without `OpenEXR`, `_common/io.py` falls back to OpenCV, which decodes that channel as all zeros. Install it into the `hawor` env (the modern wheel bundles `Imath`):
+
+```bash
+conda run -n hawor python -m pip install OpenEXR
+conda run -n hawor python -c "import OpenEXR, Imath; print('OpenEXR', OpenEXR.__version__)"
+```

@@ -27,6 +27,7 @@ STEPS = (
     "sam3d_scale",
     "fp_pose",
     "fuse",
+    "confidence",
 )
 
 STEP_SCRIPTS = {
@@ -39,6 +40,7 @@ STEP_SCRIPTS = {
     "sam3d_scale": RECON_ROOT / "sam3d_scale" / "run_sequence.py",
     "fp_pose": RECON_ROOT / "fp_pose" / "run_sequence.py",
     "fuse": RECON_ROOT / "fuse" / "run_sequence.py",
+    "confidence": RECON_ROOT / "confidence" / "run_sequence.py",  # 轨迹可信度打分+平滑, env: hawor
 }
 
 

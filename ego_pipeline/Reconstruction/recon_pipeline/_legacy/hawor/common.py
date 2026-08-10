@@ -775,7 +775,50 @@ def run_hawor_sequence(
                 args, start_idx, end_idx, frame_chunks_all
             )
             if config.sam3_filter and filter_keep_valid is not None:
-                pred_valid = filter_keep_valid
+                # Evidence-gated infilling. The infiller regenerates a continuous
+                # trajectory for every hand, but blindly trusting it would
+                # hallucinate hands in frames where none is visible. So instead of
+                # overwriting validity with the strict SAM3-accepted observations
+                # (which drops every filled frame and made the infiller a no-op),
+                # take the union: keep the SAM3-accepted real frames, and
+                # additionally accept an infilled frame ONLY where SAM3 still sees a
+                # hand mask for that side. Frames with no mask evidence stay invalid,
+                # so completeness comes from evidence, not fabrication.
+                import numpy as np
+                import torch
+
+                from sam3_mano_filter import sam3_hand_presence
+
+                # hawor_infiller returns pred_valid as a numpy bool array and marks
+                # BOTH hands valid across every window it fills, so trusting it wholesale
+                # would fabricate hands. Gate it with per-frame SAM3 presence.
+                infilled = np.asarray(
+                    pred_valid.detach().cpu().numpy() if hasattr(pred_valid, "detach")
+                    else pred_valid
+                ) > 0
+                real = np.asarray(
+                    filter_keep_valid.detach().cpu().numpy()
+                    if hasattr(filter_keep_valid, "detach") else filter_keep_valid
+                ) > 0
+                present = sam3_hand_presence(
+                    sam3_dir=config.sam3_dir.resolve(),
+                    sequence_name=sequence_name,
+                    num_frames=int(infilled.shape[1]),
+                    image_size=(height, width),
+                    source_video=video_path,
+                    min_area=config.min_mano_area,
+                )
+                gated = real | (infilled & present)
+                print(
+                    "[hawor] evidence-gated infill valid frames "
+                    f"(L,R): real={tuple(int(real[h].sum()) for h in (0, 1))} "
+                    f"present={tuple(int(present[h].sum()) for h in (0, 1))} "
+                    f"infilled={tuple(int(infilled[h].sum()) for h in (0, 1))} "
+                    f"-> kept={tuple(int(gated[h].sum()) for h in (0, 1))}",
+                    flush=True,
+                )
+                pred_valid = torch.from_numpy(gated.astype(np.float32))
+
                 from pose_smoothing import save_world_poses
 
                 save_world_poses(
@@ -786,25 +829,6 @@ def run_hawor_sequence(
                     pred_betas,
                     pred_valid,
                 )
-        elif config.sam3_filter and filter_keep_valid is not None:
-            # The SAM3 gate decides which frames HaWoR got right, but restoring its verdict
-            # used to live only inside the infiller branch -- and this pipeline runs with
-            # the infiller off. The filter therefore ran, wrote its artifact, and was then
-            # discarded: measured on screw_unscrew_bottle_cap/2, it rejected 30 left-hand
-            # frames (containment 0.0 against the left mask, i.e. the hand was placed on the
-            # opposite side of the image) yet world_space_res.pth came out with all 170
-            # frames marked valid. Downstream had no way to know those frames were junk.
-            pred_valid = filter_keep_valid
-            from pose_smoothing import save_world_poses
-
-            save_world_poses(
-                Path(seq_folder) / "world_space_res.pth",
-                pred_trans,
-                pred_rot,
-                pred_hand_pose,
-                pred_betas,
-                pred_valid,
-            )
 
         if config.smooth_poses:
             from pose_smoothing import save_world_poses, smooth_world_poses

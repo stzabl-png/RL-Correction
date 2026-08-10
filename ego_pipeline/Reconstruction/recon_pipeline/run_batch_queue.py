@@ -37,6 +37,7 @@ AUTO_STEPS = (
     "sam3d_scale",
     "fp_pose",
     "fuse",
+    "confidence",
 )
 
 STEP_SCRIPTS = {
@@ -48,20 +49,22 @@ STEP_SCRIPTS = {
     "sam3d_scale": RECON_ROOT / "sam3d_scale" / "run_sequence.py",
     "fp_pose": RECON_ROOT / "fp_pose" / "run_sequence.py",
     "fuse": RECON_ROOT / "fuse" / "run_sequence.py",
+    "confidence": RECON_ROOT / "confidence" / "run_sequence.py",
 }
 
 STEP_ENVS = {
     "vipe": "cu128",
-    "sam3_hands": "sam3",
-    "sam2_object": "sam3",
+    "sam3_hands": "HV2RD",
+    "sam2_object": "HV2RD",
     "hawor": "hawor",
-    "sam3d": "sam3d-objects",
-    "sam3d_scale": "foundationpose",
-    "fp_pose": "foundationpose",
+    "sam3d": "biv2ap",
+    "sam3d_scale": "biv2ap",
+    "fp_pose": "biv2ap",
     "fuse": "hawor",
+    "confidence": "hawor",
 }
 
-GPU_STEPS = {"vipe", "sam3_hands", "sam2_object", "hawor", "sam3d", "sam3d_scale", "fp_pose"}
+GPU_STEPS = {"vipe", "sam3_hands", "sam2_object", "hawor", "sam3d", "sam3d_scale", "fp_pose", "confidence"}
 CUDA_VISIBLE_DEVICE_STEPS = {"fp_pose"}
 DEFAULT_GPU_MEM_BUDGET_MB = 43000
 DEFAULT_STEP_GPU_MEM_MB = {
@@ -72,9 +75,11 @@ DEFAULT_STEP_GPU_MEM_MB = {
     "sam3d": 22000,
     "sam3d_scale": 10000,
     "fp_pose": 6000,
+    "confidence": 7000,   # CoTracker 实测 ~6.5GB; audit/rts 是 CPU
 }
 DEFAULT_STEP_CPU_THREADS = {
     "fp_pose": "4",
+    "confidence": "4",
 }
 FINAL_SCHEMA_VERSION = "recon_world_v4"
 HAWOR_CAMERA_TIMELINE = "vipe_time_aligned_v1"
@@ -576,6 +581,9 @@ def _final_complete(job: VideoJob) -> bool:
 
 
 def _step_done(job: VideoJob, step: str) -> bool:
+    if step == "confidence":
+        # confidence 的 marker 在 final 目录(interim 会被 cleanup 删掉, marker 必须活得比它长)
+        return is_step_complete(final_video_dir(job.dataset, job.video_id), step)
     step_dir = interim_step_dir(job.dataset, job.video_id, step)
     if not is_step_complete(step_dir, step):
         return False
@@ -904,7 +912,23 @@ def _worker(
         try:
             skip_steps = False
             if not force and _final_complete(job):
-                print(f"{worker_tag} ({job.video_id}) final output complete, skip", flush=True)
+                # 重建已完成的视频: 不重跑重建, 但 confidence 缺了要补
+                # (断点场景: fuse 完成后进程中断, interim 已删, 走 steps 循环会整条重跑)
+                if "confidence" in steps and not _step_done(job, "confidence"):
+                    print(f"{worker_tag} ({job.video_id}) final complete, top up confidence", flush=True)
+                    _run_step(
+                        "confidence",
+                        job,
+                        worker_idx=worker_idx,
+                        gpu_ids=gpu_ids,
+                        batch_dir=batch_dir,
+                        visualize=visualize,
+                        force=force,
+                        dry_run=dry_run,
+                        gpu_reservation=gpu_reservation,
+                    )
+                else:
+                    print(f"{worker_tag} ({job.video_id}) final output complete, skip", flush=True)
                 cleanup = _cleanup_successful_video(
                     job,
                     batch_dir,

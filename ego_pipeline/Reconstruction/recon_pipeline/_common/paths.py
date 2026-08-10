@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-# Output roots are env-configurable so a host project (e.g. Reconstruct_and_Retarget) can route
+# Output roots are env-configurable so a host project (e.g. Bi-V2AP) can route
 # artifacts to its own Output/ tree without moving the code. Defaults unchanged.
 INTERIM_ROOT = Path(os.environ["RECON_INTERIM_ROOT"]).resolve() if os.environ.get("RECON_INTERIM_ROOT") else REPO_ROOT / "data" / "interim"
 FINAL_ROOT = Path(os.environ["RECON_FINAL_ROOT"]).resolve() if os.environ.get("RECON_FINAL_ROOT") else REPO_ROOT / "data" / "reconstruction"

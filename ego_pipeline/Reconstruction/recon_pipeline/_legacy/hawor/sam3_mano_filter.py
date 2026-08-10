@@ -310,6 +310,43 @@ def _load_frame_sam_masks(
     )
 
 
+def sam3_hand_presence(
+    *,
+    sam3_dir: Path,
+    sequence_name: str,
+    num_frames: int,
+    image_size: tuple[int, int],
+    source_video: Path | None = None,
+    min_area: int = 80,
+    hawor_fps: float = HAWOR_EXTRACT_FPS,
+) -> np.ndarray:
+    """Per-frame, per-hand SAM3 hand-mask presence, independent of HaWoR.
+
+    Returns a bool array (2, num_frames): row 0 = left, row 1 = right; True where
+    the SAM3 hand mask for that side at that HaWoR-timeline frame has area
+    >= ``min_area``. This is pure image evidence (a mask exists) and does not
+    depend on whether HaWoR produced a pose, so it can gate infilled frames:
+    only trust a filled hand where SAM3 still sees a hand there (no hallucination).
+    """
+    sam3 = _load_sam3_helpers()
+    masks_dir = sam3.masks_root(sam3_dir, sequence_name)
+    timeline = resolve_sam3_timeline_mapping(
+        sam3_dir=sam3_dir,
+        sequence_name=sequence_name,
+        source_video=source_video,
+        hawor_fps=hawor_fps,
+    )
+    height, width = image_size
+    present = np.zeros((2, num_frames), dtype=bool)
+    for frame_idx in range(num_frames):
+        sam_left, sam_right = _load_frame_sam_masks(
+            masks_dir, frame_idx, height, width, sam3.load_mask_png, mapping=timeline
+        )
+        present[0, frame_idx] = int(sam_left.sum()) >= min_area
+        present[1, frame_idx] = int(sam_right.sum()) >= min_area
+    return present
+
+
 def _sorted_frame_paths(pattern: str) -> list[str]:
     paths = glob(pattern)
 

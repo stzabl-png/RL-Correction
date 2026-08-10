@@ -8,11 +8,11 @@ RGB video
   ├─ sam3_hands     text-prompt left/right hand masks
   └─ sam2_object    manual point labels → SAM2-propagated object masks
 
-hawor             ViPE camera + ViPE depth handoff, SAM3 hand-mask filter, no infiller → world MANO
+hawor             ViPE camera + ViPE depth handoff, SAM3 hand-mask filter, SAM3-gated infiller → world MANO
 sam3d             raw mesh per labeled object from object mask + ViPE depth
 sam3d_scale       metric scale/orientation per object via clicked-frame depth + single-frame FP
 fp_pose           per-object FoundationPose register + FP++ track (centroid + 6D KF)
-fuse              T_obj_world = c2w @ T_obj_cam; gravity-align camera/objects/MANO; export final NPZ + copied meshes
+fuse              T_obj_world = c2w @ T_obj_cam; gravity-align camera/objects/MANO; light-touch outlier cleaning (hands+object) + per-frame confidence; export final NPZ + copied meshes
 ```
 
 ## Step dependencies

@@ -91,7 +91,11 @@ def run_hawor(job: VideoJob, *, gpu: int, visualize: bool, force: bool) -> dict:
         output_dir=step_dir,
         vipe_camera_params=vipe_dir,
         sam3_dir=sam3_dir,
-        use_infiller=False,
+        # Evidence-gated infilling: fill hand-track gaps with the HaWoR infiller
+        # but only trust filled frames where SAM3 still sees the hand (gating done
+        # in common.py). Gives continuous, roughly-correct hands without fabricating
+        # ones that were never there.
+        use_infiller=True,
         sam3_filter=True,
         visualize=visualize,
         sam3_filter_debug_video=visualize,
@@ -111,7 +115,7 @@ def run_hawor(job: VideoJob, *, gpu: int, visualize: bool, force: bool) -> dict:
         "camera_timeline": HAWOR_CAMERA_TIMELINE,
         "depth_source": "vipe",
         "depth_representation": "inverse_depth_disparity",
-        "infiller": False,
+        "infiller": True,
     }
     if visualize and result.get("vis_video"):
         std = vis_path(step_dir, job.video_id)

@@ -481,19 +481,6 @@ def _render_fuse_vis_subprocess(
         return None
 
 
-def _intrinsics_source(dataset: str) -> str:
-    """"dataset_constant" if a frozen camera file governed this reconstruction."""
-    try:
-        from _common.paths import final_video_dir  # noqa: WPS433
-
-        root = final_video_dir(dataset, "_probe").parent
-        while root.name != dataset and root.parent != root:
-            root = root.parent
-        return "dataset_constant" if (root / "dataset_camera.json").is_file() else "per_video"
-    except Exception:
-        return "per_video"
-
-
 def fuse_world_sequence(
     *,
     dataset: str,
@@ -676,10 +663,6 @@ def fuse_world_sequence(
         "c2w": c2w_zup,
         "c2w_vipe_world": c2w_vipe_world,
         "K": k_mat,
-        # Where K came from. dataset_camera_consensus.py must skip takes built from a frozen
-        # constant when it recomputes that constant, otherwise the estimate would validate
-        # itself and the consensus would drift toward whatever it already was.
-        "intrinsics_source": _intrinsics_source(dataset),
         "object_ob_in_cam": np.stack(object_ob_in_cam) if object_ob_in_cam else np.zeros((0, 4, 4)),
         "object_frame_indices": np.array(frame_indices, dtype=np.int32),
         "object_ob_in_world": ob_world_zup,

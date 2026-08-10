@@ -1,0 +1,68 @@
+# 远程全链跑法（UCB 8×A6000）
+
+> 2026-08-10 起的规矩：**跑数据一律远程，本地 4080S 16GB 只做开发**。
+> 依据见 RUNTIME_LEDGER.md（16GB 边界 = sam3d/sam3d_scale/fp_pose 三步，FP 峰值 ~27GB）。
+
+## 机器与账户
+
+- `yanghong@169.229.192.185`（UCB 共享机，8×A6000 48GB，VPN 内，本机免密已通）
+- **礼仪红线**：GPU7 = vLLM 服务专占；root 的 rl_rebuild 训练任务不能动；
+  选卡前 `nvidia-smi` 看空闲，留 ≥7GB 余量（邻居显存会瞬时波动）
+- 代码树 `~/Reconstruct_and_Retarget` = 本仓 Step2_NoisyRecon 分支的 git 工作区
+  （中转 bare 仓 `~/repos/RL-Correction.git`）；老版编排代码在
+  `_retired_recon_pipeline_20260801/` 仅留参考
+- 布局：模型树物理在顶层 `third_party/`（env 的 editable 指它，别搬动），
+  `ego_pipeline/Reconstruction/third_party` 与 `data` 是符号链接
+
+## 同步代码（本地改完之后）
+
+```bash
+# 本地
+git push ucb Step2_NoisyRecon        # ucb = yanghong@169.229.192.185:repos/RL-Correction.git
+# 远程
+ssh yanghong@169.229.192.185 "cd ~/Reconstruct_and_Retarget && git pull -q origin Step2_NoisyRecon"
+```
+
+## 跑重建（远程, 全 9 步含 v17A 自动标注与 confidence）
+
+```bash
+ssh yanghong@169.229.192.185
+export PATH=~/miniconda3/bin:$PATH && source ~/miniconda3/etc/profile.d/conda.sh   # 非登录 shell 必须
+cd ~/Reconstruct_and_Retarget/ego_pipeline
+nvidia-smi --query-gpu=index,memory.used --format=csv,noheader   # 挑空闲卡
+./reconstruct.sh <视频或目录> --dataset egodex --root <数据root> --gpu-ids=<空闲卡>   # = 必须带
+# 长任务用 tmux 包(SSH 断开不死): tmux new -d -s recon '... reconstruct.sh ...'
+```
+
+要点：
+- `SAM3_VERSION=sam3` 已在 reconstruct.sh 固化，无需手动
+- 步骤脚本会覆写 CUDA_VISIBLE_DEVICES —— **选卡只认 `--gpu-ids=`/`--gpu N` 传参**
+- vipe 走 `conda run -n cu128 uv run --no-sync`（venv 是重建过的，实测通）
+- v17A 自动标注默认开（标注缺失时自动出 mask）；`--no-auto-label` 关；`--web` 人工兜底
+
+## 跑完拉回本地库（poseqa 以本地为权威）
+
+```bash
+# 1) 成品 take 目录(含 confidence marker)
+rsync -a yanghong@169.229.192.185:~/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex/<路径>/ \
+      $RR/Output/ReconstructOutput/egodex/<路径>/
+# 2) CT 观测(免本地重跑 CoTracker)
+rsync -a yanghong@169.229.192.185:~/Reconstruct_and_Retarget/Data/VideoPrior/poseqa/cc/ \
+      $RR/Data/VideoPrior/poseqa/cc/
+# 3) 本地增量入库(每条 ~15s, 复用远程 cc)
+PY=/home/lyh/anaconda3/envs/hawor/bin/python
+T=/home/lyh/Project/RL_Correction/steps/step2_reconstruction
+P=$RR/Data/VideoPrior/poseqa
+$PY $T/pose_audit.py --scene <take目录> --out $P --ct-dir $P/cc
+$PY $T/rts_smoother.py --scene <take目录> --audit $P/pose_audit.json --out $P/rts
+$PY $T/take_manifest.py --audit $P/pose_audit.json --out $P/TAKE_MANIFEST.json
+```
+
+远程 poseqa（`~/Reconstruct_and_Retarget/Data/VideoPrior/poseqa`）只是批量运行的工作区，
+**take 裁决以本地 TAKE_MANIFEST.json 为准**（下游 RL 读本地）。
+
+## 已踩平的环境坑（别再踩）
+
+- conda-pack 环境的 pip shebang 坏（`python3.10` 不在 PATH）→ 装包用 `python -m pip`
+- UCB hawor env 曾缺 `rtree`（已装, 2026-08-10）
+- 验收基准：pour/11 远程 confidence 与本地打分**逐字节一致**（pos 93.0/rot 30.5）

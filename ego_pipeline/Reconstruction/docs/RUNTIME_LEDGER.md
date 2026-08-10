@@ -44,5 +44,5 @@ refuted 4 帧 / 尺度可靠 / 自由轴[1]（杯子回转对称轴, rot_obs 0.0
 6. conda 环境里 editable/egg-link 烤死路径已全量修复（HV2RD 收编后遗症, 25 处 6 个 env）
 
 **待办**
-- UCB 代码树是 2026-08-01 旧版，待同步为合并后权威版（本次远程跑靠手工推单文件补丁）
+- ✅ UCB 代码树已同步为权威版(2026-08-10 深夜, git 化+符号链接布局, 见 REMOTE_RUNBOOK.md)
 - v17A 多实例注册（--instance all）与 VLM 透明过滤前置，未接

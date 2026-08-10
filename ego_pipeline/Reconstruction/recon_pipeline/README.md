@@ -147,6 +147,12 @@ python3 recon_pipeline/sam2_object/label_object.py \
 
 See [docs/LABELING.md](docs/LABELING.md) for controls and prompt file format.
 
+## Kailang 的静态物体重建扩展
+
+Step3 v17A mask adapter、SAM-only 最终尺度契约和相应测试集中在署名目录
+[`../recon_kailang/`](../recon_kailang/README.md)。既有 runner 的兼容性修改仍保留在原位，
+但所有新增独立入口都从该目录启动，便于区分作者和后续维护边界。
+
 ## Common batch flags
 
 | Flag | Use |

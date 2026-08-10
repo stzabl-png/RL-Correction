@@ -12,6 +12,12 @@
 - **是**:一条纯视觉、无需文本提示的**交互物体分割**管线。HOI-DETR 检测「手 / firstobject / secondobject」框 + 手-物 link,SAM2 做零件级 mask 传播,输出带**固定实例 ID** 的逐帧 mask + interaction 关键帧。
 - **不是**:它**不做左右手判定、不做 pose estimation、不判"真抓 vs 靠近"**。HOI-DETR 只有单个 `hand` 类,无 handedness;它的 hf-link 只是"手-物关联/靠近",手搁在旁边也会高置信触发(实测过假阳性)。
 - **来源**:`github.com/jiaka1chen/HumanVideo2RobotData` 分支 **`STEP_3_V17`**(v17A),本副本对应 commit 见 `SOURCE_COMMIT.txt`(`be0791b`)。后续以该分支为准,拉更新回来覆盖 `experiments/`。
+- **timesplit 增量**:已叠加同仓库 **`STEP_Timesplit`** 分支的「每只手三段时间线」管线(commit 见
+  `SOURCE_COMMIT_TIMESPLIT.txt`):raw MP4 → 左右手拆分 → 交互段合并 → 每手
+  `three_phase_timeline.mp4`。用法见 `experiments/hoi_detr/timeline.md`(步骤①即本文件的
+  run_sequence;②③④ 只需 CPU + Qwen API,依赖 `openai` 包和 `ffmpeg`)。已在
+  insert_remove_drawer/0、insert_remove_usb/0、stock_unstock_fridge/4、sweep_dustpan/0
+  四条视频上验证与源仓库输出一致(段边界、连线帧、左右手判定全部相同)。
 
 ---
 

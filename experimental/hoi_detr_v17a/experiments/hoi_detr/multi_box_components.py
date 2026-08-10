@@ -15,6 +15,8 @@ from typing import Any
 import cv2
 import numpy as np
 
+from .component_decision import component_motion_evidence
+
 
 def accepted_hand_linked_candidates(frame: dict[str, Any]) -> list[dict[str, Any]]:
     """Return all per-candidate accepted hand-linked observations."""
@@ -306,6 +308,107 @@ def confirm_new_component_track(
         "seed_frame": int(seed["frame_idx"]),
         "track_frames": [int(item["frame_idx"]) for item in track],
         "selected": seed,
+    }
+
+
+def validate_composite_residual_motion(
+    confirmation: dict[str, Any],
+    *,
+    frame_proposals: list[dict[str, Any]],
+    known_masks_by_frame: dict[int, dict[str, np.ndarray]],
+    interaction_envelopes_by_candidate_id: dict[str, np.ndarray],
+    min_existing_coverage_for_residual: float,
+    min_jointly_visible_frames: int,
+    min_relative_displacement_diagonals: float,
+) -> dict[str, Any]:
+    """Require independent motion before registering a composite residual.
+
+    A residual cut from a mask that substantially contains an existing object
+    is weak evidence by itself.  It is accepted only when it moves
+    independently of every substantially covered registered instance.
+    """
+
+    selected = confirmation.get("selected", {})
+    if selected.get("proposal_type") != "composite_residual":
+        return {"status": "not_required_for_direct_disjoint_candidate"}
+
+    track_frames = [int(frame_idx) for frame_idx in confirmation.get("track_frames", [])]
+    best_by_frame: dict[int, dict[str, Any]] = {}
+    for proposal in frame_proposals:
+        frame_idx = int(proposal.get("frame_idx", -1))
+        if (
+            frame_idx not in track_frames
+            or proposal.get("status") != "new_component_proposal"
+            or proposal.get("proposal_type") != "composite_residual"
+        ):
+            continue
+        current = best_by_frame.get(frame_idx)
+        if current is None or float(proposal["proposal_score"]) > float(
+            current["proposal_score"]
+        ):
+            best_by_frame[frame_idx] = proposal
+    if set(best_by_frame) != set(track_frames):
+        return {"status": "failed_missing_composite_residual_track_masks"}
+
+    seed_frame = int(confirmation["seed_frame"])
+    seed_proposal = best_by_frame[seed_frame]
+    seed_envelope = interaction_envelopes_by_candidate_id.get(
+        str(seed_proposal["candidate_id"])
+    )
+    seed_known = known_masks_by_frame.get(seed_frame, {})
+    if seed_envelope is None or not seed_known:
+        return {"status": "failed_missing_composite_overlap_evidence"}
+
+    related_known_ids = []
+    for object_id, known_mask in seed_known.items():
+        known = np.asarray(known_mask, dtype=bool)
+        known_area = int(np.count_nonzero(known))
+        coverage = (
+            float(np.count_nonzero(np.asarray(seed_envelope, dtype=bool) & known) / known_area)
+            if known_area
+            else 0.0
+        )
+        if coverage >= min_existing_coverage_for_residual:
+            related_known_ids.append(str(object_id))
+    if not related_known_ids:
+        return {
+            "status": "failed_no_substantially_covered_known_instance",
+            "related_known_ids": [],
+        }
+
+    tracked_masks: dict[int, dict[str, np.ndarray]] = {}
+    for frame_idx in track_frames:
+        known = known_masks_by_frame.get(frame_idx, {})
+        if any(object_id not in known for object_id in related_known_ids):
+            continue
+        tracked_masks[frame_idx] = {
+            "__new_residual__": np.asarray(best_by_frame[frame_idx]["mask"], dtype=bool),
+            **{
+                object_id: np.asarray(known[object_id], dtype=bool)
+                for object_id in related_known_ids
+            },
+        }
+    frame_shape = np.asarray(seed_proposal["mask"], dtype=bool).shape
+    evidence = [
+        component_motion_evidence(
+            object_id,
+            "__new_residual__",
+            tracked_masks,
+            frame_shape=frame_shape,
+            min_jointly_visible_frames=min_jointly_visible_frames,
+            min_relative_displacement_diagonals=min_relative_displacement_diagonals,
+        )
+        for object_id in related_known_ids
+    ]
+    reliable = bool(evidence) and all(item.reliable for item in evidence)
+    return {
+        "status": (
+            "success_independent_composite_residual_motion"
+            if reliable
+            else "failed_no_independent_composite_residual_motion"
+        ),
+        "related_known_ids": related_known_ids,
+        "pair_evidence": [item.to_dict() for item in evidence],
     }
 
 

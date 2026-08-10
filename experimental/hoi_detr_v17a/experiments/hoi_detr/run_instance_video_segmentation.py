@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -36,7 +37,9 @@ from .multi_box_components import (
     classify_candidate_masks,
     confirm_new_component_track,
     refine_known_masks_from_candidates,
+    validate_composite_residual_motion,
 )
+from .run_manifest import finish_manifest, start_manifest
 from .run_combine_mask_sequences import run as run_combine_mask_sequences
 from .run_combine_video_registry import run as run_combine_video_registry
 from .run_instance_recovery import run as run_instance_recovery
@@ -466,6 +469,25 @@ def _discover_all_box_component(
         min_mask_continuity=args.min_box_mask_temporal_continuity,
         max_area_scale=args.max_box_mask_temporal_area_scale,
     )
+    if confirmation.get("status") == "success":
+        motion_validation = validate_composite_residual_motion(
+            confirmation,
+            frame_proposals=frame_proposals,
+            known_masks_by_frame=known_masks_by_frame,
+            interaction_envelopes_by_candidate_id=(
+                interaction_envelopes_by_candidate_id
+            ),
+            min_existing_coverage_for_residual=(
+                args.min_existing_coverage_for_residual
+            ),
+            min_jointly_visible_frames=args.min_jointly_visible_frames,
+            min_relative_displacement_diagonals=(
+                args.min_relative_displacement_diagonals
+            ),
+        )
+        confirmation["motion_validation"] = motion_validation
+        if motion_validation["status"].startswith("failed"):
+            confirmation["status"] = motion_validation["status"]
     audit = {
         "schema_version": "all_box_component_discovery_v1",
         "episode_idx": int(episode["episode_idx"]),
@@ -720,6 +742,11 @@ def run(args: argparse.Namespace) -> dict:
     if output_dir.exists() and any(output_dir.iterdir()):
         raise FileExistsError(f"output directory is not empty: {output_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
+    start_manifest(output_dir, args=args, command=sys.argv)
+
+    def complete(summary: dict) -> dict:
+        finish_manifest(output_dir, summary)
+        return summary
     detections = read_candidates_json(args.detections)
     observations = build_box_observations(detections)
     observations_path = output_dir / "box_observations.json"
@@ -738,7 +765,7 @@ def run(args: argparse.Namespace) -> dict:
             "failed_videos": [str(args.video.resolve())],
         }
         write_json_atomic(output_dir / "summary.json", summary)
-        return summary
+        return complete(summary)
 
     cycle_registries = []
     sequence_paths = []
@@ -954,7 +981,7 @@ def run(args: argparse.Namespace) -> dict:
             "video_mask_sequence": None,
         }
         write_json_atomic(output_dir / "summary.json", summary)
-        return summary
+        return complete(summary)
     identity = _identity_maps(args, sequence_manifests)
     if identity["status"] != "success":
         summary = {
@@ -966,7 +993,7 @@ def run(args: argparse.Namespace) -> dict:
             "video_mask_sequence": None,
         }
         write_json_atomic(output_dir / "summary.json", summary)
-        return summary
+        return complete(summary)
     identity_path = output_dir / "visual_identity_map.json"
     write_json_atomic(identity_path, identity)
     registry_result = run_combine_video_registry(
@@ -988,7 +1015,7 @@ def run(args: argparse.Namespace) -> dict:
             "video_mask_sequence": None,
         }
         write_json_atomic(output_dir / "summary.json", summary)
-        return summary
+        return complete(summary)
     combined = run_combine_mask_sequences(
         argparse.Namespace(
             video=args.video,
@@ -1010,7 +1037,7 @@ def run(args: argparse.Namespace) -> dict:
         "failed_videos": combined.get("failed_videos", []),
     }
     write_json_atomic(output_dir / "summary.json", summary)
-    return summary
+    return complete(summary)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -1094,6 +1121,7 @@ def main(argv: list[str] | None = None) -> int:
         }
         args.output_dir.mkdir(parents=True, exist_ok=True)
         write_json_atomic(args.output_dir / "fatal_summary.json", summary)
+        finish_manifest(args.output_dir.resolve(), summary)
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     if summary["failed_videos"]:
         print("FAILED VIDEOS:")

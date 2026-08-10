@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import sys
 from pathlib import Path
@@ -17,6 +18,7 @@ from .instance_association import (
 )
 from .instance_hypothesis import select_initial_instance_hypothesis
 from .instance_registry import write_instance_registry
+from .mask_ownership import resolve_visible_mask_ownership
 from .run_sam2_amg_probe import run as run_sam2_amg
 from .sam2_multi_object import (
     ObjectMaskSeed,
@@ -34,8 +36,8 @@ def _box_region(shape: tuple[int, int], boxes: list[list[float]]) -> np.ndarray:
     return region
 
 
-def _linked_object_boxes(frame: dict) -> list[list[float]]:
-    """Return only visual-object boxes directly linked to a hand.
+def _linked_object_prompts(frame: dict) -> list[dict]:
+    """Return visual-object prompts and the hands directly linked to them.
 
     Object--object links may be useful to other project stages, but they must
     never expand segmentation scope.  Segmentation is triggered solely by a
@@ -46,7 +48,7 @@ def _linked_object_boxes(frame: dict) -> list[list[float]]:
         str(detection.get("detection_id")): detection
         for detection in frame.get("detections", [])
     }
-    linked_ids = set()
+    linked_hand_ids_by_object: dict[str, set[str]] = {}
     for link in frame.get("links", {}).get("hf", []):
         source_id = str(link["source_detection_id"])
         target_id = str(link["target_detection_id"])
@@ -55,14 +57,131 @@ def _linked_object_boxes(frame: dict) -> list[list[float]]:
         if source is None or target is None:
             continue
         if source.get("class_name") == "hand" and target.get("class_name") != "hand":
-            linked_ids.add(target_id)
+            hand_id, object_id = source_id, target_id
         elif target.get("class_name") == "hand" and source.get("class_name") != "hand":
-            linked_ids.add(source_id)
+            hand_id, object_id = target_id, source_id
+        else:
+            continue
+        linked_hand_ids_by_object.setdefault(object_id, set()).add(hand_id)
     return [
-        [float(value) for value in detection["box_xyxy"]]
+        {
+            "source_detection_id": str(detection["detection_id"]),
+            "box_xyxy": [float(value) for value in detection["box_xyxy"]],
+            "linked_hand_ids": sorted(
+                linked_hand_ids_by_object[str(detection["detection_id"])]
+            ),
+        }
         for detection in frame.get("detections", [])
-        if detection.get("detection_id") in linked_ids
+        if str(detection.get("detection_id")) in linked_hand_ids_by_object
         and detection.get("class_name") != "hand"
+    ]
+
+
+def _linked_object_boxes(frame: dict) -> list[list[float]]:
+    """Return the boxes from :func:`_linked_object_prompts`."""
+
+    return [prompt["box_xyxy"] for prompt in _linked_object_prompts(frame)]
+
+
+def _distinct_hand_box_prompt_decision(
+    candidates: list[InstanceCandidate],
+    *,
+    prompt_by_candidate_id: dict[str, dict],
+    max_candidate_overlap_fraction: float,
+) -> dict | None:
+    """Trust separate, non-overlapping objects linked to separate hands.
+
+    Relative-motion evidence remains necessary when one hand has multiple
+    object candidates or when candidates linked to different hands overlap.
+    """
+
+    box_candidates = [
+        candidate
+        for candidate in candidates
+        if candidate.candidate_id in prompt_by_candidate_id
+    ]
+    if len(box_candidates) < 2:
+        return None
+
+    prompts = [prompt_by_candidate_id[item.candidate_id] for item in box_candidates]
+    if any(len(prompt["linked_hand_ids"]) != 1 for prompt in prompts):
+        return None
+    hand_ids = [prompt["linked_hand_ids"][0] for prompt in prompts]
+    if len(set(hand_ids)) != len(hand_ids):
+        return None
+    object_ids = [prompt["source_detection_id"] for prompt in prompts]
+    if len(set(object_ids)) != len(object_ids):
+        return None
+
+    pair_overlaps = []
+    for first_index, first in enumerate(box_candidates):
+        first_mask = np.asarray(first.mask, dtype=bool)
+        for second in box_candidates[first_index + 1 :]:
+            second_mask = np.asarray(second.mask, dtype=bool)
+            denominator = min(
+                int(np.count_nonzero(first_mask)),
+                int(np.count_nonzero(second_mask)),
+            )
+            overlap = (
+                float(np.count_nonzero(first_mask & second_mask) / denominator)
+                if denominator
+                else 0.0
+            )
+            pair_overlaps.append(
+                {
+                    "first_candidate_id": first.candidate_id,
+                    "second_candidate_id": second.candidate_id,
+                    "overlap_fraction": overlap,
+                }
+            )
+            if overlap > max_candidate_overlap_fraction:
+                return None
+
+    return {
+        "status": "multiple_components",
+        "selected_candidate_ids": [item.candidate_id for item in box_candidates],
+        "reason": "distinct_hand_object_links_with_disjoint_masks",
+        "linked_hand_ids": hand_ids,
+        "source_detection_ids": object_ids,
+        "pair_overlaps": pair_overlaps,
+    }
+
+
+def _resolve_direct_box_prompt_ownership(
+    candidates: list[InstanceCandidate],
+    *,
+    component_decision: dict,
+    logits_by_candidate_id: dict[str, np.ndarray],
+) -> list[InstanceCandidate]:
+    """Make trusted distinct-hand seed masks exactly disjoint using SAM logits."""
+
+    if component_decision.get("reason") != (
+        "distinct_hand_object_links_with_disjoint_masks"
+    ):
+        return candidates
+    selected_ids = list(component_decision["selected_candidate_ids"])
+    missing = sorted(set(selected_ids).difference(logits_by_candidate_id))
+    if missing:
+        raise ValueError(f"missing box-prompt logits for ownership: {missing}")
+    ownership = resolve_visible_mask_ownership(
+        {candidate_id: logits_by_candidate_id[candidate_id] for candidate_id in selected_ids}
+    )
+    component_decision["ownership_resolution"] = {
+        "method": "highest_sam2_logit",
+        "overlap_pixels_before": ownership.overlap_pixels_before,
+        "overlap_pixels_after": ownership.overlap_pixels_after,
+    }
+    selected_set = set(selected_ids)
+    return [
+        InstanceCandidate(
+            candidate_id=candidate.candidate_id,
+            mask=ownership.masks[candidate.candidate_id],
+            quality_score=candidate.quality_score,
+            source=candidate.source,
+        )
+        if candidate.candidate_id in selected_set
+        else candidate
+        for candidate in candidates
     ]
 
 
@@ -184,18 +303,20 @@ def _box_prompt_candidate_pool(
     interaction_roi: np.ndarray,
     max_seed_candidates: int,
     min_candidate_roi_fraction: float,
+    logits_by_candidate_id: dict[str, np.ndarray] | None = None,
 ) -> list[InstanceCandidate]:
-    """Create conservative SAM2 fallback candidates from visual object boxes.
+    """Create SAM2 candidates from hand-linked visual-object boxes.
 
-    This is used only when automatic mask generation finds no candidate in the
-    interaction area.  The detector box is a prompt, never an output mask.
+    The detector box is a prompt, never an output mask. These candidates are
+    the primary seed source because they preserve the interaction evidence
+    supplied by HOI-DETR.
     """
 
     candidates = []
     for index, box in enumerate(boxes[:max_seed_candidates]):
         candidate_id = f"box_prompt_candidate_{index:03d}"
         try:
-            seed, _ = object_seed_from_box(
+            seed, logits = object_seed_from_box(
                 predictor,
                 video_path=video_path,
                 object_id=candidate_id,
@@ -217,9 +338,11 @@ def _box_prompt_candidate_pool(
                 candidate_id=candidate_id,
                 mask=mask,
                 quality_score=roi_fraction,
-                source="sam2_box_prompt_fallback",
+                source="sam2_hand_linked_box_prompt",
             )
         )
+        if logits_by_candidate_id is not None:
+            logits_by_candidate_id[candidate_id] = np.asarray(logits, dtype=np.float32)
     return candidates
 
 
@@ -232,47 +355,13 @@ def run(args: argparse.Namespace) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
     detections = json.loads(args.detections.read_text(encoding="utf-8"))
     source_detection_frame = detections["frames"][args.source_frame]
-    boxes = _linked_object_boxes(source_detection_frame)
+    prompts = _linked_object_prompts(source_detection_frame)
+    boxes = [prompt["box_xyxy"] for prompt in prompts]
     if not boxes:
         raise ValueError("source interaction frame contains no hand-linked visual object box")
     interaction_roi = _box_region(
         (int(detections["video"]["height"]), int(detections["video"]["width"])),
         boxes,
-    )
-    amg_summary = run_sam2_amg(
-        argparse.Namespace(
-            video=args.video,
-            frame_idx=args.source_frame,
-            detections=args.detections,
-            output_dir=output_dir / "amg",
-            sam2_root=args.sam2_root,
-            checkpoint=args.checkpoint,
-            model_cfg=args.model_cfg,
-            gpu=args.gpu,
-            points_per_side=args.points_per_side,
-            points_per_batch=args.points_per_batch,
-            pred_iou_threshold=args.pred_iou_threshold,
-            stability_threshold=args.stability_threshold,
-            min_area=args.min_area,
-            max_area=args.max_area,
-            min_largest_component_fraction=args.min_largest_component_fraction,
-            max_hand_overlap=args.max_hand_overlap,
-        )
-    )
-    if amg_summary.get("status") != "success":
-        summary = {
-            "schema_version": "instance_seed_discovery_v1",
-            "status": amg_summary.get("status", "failed_amg"),
-            "reconstruction_registry": None,
-            "failed_videos": [str(args.video.resolve())],
-        }
-        write_json_atomic(output_dir / "summary.json", summary)
-        return summary
-    candidates = _candidate_pool(
-        amg_summary,
-        interaction_roi=interaction_roi,
-        max_seed_candidates=args.max_seed_candidates,
-        min_candidate_roi_fraction=args.min_candidate_roi_fraction,
     )
     sys.path.insert(0, str(args.sam2_root.resolve()))
     from sam2.build_sam import build_sam2_video_predictor
@@ -284,18 +373,74 @@ def run(args: argparse.Namespace) -> dict:
         device=f"cuda:{args.gpu}",
         apply_postprocessing=True,
     )
-    candidate_source = "sam2_automatic_mask_generator"
+    box_prompt_logits: dict[str, np.ndarray] = {}
+    candidates = _box_prompt_candidate_pool(
+        predictor,
+        video_path=args.video,
+        source_frame=args.source_frame,
+        boxes=boxes,
+        interaction_roi=interaction_roi,
+        max_seed_candidates=args.max_seed_candidates,
+        min_candidate_roi_fraction=args.min_candidate_roi_fraction,
+        logits_by_candidate_id=box_prompt_logits,
+    )
+    prompt_by_candidate_id = {
+        f"box_prompt_candidate_{index:03d}": prompt
+        for index, prompt in enumerate(prompts[: args.max_seed_candidates])
+    }
+    candidate_source = "sam2_hand_linked_box_prompt_primary"
     if not candidates:
-        candidates = _box_prompt_candidate_pool(
-            predictor,
-            video_path=args.video,
-            source_frame=args.source_frame,
-            boxes=boxes,
+        # AMG loads a separate SAM2 image model. Release the video predictor
+        # first so the fallback cannot retain both models on a 16 GB GPU.
+        del predictor
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        amg_summary = run_sam2_amg(
+            argparse.Namespace(
+                video=args.video,
+                frame_idx=args.source_frame,
+                detections=args.detections,
+                output_dir=output_dir / "amg",
+                sam2_root=args.sam2_root,
+                checkpoint=args.checkpoint,
+                model_cfg=args.model_cfg,
+                gpu=args.gpu,
+                points_per_side=args.points_per_side,
+                points_per_batch=args.points_per_batch,
+                pred_iou_threshold=args.pred_iou_threshold,
+                stability_threshold=args.stability_threshold,
+                min_area=args.min_area,
+                max_area=args.max_area,
+                min_largest_component_fraction=args.min_largest_component_fraction,
+                max_hand_overlap=args.max_hand_overlap,
+            )
+        )
+        if amg_summary.get("status") != "success":
+            summary = {
+                "schema_version": "instance_seed_discovery_v1",
+                "status": amg_summary.get("status", "failed_amg"),
+                "reconstruction_registry": None,
+                "failed_videos": [str(args.video.resolve())],
+            }
+            write_json_atomic(output_dir / "summary.json", summary)
+            return summary
+        candidates = _candidate_pool(
+            amg_summary,
             interaction_roi=interaction_roi,
             max_seed_candidates=args.max_seed_candidates,
             min_candidate_roi_fraction=args.min_candidate_roi_fraction,
         )
-        candidate_source = "sam2_box_prompt_fallback"
+        candidate_source = "sam2_automatic_mask_generator_fallback"
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        predictor = build_sam2_video_predictor(
+            args.model_cfg,
+            str(args.checkpoint.resolve()),
+            device=f"cuda:{args.gpu}",
+            apply_postprocessing=True,
+        )
     if not candidates:
         summary = {
             "schema_version": "instance_seed_discovery_v1",
@@ -336,14 +481,27 @@ def run(args: argparse.Namespace) -> dict:
         for index, first in enumerate(candidates)
         for second in candidates[index + 1 :]
     ]
-    decision = select_initial_instance_hypothesis(
+    decision = None
+    if candidate_source == "sam2_hand_linked_box_prompt_primary":
+        decision = _distinct_hand_box_prompt_decision(
+            candidates,
+            prompt_by_candidate_id=prompt_by_candidate_id,
+            max_candidate_overlap_fraction=args.max_cross_instance_overlap_fraction,
+        )
+    if decision is None:
+        decision = select_initial_instance_hypothesis(
+            candidates,
+            interaction_roi=interaction_roi,
+            pair_evidence=pair_evidence,
+            min_candidate_roi_fraction=args.min_candidate_roi_fraction,
+            max_candidate_overlap_fraction=args.max_cross_instance_overlap_fraction,
+            max_components=args.max_components,
+            min_multi_component_score_gain=args.min_multi_component_score_gain,
+        )
+    candidates = _resolve_direct_box_prompt_ownership(
         candidates,
-        interaction_roi=interaction_roi,
-        pair_evidence=pair_evidence,
-        min_candidate_roi_fraction=args.min_candidate_roi_fraction,
-        max_candidate_overlap_fraction=args.max_cross_instance_overlap_fraction,
-        max_components=args.max_components,
-        min_multi_component_score_gain=args.min_multi_component_score_gain,
+        component_decision=decision,
+        logits_by_candidate_id=box_prompt_logits,
     )
     if decision["status"].startswith("failed"):
         summary = {

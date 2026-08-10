@@ -1,5 +1,9 @@
 # Manual SAM2 object labeling
 
+> ⚠ 本文档只覆盖 **fallback 人工路线**。物体 mask 默认全自动（无需人点）：
+> `ego_pipeline/bin/auto_label_v17a.py`（reconstruct.sh 自动调用）或
+> `tools/v17a_to_label_prompt.py`。别据本文推断"每条视频都要人工标注"。
+
 Object masks use **SAM2 point prompts** (positive = object, negative = background). Label one or more objects, then `sam2_object/run_sequence.py` propagates each object through the clip and writes the `sam2_object/` interim output consumed by SAM3D, scaling, FoundationPose, and fusion.
 
 SAM2 is the object-mask backend. SAM3 remains the hand-mask backend in `sam3_hands`, and SAM3D is a separate object-mesh model.

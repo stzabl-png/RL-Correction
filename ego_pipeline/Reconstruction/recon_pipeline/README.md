@@ -11,7 +11,7 @@ This package lives under `recon_pipeline/` and keeps the active reconstruction c
 | [docs/PIPELINE.md](docs/PIPELINE.md) | Step order, dependencies, coordinate frames |
 | [docs/DATA_LAYOUT.md](docs/DATA_LAYOUT.md) | Interim and final output paths |
 | [docs/SETUP.md](docs/SETUP.md) | Conda envs, submodules, FoundationPose |
-| [docs/LABELING.md](docs/LABELING.md) | Manual SAM2 object labeling (headed / HTTP; auto-preview after clicks) |
+| [docs/LABELING.md](docs/LABELING.md) | Manual SAM2 object labeling — **fallback only**; 默认走 v17A 自动标注(见 ego_pipeline/bin/auto_label_v17a.py) |
 | [docs/BATCH_QUEUE.md](docs/BATCH_QUEUE.md) | Hybrid batch runner, memory-aware GPU scheduling, measured resource peaks |
 | [docs/VISUALIZATION.md](docs/VISUALIZATION.md) | Per-step `--visualize` outputs and retention rules |
 
@@ -104,6 +104,11 @@ Use `--dataset-root /path/to/HOI4D` when the raw data root is not
 pipeline working outputs and success logs.
 
 ## Labeling only
+
+> ⚠ **人工标注是 fallback，默认路线是全自动**：`reconstruct.sh` 会在标注缺失时自动调
+> `ego_pipeline/bin/auto_label_v17a.py`（v17A 发现实例 → adapter 落 sam2_object 产物，
+> 无需任何人工点选）。另一条自动路线是 `tools/v17a_to_label_prompt.py`（v17A 产
+> label_prompt，由 SAM2 传播）。只有自动失败或需要人工裁决时才用下面的交互工具。
 
 The object-labeling backend is SAM2, installed in the integrated `sam3` environment. SAM2 preview runs after each click/undo. CPU preview is the default so labeling does not reserve GPU memory while reconstruction workers run. The labeling UI supports multiple object slots (`1`-`9`, `o` for new object, `x`/`Delete` to delete the active object); each object can be prompted on a different frame and is reconstructed downstream.
 

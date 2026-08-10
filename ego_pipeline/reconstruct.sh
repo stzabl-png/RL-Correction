@@ -12,7 +12,8 @@
 #   ./reconstruct.sh <目录> --dataset egodex               # 目录下所有 *.mp4
 #   video_id = mp4 相对 --root 路径(去后缀, / -> __)，输出嵌套。
 #
-# 标注：默认本地模式(--skip-label，需先 ./label.sh 标好)；加 --web 走网页标注+重建一条龙。
+# 标注：**默认全自动**(v17A 自动出物体 mask, 无需人工; --no-auto-label 关闭)。
+#      人工点选只是 fallback：--web 网页标注一条龙, 或先 ./label.sh 标好。
 # 其它 flag 透传 run_batch_queue（--force / --dry-run / --workers-per-gpu 2 ...）。
 set -euo pipefail
 

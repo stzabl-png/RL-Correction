@@ -137,7 +137,9 @@ def main(argv: list[str] | None = None) -> int:
             step_extra = list(extra)
             if step == "label":
                 if args.label_mode is None:
-                    print("Skip label: pass --label-mode headed|http", flush=True)
+                    print("Skip label (人工标注是 fallback; 自动路线: ego_pipeline/bin/"
+                          "auto_label_v17a.py 会在标注缺失时自动出 mask, reconstruct.sh 默认启用; "
+                          "确要人工才传 --label-mode headed|http)", flush=True)
                     continue
                 cmd = [
                     sys.executable,

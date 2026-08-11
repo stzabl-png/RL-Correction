@@ -143,6 +143,32 @@ def write_label_prompt(manifest: dict, inst: str, frame: int, sam2_dir: Path,
 
 
 EXIT_ALL_FILTERED = 3        # 与 reconstruct.sh 的约定: 本视频合法跳过, 不算失败
+FP_ONSET_OFFSET = 10         # FP 配准帧 = 交互开始帧 + 10(同事实测, 2026-08-11 定)
+
+
+def write_plan(sam2_dir: Path, entries: dict, n_frames: int | None) -> None:
+    """frame_plan.json: fp=onset+10(有 onset 才写), sam3d 留空给杜邦的选帧器。
+    entries: {final_object_id: v17A 实例 meta dict}"""
+    sys.path.insert(0, str(RECON_PIPELINE))
+    from _common.frame_plan import write_frame_plan  # noqa: E402
+    objs = {}
+    for oid, meta in entries.items():
+        onset = meta.get("interaction_onset_frame", meta.get("activation_frame"))
+        row = {"sam3d_frame": None,
+               "sam3d_source": "reserved(dubang 选帧器待接; null=用 prompt 帧)"}
+        if onset is not None:
+            f = int(onset) + FP_ONSET_OFFSET
+            if n_frames:
+                f = min(f, n_frames - 1)
+            row["fp_register_frame"] = f
+            row["fp_source"] = f"interaction_onset({int(onset)})+{FP_ONSET_OFFSET}"
+        else:
+            row["fp_register_frame"] = None
+            row["fp_source"] = "no_onset_metadata(用 prompt 帧)"
+        objs[oid] = row
+    write_frame_plan(sam2_dir, objs)
+    print(f"[auto-label] frame_plan: " + ", ".join(
+        f"{k}: fp={v['fp_register_frame']}" for k, v in objs.items()))
 
 
 def gate_samples(manifest: dict, inst: str, n: int = 3) -> list[tuple[int, "Path"]]:
@@ -335,7 +361,19 @@ def main(argv=None) -> int:
         if take is not None:
             cmd += ["--recon-take-dir", take]
         run("3/3 多物体 label_prompt", cmd, cwd=RR_ROOT)
-        n_obj = len(json.loads((sam2_dir / "label_prompt.json").read_text())["objects"])
+        prompt = json.loads((sam2_dir / "label_prompt.json").read_text())
+        n_obj = len(prompt["objects"])
+        vmeta = vm.get("objects") or {}
+        entries = {}
+        for po in (prompt.get("provenance") or {}).get("objects") or []:
+            src = po.get("instance") or po.get("source_object_id")
+            fid = po.get("object_id")
+            if fid and src and src in vmeta:
+                entries[fid] = vmeta[src]
+        if not entries:                     # provenance 对不上就逐个顺位对(保底)
+            ids = [o["object_id"] for o in prompt["objects"]]
+            entries = {fid: vmeta.get(src, {}) for fid, src in zip(ids, vm.get("object_ids") or [])}
+        write_plan(sam2_dir, entries, vm.get("num_frames"))
         print(f"[auto-label] ✓ {vid}: {n_obj} 个物体 -> label_prompt.json, "
               f"sam2_object 将逐个传播全片")
         return 0
@@ -360,6 +398,8 @@ def main(argv=None) -> int:
         print(f"[auto-label] 透明门改选替补实例: {inst}")
     print(f"[auto-label] 选择: {inst} @ 帧{frame}  ({manifest_path})")
     n = write_label_prompt(manifest, inst, frame, sam2_dir, a.object_name)
+    write_plan(sam2_dir, {"object_0": (manifest.get("objects") or {}).get(inst, {})},
+               len(manifest.get("frames") or []) or None)
     print(f"[auto-label] ✓ {vid}: {inst} 帧{frame} -> label_prompt.json "
           f"(点 {n}), sam2_object 将自行传播全片")
     return 0

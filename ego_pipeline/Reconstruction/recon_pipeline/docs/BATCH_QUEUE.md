@@ -216,6 +216,11 @@ of the minimal retained output set.
 
 ## Important flags
 
+`--step-arg STEP:FLAG`(可重复) 把额外参数透传给任一步, 例如
+`--step-arg=fp_pose:--pose-mode=register-each`。经 reconstruct.sh 时必须用 `=` 连写形式
+(它的透传是单 token)。这是批量队列此前唯一缺失的机制。
+
+
 | Flag | Meaning |
 |---|---|
 | `--dataset hoi4d` | Dataset adapter; current discovery code supports HOI4D |

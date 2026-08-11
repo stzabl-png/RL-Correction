@@ -229,6 +229,18 @@ def _run_fp_pp_track_one(
 
     anchor_frame = int(obj_prompt.frame_idx)
     num_frames = count_video_frames(video_path)
+    # 帧计划(frame_plan.json): FP 配准帧 = 交互开始帧+10(同事实测更优)。计划只是建议:
+    # 越界或该帧 mask 为空 → 回退 prompt 帧并打日志。
+    from _common.frame_plan import load_frame_plan, planned_frame
+    _pf = planned_frame(load_frame_plan(object_dir), object_id, "fp_register_frame")
+    if _pf is not None:
+        if not 0 <= _pf < num_frames:
+            print(f"[fp_pose] frame_plan {object_id}: 计划帧 {_pf} 越界, 回退 prompt 帧 {anchor_frame}", flush=True)
+        elif not _mask_has_foreground(_read_mask(object_dir, _pf, object_id)):
+            print(f"[fp_pose] frame_plan {object_id}: 计划帧 {_pf} mask 为空, 回退 prompt 帧 {anchor_frame}", flush=True)
+        else:
+            print(f"[fp_pose] frame_plan {object_id}: 配准帧 {anchor_frame} -> {_pf}", flush=True)
+            anchor_frame = _pf
     if not 0 <= anchor_frame < num_frames:
         raise ValueError(f"Object prompt frame {anchor_frame} is outside video frame range [0, {num_frames})")
 

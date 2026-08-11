@@ -328,6 +328,12 @@ def _run_sam3d_scale_one(
     raw_mesh = _load_mesh(raw_mesh_path)
 
     frame_idx = int(obj_prompt.frame_idx)
+    # 与 sam3d 同帧(frame_plan.sam3d_frame): 尺度估计必须在网格重建的同一帧上做
+    from _common.frame_plan import load_frame_plan, planned_frame
+    _pf = planned_frame(load_frame_plan(obj_dir), object_id, "sam3d_frame")
+    if _pf is not None:
+        print(f"[sam3d_scale] frame_plan {object_id}: 参考帧 {frame_idx} -> {_pf}", flush=True)
+        frame_idx = int(_pf)
     click_points = obj_prompt.points
     rgb_bgr = read_video_frame(job.video_path, frame_idx)
     mask = helpers._load_mask(obj_dir, frame_idx, object_id)

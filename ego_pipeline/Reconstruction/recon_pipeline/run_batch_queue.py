@@ -80,6 +80,8 @@ DEFAULT_STEP_GPU_MEM_MB = {
     "fp_pose": 6000,
     "confidence": 7000,   # CoTracker 实测 ~6.5GB; audit/rts 是 CPU
 }
+STEP_EXTRA_ARGS: dict[str, list[str]] = {}   # --step-arg 透传表 (step -> [flags])
+
 DEFAULT_STEP_CPU_THREADS = {
     "fp_pose": "4",
     "confidence": "4",
@@ -791,6 +793,7 @@ def _build_step_cmd(
         cmd.append("--visualize")
     if force:
         cmd.append("--force")
+    cmd.extend(STEP_EXTRA_ARGS.get(step, []))
     return cmd, cwd
 
 
@@ -1062,6 +1065,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--poll-interval", type=float, default=2.0)
     parser.add_argument("--visualize", action="store_true")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--step-arg", action="append", default=[], metavar="STEP:FLAG",
+                        help="给某一步透传额外参数, 可重复。如 --step-arg fp_pose:--pose-mode=register-each "
+                             "(此前批量队列没有任何透传机制, register-each 等只能直调步骤脚本)")
     parser.add_argument(
         "--keep-interim",
         action="store_true",
@@ -1092,6 +1098,13 @@ def main(argv: list[str] | None = None) -> int:
     total_start = time.time()
 
     steps = [s.strip() for s in args.steps.split(",") if s.strip()]
+    for sa in args.step_arg:
+        st, _, flag = sa.partition(":")
+        if not flag or st not in STEP_SCRIPTS:
+            raise SystemExit(f"--step-arg 格式应为 <step>:<flag>, 未知步骤或缺参数: {sa!r}")
+        STEP_EXTRA_ARGS.setdefault(st, []).append(flag)
+    if STEP_EXTRA_ARGS:
+        print(f"Step extra args: {dict(STEP_EXTRA_ARGS)}", flush=True)
     unknown = set(steps) - set(AUTO_STEPS)
     if unknown:
         parser.error(f"Unknown steps: {sorted(unknown)}")

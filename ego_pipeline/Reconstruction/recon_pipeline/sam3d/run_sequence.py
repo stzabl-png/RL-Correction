@@ -553,6 +553,16 @@ def run_sam3d(job: VideoJob, *, gpu: int, visualize: bool, force: bool, config_p
         obj_step_dir = step_dir / "objects" / object_id
         obj_step_dir.mkdir(parents=True, exist_ok=True)
         frame_idx = int(obj.frame_idx)
+        # 帧计划: sam3d_frame 是杜邦选帧器的槽位(null=用 prompt 帧)。mask 空则回退。
+        from _common.frame_plan import load_frame_plan, planned_frame
+        _pf = planned_frame(load_frame_plan(obj_dir), object_id, "sam3d_frame")
+        if _pf is not None:
+            _m = _load_mask(obj_dir, _pf, object_id)
+            if _m is not None and _m.any():
+                print(f"[sam3d] frame_plan {object_id}: 重建帧 {frame_idx} -> {_pf}", flush=True)
+                frame_idx = int(_pf)
+            else:
+                print(f"[sam3d] frame_plan {object_id}: 计划帧 {_pf} mask 为空, 回退 {frame_idx}", flush=True)
         rgb_bgr = read_video_frame(job.video_path, frame_idx)
         mask = _load_mask(obj_dir, frame_idx, object_id)
         if rgb_bgr.shape[:2] != mask.shape[:2]:

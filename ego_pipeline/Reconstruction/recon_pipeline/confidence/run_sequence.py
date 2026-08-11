@@ -80,24 +80,37 @@ def main(argv: list[str] | None = None) -> int:
         py = sys.executable
     audit_json = POSEQA / "pose_audit.json"
 
+    # 一条 take 可以有多个物体(瓶身+瓶盖)。pose_audit 自己会遍历全部物体; CoTracker 和 RTS
+    # 一次只处理一个 —— 每个物体都得跑, 否则只有 object_0 有 CT 信号和 σ, 而任务相关的那个
+    # 部件(拧盖任务里的盖)恰恰常常不是 object_0。
+    import numpy as _np
+    _z = _np.load(scene / "world_fused.npz", allow_pickle=True)
+    oids = ([str(x) for x in _np.asarray(_z["object_ids"]).tolist()]
+            if "object_ids" in _z.files else ["object_0"])
+    print(f"[confidence] {len(oids)} 个物体: {oids}", flush=True)
+
     rc = _run("audit(pre)", [py, TOOLS / "pose_audit.py", "--scene", scene, "--out", POSEQA])
     if rc:
         return rc
-    cc_cmd = [py, TOOLS / "cotracker_consistency.py", "--scene", scene,
-              "--video", args.video, "--out", POSEQA / "cc", "--audit", audit_json]
-    if not args.visualize:
-        cc_cmd.append("--no-viz")
-    rc = _run("cotracker", cc_cmd, gpu=args.gpu)
-    if rc:
-        return rc
+    for oid in oids:
+        cc_cmd = [py, TOOLS / "cotracker_consistency.py", "--scene", scene,
+                  "--video", args.video, "--out", POSEQA / "cc", "--audit", audit_json,
+                  "--object", oid]
+        if not args.visualize:
+            cc_cmd.append("--no-viz")
+        rc = _run(f"cotracker[{oid}]", cc_cmd, gpu=args.gpu)
+        if rc:
+            return rc
     rc = _run("audit(final)", [py, TOOLS / "pose_audit.py", "--scene", scene,
                                "--out", POSEQA, "--ct-dir", POSEQA / "cc"])
     if rc:
         return rc
-    rc = _run("rts", [py, TOOLS / "rts_smoother.py", "--scene", scene,
-                      "--audit", audit_json, "--out", POSEQA / "rts"])
-    if rc:
-        return rc
+    for oid in oids:
+        rc = _run(f"rts[{oid}]", [py, TOOLS / "rts_smoother.py", "--scene", scene,
+                                  "--audit", audit_json, "--out", POSEQA / "rts",
+                                  "--object", oid])
+        if rc:
+            return rc
     rc = _run("manifest", [py, TOOLS / "take_manifest.py", "--audit", audit_json,
                            "--out", POSEQA / "TAKE_MANIFEST.json"])
     if rc:
@@ -111,12 +124,22 @@ def main(argv: list[str] | None = None) -> int:
     extra: dict = {"poseqa_root": str(POSEQA)}
     try:
         man = json.loads((POSEQA / "TAKE_MANIFEST.json").read_text())
-        row = next((t for t in man["takes"] if str(scene).endswith(t["take"])), None)
-        if row:
+        rows = sorted((t for t in man["takes"] if str(scene).endswith(t["take"])),
+                      key=lambda t: t.get("object", "object_0"))
+        keys = ("conf_pos_median", "conf_rot_median", "position_grade",
+                "rotation_usable", "refuted_frames")
+        if rows:
+            # 逐物体都记下来: 一个 take 级的分数会掩盖"任务相关部件其实更差/更好"
+            extra["objects"] = {r.get("object", "object_0"):
+                                {k: r[k] for k in keys} | {"manifest_status": r["status"]}
+                                for r in rows}
+            # 顶层扁平字段固定取 object_0(管线单数字段的既有约定), 只为兼容旧读法;
+            # 多物体 take 的真实内容在 extra["objects"] 里, 别拿顶层当"这条 take 的分数"
+            row = rows[0]
             extra["manifest_status"] = row["status"]   # 别叫 "status": 会覆盖 marker 的 complete 标记
-            extra.update({k: row[k] for k in
-                          ("conf_pos_median", "conf_rot_median",
-                           "position_grade", "rotation_usable", "refuted_frames")})
+            extra["summary_object"] = row.get("object", "object_0")
+            extra["n_objects"] = len(rows)
+            extra.update({k: row[k] for k in keys})
     except Exception as e:                                   # 摘要失败不挡完成
         extra["summary_error"] = f"{type(e).__name__}: {e}"
     write_step_completion(scene, STEP, dataset=args.dataset,

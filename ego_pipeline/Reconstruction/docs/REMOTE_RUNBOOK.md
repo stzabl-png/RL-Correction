@@ -23,7 +23,7 @@ git push ucb Step2_NoisyRecon        # ucb = yanghong@169.229.192.185:repos/RL-C
 ssh yanghong@169.229.192.185 "cd ~/Reconstruct_and_Retarget && git pull -q origin Step2_NoisyRecon"
 ```
 
-## 跑重建（远程, 全 9 步含 v17A 自动标注与 confidence）
+## 跑重建（远程, 全 10 步含 v17A 自动标注、confidence、contact）
 
 ```bash
 ssh yanghong@169.229.192.185
@@ -66,3 +66,11 @@ $PY $T/take_manifest.py --audit $P/pose_audit.json --out $P/TAKE_MANIFEST.json
 - conda-pack 环境的 pip shebang 坏（`python3.10` 不在 PATH）→ 装包用 `python -m pip`
 - UCB hawor env 曾缺 `rtree`（已装, 2026-08-10）
 - 验收基准：pour/11 远程 confidence 与本地打分**逐字节一致**（pos 93.0/rot 30.5）
+
+## contact 步(第 10 步)在 UCB 的现状
+
+MagicDexMate 的 .venv-isaac(dex_retargeting+pinocchio)**尚未部署到 UCB** —— contact 步
+检测到依赖缺失会写 `skipped_missing_deps` 标记继续批量, 不挡整条视频。两个选择:
+(a) 拉回本地后 `--force` 补跑该步(纯 CPU ~8 分钟/手); (b) 把 MagicDexMate venv
+conda-pack/rsync 到 UCB 后 --force。检出 skipped 的 take:
+`grep -rl skipped_missing_deps Output/ReconstructOutput --include=contact_complete.json`

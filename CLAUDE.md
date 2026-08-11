@@ -25,7 +25,13 @@ GitHub = stzabl-png/RL-Correction 的 Step2_NoisyRecon 分支(本目录就是其
 3. **远程选卡只认 `--gpu N` 传参**: 步骤脚本会覆写 CUDA_VISIBLE_DEVICES, 外部 export 无效。
 4. SAM3_VERSION=sam3 已在 reconstruct.sh 固化(sam3.1 三种卡全有问题), 别改回。
 5. vipe 必须 `uv run --no-sync`(已内置); 真要 uv sync 先备份 .venv。
-6. 开朗的 v17A adapter 只认 **episode 级** mask_sequence.json
-   (schema `persistent_mask_sequence_v1`), 他 README 里的视频级示例是错的。
+6. **v17A 两份 manifest 别混**(2026-08-10 踩过: 喂错让多物体静默塌成单物体):
+   - **episode 级** `mask_sequence.json` (`persistent_mask_sequence_v1`): 单实例路径用;
+     开朗的 mask 搬运 adapter 也只认它(他 README 的视频级示例有误)。
+   - **视频级** `video_mask_sequence.json` (`persistent_video_mask_sequence_v1`):
+     **多物体必须用这份** —— 注册出来的部件只出现在这里。clip4 实测视频级
+     `object_0001`+`object_0002`(盖在 f59 注册), 而同一条 clip 的 episode 级只有
+     `instance_0001`。入口: `auto_label_v17a.py --instance all`
+     (或环境变量 `AUTO_LABEL_INSTANCE=all`)。
 7. 从单个文件的 docstring 推断能力边界之前, 先 grep `tools/` 和 `ego_pipeline/bin/`——
    这个仓的自动化入口多数在这两处。

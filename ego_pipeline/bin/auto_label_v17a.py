@@ -15,10 +15,15 @@
       接触检测塌成 左[] 右[[152,154]]。改成只给点后同一实例同一帧拿到 188/188 帧,
       与人工标注 IoU 0.78、无一帧跟丢。质量门继续管选帧, 不再决定覆盖。)
 
-⚠ adapter 只认 episode 级 mask_sequence.json (schema persistent_mask_sequence_v1),
-  不是视频级 video_mask_sequence.json —— 开朗文档里的示例有误, 别改回去。
+⚠ 两份 manifest 各有各的用途, 别混:
+  - **episode 级** mask_sequence.json (persistent_mask_sequence_v1): 单实例路径用这个;
+    开朗的 mask 搬运 adapter 也只认它(他 README 的视频级示例有误)。
+  - **视频级** video_mask_sequence.json (persistent_video_mask_sequence_v1): --instance all
+    用这个 —— 注册出来的部件只出现在这里(clip4: object_0001+object_0002, 盖在 f59 注册;
+    同一条 clip 的 episode 级只有 instance_0001)。喂错会让多物体静默塌成单物体。
 ⚠ 透明物体过滤是上游 VLM 的职责(重建开始前), 本驱动不看材质。
-⚠ 多实例视频 v1 只注册主实例; 多物体注册(--instance all)留待扩展。
+⚠ 默认只注册主实例; --instance all 注册全部(走 tools/v17a_multi_object_prompt.py,
+  一次重建 pass 内完成 -> 各物体共享同一世界系; 分开跑再合并会因 ViPE 焦距不确定而错位)。
 
 用法(reconstruct.sh 自动调用; 也可手动):
   python3 auto_label_v17a.py --dataset egodex --dataset-root <root> \
@@ -148,7 +153,12 @@ def main(argv=None) -> int:
     ap.add_argument("--dataset-root", type=Path, required=True)
     ap.add_argument("--video", type=Path, required=True)
     ap.add_argument("--video-id", default=None, help="缺省按通用规则从路径推导")
-    ap.add_argument("--instance", default="auto", help="instance_000N 或 auto(=第一个被接触的物体)")
+    # env default so multi-object can be switched on for a whole batch without touching
+    # reconstruct.sh's argument forwarding, which cannot pass a flag that takes a value
+    # (its `-*` branch shifts by 1, so the value is read as another video path).
+    ap.add_argument("--instance", default=os.environ.get("AUTO_LABEL_INSTANCE", "auto"),
+                    help="instance_000N / auto(=第一个被接触的物体) / all(=全部实例, 多物体); "
+                         "默认可由环境变量 AUTO_LABEL_INSTANCE 设置")
     ap.add_argument("--recon-frame", default="auto", help="帧号或 auto(=最早 accepted 帧)")
     ap.add_argument("--object-name", default="object")
     ap.add_argument("--gpu", type=int, default=0)
@@ -210,6 +220,40 @@ def main(argv=None) -> int:
         sys.path.insert(0, str(RECON_PIPELINE))
         from _common.paths import interim_step_dir  # noqa: E402
         sam2_dir = interim_step_dir(a.dataset, vid, "sam2_object")
+    if a.instance == "all":
+        # Every interaction instance in ONE label_prompt, so the pipeline reconstructs them
+        # in a single pass and they share a world frame.  Merging separate per-object runs
+        # instead does NOT work: ViPE's focal estimate is not deterministic (58-98 px and
+        # 3-13 cm apart across two runs of the same video), so each run lands in its own
+        # world and the merge silently misplaces one object relative to the other.
+        # hand masks let the tool prefer a frame where the hand is not on the object;
+        # at label time the recon has usually not produced them yet, and the tool treats
+        # "no hand masks" as "no objection", so this stays optional.
+        take = None
+        try:
+            from _common.paths import final_video_dir  # noqa: E402
+            t = final_video_dir(a.dataset, vid)
+            take = t if (t / "masks/hands/frames").is_dir() else None
+        except Exception:  # noqa: BLE001 - hand masks are an optional tie-breaker
+            pass
+        # VIDEO-level manifest here, not the episode-level one the single-instance path
+        # uses.  The episode manifest carries one interaction instance (clip 4: just
+        # instance_0001); the video manifest is where the registered components land
+        # (clip 4: object_0001 + object_0002, the cap registered at frame 59).  Feeding
+        # the episode file makes multi-object silently collapse to a single object.
+        vman = inst_out / "video_mask_sequence" / "video_mask_sequence.json"
+        if not vman.is_file():
+            raise SystemExit(f"[auto-label] X --instance all 需要视频级 manifest, 缺: {vman}")
+        cmd = [sys.executable, RR_ROOT / "tools" / "v17a_multi_object_prompt.py",
+               vman, "--step-dir", sam2_dir]
+        if take is not None:
+            cmd += ["--recon-take-dir", take]
+        run("3/3 多物体 label_prompt", cmd, cwd=RR_ROOT)
+        n_obj = len(json.loads((sam2_dir / "label_prompt.json").read_text())["objects"])
+        print(f"[auto-label] ✓ {vid}: {n_obj} 个物体 -> label_prompt.json, "
+              f"sam2_object 将逐个传播全片")
+        return 0
+
     manifest = json.loads(manifest_path.read_text())
     inst, frame = pick(manifest, a.instance, a.recon_frame)
     print(f"[auto-label] 选择: {inst} @ 帧{frame}  ({manifest_path})")

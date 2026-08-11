@@ -38,6 +38,7 @@ AUTO_STEPS = (
     "fp_pose",
     "fuse",
     "confidence",
+    "contact",
 )
 
 STEP_SCRIPTS = {
@@ -50,6 +51,7 @@ STEP_SCRIPTS = {
     "fp_pose": RECON_ROOT / "fp_pose" / "run_sequence.py",
     "fuse": RECON_ROOT / "fuse" / "run_sequence.py",
     "confidence": RECON_ROOT / "confidence" / "run_sequence.py",
+    "contact": RECON_ROOT / "contact" / "run_sequence.py",
 }
 
 STEP_ENVS = {
@@ -62,6 +64,7 @@ STEP_ENVS = {
     "fp_pose": "biv2ap",
     "fuse": "hawor",
     "confidence": "hawor",
+    "contact": "hawor",
 }
 
 GPU_STEPS = {"vipe", "sam3_hands", "sam2_object", "hawor", "sam3d", "sam3d_scale", "fp_pose", "confidence"}
@@ -80,6 +83,7 @@ DEFAULT_STEP_GPU_MEM_MB = {
 DEFAULT_STEP_CPU_THREADS = {
     "fp_pose": "4",
     "confidence": "4",
+    "contact": "4",
 }
 FINAL_SCHEMA_VERSION = "recon_world_v4"
 HAWOR_CAMERA_TIMELINE = "vipe_time_aligned_v1"
@@ -580,11 +584,26 @@ def _final_complete(job: VideoJob) -> bool:
     return True
 
 
+def _marker_dir(job: VideoJob, step: str) -> Path:
+    """Where `step` keeps its completion marker.
+
+    confidence writes to the final dir because cleanup deletes interim and the marker has
+    to outlive it.  That rule used to be spelled out only inside _step_done, so the two
+    other places that look markers up both probed interim unconditionally: the post-run
+    log line always said "no completion marker" for confidence, and
+    _collect_lightweight_step_metadata never recorded it.  Both were cosmetic -- gating
+    ran through _step_done and was correct -- but the report claimed a step had not
+    finished when it had.
+    """
+    if step in ("confidence", "contact"):
+        return final_video_dir(job.dataset, job.video_id)
+    return interim_step_dir(job.dataset, job.video_id, step)
+
+
 def _step_done(job: VideoJob, step: str) -> bool:
-    if step == "confidence":
-        # confidence 的 marker 在 final 目录(interim 会被 cleanup 删掉, marker 必须活得比它长)
-        return is_step_complete(final_video_dir(job.dataset, job.video_id), step)
-    step_dir = interim_step_dir(job.dataset, job.video_id, step)
+    step_dir = _marker_dir(job, step)
+    if step in ("confidence", "contact"):
+        return is_step_complete(step_dir, step)
     if not is_step_complete(step_dir, step):
         return False
     if step == "hawor":
@@ -610,7 +629,7 @@ def _collect_lightweight_step_metadata(job: VideoJob) -> dict[str, dict]:
     metadata: dict[str, dict] = {}
     for step in AUTO_STEPS:
         step_dir = interim_step_dir(job.dataset, job.video_id, step)
-        marker_payload = _read_json_if_present(completion_marker(step_dir, step))
+        marker_payload = _read_json_if_present(completion_marker(_marker_dir(job, step), step))
         if marker_payload is not None:
             metadata.setdefault(step, {})["completion"] = marker_payload
         if step == "fp_pose":
@@ -879,7 +898,7 @@ def _run_step(
     elapsed = time.time() - start
     if proc.returncode != 0:
         raise RuntimeError(f"{step} failed for {job.video_id} with code {proc.returncode}; see {log_path}")
-    marker = completion_marker(interim_step_dir(job.dataset, job.video_id, step), step)
+    marker = completion_marker(_marker_dir(job, step), step)
     marker_status = "complete" if marker.is_file() else "no completion marker"
     print(f"{prefix} {step}: done in {elapsed:.1f}s ({marker_status})", flush=True)
 
@@ -914,10 +933,12 @@ def _worker(
             if not force and _final_complete(job):
                 # 重建已完成的视频: 不重跑重建, 但 confidence 缺了要补
                 # (断点场景: fuse 完成后进程中断, interim 已删, 走 steps 循环会整条重跑)
-                if "confidence" in steps and not _step_done(job, "confidence"):
-                    print(f"{worker_tag} ({job.video_id}) final complete, top up confidence", flush=True)
+                topups = [s2 for s2 in ("confidence", "contact")
+                          if s2 in steps and not _step_done(job, s2)]
+                for s2 in topups:
+                    print(f"{worker_tag} ({job.video_id}) final complete, top up {s2}", flush=True)
                     _run_step(
-                        "confidence",
+                        s2,
                         job,
                         worker_idx=worker_idx,
                         gpu_ids=gpu_ids,
@@ -927,7 +948,7 @@ def _worker(
                         dry_run=dry_run,
                         gpu_reservation=gpu_reservation,
                     )
-                else:
+                if not topups:
                     print(f"{worker_tag} ({job.video_id}) final output complete, skip", flush=True)
                 cleanup = _cleanup_successful_video(
                     job,

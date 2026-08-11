@@ -2,8 +2,9 @@
 """Take 清单 —— 把逐帧打分汇总成 take 级裁决, RL/下游从这里取数据, 不要自己扫目录。
 
 裁决三层:
-  1. 硬排除(人工名单): 透明物体等 FP 系统性失灵的存量。
-     新数据不走这里 —— 2026-08-10 起透明物体在重建**开始前**由 VLM 看材质过滤,
+  1. 硬排除(人工名单): "空透明"物体等 FP 系统性失灵的存量。
+     ★规则 v2(2026-08-10 pour/11 实证): 只过滤**空透明**; 透明容器装深色液体不过滤
+     (茶瓶 conf 87/46 可用), 裁决交给 confidence。新数据由重建前 VLM 三分类路由,
      根本不进流水线; EXCLUDE 名单只保留历史遗留(video 3 家族)。
   2. 同视频同物体多次重建 → 自动择优 (deselected):
      - 分组: 同 task 目录 + take 名的源视频前缀(如 2_bottle/2_cap/2_scene 同属视频 2)
@@ -32,7 +33,7 @@ from pathlib import Path
 from pose_audit import poseqa_lock
 
 # ── 人工裁定 (2026-08-09/10), 改动需重新过用户 ────────────────────────────────
-EXCLUDE_TRANSPARENT = {          # 存量透明物体: FP 系统性失灵, 整条不进库
+EXCLUDE_TRANSPARENT = {          # 存量"空透明"物体: FP 系统性失灵, 整条不进库(v2:装深色液体的不算)
     "egodex/screw_unscrew_bottle_cap/3_scene",
     "egodex/screw_unscrew_bottle_cap/3_scene_frame20",
 }
@@ -131,7 +132,7 @@ def verdict(rec: dict, auto_losers: dict[tuple[str, str], str]) -> dict:
     cp, cr = rec["conf_pos_median"], rec["conf_rot_median"]
 
     if rel in EXCLUDE_TRANSPARENT:
-        status, why = "excluded", "透明物体 (FP 系统性失灵, 存量; 新数据由重建前 VLM 过滤)"
+        status, why = "excluded", "空透明物体 (FP 系统性失灵, 存量; v2:装深色液体的透明容器不过滤)"
     elif rel in DESELECTED:
         status, why = "deselected", f"同视频有更优重建(人工): {DESELECTED[rel].split('/')[-1]}"
     elif key in auto_losers:

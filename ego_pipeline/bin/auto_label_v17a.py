@@ -251,6 +251,14 @@ def main(argv=None) -> int:
 
     manifest_path = find_episode_manifest(inst_out)
     if manifest_path is None:
+        # 走到这里说明目录里没有任何 ready 的 manifest。但上一次崩溃(CUDA 错误/被 kill)可能
+        # 留下了半截 episode 目录, 而 run_instance_video_segmentation 拒绝写入非空目录
+        # (FileExistsError), 于是每次重试都在同一处瞬间失败。既然已确认没有可用产物,
+        # 残留就是纯垃圾, 清掉再跑 —— 否则一次崩溃会永久毒化这条视频。
+        if inst_out.exists() and any(inst_out.iterdir()):
+            import shutil as _sh
+            print(f"[auto-label] 清理无可用 manifest 的残留目录: {inst_out}", flush=True)
+            _sh.rmtree(inst_out, ignore_errors=True)
         # 这一步的最后阶段是"跨周期视觉身份链接"(产出视频级 manifest)。它可能失败而**逐 episode
         # 的 mask 完好** —— arctic/s05__laptop_grab_01 实测: status=failed_global_identity_linking
         # (第3周期匹配分 0.584 vs 次高 0.308 不够决定性), 但 4 个 episode 全是 ready,

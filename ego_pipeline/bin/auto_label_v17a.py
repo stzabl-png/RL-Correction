@@ -21,7 +21,9 @@
   - **视频级** video_mask_sequence.json (persistent_video_mask_sequence_v1): --instance all
     用这个 —— 注册出来的部件只出现在这里(clip4: object_0001+object_0002, 盖在 f59 注册;
     同一条 clip 的 episode 级只有 instance_0001)。喂错会让多物体静默塌成单物体。
-⚠ 透明物体过滤是上游 VLM 的职责(重建开始前), 本驱动不看材质。
+⚠ VLM 透明门已内置(2026-08-10, 规则 v2): 逐实例判材质, 只过滤"空透明"(高置信);
+  四案例校准全对(3号清水瓶滤/pour茶瓶留/金属瓶留/灰杯留)。AUTO_LABEL_VLM_GATE=0 关闭;
+  服务不可达时 fail-open(全放行+醒目警告)。全部实例被滤时退出码 3(=本视频跳过, 非错误)。
 ⚠ 默认只注册主实例; --instance all 注册全部(走 tools/v17a_multi_object_prompt.py,
   一次重建 pass 内完成 -> 各物体共享同一世界系; 分开跑再合并会因 ViPE 焦距不确定而错位)。
 
@@ -129,6 +131,41 @@ def write_label_prompt(manifest: dict, inst: str, frame: int, sam2_dir: Path,
                            "locked": True, "name": object_name}]}
     (sam2_dir / "label_prompt.json").write_text(json.dumps(prompt, indent=1))
     return float(x), float(y)
+
+
+EXIT_ALL_FILTERED = 3        # 与 reconstruct.sh 的约定: 本视频合法跳过, 不算失败
+
+
+def gate_samples(manifest: dict, inst: str, n: int = 3) -> list[tuple[int, "Path"]]:
+    """该实例跨时间取 n 个 (frame, mask) 样本给透明门。"""
+    rows = [(int(f["frame_idx"]), (f.get("objects") or {}).get(inst))
+            for f in manifest["frames"]]
+    rows = [(fi, o) for fi, o in rows if o and o.get("raw_mask")]
+    if not rows:
+        return []
+    idx = [0, len(rows) // 2, len(rows) - 1][:max(1, min(n, len(rows)))]
+    return [(rows[i][0], Path(rows[i][1]["raw_mask"])) for i in sorted(set(idx))]
+
+
+def vlm_gate(video: Path, manifest: dict, ids: list[str]) -> dict[str, dict]:
+    """逐实例过 VLM 透明门。返回 {inst: verdict}; 服务不可达 → fail-open 返回 {}。"""
+    if os.environ.get("AUTO_LABEL_VLM_GATE", "1") == "0":
+        print("[auto-label] 透明门已禁用(AUTO_LABEL_VLM_GATE=0)")
+        return {}
+    import vlm_transparency_gate as G
+    out: dict[str, dict] = {}
+    for inst in ids:
+        sm = gate_samples(manifest, inst)
+        if not sm:
+            continue
+        try:
+            v = G.judge_instance(video, sm)
+        except G.VLMUnavailable as e:
+            print(f"[auto-label] ⚠⚠ 透明门 fail-open(全放行): {e}", flush=True)
+            return {}
+        out[inst] = v
+        print(f"[auto-label] 透明门 {inst}: {v['material']}({v['confidence']}) — {v['evidence'][:60]}")
+    return out
 
 
 def pick(manifest: dict, instance: str, recon_frame: str) -> tuple[str, int]:
@@ -244,8 +281,17 @@ def main(argv=None) -> int:
         vman = inst_out / "video_mask_sequence" / "video_mask_sequence.json"
         if not vman.is_file():
             raise SystemExit(f"[auto-label] X --instance all 需要视频级 manifest, 缺: {vman}")
+        vm = json.loads(vman.read_text())
+        import vlm_transparency_gate as G
+        verdicts = vlm_gate(video, vm, vm.get("object_ids") or [])
+        excluded = [i for i, v in verdicts.items() if G.should_filter(v)]
+        if excluded and len(excluded) == len(vm.get("object_ids") or []):
+            print(f"[auto-label] 全部实例为空透明, 本视频跳过(透明规则 v2): {excluded}")
+            return EXIT_ALL_FILTERED
         cmd = [sys.executable, RR_ROOT / "tools" / "v17a_multi_object_prompt.py",
                vman, "--step-dir", sam2_dir]
+        for i in excluded:
+            cmd += ["--exclude", i]
         if take is not None:
             cmd += ["--recon-take-dir", take]
         run("3/3 多物体 label_prompt", cmd, cwd=RR_ROOT)
@@ -256,6 +302,22 @@ def main(argv=None) -> int:
 
     manifest = json.loads(manifest_path.read_text())
     inst, frame = pick(manifest, a.instance, a.recon_frame)
+    import vlm_transparency_gate as G
+    verdicts = vlm_gate(video, manifest, [inst])
+    if verdicts.get(inst) and G.should_filter(verdicts[inst]):
+        others = [i for i in (manifest.get("object_ids") or []) if i != inst]
+        fallback = None
+        if a.instance == "auto":
+            for cand in others:                      # 主实例被滤 → 顺位尝试其它实例
+                v2 = vlm_gate(video, manifest, [cand]).get(cand)
+                if v2 is None or not G.should_filter(v2):
+                    fallback = cand
+                    break
+        if fallback is None:
+            print(f"[auto-label] 实例 {inst} 为空透明且无可替补, 本视频跳过(透明规则 v2)")
+            return EXIT_ALL_FILTERED
+        inst, frame = pick(manifest, fallback, a.recon_frame)
+        print(f"[auto-label] 透明门改选替补实例: {inst}")
     print(f"[auto-label] 选择: {inst} @ 帧{frame}  ({manifest_path})")
     n = write_label_prompt(manifest, inst, frame, sam2_dir, a.object_name)
     print(f"[auto-label] ✓ {vid}: {inst} 帧{frame} -> label_prompt.json "

@@ -42,6 +42,8 @@ def main() -> int:
                     help="drop instances whose peak mask is smaller than this; SAM3D "
                          "cannot build anything usable from a few hundred pixels")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--exclude", action="append", default=[],
+                    help="剔除的 v17A 实例 id(可重复); VLM 透明门判空透明的实例走这里")
     a = ap.parse_args()
 
     import cv2
@@ -50,6 +52,13 @@ def main() -> int:
     base = a.manifest.parent
     rows = rank_frames(manifest, base)
     ids = sorted({r["object_id"] for r in rows})
+    if a.exclude:
+        dropped = [i for i in ids if i in set(a.exclude)]
+        ids = [i for i in ids if i not in set(a.exclude)]
+        if dropped:
+            print(f"[multi-prompt] 透明门剔除: {dropped}")
+        if not ids:
+            raise SystemExit("[multi-prompt] X 全部实例被剔除, 无可注册物体")
     peak = {i: max(r["area"] for r in rows if r["object_id"] == i) for i in ids}
     order = sorted(ids, key=lambda i: -peak[i])
     print(f"[v17a]   instances: " + ", ".join(f"{i}={peak[i]}px" for i in order))

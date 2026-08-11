@@ -84,14 +84,24 @@ else
   # (HOI-DETR 检测 + SAM2 实例传播 + 开朗 adapter 落格式, 幂等)。
   # --no-auto-label 关闭; hoi4d 的清单是 take id 不是视频路径, 不走这条。
   if [[ "$AUTOLABEL" == 1 && "$DATASET" != "hoi4d" ]]; then
-    echo "[reconstruct] v17A 自动标注检查(--no-auto-label 可跳过)"
+    echo "[reconstruct] v17A 自动标注 + VLM 透明门(--no-auto-label 跳过; 门 AUTO_LABEL_VLM_GATE=0 单独关)"
+    KEEP="$LIST.keep"; : > "$KEEP"
     while IFS= read -r vp; do
-      [[ -f "$vp" ]] || continue
+      [[ -f "$vp" ]] || { echo "$vp" >> "$KEEP"; continue; }
+      rc=0
       conda run --no-capture-output -n hawor python "$HERE/bin/auto_label_v17a.py" \
-        --dataset "$DATASET" --dataset-root "$ROOT" --video "$vp" || {
-          echo "[reconstruct] 自动标注失败: $vp — 兜底: ./reconstruct.sh <视频> --dataset $DATASET --web 人工标注" >&2
-          exit 1; }
+        --dataset "$DATASET" --dataset-root "$ROOT" --video "$vp" || rc=$?   # set -e 下必须 ||捕获
+      if [[ $rc -eq 3 ]]; then
+        echo "[reconstruct] 跳过本视频(全部实例空透明, 规则 v2): $vp"
+        continue          # 不进 KEEP -> 不进重建队列
+      elif [[ $rc -ne 0 ]]; then
+        echo "[reconstruct] 自动标注失败: $vp — 兜底: ./reconstruct.sh <视频> --dataset $DATASET --web 人工标注" >&2
+        exit 1
+      fi
+      echo "$vp" >> "$KEEP"
     done < "$LIST"
+    mv "$KEEP" "$LIST"
+    [[ -s "$LIST" ]] || { echo "[reconstruct] 清单里所有视频都被透明门过滤, 无事可做"; exit 0; }
   fi
   echo "[reconstruct] 本地模式(--skip-label);自动标注已就位或请先 ./label.sh / --web"
   exec conda run --no-capture-output -n base python "$RECON/run_batch_queue.py" \

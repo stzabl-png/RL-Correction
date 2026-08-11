@@ -74,3 +74,11 @@ MagicDexMate 的 .venv-isaac(dex_retargeting+pinocchio)**尚未部署到 UCB** �
 (a) 拉回本地后 `--force` 补跑该步(纯 CPU ~8 分钟/手); (b) 把 MagicDexMate venv
 conda-pack/rsync 到 UCB 后 --force。检出 skipped 的 take:
 `grep -rl skipped_missing_deps Output/ReconstructOutput --include=contact_complete.json`
+
+## VLM 透明门(2026-08-10 接入, 规则 v2)
+
+auto_label 内置逐实例透明判定: 只过滤"空透明"(高置信), 全滤的视频以退出码 3 从清单
+剔除继续批量。依赖 GPU7 的 vlm7 服务(tmux `vlm7`, ~/bin/vlm_supervise.sh 守护,
+UCB 上默认 127.0.0.1:8807 直连; 本地跑要 ssh -L 隧道 + VLM_API_BASE)。
+服务没起时 fail-open 全放行并醒目警告。AUTO_LABEL_VLM_GATE=0 关门。
+校准基线四案例(全对才算过): 3号清水瓶滤/pour茶瓶留/2号金属瓶留/pour灰杯留。

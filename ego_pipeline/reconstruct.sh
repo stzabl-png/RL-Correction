@@ -94,7 +94,7 @@ else
       --list "$LIST" --root "$ROOT" --staging "$PRE_ROOT"
     ROOT="$PRE_ROOT"   # 镜像保持相对路径不变 => video_id 不变
     echo "[reconstruct] v17A 自动标注 + VLM 透明门(--no-auto-label 跳过; 门 AUTO_LABEL_VLM_GATE=0 单独关)"
-    KEEP="$LIST.keep"; : > "$KEEP"
+    KEEP="$LIST.keep"; : > "$KEEP"; FAILED=()
     while IFS= read -r vp; do
       [[ -f "$vp" ]] || { echo "$vp" >> "$KEEP"; continue; }
       rc=0
@@ -105,13 +105,20 @@ else
         echo "[reconstruct] 跳过本视频(全部实例空透明, 规则 v2): $vp"
         continue          # 不进 KEEP -> 不进重建队列
       elif [[ $rc -ne 0 ]]; then
-        echo "[reconstruct] 自动标注失败: $vp — 兜底: ./reconstruct.sh <视频> --dataset $DATASET --web 人工标注" >&2
-        exit 1
+        # 批量里一条坏视频不该拖垮其余 —— 记下跳过, 继续。全军覆没才算失败。
+        echo "[reconstruct] ! 自动标注失败, 跳过: $vp (rc=$rc)" >&2
+        FAILED+=("$vp")
+        continue
       fi
       echo "$vp" >> "$KEEP"
     done < "$LIST"
+    if [[ ${#FAILED[@]} -gt 0 ]]; then
+      echo "[reconstruct] ! 自动标注失败 ${#FAILED[@]} 条(已跳过, 其余继续):" >&2
+      printf "[reconstruct]     %s\n" "${FAILED[@]}" >&2
+      echo "[reconstruct]   兜底: ./reconstruct.sh <该视频> --dataset $DATASET --web 人工标注" >&2
+    fi
     mv "$KEEP" "$LIST"
-    [[ -s "$LIST" ]] || { echo "[reconstruct] 清单里所有视频都被透明门过滤, 无事可做"; exit 0; }
+    [[ -s "$LIST" ]] || { echo "[reconstruct] X 清单里没有可重建的视频(全部被透明门过滤或标注失败)" >&2; exit 1; }
   fi
   echo "[reconstruct] 本地模式(--skip-label);自动标注已就位或请先 ./label.sh / --web"
   exec conda run --no-capture-output -n base python "$RECON/run_batch_queue.py" \

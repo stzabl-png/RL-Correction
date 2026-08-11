@@ -189,3 +189,33 @@ conf_rot 从 77 降到 48) —— 比我预期的好, "会不会自信地错"这
 **踩坑**: 本地 rsync 排除了 `masks/` 省空间, 导致接触检测跑不了(`缺少手/物 mask 目录`)。
 已改为**在远端跑 bridge+detect**, 只拉回小文件。postproc.sh 把 stderr 丢 /dev/null 也是错的,
 第一次失败被静默吞掉。
+
+### 2026-08-11 12:xx —— 选帧器接线 + ★两个关键发现
+
+**① 机器层面:UCB 的 CUDA 编号与 nvidia-smi 错位一位**(详见记忆 `ucb-cuda-gpu-index-shift`)。
+物理 GPU0 处于 `ERR!`、CUDA 看不见它 → 只枚举 7 张、整体偏移。`CUDA n == smi n+1`。
+**昨晚"我的专用卡 GPU5"实际是物理 GPU6(别人占 92-100%)** —— 一夜报废的真正根因,
+不只是我的重试逻辑 bug。`start_vlm.sh` 已分离 `GPU`(CUDA)/`SMI_GPU`(nvidia-smi)。
+⚠ 运维修好 GPU0 后这个偏移会消失, 默认 `SMI_GPU=GPU+1` 反而变错 —— 用前跑 `tools/map_gpu.sh` 自检。
+
+**② 本地 vLLM 替代阿里云 API 已跑通**(物理 GPU5, 模型名 `vlm`, 41.4GB)。
+`qwen_client.py` 加了三个环境变量开关, **默认行为不变**(杜邦那边继续用 API 不受影响):
+- `QWEN_BASE_URL` / `QWEN_MODEL` —— 端点与模型
+- `QWEN_LOCAL_VLLM=1` —— 两处必须显式处理的差异:
+  关思考链的参数名不同(DashScope `extra_body.enable_thinking` vs vLLM `chat_template_kwargs`);
+  以及走 `response_format=json_object`(启动时已开 xgrammar)从解码层保证合法 JSON。
+  不设的话 Qwen3.5 先长篇推理, 早期被 max_tokens 截断就永远等不到 JSON(实测 300 token 全用在推理上)。
+单次调用约 14 秒(含 Python 启动)。
+
+**★ `view_informative` 判据有效, 且真值支持把它提为硬性项**
+| 帧 | view_informative | 真值后果 |
+|---|---|---|
+| f642(现在选中的, 平放俯视) | **False** ×3 | 厚度多估 36%、深度偏 23% |
+| f340(立起来, 厚度可见) | **True** ×3 | — |
+7 字段合问与单独问结果一致, 各 3 次全稳定。模型给的理由也对:
+"完全正对的俯视视角, 物体呈现为二维平面, 无法体现其三维形状(如高度和侧面轮廓), 属于退化视角"。
+
+**我自己的错(记下来防止重犯)**: 第一次冒烟测试得到 `pass=true`, 我据此说"提为硬性项也拦不住"。
+真因是**我在 prompt 模板里把示例值写成了字面的 `true`**(`"view_informative":{"pass":true,...}`),
+模型照着填。杜邦的真实 prompt 用 `true/false`, 没有这个问题。
+**教训:给 LLM 的 JSON 模板里, 示例值本身就是强先验, 必须写成 `true/false` 而不是某一个具体值。**

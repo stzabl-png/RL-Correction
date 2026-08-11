@@ -68,6 +68,7 @@ class Take:
     side: str
     Tv: int
     # object
+    object_id: str                   # which object of the take (multi-object: object_N)
     obj_mesh_path: Path
     obj_T_world: np.ndarray          # (Tv,4,4) object-local -> recon world
     obj_confidence: np.ndarray       # (Tv,)
@@ -108,13 +109,13 @@ class Take:
         return {n: float(v) for n, v in zip(self.joint_names, self.finger_qpos[f])}
 
     def mask_path(self, kind: str, f: int) -> Path:
-        name = f"{self.side}_hand_0.png" if kind == "hand" else "object_0.png"
+        name = f"{self.side}_hand_0.png" if kind == "hand" else f"{self.object_id}.png"
         sub = "hands" if kind == "hand" else "objects"
         return self.recon_dir / "masks" / sub / "frames" / f"frame_{f:06d}_masks" / name
 
 
 def load_take(recon_dir, retarget_dir=None, side="right", annotation=None,
-              video=None, require_qpos=True) -> Take:
+              video=None, require_qpos=True, object_id="object_0") -> Take:
     recon_dir = Path(recon_dir).resolve()
     if retarget_dir is None:
         import sys
@@ -142,7 +143,26 @@ def load_take(recon_dir, retarget_dir=None, side="right", annotation=None,
     q = np.load(qpath, allow_pickle=True) if qpath.exists() else None
 
     Tv = int(w["num_frames"])
-    for name, arr in (("object_ob_in_world", w["object_ob_in_world"]),
+    # -- which object (multi-object takes store *_all arrays; singular fields = object_0,
+    #    verified in RL_Correction object_select.py on screw 4) --
+    obj_ids = ([str(x) for x in np.asarray(w["object_ids"]).tolist()]
+               if "object_ids" in w.files else ["object_0"])
+    if object_id not in obj_ids:
+        raise RuntimeError(f"object {object_id} not in take (has {obj_ids})")
+    oi = obj_ids.index(object_id)
+    if "object_ob_in_world_all" in w.files:
+        obj_T = np.asarray(w["object_ob_in_world_all"][oi], dtype=np.float64)
+    else:
+        obj_T = np.asarray(w["object_ob_in_world"], dtype=np.float64)
+    mesh_p = None
+    cand = sorted((recon_dir / "objects" / object_id).glob("*.obj"))         if (recon_dir / "objects" / object_id).is_dir() else []
+    if cand:
+        mesh_p = cand[0]
+    elif oi == 0:
+        mesh_p = recon_dir / str(w["mesh_filename"])
+    else:
+        raise RuntimeError(f"no mesh for {object_id} under {recon_dir}/objects/")
+    for name, arr in (("object_ob_in_world", obj_T),
                       ("joints_" + side, p[f"joints_{side}"])):
         if len(arr) != Tv:
             raise RuntimeError(f"{name} has {len(arr)} frames, expected Tv={Tv}")
@@ -182,15 +202,18 @@ def load_take(recon_dir, retarget_dir=None, side="right", annotation=None,
         intervals = json.load(open(ann_path))["annotations"].get(side, [])
 
     # older recon schemas (HOI4D takes) lack the per-frame confidence/validity fields
-    obj_valid = np.asarray(w["object_pose_valid_by_frame"][0], dtype=bool) \
-        if "object_pose_valid_by_frame" in w.files else np.ones(Tv, dtype=bool)
+    obj_valid = np.ones(Tv, dtype=bool)
+    if "object_pose_valid_by_frame" in w.files:
+        pv = np.asarray(w["object_pose_valid_by_frame"])
+        obj_valid = np.asarray(pv[oi] if pv.ndim > 1 and len(pv) > oi else pv[0], dtype=bool)
     obj_conf = np.asarray(w["object_confidence"], dtype=np.float64) \
         if "object_confidence" in w.files else np.ones(Tv)
 
     return Take(
         recon_dir=recon_dir, retarget_dir=retarget_dir, side=side, Tv=Tv,
-        obj_mesh_path=recon_dir / str(w["mesh_filename"]),
-        obj_T_world=np.asarray(w["object_ob_in_world"], dtype=np.float64),
+        object_id=object_id,
+        obj_mesh_path=mesh_p,
+        obj_T_world=obj_T,
         obj_confidence=obj_conf,
         obj_valid=obj_valid,
         c2w=np.asarray(w["c2w"], dtype=np.float64),

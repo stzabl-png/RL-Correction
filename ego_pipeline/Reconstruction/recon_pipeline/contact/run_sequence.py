@@ -6,13 +6,14 @@
 
 链路(每条 take, 全幂等):
   1) bridge  recon_to_replay      world_fused → replay_world.npz     hawor  ~15s
-  2) detect  phase.detect         2D mask 邻接 → contact_auto.json   hawor  ~30s
-     (哪只手在哪些帧接触了被重建的物体 —— 决定提取哪只手、在哪帧提取)
-  3) 每只有接触区间的手:
-     make_ref_qpos --hand S       DexPilot → ref_qpos_S.npz          MagicDexMate venv ~1s
-     contact_align_heatmap        对齐 + 热度图(单帧, 取最长区间中点)  biv2ap  ~1min
-     (不用 --auto-frame: 全片扫描 ~7s/帧 = 20 分钟级, 批量不可接受;
-      区间中点 = 抓握进行中、接触最稳定的采样)
+  2) detect  phase.detect         2D mask 邻接 → 接触区间            hawor  ~30s/物体
+     contact_auto.json 保持全物体并集(phase.auto 消费的旧契约不动);
+     多物体 take 另出逐物体 contact_auto_<oid>.json —— 判"哪只手在摸哪个物体"
+     必须逐物体: 并集会把右手摸瓶也算成"在接触", 杯子就被错提了
+  3) 每个物体 × 每只有接触区间的手:
+     make_ref_qpos --hand S       DexPilot → ref_qpos_S.npz(物体无关) MagicDexMate venv ~1s
+     contact_align_heatmap --object oid  对齐+热度图(区间中点单帧)     biv2ap ~7min
+     (不用 --auto-frame: 全片扫描 ~7s/帧 = 20 分钟级, 批量不可接受)
   4) 完成标记写 final 目录(带各手结果摘要), interim 清理后仍在
 
 没有接触区间的手直接跳过(如 pour 右手握的瓶子没被重建, 不该对着杯子 mesh 提)。
@@ -85,53 +86,75 @@ def main(argv: list[str] | None = None) -> int:
 
     py = _hawor_py()
     if not (scene / "replay_world.npz").is_file():
-        rc = _run("1/3 bridge", [py, EGO / "bridge" / "recon_to_replay.py",
+        rc = _run("1/4 bridge", [py, EGO / "bridge" / "recon_to_replay.py",
                                  "--in", scene, "--cpu"])
         if rc:
             return rc
-    ca = scene / "contact_auto.json"
-    if not ca.is_file():
-        rc = _run("2/3 接触区间检测", [py, "-m", "phase.detect", scene], cwd=EGO)
+
+    import numpy as np                                     # hawor env 自带
+    with np.load(scene / "world_fused.npz", allow_pickle=True) as z:
+        obj_ids = ([str(x) for x in np.asarray(z["object_ids"]).tolist()]
+                   if "object_ids" in z.files else ["object_0"])
+
+    # 并集版 contact_auto.json: phase.auto 的旧契约, 始终产出
+    if not (scene / "contact_auto.json").is_file():
+        rc = _run("2/4 接触区间检测(并集)", [py, "-m", "phase.detect", scene], cwd=EGO)
         if rc:
             return rc
-    ann = json.loads(ca.read_text())["annotations"]
 
-    summary: dict = {"sides": {}}
-    for side in ("left", "right"):
-        ivs = ann.get(side) or []
-        if not ivs:
-            summary["sides"][side] = {"status": "no_contact_interval"}
-            print(f"[contact] {side}: 无接触区间, 跳过")
-            continue
-        frame = pick_frame(ivs)
-        qp = scene / f"ref_qpos_{side}.npz"
-        if not qp.is_file():
-            rc = _run(f"3/3 {side} 重定向", [MDM_PY, "-m", "contact.make_ref_qpos", scene,
-                                            "--hand", side, "--out", qp], cwd=EGO)
+    summary: dict = {"objects": {}}
+    done_qpos: set[str] = set()
+    for oid in obj_ids:
+        ca = scene / ("contact_auto.json" if len(obj_ids) == 1
+                      else f"contact_auto_{oid}.json")
+        if not ca.is_file():
+            rc = _run(f"2/4 接触区间检测({oid})",
+                      [py, "-m", "phase.detect", scene, "--object-id", oid,
+                       "--out-name", ca.name], cwd=EGO)
             if rc:
                 return rc
-        cmd = ["conda", "run", "--no-capture-output", "-n", "biv2ap", "python",
-               REPO_ROOT / "tools" / "contact_align_heatmap.py", scene,
-               "--retarget-dir", scene, "--side", side, "--frame", frame,
-               "--stage", "heatmap"]
-        if args.video.is_file():
-            cmd += ["--video", args.video]
-        rc = _run(f"3/3 {side} 对齐+热度图 @f{frame}", cmd)
-        if rc:
-            return rc
-        res = scene / "contact" / f"stage4_frame{frame:04d}_{side}.json"
-        row: dict = {"status": "ok", "frame": frame, "intervals": ivs}
-        try:
-            d = json.loads(res.read_text())
-            row.update({k: d[k] for k in ("hot_verts", "hot_frac", "per_pad") if k in d})
-        except Exception:                                     # 摘要缺失不挡完成
-            row["summary"] = "unparsed"
-        summary["sides"][side] = row
+        ann = json.loads(ca.read_text())["annotations"]
+        osum: dict = {}
+        for side in ("left", "right"):
+            ivs = ann.get(side) or []
+            if not ivs:
+                osum[side] = {"status": "no_contact_interval"}
+                print(f"[contact] {oid}/{side}: 无接触区间, 跳过")
+                continue
+            frame = pick_frame(ivs)
+            qp = scene / f"ref_qpos_{side}.npz"
+            if side not in done_qpos and not qp.is_file():
+                rc = _run(f"3/4 {side} 重定向", [MDM_PY, "-m", "contact.make_ref_qpos",
+                                                scene, "--hand", side, "--out", qp], cwd=EGO)
+                if rc:
+                    return rc
+            done_qpos.add(side)
+            cmd = ["conda", "run", "--no-capture-output", "-n", "biv2ap", "python",
+                   REPO_ROOT / "tools" / "contact_align_heatmap.py", scene,
+                   "--retarget-dir", scene, "--side", side, "--frame", frame,
+                   "--object", oid, "--stage", "heatmap"]
+            if args.video.is_file():
+                cmd += ["--video", args.video]
+            rc = _run(f"4/4 {oid}/{side} 对齐+热度图 @f{frame}", cmd)
+            if rc:
+                return rc
+            sfx = "" if oid == "object_0" else f"_{oid}"
+            res = scene / "contact" / f"stage4_frame{frame:04d}_{side}{sfx}.json"
+            row: dict = {"status": "ok", "frame": frame, "intervals": ivs}
+            try:
+                d = json.loads(res.read_text())
+                row.update({k: d[k] for k in ("hot_verts", "hot_frac", "per_pad") if k in d})
+            except Exception:                                 # 摘要缺失不挡完成
+                row["summary"] = "unparsed"
+            osum[side] = row
+        summary["objects"][oid] = osum
 
     write_step_completion(scene, STEP, dataset=args.dataset, video_id=args.video_id,
                           extra=summary)
-    brief = ", ".join(f"{s}:{v['status']}" + (f"@f{v['frame']}" if "frame" in v else "")
-                      for s, v in summary["sides"].items())
+    brief = "; ".join(
+        f"{oid} " + ", ".join(f"{sd}:{v['status']}" + (f"@f{v['frame']}" if "frame" in v else "")
+                              for sd, v in osum.items())
+        for oid, osum in summary["objects"].items())
     print(f"[contact] ✓ {args.video_id}: {brief}")
     return 0
 

@@ -123,8 +123,12 @@ def _num_frames(take_dir: Path) -> int:
 
 def detect_contact(take_dir, *, dilation_frac: float = 0.012, frac_thr: float = 0.02,
                    min_len: int = 3, max_gap: int = 4, num_frames: int | None = None,
-                   fps: float | None = None) -> dict:
-    """对一条 take 做 mask 邻接接触检测,返回 contact_auto.json 的内容 dict。"""
+                   fps: float | None = None, object_id: str | None = None) -> dict:
+    """对一条 take 做 mask 邻接接触检测,返回 contact_auto.json 的内容 dict。
+
+    object_id=None 时对全部 object_*.png 求并集(旧行为, phase.auto 消费用);
+    指定 object_id 则只对该物体判接触 —— 多物体 take 里"右手握的是瓶不是杯",
+    并集会把两只手都判成"在接触", 逐物体才分得开(2026-08-10 多物体接线)。"""
     take = Path(take_dir)
     hd, od = _hand_masks_dir(take), _object_masks_dir(take)
     if not hd.is_dir() or not od.is_dir():
@@ -154,8 +158,10 @@ def detect_contact(take_dir, *, dilation_frac: float = 0.012, frac_thr: float = 
         ofd = _frame_dir(od, i)
         obj = None
         if ofd.is_dir():
-            for p in sorted(ofd.glob("object_*.png")):
-                m = _load_mask(p)
+            names = [f"{object_id}.png"] if object_id else sorted(
+                q.name for q in ofd.glob("object_*.png"))
+            for nm in names:
+                m = _load_mask(ofd / nm)
                 if m is None:
                     continue
                 obj = m if obj is None else (obj | m)
@@ -186,6 +192,7 @@ def detect_contact(take_dir, *, dilation_frac: float = 0.012, frac_thr: float = 
             "dilation_frac": dilation_frac, "dilation_iters": dil_iters,
             "frac_thr": frac_thr, "min_len": min_len, "max_gap": max_gap,
         },
+        "object_id": object_id,
         "annotations": {"left": segs["left"], "right": segs["right"]},
         "per_frame": per,
     }
@@ -194,10 +201,11 @@ def detect_contact(take_dir, *, dilation_frac: float = 0.012, frac_thr: float = 
 AUTO_RESULT_NAME = "contact_auto.json"
 
 
-def write_contact_auto(take_dir, *, dry_run: bool = False, **kw) -> dict:
+def write_contact_auto(take_dir, *, dry_run: bool = False, out_name: str | None = None,
+                       **kw) -> dict:
     take = Path(take_dir)
     doc = detect_contact(take, **kw)
-    out = take / AUTO_RESULT_NAME
+    out = take / (out_name or AUTO_RESULT_NAME)
     if not dry_run:
         out.write_text(json.dumps(doc, ensure_ascii=False, indent=1), encoding="utf-8")
     return doc
@@ -220,12 +228,17 @@ def main(argv=None):
     ap.add_argument("--min-len", type=int, default=3)
     ap.add_argument("--max-gap", type=int, default=4)
     ap.add_argument("--dry-run", action="store_true", help="只打印不写文件")
+    ap.add_argument("--object-id", default=None,
+                    help="只对该物体判接触(如 object_1); 缺省=全部物体并集(旧行为)")
+    ap.add_argument("--out-name", default=None,
+                    help="输出文件名(缺省 contact_auto.json; 多物体建议 contact_auto_<oid>.json)")
     args = ap.parse_args(argv)
     for td in args.take_dir:
         try:
             doc = write_contact_auto(
                 td, dry_run=args.dry_run, dilation_frac=args.dilation_frac,
-                frac_thr=args.frac_thr, min_len=args.min_len, max_gap=args.max_gap)
+                frac_thr=args.frac_thr, min_len=args.min_len, max_gap=args.max_gap,
+                object_id=args.object_id, out_name=args.out_name)
             print(f"[{'dry' if args.dry_run else 'ok '}] {td}\n      {_summary(doc)}")
         except Exception as e:
             print(f"[err] {td}: {e}", file=sys.stderr)

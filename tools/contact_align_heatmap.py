@@ -55,6 +55,8 @@ def main() -> int:
     ap.add_argument("--retarget-dir", type=Path, default=None,
                     help="matching RetargetOutput take dir (default: mirrored path)")
     ap.add_argument("--side", default="right", choices=["right", "left"])
+    ap.add_argument("--object", default="object_0",
+                    help="多物体 take 里对哪个物体提接触(object_N); 输出文件名会带后缀")
     ap.add_argument("--frame", type=int, default=None,
                     help="frame to analyse (default: first annotated contact frame)")
     ap.add_argument("--annotation", type=Path, default=None)
@@ -133,11 +135,12 @@ def main() -> int:
     args = ap.parse_args()
 
     take = F.load_take(args.take, args.retarget_dir, args.side, args.annotation, args.video,
-                       require_qpos=not args.no_qpos)
+                       require_qpos=not args.no_qpos, object_id=args.object)
     if take.video_path is None:
         take.video_path = guess_video(take.recon_dir)
     out_dir = Path(args.out_dir) if args.out_dir else take.retarget_dir / "contact"
     out_dir.mkdir(parents=True, exist_ok=True)
+    osfx = "" if take.object_id == "object_0" else f"_{take.object_id}"
 
     dq = take.recon_dir / "data_quality.json"
     if dq.exists():
@@ -364,9 +367,9 @@ def main() -> int:
               f"({'disabled' if args.no_veto else 'enabled'})")
         per_link = HM.summarize_by_link(hm, pad_links)
         print(f"[heat]   per pad: {per_link}")
-        ply = HM.export_ply(mesh, hm["weight"], out_dir / f"contact_heatmap_frame{f:04d}_{take.side}.ply")
+        ply = HM.export_ply(mesh, hm["weight"], out_dir / f"contact_heatmap_frame{f:04d}_{take.side}{osfx}.ply")
         np.savez_compressed(
-            out_dir / f"contact_heatmap_frame{f:04d}_{take.side}.npz",
+            out_dir / f"contact_heatmap_frame{f:04d}_{take.side}{osfx}.npz",
             vertex_weight=hm["weight"].astype(np.float32),
             vertex_distance_m=hm["distance_m"].astype(np.float32),
             nearest_pad_link=hm["nearest_link"].astype(np.int16),
@@ -392,17 +395,17 @@ def main() -> int:
         (pad_pts, (1.0, 0.15, 0.15), 2.0, "fingertip pads (elastomer)")]
     layers.append((take.mano_joints[f], (0.1, 0.9, 1.0), 26, "reconstructed MANO joints"))
     png = viz.figure_step12(take, ev, mesh, hand_pts=layers,
-                            out_path=out_dir / f"stage12_frame{f:04d}_{take.side}.png",
+                            out_path=out_dir / f"stage12_frame{f:04d}_{take.side}{osfx}.png",
                             fk_info=fk_info, sanity=sanity, extra_px=extra)
     outputs = [png]
     if hm is not None:
         outputs.append(viz.figure_heatmap(
             take, ev, mesh, hm, pads_aligned,
-            out_dir / f"stage4_heatmap_frame{f:04d}_{take.side}.png", link_names=pad_links))
+            out_dir / f"stage4_heatmap_frame{f:04d}_{take.side}{osfx}.png", link_names=pad_links))
     if aligned is not None:
         outputs.append(viz.figure_align(
             take, ev, mesh, before, aligned,
-            out_dir / f"stage3_align_frame{f:04d}_{take.side}.png", extra_px=extra))
+            out_dir / f"stage3_align_frame{f:04d}_{take.side}{osfx}.png", extra_px=extra))
 
     report = dict(
         take=str(take.recon_dir), retarget=str(take.retarget_dir), side=take.side,
@@ -458,9 +461,9 @@ def main() -> int:
             frame_of_reference="object_local")
 
     stage_tag = "4" if hm is not None else ("3" if aligned is not None else "12")
-    rp = out_dir / f"stage{stage_tag}_frame{f:04d}_{take.side}.json"
+    rp = out_dir / f"stage{stage_tag}_frame{f:04d}_{take.side}{osfx}.json"
     rp.write_text(json.dumps(report, indent=2))
-    np.savez_compressed(out_dir / f"evidence_frame{f:04d}_{take.side}.npz",
+    np.savez_compressed(out_dir / f"evidence_frame{f:04d}_{take.side}{osfx}.npz",
                         occluded=ev["occluded"], free=ev["free"],
                         rim_weight=ev["rim_weight"].astype(np.float32),
                         visible=ev["visible"], frame=f, side=take.side,

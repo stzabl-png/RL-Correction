@@ -97,3 +97,23 @@ mixer(s05) notebook(s06) phone(s10) scissors(s02) waffleiron(s05)
   已修 `reconstruct.sh`:批量里单条失败跳过并记账, 全败才 exit 1(commit 5c59763)。
 - 另一个 agent 的**VLM 透明门已接进 reconstruct.sh**, 还多了 preflight 硬链接镜像
   (它也会丢开头暗帧, 与我的 `arctic_ego_video.py` 重复但无害)。
+
+### 2026-08-11 02:0x —— 自动标注远比文档慢, 改三路并行
+
+`auto_label_v17a` 第 2 步(实例发现+SAM2传播)的 docstring 写"~1-2 分钟", **实测差异极大**:
+- laptop(828帧, 4 episode): **16 分钟**(23:25→23:41)
+- ketchup(703帧, 4 episode): **>52 分钟仍未完**(每 episode ~25 分钟)
+
+同为 4 个 episode 却差 3-5 倍。串行 10 条 = 8 小时以上, 今晚跑不完。
+
+**改为三路并行**(利用 `auto_label_v17a` 幂等 + 从列表**尾部**取任务, 与 batch10 的头部顺序不撞车):
+```
+batch10 (GPU5)  ketchup → box → capsulemachine → espressomachine
+alA     (GPU4)  waffleiron → scissors → phone
+alB     (GPU6)  notebook → mixer → microwave
+```
+GPU 1/2/3 各已占 33GB(别人的任务), 0 和 7 利用率 93-100%, 只有 4/6 有余量(各约 35GB 空闲)。
+⚠ 三路都用 `_preflight/arctic` 作 root, 保证 video_id 与 batch10 一致(preflight 保相对路径)。
+
+**待办**: 全部标注完后由我统一跑 `run_batch_queue --skip-label` 做重建九步,
+不依赖 batch10 自己走完(它可能因竞争跳过某些视频)。

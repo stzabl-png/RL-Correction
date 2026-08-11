@@ -74,6 +74,15 @@ def run(tag: str, cmd: list[str], cwd: Path, env: dict | None = None) -> None:
         raise SystemExit(f"[auto-label] X {tag} 失败 (rc={r.returncode}); 兜底: ./reconstruct.sh --web 人工标注")
 
 
+def run_soft(tag: str, cmd: list[str], cwd: Path) -> int:
+    """跑一步但不因失败中止, 返回 returncode —— 交给调用方判断产物够不够用。"""
+    print(f"[auto-label] {tag}", flush=True)
+    e = dict(os.environ)
+    e.setdefault("PYTHONDONTWRITEBYTECODE", "1")
+    e.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    return subprocess.run([str(c) for c in cmd], cwd=str(cwd), env=e).returncode
+
+
 def find_episode_manifest(out_dir: Path) -> Path | None:
     """找最新 ready 的 episode 级 mask_sequence.json (adapter 认的 schema)。"""
     best = None
@@ -242,7 +251,11 @@ def main(argv=None) -> int:
 
     manifest_path = find_episode_manifest(inst_out)
     if manifest_path is None:
-        run("2/3 实例发现 + SAM2 传播 (~1-2 分钟 GPU)", [
+        # 这一步的最后阶段是"跨周期视觉身份链接"(产出视频级 manifest)。它可能失败而**逐 episode
+        # 的 mask 完好** —— arctic/s05__laptop_grab_01 实测: status=failed_global_identity_linking
+        # (第3周期匹配分 0.584 vs 次高 0.308 不够决定性), 但 4 个 episode 全是 ready,
+        # episode_00 就覆盖 555 帧。整步判失败会把这些产物一起丢掉, 逼人去做本可避免的人工标注。
+        rc = run_soft("2/3 实例发现 + SAM2 传播 (~1-2 分钟 GPU)", [
             "conda", "run", "--no-capture-output", "-n", "codetr", "python", "-m",
             "experiments.hoi_detr.run_instance_video_segmentation",
             "--video", video, "--detections", det, "--output-dir", inst_out,
@@ -250,6 +263,11 @@ def main(argv=None) -> int:
             "--model-cfg", "configs/sam2.1/sam2.1_hiera_l.yaml",
             "--gpu", a.gpu], cwd=V17A_ROOT)
         manifest_path = find_episode_manifest(inst_out)
+        if rc and manifest_path is None:
+            raise SystemExit(f"[auto-label] X 实例发现失败 (rc={rc}) 且无可用 episode manifest; "
+                             f"兜底: ./reconstruct.sh --web 人工标注")
+        if rc:
+            print(f"[auto-label] ! 实例发现后段失败 (rc={rc}), 但 episode 级 mask 可用, 继续", flush=True)
     if manifest_path is None:
         raise SystemExit("[auto-label] X v17A 没产出 ready 的 episode manifest")
 
@@ -280,7 +298,21 @@ def main(argv=None) -> int:
         # the episode file makes multi-object silently collapse to a single object.
         vman = inst_out / "video_mask_sequence" / "video_mask_sequence.json"
         if not vman.is_file():
-            raise SystemExit(f"[auto-label] X --instance all 需要视频级 manifest, 缺: {vman}")
+            # 静默塌成单物体是这条链上最容易犯又最难发现的错, 所以退回必须刺眼且落到产物里。
+            print(f"[auto-label] !! 要求 --instance all 但视频级 manifest 缺失 ({vman.name}); "
+                  f"跨周期身份链接多半失败了。退回 episode 级 = **只注册主实例**。", flush=True)
+            print(f"[auto-label] !! 该 take 是单物体标注, 若它本该是多部件, 下游会缺一个部件。",
+                  flush=True)
+            manifest = json.loads(manifest_path.read_text())
+            inst, frame = pick(manifest, "auto", a.recon_frame)
+            n = write_label_prompt(manifest, inst, frame, sam2_dir, a.object_name)
+            (sam2_dir / "label_prompt_degraded.json").write_text(json.dumps(
+                {"requested": "all", "delivered": "single_instance", "instance": inst,
+                 "frame": int(frame), "reason": "video-level manifest missing "
+                 "(global identity linking failed); episode-level masks were usable"},
+                indent=1))
+            print(f"[auto-label] ✓(降级) {vid}: {inst} 帧{frame} -> label_prompt.json (点 {n})")
+            return 0
         vm = json.loads(vman.read_text())
         import vlm_transparency_gate as G
         verdicts = vlm_gate(video, vm, vm.get("object_ids") or [])

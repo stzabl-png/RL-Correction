@@ -14,6 +14,7 @@
 #
 # 标注：**默认全自动**(v17A 自动出物体 mask, 无需人工; --no-auto-label 关闭)。
 #      人工点选只是 fallback：--web 网页标注一条龙, 或先 ./label.sh 标好。
+# 选卡：--gpu-ids 5 或 --gpu-ids 2,3（自动标注也用第一张，不再固定吃 0 号卡）。
 # 其它 flag 透传 run_batch_queue（--force / --dry-run / --workers-per-gpu 2 ...）。
 set -euo pipefail
 
@@ -34,11 +35,13 @@ declare -A DATASET_ROOTS=(
   [egodex]="$EGODEX_ROOT"
 )
 
-DATASET=hoi4d; ROOT=""; N=10; WEB=0; AUTOLABEL=1; TAKES=(); PASS=()
+DATASET=hoi4d; ROOT=""; N=10; WEB=0; AUTOLABEL=1; GPUS=0; TAKES=(); PASS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --dataset) DATASET="$2"; shift 2 ;;
     --root)    ROOT="$2"; shift 2 ;;
+    --gpu-ids)   GPUS="$2"; shift 2 ;;
+    --gpu-ids=*) GPUS="${1#*=}"; shift ;;
     --web)     WEB=1; shift ;;
     --no-auto-label) AUTOLABEL=0; shift ;;
     [0-9]*)    N="$1"; shift ;;
@@ -77,7 +80,7 @@ if [[ "$WEB" == 1 ]]; then
   echo "[reconstruct] 网页标注(GPU 预览) + 重建。打开 http://127.0.0.1:8765/  (远程: ssh -L 8765:127.0.0.1:8765 user@host)"
   exec conda run --no-capture-output -n base python "$RECON/run_batch_queue.py" \
     --dataset "$DATASET" --dataset-root "$ROOT" \
-    --video-list "$LIST" --gpu-ids 0 --preview-device cuda --preview-gpu 0 \
+    --video-list "$LIST" --gpu-ids "$GPUS" --preview-device cuda --preview-gpu "${GPUS%%,*}" \
     --http-host 0.0.0.0 --http-port 8765 ${PASS[@]+"${PASS[@]}"}
 else
   # v17A 自动标注(2026-08-10 接入): 清单里没有标注缓存的视频, 先自动出物体 mask
@@ -96,7 +99,8 @@ else
       [[ -f "$vp" ]] || { echo "$vp" >> "$KEEP"; continue; }
       rc=0
       conda run --no-capture-output -n hawor python "$HERE/bin/auto_label_v17a.py" \
-        --dataset "$DATASET" --dataset-root "$ROOT" --video "$vp" || rc=$?   # set -e 下必须 ||捕获
+        --dataset "$DATASET" --dataset-root "$ROOT" --video "$vp" \
+        --gpu "${GPUS%%,*}" || rc=$?   # set -e 下必须 ||捕获; 标注用选定的第一张卡
       if [[ $rc -eq 3 ]]; then
         echo "[reconstruct] 跳过本视频(全部实例空透明, 规则 v2): $vp"
         continue          # 不进 KEEP -> 不进重建队列
@@ -112,5 +116,5 @@ else
   echo "[reconstruct] 本地模式(--skip-label);自动标注已就位或请先 ./label.sh / --web"
   exec conda run --no-capture-output -n base python "$RECON/run_batch_queue.py" \
     --dataset "$DATASET" --dataset-root "$ROOT" \
-    --video-list "$LIST" --skip-label --gpu-ids 0 ${PASS[@]+"${PASS[@]}"}
+    --video-list "$LIST" --skip-label --gpu-ids "$GPUS" ${PASS[@]+"${PASS[@]}"}
 fi

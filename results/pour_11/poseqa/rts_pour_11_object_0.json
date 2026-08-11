@@ -1,0 +1,39 @@
+{
+ "scene": "/home/lyh/Project/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex/test/pour/11",
+ "n": 169,
+ "A_static_step": {
+  "raw_mm": 2.5325655416625668,
+  "smooth_mm": 1.7462541720485392,
+  "raw_deg": 2.4621069243700386,
+  "smooth_deg": 0.5259733589950546,
+  "n_free": 169
+ },
+ "B_image": {
+  "high_conf": {
+   "n": 67,
+   "explained_raw": 0.8550089982003599,
+   "explained_smooth": 0.8573959255978743,
+   "dcent_raw": 0.08329784867291705,
+   "dcent_smooth": 0.08360415827902133
+  },
+  "low_conf": {
+   "n": 18,
+   "explained_raw": 0.8877176953306418,
+   "explained_smooth": 0.8254320299562281,
+   "dcent_raw": 0.08169588019609628,
+   "dcent_smooth": 0.10255077425708328
+  }
+ },
+ "C_innov_spikes_pos": [],
+ "n_rot_refuted": 1,
+ "sigma_pos_mm": {
+  "min": 2.4,
+  "median": 3.7,
+  "max": 7.5
+ },
+ "sigma_rot_deg": {
+  "min": 0.6,
+  "median": 1.1,
+  "max": 8.2
+ }
+}

@@ -1,0 +1,58 @@
+{
+ "rules": {
+  "rot_obs_free": 0.08,
+  "rot_conf_min": 30,
+  "rot_refuted_max": 0.2,
+  "same_obj_ratio": 1.35
+ },
+ "takes": [
+  {
+   "take": "egodex/test/pour/11",
+   "object": "object_0",
+   "status": "active",
+   "reason": "",
+   "tuned": false,
+   "n_frames": 169,
+   "conf_pos_median": 87.0,
+   "conf_rot_median": 46.0,
+   "refuted_frames": 1,
+   "scale_reliable": true,
+   "position_grade": "good",
+   "rotation_usable": true,
+   "rotation_free_axes": [
+    1
+   ],
+   "rot_observability": [
+    0.409,
+    0.025,
+    0.513
+   ],
+   "rts_npz": "rts/rts_pour_11_object_0.npz",
+   "cc_json": "cc/cc_pour_11_object_0.json"
+  },
+  {
+   "take": "egodex/test/pour/11",
+   "object": "object_1",
+   "status": "active",
+   "reason": "",
+   "tuned": false,
+   "n_frames": 169,
+   "conf_pos_median": 50.0,
+   "conf_rot_median": 7.0,
+   "refuted_frames": 22,
+   "scale_reliable": true,
+   "position_grade": "mixed",
+   "rotation_usable": false,
+   "rotation_free_axes": [
+    1
+   ],
+   "rot_observability": [
+    0.278,
+    0.014,
+    0.352
+   ],
+   "rts_npz": "rts/rts_pour_11_object_1.npz",
+   "cc_json": "cc/cc_pour_11_object_1.json"
+  }
+ ]
+}

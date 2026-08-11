@@ -1,0 +1,54 @@
+{
+  "status": "complete",
+  "sequence": "test__pour__11",
+  "hands": {
+    "left_hand_0": {
+      "obj_id": "left_hand_0",
+      "text_prompt": "left hand",
+      "num_frames": 169,
+      "detected": true,
+      "detected_frames": 167,
+      "output_prob_thresh": 0.5,
+      "prompt_score": null,
+      "tracked_video": null,
+      "prompt_used": "left hand",
+      "prompts_tried": [
+        "left hand"
+      ]
+    },
+    "right_hand_0": {
+      "obj_id": "right_hand_0",
+      "text_prompt": "right hand",
+      "num_frames": 169,
+      "detected": true,
+      "detected_frames": 169,
+      "output_prob_thresh": 0.5,
+      "prompt_score": 0.9336099624633789,
+      "tracked_video": null,
+      "prompt_used": "right hand",
+      "prompts_tried": [
+        "right hand"
+      ]
+    }
+  },
+  "sam3_version": "sam3",
+  "sam3_requested_version": "sam3",
+  "sam3_version_fallback": {
+    "requested_version": "sam3",
+    "effective_version": "sam3",
+    "blackwell_detected": false,
+    "auto_blackwell_fallback": true,
+    "device": {
+      "available": true,
+      "index": 0,
+      "name": "NVIDIA RTX A6000",
+      "capability": [
+        8,
+        6
+      ]
+    },
+    "reason": null
+  },
+  "masks_dir": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/interim/egodex/test__pour__11/sam3_hands/test__pour__11/video_segmentation/masks",
+  "vis_video": null
+}

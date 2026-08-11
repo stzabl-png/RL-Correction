@@ -1,0 +1,38 @@
+{
+  "status": "complete",
+  "step": "contact",
+  "dataset": "egodex",
+  "video_id": "test__pour__11",
+  "objects": {
+    "object_0": {
+      "left": {
+        "status": "no_contact_interval"
+      },
+      "right": {
+        "status": "ok",
+        "frame": 93,
+        "intervals": [
+          [
+            19,
+            168
+          ]
+        ]
+      }
+    },
+    "object_1": {
+      "left": {
+        "status": "ok",
+        "frame": 85,
+        "intervals": [
+          [
+            2,
+            168
+          ]
+        ]
+      },
+      "right": {
+        "status": "no_contact_interval"
+      }
+    }
+  }
+}

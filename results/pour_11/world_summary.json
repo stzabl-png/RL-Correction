@@ -1,0 +1,197 @@
+{
+  "schema_version": "recon_world_v4",
+  "dataset": "egodex",
+  "video_id": "test__pour__11",
+  "num_frames": 169,
+  "object_track_frames": 169,
+  "world_npz": "world_fused.npz",
+  "object_mesh": "object_mesh_scaled_final.obj",
+  "objects": [
+    {
+      "object_id": "object_0",
+      "mesh_filename": "objects/object_0/object_mesh_scaled_final.obj",
+      "track_frames": 169,
+      "visible_frames": 169,
+      "pose_valid_frames": 169
+    },
+    {
+      "object_id": "object_1",
+      "mesh_filename": "objects/object_1/object_mesh_scaled_final.obj",
+      "track_frames": 169,
+      "visible_frames": 169,
+      "pose_valid_frames": 169
+    }
+  ],
+  "coordinate_frame": "gravity_z_up_world",
+  "source_coordinate_frame": "vipe_world",
+  "gravity_alignment": {
+    "T_gravity_z_up_from_vipe_world": [
+      [
+        0.03054756243951182,
+        -0.38133078453154734,
+        0.9239338067186192,
+        0.0
+      ],
+      [
+        -0.9995126666774201,
+        -0.005712467765231579,
+        0.030688709054370315,
+        0.0
+      ],
+      [
+        -0.006424607411875615,
+        -0.9244210082427735,
+        -0.3813194512990614,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "gravity_direction_vipe_world": [
+      0.006424607411875615,
+      0.9244210082427735,
+      0.3813194512990615
+    ],
+    "up_direction_vipe_world": [
+      -0.006424607411875615,
+      -0.9244210082427735,
+      -0.3813194512990615
+    ],
+    "sample_frame_indices": [
+      0,
+      30,
+      60
+    ],
+    "world_xy_alignment": {
+      "mode": "middle_camera_forward_projected_xy",
+      "frame_index": 84,
+      "world_x_direction_vipe_world": [
+        0.03054756243951182,
+        -0.38133078453154734,
+        0.9239338067186192
+      ],
+      "world_y_direction_vipe_world": [
+        -0.9995126666774201,
+        -0.005712467765231579,
+        0.030688709054370315
+      ],
+      "world_z_direction_vipe_world": [
+        -0.006424607411875615,
+        -0.9244210082427735,
+        -0.3813194512990614
+      ],
+      "reference_camera_forward_vipe_world": [
+        0.03035268745791282,
+        0.051738197709776265,
+        0.9981993153983959
+      ],
+      "reference_camera_forward_xy_norm": 0.9034679264323698,
+      "yaw_angle_rad": 1.5306435058038552
+    }
+  },
+  "camera": {
+    "K": [
+      [
+        736.84228515625,
+        0.0,
+        960.0
+      ],
+      [
+        0.0,
+        736.7689819335938,
+        540.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "c2w_shape": [
+      169,
+      4,
+      4
+    ],
+    "vipe_focal_flip_applied": false
+  },
+  "hands_included": true,
+  "masks": {
+    "schema_version": "final_2d_masks_v1",
+    "dataset": "egodex",
+    "video_id": "test__pour__11",
+    "root": "masks",
+    "object_masks": {
+      "present": true,
+      "source": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/interim/egodex/test__pour__11/sam2_object/video_segmentation/masks",
+      "path": "masks/objects/frames",
+      "num_frame_dirs": 169,
+      "num_png_files": 338,
+      "object_ids": [
+        "object_0",
+        "object_1"
+      ],
+      "mask_files": {
+        "object_0": "masks/objects/frames/frame_{frame_idx:06d}_masks/object_0.png",
+        "object_1": "masks/objects/frames/frame_{frame_idx:06d}_masks/object_1.png"
+      },
+      "label_prompt": "masks/objects/label_prompt.json",
+      "completion": "masks/objects/sam2_object_complete.json"
+    },
+    "hand_masks": {
+      "present": true,
+      "source": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/interim/egodex/test__pour__11/sam3_hands/test__pour__11/video_segmentation/masks",
+      "path": "masks/hands/frames",
+      "num_frame_dirs": 169,
+      "num_png_files": 338,
+      "mask_files": {
+        "left": "masks/hands/frames/frame_{frame_idx:06d}_masks/left_hand_0.png",
+        "right": "masks/hands/frames/frame_{frame_idx:06d}_masks/right_hand_0.png"
+      },
+      "completion": "masks/hands/hand_masks_complete.json",
+      "step_completion": "masks/hands/sam3_hands_complete.json"
+    },
+    "manifest": "masks/masks_manifest.json"
+  },
+  "hand_param_shapes": {
+    "hand_trans": [
+      2,
+      169,
+      3
+    ],
+    "hand_rot": [
+      2,
+      169,
+      3
+    ],
+    "hand_pose": [
+      2,
+      169,
+      45
+    ],
+    "hand_betas": [
+      2,
+      169,
+      10
+    ],
+    "hand_valid": [
+      2,
+      169
+    ],
+    "hand_trans_hawor_world": [
+      2,
+      169,
+      3
+    ],
+    "hand_rot_hawor_world": [
+      2,
+      169,
+      3
+    ],
+    "hand_coordinate_frame": [],
+    "hand_source_coordinate_frame": []
+  }
+}

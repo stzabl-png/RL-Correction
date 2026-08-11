@@ -38,8 +38,21 @@ from _common.paths import final_video_dir, is_step_complete, write_step_completi
 STEP = "contact"
 REPO_ROOT = RECON_ROOT.parent.parent.parent          # Reconstruct_and_Retarget 仓库根
 EGO = REPO_ROOT / "ego_pipeline"
-MDM_PY = Path(os.environ.get(
-    "MAGICDEX_PYTHON", str(REPO_ROOT / "third_party" / "MagicDexMate" / ".venv-isaac" / "bin" / "python")))
+
+
+def _find_mdm_py() -> Path:
+    """dex_retargeting+pinocchio 的解释器: 本地=MagicDexMate venv;
+    UCB=轻量 conda env dexretarget(2026-08-10 建, 复制本地 editable 源+pin2.7)。"""
+    cands = [os.environ.get("MAGICDEX_PYTHON"),
+             REPO_ROOT / "third_party" / "MagicDexMate" / ".venv-isaac" / "bin" / "python",
+             Path.home() / "miniconda3" / "envs" / "dexretarget" / "bin" / "python"]
+    for c in cands:
+        if c and Path(c).is_file():
+            return Path(c)
+    return Path(str(cands[1]))       # 缺省返回本地路径, 上层按"缺依赖"处理
+
+
+MDM_PY = _find_mdm_py()
 
 
 def _hawor_py() -> str:

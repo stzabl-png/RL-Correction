@@ -616,7 +616,11 @@ def _identity_maps(args: argparse.Namespace, sequence_manifests: list[dict]) -> 
                 local_id = item.local_object_id
                 if local_id in mapping:
                     continue
-                decision = decide_memory_identity(visual_memory, current_descriptors[local_id])
+                decision = decide_memory_identity(
+                    visual_memory,
+                    current_descriptors[local_id],
+                    min_reuse_similarity=getattr(args, "min_reuse_similarity", 0.80),
+                )
                 cycle_audit["visual_memory"].append(
                     {"local_object_id": local_id, **decision}
                 )
@@ -982,6 +986,29 @@ def run(args: argparse.Namespace) -> dict:
         }
         write_json_atomic(output_dir / "summary.json", summary)
         return complete(summary)
+    # 剔除"任何物体都没有 accepted mask"的空 episode:它对合并毫无贡献,
+    # 却会让 _sequence_endpoint_observations 的端点身份匹配把整条视频判死
+    # (实测 ARCTIC scissors: 4 个 episode 有 1 个全帧 fragmented_mask 被拒)。
+    kept = [
+        idx
+        for idx, manifest in enumerate(sequence_manifests)
+        if any(
+            entry.get("status") == "accepted" and entry.get("mask")
+            for frame in manifest.get("frames") or []
+            for entry in (frame.get("objects") or {}).values()
+        )
+    ]
+    if len(kept) != len(sequence_manifests):
+        dropped = sorted(set(range(len(sequence_manifests))) - set(kept))
+        print(
+            f"[warn] episodes {dropped} have no accepted mask for any object "
+            "-> dropped from identity matching and combination",
+            flush=True,
+        )
+        episodes = [episodes[i] for i in kept]
+        cycle_registries = [cycle_registries[i] for i in kept]
+        sequence_paths = [sequence_paths[i] for i in kept]
+        sequence_manifests = [sequence_manifests[i] for i in kept]
     identity = _identity_maps(args, sequence_manifests)
     if identity["status"] != "success":
         summary = {
@@ -1092,6 +1119,10 @@ def _parser() -> argparse.ArgumentParser:
         "--max-compensated-centroid-step-diagonals", type=float, default=0.50
     )
     parser.add_argument("--max-id-bridge-gap-frames", type=int, default=12)
+    parser.add_argument(
+        "--min-reuse-similarity", type=float, default=0.80,
+        help="视觉记忆 reuse 判定阈值(默认与原硬编码一致;细长物体外观相似度天然偏低时可下调)",
+    )
     parser.add_argument("--min-assignment-margin", type=float, default=0.05)
     parser.add_argument("--max-cross-instance-overlap-fraction", type=float, default=0.05)
     parser.add_argument("--min-area-pixels", type=int, default=256)

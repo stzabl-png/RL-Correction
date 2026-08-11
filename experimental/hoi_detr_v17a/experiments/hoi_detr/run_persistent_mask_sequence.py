@@ -37,9 +37,26 @@ def _apply_conditioning_ownership(
     object_ids = list(conditioning_masks)
     for index, first_id in enumerate(object_ids):
         for second_id in object_ids[index + 1 :]:
-            if np.any(conditioning_masks[first_id] & conditioning_masks[second_id]):
-                raise ValueError(
-                    f"conditioning masks overlap: {first_id} and {second_id}"
+            overlap = conditioning_masks[first_id] & conditioning_masks[second_id]
+            if np.any(overlap):
+                smaller = max(
+                    1,
+                    min(
+                        int(conditioning_masks[first_id].sum()),
+                        int(conditioning_masks[second_id].sum()),
+                    ),
+                )
+                fraction = float(overlap.sum()) / smaller
+                if fraction > 0.10:
+                    raise ValueError(
+                        f"conditioning masks overlap: {first_id} and {second_id}"
+                    )
+                # 小比例重叠:从后注册实例剥离,维持不相交不变量而非整条视频判死
+                conditioning_masks[second_id] = conditioning_masks[second_id] & ~overlap
+                print(
+                    f"[warn] conditioning overlap {first_id}/{second_id} "
+                    f"{fraction:.3%} of smaller mask -> subtracted from {second_id}",
+                    flush=True,
                 )
     resolved = {object_id: mask.copy() for object_id, mask in masks.items()}
     conditioned_union = np.zeros_like(next(iter(conditioning_masks.values())), dtype=bool)

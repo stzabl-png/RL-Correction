@@ -84,16 +84,22 @@ def run_soft(tag: str, cmd: list[str], cwd: Path) -> int:
 
 
 def find_episode_manifest(out_dir: Path) -> Path | None:
-    """找最新 ready 的 episode 级 mask_sequence.json (adapter 认的 schema)。"""
-    best = None
+    """最早 ready 的 **episode**(其内取最新 attempt)的 mask_sequence.json。
+
+    2026-08-11 修正(交接文档 2.2 指出): 旧实现被后来者覆盖 → 实际返回**最后一个** episode,
+    与"最早 accepted 帧(手尚未接触)"的选帧初衷相反(ketchup 实测选到只有 6 帧的末尾
+    episode_02)。episode 间取最早; 同一 episode 的 attempt 是重试, 取最新。"""
+    by_episode: dict[str, Path] = {}
     for p in sorted(out_dir.glob("episode_*/sequence_attempt_*/mask_sequence.json")):
         try:
             m = json.loads(p.read_text())
         except (OSError, json.JSONDecodeError):
             continue
         if m.get("schema_version") == "persistent_mask_sequence_v1" and m.get("status") == "ready":
-            best = p
-    return best
+            by_episode[p.parent.parent.name] = p        # attempt 升序遍历 → 留最新
+    if not by_episode:
+        return None
+    return by_episode[sorted(by_episode)[0]]            # episode 取最早
 
 
 def write_label_prompt(manifest: dict, inst: str, frame: int, sam2_dir: Path,

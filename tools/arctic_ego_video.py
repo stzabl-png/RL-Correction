@@ -75,6 +75,8 @@ def main() -> int:
     rw -= rw % 2
     rh -= rh % 2                          # libx264 needs even dimensions
 
+    # NOTE: 这条暗帧规则已上提为管线通用预检(ego_pipeline/bin/video_preflight.py, 任何视频
+    # 进 reconstruct.sh 都会统一处理); 本脚本保留一份是因为它吃的是 jpg 帧目录不是 mp4。
     # Leading frames are the camera's auto-exposure warm-up: s05/laptop_grab_01 starts with
     # 2 near-black frames (mean 18.8, 18.7) before jumping to 97.  They are worthless and sit
     # exactly where vipe initialises and where auto-label picks its earliest accepted frame,

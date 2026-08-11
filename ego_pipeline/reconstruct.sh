@@ -84,6 +84,12 @@ else
   # (HOI-DETR 检测 + SAM2 实例传播 + 开朗 adapter 落格式, 幂等)。
   # --no-auto-label 关闭; hoi4d 的清单是 take id 不是视频路径, 不走这条。
   if [[ "$AUTOLABEL" == 1 && "$DATASET" != "hoi4d" ]]; then
+    # 预检(2026-08-10 通用化): 任何视频开头的连续暗帧(自动曝光预热)统一丢弃。
+    # 干净视频=硬链接零开销; 被裁的旁边有 .preflight.json 记帧号偏移(对外部真值用)。
+    PRE_ROOT="$RECON_INTERIM_ROOT/_preflight/$DATASET"
+    conda run --no-capture-output -n hawor python "$HERE/bin/video_preflight.py" \
+      --list "$LIST" --root "$ROOT" --staging "$PRE_ROOT"
+    ROOT="$PRE_ROOT"   # 镜像保持相对路径不变 => video_id 不变
     echo "[reconstruct] v17A 自动标注 + VLM 透明门(--no-auto-label 跳过; 门 AUTO_LABEL_VLM_GATE=0 单独关)"
     KEEP="$LIST.keep"; : > "$KEEP"
     while IFS= read -r vp; do

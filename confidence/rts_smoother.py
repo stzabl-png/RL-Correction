@@ -40,6 +40,8 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+
+import object_select as objsel
 from scipy.spatial.transform import Rotation as Rot
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -191,16 +193,20 @@ def rot_smooth(R_meas, conf, refuted, dt):
 
 
 # -------------------------------------------------------------------- 主流程
-def run(scene: Path, audit_json: Path, out: Path, viz_video: Path | None = None):
+def run(scene: Path, audit_json: Path, out: Path, viz_video: Path | None = None,
+        obj_idx: int = 0):
     z = np.load(scene / "world_fused.npz", allow_pickle=True)
-    Tw = np.asarray(z["object_ob_in_world"], float)
+    oid = objsel.object_ids(z)[obj_idx]
+    _Tc0, Tw = objsel.poses(z, obj_idx)
     c2w = np.asarray(z["c2w"], float)
     K = np.asarray(z["K"], float)
     n = len(Tw)
     dt = 1.0 / 30.0
 
     doc = json.loads(audit_json.read_text())
-    rec = next(t for t in doc["takes"] if t.get("take") == str(scene))
+    # (take, object): 老记录没有 "object" 字段, 按 object_0 匹配 —— 那正是它们评的东西
+    rec = next(t for t in doc["takes"] if t.get("take") == str(scene)
+               and t.get("object", objsel.DEFAULT_OBJECT_ID) == oid)
     cp = np.zeros(n); cr = np.zeros(n); refuted = np.zeros(n, bool)
     for r in rec["per_frame"]:
         cp[r["frame"]] = r.get("conf_pos", 0)
@@ -214,7 +220,7 @@ def run(scene: Path, audit_json: Path, out: Path, viz_video: Path | None = None)
     Tw_s[:, :3, :3] = R_s
     Tw_s[:, :3, 3] = p_s
     Tc_s = np.array([np.linalg.inv(c2w[i]) @ Tw_s[i] for i in range(n)])
-    Tc_r = np.asarray(z["object_ob_in_cam"], float)
+    Tc_r, _ = objsel.poses(z, obj_idx)
 
     # ---- 验证 A: 静止段步长(无接触 = 必静止, 有真值) ----
     ct = scene / "contact_auto.json"
@@ -266,7 +272,10 @@ def run(scene: Path, audit_json: Path, out: Path, viz_video: Path | None = None)
                           dcent_raw=d_r, dcent_smooth=d_s)
 
     out.mkdir(parents=True, exist_ok=True)
+    # 单物体 take 保持旧文件名, 存量 rts_*.npz 不失效; 多物体才加物体后缀
     tag = f"{scene.parent.name}_{scene.name}"
+    if objsel.count(z) > 1:
+        tag = f"{tag}_{oid}"
     Tw_f = np.tile(np.eye(4), (n, 1, 1))
     Tw_f[:, :3, :3] = R_f; Tw_f[:, :3, 3] = p_f
     # σ 报告封底: 滤波器内部 σ 会在偏差/剔除段撒谎(bpp/2: 错着转还自报低σ),
@@ -351,8 +360,10 @@ def main(argv=None):
     ap.add_argument("--audit", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--video", type=Path, default=None)
+    ap.add_argument("--object", default="0", help="物体 id 或序号")
     a = ap.parse_args(argv)
-    s = run(a.scene, a.audit, a.out, a.video)
+    _z = np.load(a.scene / 'world_fused.npz', allow_pickle=True)
+    s = run(a.scene, a.audit, a.out, a.video, objsel.resolve(a.scene, _z, a.object)[0])
     print(json.dumps(s, ensure_ascii=False, indent=1, default=float))
     return 0
 

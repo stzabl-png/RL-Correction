@@ -56,6 +56,21 @@ def rel_take(rec: dict) -> str:
     return t.split("/ReconstructOutput/")[-1] if "/ReconstructOutput/" in t else t
 
 
+def obj_of(rec: dict) -> str:
+    """记录评的是哪个物体。改为逐物体打分之前写的记录没有这个字段, 它们评的就是 object_0。"""
+    return rec.get("object", "object_0")
+
+
+def rec_key(rec: dict) -> tuple[str, str]:
+    """判定的粒度是 (take, 物体) 而不是 take —— 一条 take 里瓶身落选不该把瓶盖也带下水。"""
+    return (rel_take(rec), obj_of(rec))
+
+
+def art_suffix(rec: dict) -> str:
+    """单物体 take 的 rts/cc 文件名不带物体后缀(存量文件如此), 多物体才带。"""
+    return f"_{obj_of(rec)}" if int(rec.get("n_objects", 1)) > 1 else ""
+
+
 def scaled_extents(rec: dict):
     e = rec.get("mesh_extents_m")
     if not e:
@@ -77,7 +92,7 @@ def same_object(a: dict, b: dict) -> bool:
     return all(max(x, y) / max(min(x, y), 1e-6) < SAME_OBJ_RATIO for x, y in zip(ea, eb))
 
 
-def auto_deselect(recs: list[dict]) -> dict[str, str]:
+def auto_deselect(recs: list[dict]) -> dict[tuple[str, str], str]:
     """同视频同物体组内 conf 择优。返回 {落选take: 胜者take}。"""
     groups: dict[tuple, list[dict]] = {}
     for r in recs:
@@ -101,12 +116,14 @@ def auto_deselect(recs: list[dict]) -> dict[str, str]:
                          reverse=True)
             winner = rel_take(cluster[0])
             for loser in cluster[1:]:
-                out[rel_take(loser)] = winner
+                out[rec_key(loser)] = winner
     return out
 
 
-def verdict(rec: dict, auto_losers: dict[str, str]) -> dict:
+def verdict(rec: dict, auto_losers: dict[tuple[str, str], str]) -> dict:
     rel = rel_take(rec)
+    key = rec_key(rec)
+    sfx = art_suffix(rec)
     n = max(rec["n_scored"], 1)
     refuted = sum(1 for r in rec["per_frame"] if r.get("rot_refuted"))
     obs = rec.get("rot_observability") or []
@@ -117,22 +134,22 @@ def verdict(rec: dict, auto_losers: dict[str, str]) -> dict:
         status, why = "excluded", "透明物体 (FP 系统性失灵, 存量; 新数据由重建前 VLM 过滤)"
     elif rel in DESELECTED:
         status, why = "deselected", f"同视频有更优重建(人工): {DESELECTED[rel].split('/')[-1]}"
-    elif rel in auto_losers:
-        status, why = "deselected", f"同视频有更优重建(自动): {auto_losers[rel].split('/')[-1]}"
+    elif key in auto_losers:
+        status, why = "deselected", f"同视频有更优重建(自动): {auto_losers[key].split('/')[-1]}"
     else:
         status, why = "active", ""
 
     rot_ok = status == "active" and cr >= ROT_CONF_MIN and refuted / n <= ROT_REFUTED_MAX
     return dict(
-        take=rel, status=status, reason=why, tuned=rel in TUNED,
+        take=rel, object=obj_of(rec), status=status, reason=why, tuned=rel in TUNED,
         n_frames=rec["n_frames"], conf_pos_median=cp, conf_rot_median=cr,
         refuted_frames=refuted, scale_reliable=rec.get("scale_reliable"),
         position_grade=("good" if cp >= 70 else "mixed" if cp >= 40 else "poor"),
         rotation_usable=bool(rot_ok),
         rotation_free_axes=free_axes,     # 索引对应 mesh 主轴 (rot_observability 顺序)
         rot_observability=[round(float(v), 3) for v in obs],
-        rts_npz=f"rts/rts_{'_'.join(rel.split('/')[-2:])}.npz",
-        cc_json=f"cc/cc_{'_'.join(rel.split('/')[-2:])}.json",
+        rts_npz=f"rts/rts_{'_'.join(rel.split('/')[-2:])}{sfx}.npz",
+        cc_json=f"cc/cc_{'_'.join(rel.split('/')[-2:])}{sfx}.json",
     )
 
 

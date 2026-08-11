@@ -37,13 +37,15 @@ import torch
 import trimesh
 
 
-def load_masks(scene: Path, n: int, kind="objects"):
+def load_masks(scene: Path, n: int, kind="objects", oid: str | None = None):
+    """oid 给定时只取该物体的 mask。默认(None)保持并集 —— 手部本来就该并,
+    物体并集会让 CoTracker 把种子播到别的物体上再拿本物体的位姿去解释(见 object_select.py)。"""
     out = {}
     for i in range(n):
         d = scene / "masks" / kind / "frames" / f"frame_{i:06d}_masks"
         if not d.is_dir():
             continue
-        pat = "object_*.png" if kind == "objects" else "*_hand_0.png"
+        pat = (f"{oid}.png" if oid else "object_*.png") if kind == "objects" else "*_hand_0.png"
         acc = None
         for p in sorted(d.glob(pat)):
             a = cv2.imread(str(p), cv2.IMREAD_GRAYSCALE)

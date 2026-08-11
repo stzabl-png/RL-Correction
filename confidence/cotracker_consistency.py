@@ -44,6 +44,8 @@ from cotracker_rotation import (backproject_to_mesh, load_masks,  # noqa: E402
                                 seed_points)
 import trimesh  # noqa: E402
 
+import object_select as objsel  # noqa: E402
+
 
 def project(K, T, X):
     """物体系 3D 点 -> 像素。X:(N,3) -> (N,2), 以及深度是否为正。"""
@@ -89,20 +91,24 @@ def pick_seed_frames(scene, om, hm, n, audit, k=3):
     return [pool[j] for j in np.linspace(0, len(pool) - 1, min(k, len(pool))).astype(int)]
 
 
-def run(scene: Path, video: Path, out: Path, audit=None, n_pts=150,
+def run(scene: Path, video: Path, out: Path, audit=None, n_pts=150, obj_idx: int = 0,
         max_frames=115, viz=True, device="cuda"):
     z = np.load(scene / "world_fused.npz", allow_pickle=True)
     K = np.asarray(z["K"], float)
-    Tc = np.asarray(z["object_ob_in_cam"], float)
+    oid = objsel.object_ids(z)[obj_idx]
+    # 单物体 take 保持旧文件名, 存量 cc_*.json 不失效
+    sfx = f'_{oid}' if objsel.count(z) > 1 else ''
+    Tc, _ = objsel.poses(z, obj_idx)
     n = min(len(Tc), max_frames)
-    meshes = (sorted(glob.glob(str(scene / "objects" / "*" / "*.obj")))
-              or sorted(glob.glob(str(scene / "*.obj"))))
-    mesh = trimesh.load(meshes[0], force="mesh")
+    mp = objsel.mesh_path(scene, oid)
+    if mp is None:
+        raise SystemExit(f"{scene}: no mesh for {oid}")
+    mesh = trimesh.load(mp, force="mesh")
     from cotracker_rotation import decimate_mesh
     md = decimate_mesh(mesh)
     Vm, Fm = np.asarray(md.vertices, float), np.asarray(md.faces, int)
 
-    om = load_masks(scene, n, "objects")
+    om = load_masks(scene, n, "objects", oid)
     hm = load_masks(scene, n, "hands")
     if not om:
         return {"scene": str(scene), "error": "no object masks"}
@@ -210,7 +216,7 @@ def run(scene: Path, video: Path, out: Path, audit=None, n_pts=150,
     # ---- 可视化: 绿=观测 品红=FP预测 红线=误差 ----
     if viz:
         out.mkdir(parents=True, exist_ok=True)
-        vp = out / f"cc_{scene.parent.name}_{scene.name}.mp4"
+        vp = out / f"cc_{scene.parent.name}_{scene.name}{sfx}.mp4"
         sc = 0.5
         W2, H2 = int(W0 * sc) // 2 * 2, int(H0 * sc) // 2 * 2
         vw = cv2.VideoWriter(str(vp), cv2.VideoWriter_fourcc(*"mp4v"), 20.0, (W2, H2))
@@ -257,7 +263,7 @@ def run(scene: Path, video: Path, out: Path, audit=None, n_pts=150,
                                if val else None),
     }
     out.mkdir(parents=True, exist_ok=True)
-    (out / f"cc_{scene.parent.name}_{scene.name}.json").write_text(
+    (out / f"cc_{scene.parent.name}_{scene.name}{sfx}.json").write_text(
         json.dumps({"summary": summ, "per_frame": per}, ensure_ascii=False, indent=1),
         encoding="utf-8")
     print(f"[cc] 打分 {len(val)}/{n} 帧  err_norm 中位 {summ['ct_err_norm_median']} "
@@ -271,11 +277,15 @@ def main(argv=None):
     ap.add_argument("--video", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--audit", type=Path, default=None)
+    ap.add_argument("--object", default="0", help="物体 id 或序号")
     ap.add_argument("--max-frames", type=int, default=115)
     ap.add_argument("--no-viz", action="store_true")
     a = ap.parse_args(argv)
+    import numpy as _np
+    _z = _np.load(a.scene / 'world_fused.npz', allow_pickle=True)
+    _i = objsel.resolve(a.scene, _z, a.object)[0]
     r = run(a.scene, a.video, a.out, audit=a.audit, max_frames=a.max_frames,
-            viz=not a.no_viz)
+            viz=not a.no_viz, obj_idx=_i)
     print(json.dumps(r, ensure_ascii=False, indent=1))
     return 0
 

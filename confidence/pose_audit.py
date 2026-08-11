@@ -36,6 +36,8 @@ import cv2
 import numpy as np
 import trimesh
 
+import object_select as objsel
+
 # 判据参数 —— 全部经 33 条 + 人眼校准表验证过, 每条都写明为什么是这个值
 TH = dict(
     d_cent_soft=0.35,      # 质心归一化偏移: 主判据(唯一经人眼验证可靠)
@@ -73,16 +75,10 @@ TH = dict(
 #    对策不是"检测", 是**事先声明不可观测**: 从网格算旋转可观测性, 低的直接判可信度 0,
 #    交给 RL 自己探索。
 
-def load_obj_mask(scene: Path, i: int):
-    d = scene / "masks" / "objects" / "frames" / f"frame_{i:06d}_masks"
-    acc = None
-    if d.is_dir():
-        for p in sorted(d.glob("object_*.png")):
-            a = cv2.imread(str(p), cv2.IMREAD_GRAYSCALE)
-            if a is not None:
-                b = a > 127
-                acc = b if acc is None else (acc | b)
-    return acc
+def load_obj_mask(scene: Path, i: int, oid: str = objsel.DEFAULT_OBJECT_ID):
+    """One object's mask. Used to OR every object_*.png together, which silently scored
+    one object's projection against every object's silhouette -- see object_select.py."""
+    return objsel.obj_mask(scene, i, oid)
 
 
 def load_hand_mask(scene: Path, i: int):
@@ -220,35 +216,37 @@ def cent(m):
     return np.array([xs.mean(), ys.mean()])
 
 
-def audit_take(scene: Path, ss=2, max_frames=400, ct_dir: Path | None = None) -> dict:
+def audit_take(scene: Path, ss=2, max_frames=400, ct_dir: Path | None = None,
+               obj_idx: int = 0) -> dict:
     z = np.load(scene / "world_fused.npz", allow_pickle=True)
     K = np.asarray(z["K"], float)
-    Tc = np.asarray(z["object_ob_in_cam"], float)
-    Tw = np.asarray(z["object_ob_in_world"], float)
+    oid = objsel.object_ids(z)[obj_idx]
+    Tc, Tw = objsel.poses(z, obj_idx)
     n = min(len(Tc), max_frames)
-    meshes = (sorted(glob.glob(str(scene / "objects" / "*" / "*.obj")))
-              or sorted(glob.glob(str(scene / "*.obj"))))
-    if not meshes:
-        return {"take": str(scene), "error": "no mesh"}
-    mesh = trimesh.load(meshes[0], force="mesh")
+    mp = objsel.mesh_path(scene, oid)
+    if mp is None:
+        return {"take": str(scene), "object": oid, "error": "no mesh"}
+    mesh = trimesh.load(mp, force="mesh")
     V0 = np.asarray(mesh.vertices, float); F0 = np.asarray(mesh.faces, int)
     V0, F0 = decimate(V0, F0)
     long_axis = int(np.argmax(mesh.extents))
     hw = (1080, 1920)
     ct_map = {}
     if ct_dir is not None:
-        ccp = Path(ct_dir) / f"cc_{scene.parent.name}_{scene.name}.json"
+        ccp = Path(ct_dir) / f"cc_{scene.parent.name}_{scene.name}_{oid}.json"
+        if not ccp.is_file() and oid == objsel.DEFAULT_OBJECT_ID:
+            ccp = Path(ct_dir) / f"cc_{scene.parent.name}_{scene.name}.json"  # 旧命名
         if ccp.is_file():
             for r in json.loads(ccp.read_text()).get("per_frame", []):
                 ct_map[r["frame"]] = r
     om = {}
     for i in range(n):
-        m = load_obj_mask(scene, i)
+        m = load_obj_mask(scene, i, oid)
         if m is not None and m.any():
             om[i] = m
             hw = m.shape
     if len(om) < 8:
-        return {"take": str(scene), "error": f"masks too few ({len(om)})"}
+        return {"take": str(scene), "object": oid, "error": f"masks too few ({len(om)})"}
 
     def ds(m, s):
         return (m if s == 1 else
@@ -375,7 +373,9 @@ def audit_take(scene: Path, ss=2, max_frames=400, ct_dir: Path | None = None) ->
             cnt[m] = cnt.get(m, 0) + 1
     bad = [r for r in per if r["modes"]]
     return {
-        "take": str(scene), "n_frames": n, "n_scored": len(per),
+        "take": str(scene), "object": oid, "object_index": obj_idx,
+        "n_objects": objsel.count(z),
+        "n_frames": n, "n_scored": len(per),
         "mesh_scale_fitted": round(scale, 3), "scale_iou": round(best[1], 3),
         "scale_reliable": bool(scale_ok),
         # 原始 mesh 三轴尺寸(未乘拟合尺度)。take_manifest 用它判"同视频的两个 take
@@ -413,30 +413,48 @@ def poseqa_lock(out_dir: Path):
             fcntl.flock(fh, fcntl.LOCK_UN)
 
 
-def audit_one_incremental(scene: Path, out: Path, ss: int, ct_dir: Path | None) -> int:
+def audit_one_incremental(scene: Path, out: Path, ss: int, ct_dir: Path | None,
+                          obj_spec=None) -> int:
     """单 take 增量: 只审这一条, 锁内更新 pose_audit.json 里对应 entry。
     与全库重扫对该 take 的结果逐字段一致(冒烟验收标准)。"""
     scene = scene.resolve()
     t0 = time.time()
-    try:
-        r = audit_take(scene, ss=ss, ct_dir=ct_dir)
-    except Exception as e:
-        r = {"take": str(scene), "error": f"{type(e).__name__}: {e}"}
+    z = np.load(scene / "world_fused.npz", allow_pickle=True)
+    idxs = objsel.resolve(scene, z, obj_spec)
+    ids = objsel.object_ids(z)
+    results = []
+    for i in idxs:
+        try:
+            results.append(audit_take(scene, ss=ss, ct_dir=ct_dir, obj_idx=i))
+        except Exception as e:
+            results.append({"take": str(scene), "object": ids[i], "object_index": i,
+                            "error": f"{type(e).__name__}: {e}"})
     with poseqa_lock(out):
         p = out / "pose_audit.json"
         doc = json.loads(p.read_text()) if p.is_file() else {"thresholds": TH, "takes": []}
         doc["thresholds"] = TH
-        doc["takes"] = [x for x in doc["takes"] if x.get("take") != r["take"]]
-        doc["takes"].append(r)
-        doc["takes"].sort(key=lambda x: x.get("take", ""))
+        # key on (take, object): a take now contributes one record per object.  Records
+        # written before this change carry no "object", so they key as object_0 -- which
+        # is what they scored -- and stay in place instead of being dropped or duplicated.
+        def key(x):
+            return (x.get("take"), x.get("object", objsel.DEFAULT_OBJECT_ID))
+        replaced = {key(r) for r in results}
+        doc["takes"] = [x for x in doc["takes"] if key(x) not in replaced]
+        doc["takes"].extend(results)
+        doc["takes"].sort(key=lambda x: (x.get("take", ""), x.get("object", "")))
         p.write_text(json.dumps(doc, ensure_ascii=False, indent=1), encoding="utf-8")
-    if "error" in r:
-        print(f"[audit] X {scene}  {r['error']}")
-        return 1
-    print(f"[audit] {scene.name}: s={r['mesh_scale_fitted']:.3f} "
-          f"可信度 中位{r['conf_median']:5.1f} (位置{r['conf_pos_median']:5.1f}/"
-          f"旋转{r['conf_rot_median']:5.1f})  用时 {time.time()-t0:.0f}s  → {p}")
-    return 0
+    rc = 0
+    for r in results:
+        tag = f"{scene.name}[{r.get('object', '?')}]"
+        if "error" in r:
+            print(f"[audit] X {tag}  {r['error']}")
+            rc = 1
+            continue
+        print(f"[audit] {tag}: s={r['mesh_scale_fitted']:.3f} "
+              f"可信度 中位{r['conf_median']:5.1f} (位置{r['conf_pos_median']:5.1f}/"
+              f"旋转{r['conf_rot_median']:5.1f})  → {p}")
+    print(f"[audit] {len(results)} 个物体, 用时 {time.time()-t0:.0f}s")
+    return rc
 
 
 def main(argv=None):
@@ -449,12 +467,14 @@ def main(argv=None):
     ap.add_argument("--ss", type=int, default=2)
     ap.add_argument("--ct-dir", type=Path, default=None,
                     help="cotracker_consistency 输出目录, 有则并入打分")
+    ap.add_argument("--object", default="all",
+                    help="物体 id/序号, 或 all(默认: 该 take 的每个物体各打一份分)")
     ap.add_argument("--scene", type=Path, default=None,
                     help="只审这一条 take, 增量更新 pose_audit.json (pipeline confidence 步用)")
     a = ap.parse_args(argv)
     a.out.mkdir(parents=True, exist_ok=True)
     if a.scene is not None:
-        return audit_one_incremental(a.scene, a.out, a.ss, a.ct_dir)
+        return audit_one_incremental(a.scene, a.out, a.ss, a.ct_dir, a.object)
 
     takes = sorted(Path(p).parent for p in
                    glob.glob(str(a.root / "**" / "world_fused.npz"), recursive=True))
@@ -463,14 +483,25 @@ def main(argv=None):
     res, t0 = [], time.time()
     for k, t in enumerate(takes, 1):
         try:
-            r = audit_take(t, ss=a.ss, ct_dir=a.ct_dir)
+            _z = np.load(t / "world_fused.npz", allow_pickle=True)
+            _idxs, _ids = objsel.resolve(t, _z, a.object), objsel.object_ids(_z)
         except Exception as e:
-            r = {"take": str(t), "error": f"{type(e).__name__}: {e}"}
-        res.append(r)
-        rel = str(t).replace(str(a.root) + "/", "")
-        if "error" in r:
-            print(f"  [{k}/{len(takes)}] X {rel}  {r['error']}")
-        else:
+            res.append({"take": str(t), "error": f"{type(e).__name__}: {e}"})
+            print(f"  [{k}/{len(takes)}] X {t}  {res[-1]['error']}")
+            continue
+        for _i in _idxs:
+            try:
+                r = audit_take(t, ss=a.ss, ct_dir=a.ct_dir, obj_idx=_i)
+            except Exception as e:
+                r = {"take": str(t), "object": _ids[_i], "object_index": _i,
+                     "error": f"{type(e).__name__}: {e}"}
+            res.append(r)
+            rel = str(t).replace(str(a.root) + "/", "")
+            if len(_idxs) > 1:
+                rel = f"{rel}[{_ids[_i]}]"
+            if "error" in r:
+                print(f"  [{k}/{len(takes)}] X {rel}  {r['error']}")
+                continue
             print(f"  [{k}/{len(takes)}] {rel:46s} s={r['mesh_scale_fitted']:.3f}"
                   f"{'' if r['scale_reliable'] else '!'} "
                   f"遮挡={r['median_occl']:.2f} 旋转可观测={min(r['rot_observability']):.3f} "

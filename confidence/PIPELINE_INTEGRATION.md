@@ -12,8 +12,10 @@
 
 ## 0. 现状勘察结论（决定方案的四个事实）
 
-1. **权威 pipeline 只有一份**：`$HV2RD_ROOT/recon_pipeline`（repo_paths.sh:23 指向它）。
-   R&R 里 vendor 的那份是死代码，**这次改动只动 HV2RD 那份**，不去碰 vendor 副本。
+1. **权威 pipeline 只有一份**：实施当日在 `$HV2RD_ROOT/recon_pipeline`。
+   （★2026-08-10 晚已收编：HV2RD 删除，权威版迁入
+   `Reconstruct_and_Retarget/ego_pipeline/Reconstruction/recon_pipeline/`，
+   本文所有 HV2RD 路径按此对应；迁移台账见 R&R 根目录 HV2RD_MIGRATION.md。）
 2. **两个入口都要挂**：
    - `run_pipeline.py`——单机顺序跑，`STEPS` 元组最后一项是 `fuse`；
    - `run_batch_queue.py`——批量队列（8 卡机在用），`AUTO_STEPS` + `STEP_ENVS` +

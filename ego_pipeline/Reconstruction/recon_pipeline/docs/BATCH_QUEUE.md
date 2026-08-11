@@ -205,8 +205,10 @@ Hardware sampled: GPU 0, NVIDIA RTX A6000 48 GB. CPU percentage is summed across
 | fp_pose | 679.8 | 484.5 | 6661.3 | 32699 | 100 |
 | fuse | 3.4 | 324.0 | 279.0 | 30 | 0 |
 
-`fp_pose` defaults to `--pose-mode track`, which registers the first visible
-prompt frame and then tracks both forward and backward to cover every frame. The slower per-frame registration mode is available as
+`fp_pose` defaults to `--pose-mode track`, which registers the labeled prompt
+frame and then tracks both forward and backward to cover every frame, consuming
+each frame's SAM2 mask centroid (plus a 6D Kalman filter) to initialise every
+`track_one` step -- the full-video mask propagation is used on every frame. The slower per-frame registration mode is available as
 `fp_pose/run_sequence.py --pose-mode register-each` for diagnostics.
 
 The raw sampling logs were generated during the profiling run and are not part
@@ -303,7 +305,7 @@ python3 recon_pipeline/run_batch_queue.py \
 
 With the current code, forced reruns regenerate `fp_pose` using the default
 `--pose-mode track` prompt-frame registration + bidirectional FP++ tracking path.
-Per-frame registration is available only when running `fp_pose/run_sequence.py --pose-mode register-each`.
+Per-frame registration (`--pose-mode register-each`) is reachable from `fp_pose/run_sequence.py` directly, or through `run_pipeline.py` which forwards unknown flags to the step; the batch queue (`run_batch_queue.py`) has no extra-arg passthrough and always runs `track`.
 
 ## Design notes
 

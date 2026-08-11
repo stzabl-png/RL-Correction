@@ -40,7 +40,10 @@ def main() -> int:
     ap.add_argument("--subject", required=True)              # e.g. s05
     ap.add_argument("--seq", required=True)                  # e.g. laptop_grab_01
     ap.add_argument("--out-dir", type=Path, required=True)
-    ap.add_argument("--fps", type=float, default=30.0)
+    ap.add_argument("--fps", type=float, default=30.0, help="输出 fps(已按 stride 折算后的值)")
+    ap.add_argument("--stride", type=int, default=1,
+                    help="每 stride 帧取一帧。ARCTIC 是 30fps, stride=2 -> 15fps, "
+                         "与我们平时的 EgoDex 输入帧率一致, 且重建耗时减半")
     ap.add_argument("--dark-thresh", type=float, default=40.0,
                     help="开头连续亮度低于此值的帧丢弃(自动曝光未稳定)")
     ap.add_argument("--no-undistort", action="store_true",
@@ -89,6 +92,8 @@ def main() -> int:
     if n_skip:
         print(f"  丢弃开头 {n_skip} 个暗帧(亮度<{a.dark_thresh}, 自动曝光未稳定)")
     frames = frames[n_skip:]
+    if a.stride > 1:
+        frames = frames[::a.stride]      # 抽帧在丢暗帧之后, 保证第一帧就是有效帧
 
     a.out_dir.mkdir(parents=True, exist_ok=True)
     out_mp4 = a.out_dir / f"{a.subject}__{a.seq}.mp4"

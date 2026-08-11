@@ -97,7 +97,10 @@ def main() -> int:
 
     # ---- 现有 confidence ----
     doc = json.loads(a.audit.read_text())
-    tail = "/".join(a.take.resolve().parts[-2:])
+    # ⚠ 必须带上数据集名（尾部**三**级）：arctic 与 arctic15 的 <subject>/<seq> 完全同名，
+    # 只取两级会静默匹配到另一个数据集的记录 —— 实测 15fps 的 laptop 取到了 30fps 的
+    # 84/77，而它真实是 77/71。这类串台不会报错，只会让整批分析用错分数。
+    tail = "/".join(a.take.resolve().parts[-3:])
     rec = next((t for t in doc["takes"] if str(t.get("take", "")).endswith(tail)
                 and t.get("object", "object_0") == "object_0"), None)
     cp = np.full(n, np.nan)
@@ -175,8 +178,41 @@ def main() -> int:
             sig["obj_depth_m"] = float(np.median(C[f, 2, 3]))
             sig["obj_over_hand_depth"] = sig["obj_depth_m"] / max(sig["hand_depth_m"], 1e-6)
 
+    # 形状误差(PCA 对齐+按最长轴归一, 与尺度朝向无关)。加这一项是因为两条 take 都显示
+    # 误差**各向异性**: 长宽 <3%, 最短轴 +100% 以上 —— 任何单标量尺度都修不了,
+    # 而只报总误差/深度比会把这个事实盖住。
+    def _axis_ratio(V):
+        V = V - V.mean(0)
+        _, _, Vt = np.linalg.svd(V, full_matrices=False)
+        e = np.sort((V @ Vt.T).ptp(0))[::-1]
+        return e / e[0]
+    shape = {}
+    try:
+        ro, rg = _axis_ratio(Vo_full), _axis_ratio(Vg_full)
+        shape = {"axis_ratio_ours": [round(float(v), 4) for v in ro],
+                 "axis_ratio_gt": [round(float(v), 4) for v in rg],
+                 "shape_err_mid_pct": round(float((ro[1] / rg[1] - 1) * 100), 1),
+                 "shape_err_short_pct": round(float((ro[2] / rg[2] - 1) * 100), 1)}
+    except Exception as e:  # noqa: BLE001 - 形状指标缺失不该挡住其余评测
+        shape = {"shape_error": f"{type(e).__name__}: {e}"}
+
+    # final take 目录不含 sam2_object（那在 interim 里），两处都找
+    lp = a.take / "sam2_object" / "label_prompt.json"
+    if not lp.is_file():
+        cand_lp = (a.take.parents[2] / "interim" / a.take.parents[1].name
+                   / f"{a.take.parent.name}__{a.take.name}" / "sam2_object" / "label_prompt.json")
+        if cand_lp.is_file():
+            lp = cand_lp
+    label_frame = None
+    if lp.is_file():
+        try:
+            label_frame = int(json.loads(lp.read_text())["objects"][0]["frame_idx"])
+        except Exception:
+            pass
+
     row = {
         "take": str(a.take), "subject": subject, "seq": seq, "object": obj_name,
+        "label_frame": label_frame, **shape,
         "n_frames": int(n), "n_cmp": int(len(f)), "articulation_deg": float(art.ptp()),
         "err_pos_med": float(np.median(err_pos)), "err_pos_p90": float(np.percentile(err_pos, 90)),
         "err_dep_med": float(np.median(err_dep)), "err_lat_med": float(np.median(err_lat)),

@@ -1225,7 +1225,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         with state_lock:
             for job in jobs:
-                if not args.force and _final_complete(job):
+                # 只有"重建完成 且 confidence/contact 也都齐"才在入队前短路——否则放进
+                # worker 循环, 由那里的 top-up 分支补缺的后处理步(2026-08-10: 之前只查
+                # _final_complete, confidence 失败过的视频会被这里清理+跳过, 永远补不上)
+                post_missing = [s2 for s2 in ("confidence", "contact")
+                                if s2 in steps and not _step_done(job, s2)]
+                if not args.force and _final_complete(job) and not post_missing:
                     cleanup = _cleanup_successful_video(
                         job,
                         batch_dir,

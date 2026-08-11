@@ -35,6 +35,7 @@ FILL_REL = 0.75      # 填充率 >= 本物体中位数 * 该系数
 BLUR_DROP = 0.25     # 剔除最糊的分位
 STAGE1_CAP = 60
 OCC_TIE = 0.05
+NMS_GAP = 20         # top-K 候选之间的最小帧距(时间 NMS,保证多样性)
 
 
 def load_accepted(manifest: dict, object_id: str) -> dict[int, Path]:
@@ -210,7 +211,13 @@ def main() -> None:
         else:
             occ = {i: occlusion(hands.get(i, []), feats[i]["hull"], shape) for i in stage1}
         ranked = sorted(stage1, key=lambda i: (round(occ[i] / OCC_TIE), -clean[i]))
-        top = ranked[:args.top]
+        # 时间 NMS:top-K 内两两至少隔 NMS_GAP 帧,避免连号扎堆(排名第一永远保留)
+        top = []
+        for i in ranked:
+            if all(abs(i - j) >= NMS_GAP for j in top):
+                top.append(i)
+            if len(top) >= args.top:
+                break
 
         base_chosen = baseline.get(object_id, {}).get("chosen_frame")
         summary["objects"][object_id] = {
@@ -220,7 +227,8 @@ def main() -> None:
             "occ": {str(i): round(occ[i], 4) for i in ranked},
             "occ_detail": {str(i): detail[i] for i in ranked if i in detail},
             "clean": {str(i): round(clean[i], 3) for i in ranked},
-            "ranked": ranked, "chosen_frame": top[0] if top else None,
+            "ranked": ranked, "candidates_nms": top,
+            "chosen_frame": top[0] if top else None,
             "baseline_chosen": base_chosen,
         }
         print(f"[{object_id}] accepted={len(idxs)} stage1={len(stage1)} "

@@ -17,6 +17,7 @@ replay_world.npz:
 """
 import argparse
 import os
+from pathlib import Path
 import sys
 
 import numpy as np
@@ -26,7 +27,13 @@ from scipy.spatial.transform import Rotation
 # 让 `from phase import load_phase` 可用(ego_pipeline/phase),独立于 cwd。
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-_DEFAULT_HAWOR = os.path.expanduser("~/Project/Reconstruct_and_Retarget/third_party/hawor")
+# hawor 代码树: 仓库相对推导优先(两台机器布局都命中), 老的本地绝对路径兜底
+_DEFAULT_HAWOR = next(
+    (str(p) for p in (
+        Path(__file__).resolve().parents[2] / "third_party" / "hawor",
+        Path(os.path.expanduser("~/Project/Reconstruct_and_Retarget/third_party/hawor")),
+    ) if p.is_dir()),
+    os.path.expanduser("~/Project/Reconstruct_and_Retarget/third_party/hawor"))
 
 
 def _resolve_io(inp: str, out: str) -> tuple[str, str]:

@@ -20,7 +20,9 @@ Phase B 账单(arctic15 vs GT)的结论: 指垫探头报的指头 94% 是对的�
 顶点分区标签是手模型常数(data/mano_vert_regions_*.npy, lbs argmax 离线生成),
 管线运行时不依赖 smplx。τ 与投票阈值只允许在 dev 物体上标定(反作弊纪律)。
 
-用法: python -m contact.mano_contact <take_dir> [--tau 0.010] [--vote 0.6]
+用法: python -m contact.mano_contact <take_dir> [--tau 0.035] [--vote 0.3]
+默认参数在 arctic15 dev 物体(box/laptop/ketchup/mixer)上网格标定(mano_vs_gt.py),
+held-out 7 物体终评 P0.91/R0.83/F1 0.87(旧指垫探头 R0.46), 未用 held-out 调参。
 """
 from __future__ import annotations
 
@@ -180,8 +182,8 @@ def measure(take: Path, tau: float, vote: float, min_frames: int, align: bool = 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("take", type=Path)
-    ap.add_argument("--tau", type=float, default=0.010, help="接触距离阈值(米), dev 标定")
-    ap.add_argument("--vote", type=float, default=0.6, help="多帧投票: 接触帧占比阈值")
+    ap.add_argument("--tau", type=float, default=0.035, help="接触距离阈值(米); dev 标定 2026-08-12")
+    ap.add_argument("--vote", type=float, default=0.3, help="核心段内接触帧占比阈值; dev 标定")
     ap.add_argument("--min-frames", type=int, default=3)
     ap.add_argument("--no-align", action="store_true", help="关掉最近点贴合(诊断用)")
     a = ap.parse_args(argv)

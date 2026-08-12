@@ -43,6 +43,10 @@ def main() -> int:
     ap.add_argument("--fps", type=float, default=30.0)
     ap.add_argument("--dark-thresh", type=float, default=40.0,
                     help="开头连续亮度低于此值的帧丢弃(自动曝光未稳定)")
+    ap.add_argument("--stride", type=int, default=1,
+                    help="抽帧步长; 既有 arctic15 视频实测=2(工具外变体生成), 补 meta 必须对齐")
+    ap.add_argument("--meta-only", action="store_true",
+                    help="只写 meta.json 不渲视频(帧映射表补生成; 需与已存在视频同参数!)")
     ap.add_argument("--no-undistort", action="store_true",
                     help="留下畸变(仅用于对照实验; 默认去畸变)")
     a = ap.parse_args()
@@ -91,24 +95,29 @@ def main() -> int:
     if n_skip:
         print(f"  丢弃开头 {n_skip} 个暗帧(亮度<{a.dark_thresh}, 自动曝光未稳定)")
     frames = frames[n_skip:]
+    if a.stride > 1:
+        frames = frames[::a.stride]
 
     a.out_dir.mkdir(parents=True, exist_ok=True)
     out_mp4 = a.out_dir / f"{a.subject}__{a.seq}.mp4"
-    vw = cv2.VideoWriter(str(out_mp4), cv2.VideoWriter_fourcc(*"mp4v"), a.fps, (rw, rh))
+    vw = None if a.meta_only else cv2.VideoWriter(
+        str(out_mp4), cv2.VideoWriter_fourcc(*"mp4v"), a.fps, (rw, rh))
     index = []
     kept = 0
     for f in frames:
         vidx = int(Path(f).stem) - ioi
         if not 0 <= vidx < n_ann:         # crop_images.py drops these too (vidx < 0)
             continue
-        im = cv2.imread(f)
-        if map1 is not None:
-            im = cv2.remap(im, map1, map2, cv2.INTER_LINEAR)
-        im = im[y:y + rh, x:x + rw]
-        vw.write(im)
+        if vw is not None:
+            im = cv2.imread(f)
+            if map1 is not None:
+                im = cv2.remap(im, map1, map2, cv2.INTER_LINEAR)
+            im = im[y:y + rh, x:x + rw]
+            vw.write(im)
         index.append({"video_frame": kept, "arctic_vidx": vidx, "file": Path(f).name})
         kept += 1
-    vw.release()
+    if vw is not None:
+        vw.release()
 
     # principal point moves with the ROI crop; record the K that matches the mp4
     K_out = K_new.copy()

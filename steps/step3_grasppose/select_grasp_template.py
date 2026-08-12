@@ -108,13 +108,15 @@ def rank(table: dict, vlm: dict, geo: dict | None) -> dict:
         else:
             conf = "medium"
     else:
-        # precision: 指尖垫就是真实接触界面 → 指数以几何为准
+        # precision: 55条真值实测(2026-08-12) VLM 指数 100% vs 几何 88%,
+        # 指数目标也交 VLM; 几何降为核验人 —— 一致加严, 分歧放宽并记录(screw27 式
+        # VLM 翻车仍会被分歧标记暴露, 不会静默吞掉)
         agree = geo is not None and abs(geo["n"] - v_n) <= 1
-        target = geo["n"] if geo is not None else v_n
+        target = v_n
         tol = 1 if agree else 2
         conf = "high" if agree else ("medium" if geo is None else "low")
         if geo is not None and not agree:
-            notes.append(f"VLM 指数 {v_n} vs 几何 {geo['n']} (差>1) —— 候选放宽到 ±2")
+            notes.append(f"VLM 指数 {v_n} vs 几何 {geo['n']} (差>1) —— VLM 为准, 候选放宽到 ±2")
 
     palm = bool(vlm["palm_contact"])
     cands = _filter(table, target, tol, palm, vlm["contact_depth"], vlm)

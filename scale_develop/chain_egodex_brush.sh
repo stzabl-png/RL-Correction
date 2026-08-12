@@ -48,9 +48,10 @@ if [ ! -f "$MANIFEST" ]; then
   cd - > /dev/null
 fi
 
-# ── C. 基线 + v2.1 选帧 + Qwen 终审 ──
+# ── C. 基线 + track 过滤 + v2.1 选帧 + Qwen 终审 ──
 $PY_SAM3 eval_baseline_frame_selection.py \
   --manifest "$MANIFEST" --video "$VIDEO" --out "$WORK/frame_selection_baseline"
+$PY_SAM3 filter_tracks.py --run "$WORK" || echo "== track_filter 失败(非致命) =="
 $PY_SAM3 select_frame_v2.py --run "$WORK" --hand-mode pixel
 $PY_SAM3 qwen_final_arbiter.py --run "$WORK"
 echo "== MASK CHAIN DONE $(date +%H:%M:%S): 看 $WORK/final_selection.json,确认 brush 的 object_id 后跑 recon =="

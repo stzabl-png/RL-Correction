@@ -7,6 +7,11 @@ completeness / mask_quality 全 pass 才 accept;view/sharpness 只记录。
 兜底链:API 失败重试 2 次 → 回退几何 top-1(source=geometric_fallback);
 top-K 全拒 → 几何 top-1 + low_confidence 标记。prompt/响应原文全部落盘可审计。
 
+前置过滤(track_filter.json,由 filter_tracks.py 产出):static_background /
+insufficient_track 的 track 直接跳过,不消耗 Qwen 调用。
+主体仲裁:多个 track 通过时标 interaction_target——hand_link_fraction 差距悬殊
+(≥0.5 vs <0.25)直接判,否则用各自接触帧让 Qwen 指认被操作的物体。
+
 用法(sam3 env): python qwen_final_arbiter.py --run runs/s01_ketchup_grab_01 [--k 6]
 """
 from __future__ import annotations
@@ -53,6 +58,12 @@ FALLBACK_PROMPT = """以下 {n} 张图是同一物体在不同帧的 mask 叠加
   "reason": "选它的理由(一句话)",
   "rejected": {{"标号": "不选的主因(短语)", ...}}
 }}"""
+
+TARGET_PROMPT = """以下 {n} 张图分别是同一段"人手操作物体"视频中 {n} 个不同物体 track 的
+mask 叠加(红色区域,标号 {labels},与图片顺序一一对应,均取各自与手接触最多的帧)。
+请判断哪个标号是**手主要抓握/操作的目标物体**(而非桌面、支撑台、背景或大件家具)。
+只输出如下 JSON:
+{{"target": "标号字母", "reason": "判断依据(一句话)"}}"""
 
 
 def parse_json(text: str) -> dict:
@@ -124,8 +135,17 @@ def main() -> None:
         assert ok, idx
         return fr
 
+    tf_path = run / "track_filter.json"
+    track_filter = json.loads(tf_path.read_text())["tracks"] if tf_path.exists() else {}
+
     final = {}
     for object_id, obj in report["objects"].items():
+        tf = track_filter.get(object_id)
+        if tf and tf.get("verdict", "keep") != "keep":
+            final[object_id] = {"final_frame": None, "source": tf["verdict"],
+                                "skip_reconstruction": True, "track_filter": tf}
+            print(f"[{object_id}] 前置过滤 -> {tf['verdict']} (无 Qwen 调用)")
+            continue
         cands = (obj.get("candidates_nms") or obj.get("ranked") or [])[: args.k]
         if not cands:
             final[object_id] = {"final_frame": None, "source": "no_candidates"}
@@ -167,11 +187,49 @@ def main() -> None:
             else:
                 entry.update(final_frame=top1, source="geometric_fallback",
                              low_confidence=True, fallback=pick)
+        if tf:
+            entry["track_filter"] = tf
         entry["qwen_log"] = log
         final[object_id] = entry
         print(f"[{object_id}] top1=f{top1} -> {entry['source']}"
               f" final=f{entry.get('final_frame')}"
               + (f" ({verify.get('object_description')})" if verify else ""))
+
+    # ── 主体仲裁:多个 track 通过时标 interaction_target ──
+    passers = [oid for oid, e in final.items() if e.get("final_frame") is not None]
+    if len(passers) == 1:
+        final[passers[0]]["interaction_target"] = True
+    elif len(passers) > 1:
+        fracs = {oid: (track_filter.get(oid) or {}).get("hand_link_fraction", 0.0)
+                 for oid in passers}
+        ranked = sorted(passers, key=lambda o: -fracs[o])
+        if fracs[ranked[0]] >= 0.5 and all(fracs[o] < 0.25 for o in ranked[1:]):
+            winner, how = ranked[0], f"hand_link_margin({fracs[ranked[0]]:.0%})"
+        else:
+            labels = [chr(ord("A") + n) for n in range(len(ranked))]
+            paths = []
+            for label, oid in zip(labels, ranked):
+                detail = report["objects"][oid].get("occ_detail") or {}
+                cf = (int(max(detail, key=lambda k: detail[k].get("contact", 0)
+                              + detail[k].get("occ_hull", 0)))
+                      if detail else int(final[oid]["final_frame"]))
+                p = audit / f"target_{label}_{oid}_f{cf:06d}.jpg"
+                crop_pair(frame_at(cf), load_mask_for(manifest, oid, cf),
+                          audit / f"target_{label}_{oid}_raw_unused.jpg", p)
+                paths.append(p)
+            log: list = []
+            prompt = TARGET_PROMPT.format(
+                n=len(ranked), labels=", ".join(f"{l}={o}" for l, o in zip(labels, ranked)))
+            pick = qwen_call_logged(SYSTEM, build_user_content(prompt, paths), log, "target")
+            if pick and pick.get("target") in labels:
+                winner, how = ranked[labels.index(pick["target"])], "qwen_target"
+            else:
+                winner, how = ranked[0], "hand_link_fallback"
+            final[winner].setdefault("qwen_log", []).extend(log)
+        for oid in passers:
+            final[oid]["interaction_target"] = oid == winner
+        final[winner]["target_source"] = how
+        print(f"主体仲裁: {winner} ({how}), 其余 {[o for o in passers if o != winner]} 降为次要")
 
     cap.release()
     (run / "final_selection.json").write_text(json.dumps(final, ensure_ascii=False, indent=2))

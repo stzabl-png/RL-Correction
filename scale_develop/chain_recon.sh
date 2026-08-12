@@ -20,9 +20,10 @@ for s in ketchup laptop microwave; do
   SEL=$(/usr/bin/python3 -c "
 import json
 f = json.load(open('$FIN'))
-for oid, e in f.items():
-    if e.get('final_frame') is not None:
-        print(oid, e['final_frame']); break
+valid = {o: e for o, e in f.items() if e.get('final_frame') is not None}
+targets = {o: e for o, e in valid.items() if e.get('interaction_target')}
+for oid, e in (targets or valid).items():
+    print(oid, e['final_frame']); break
 ")
   OBJ=${SEL% *}; FRAME=${SEL#* }
   [ -n "$OBJ" ] || { echo "== $s 无有效 object,跳过 =="; continue; }

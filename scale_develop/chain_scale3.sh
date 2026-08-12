@@ -10,6 +10,7 @@ for s in laptop microwave; do
   fi
   echo "== $s 开始 $(date +%H:%M:%S) =="
   bash run_arctic_video.sh s01/${s}_grab_01 || { echo "== $s FAILED(管线) =="; continue; }
+  $PY filter_tracks.py --run "$R" || echo "== $s FAILED(track_filter,非致命) =="
   CUDA_VISIBLE_DEVICES=1 $PY select_frame_v2.py --run "$R" --hand-mode pixel || { echo "== $s FAILED(v2.1) =="; continue; }
   $PY qwen_final_arbiter.py --run "$R" || echo "== $s FAILED(qwen) =="
 done

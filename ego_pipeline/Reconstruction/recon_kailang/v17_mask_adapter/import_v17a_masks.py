@@ -42,7 +42,10 @@ IMPORT_META_FILENAME = "v17a_import.json"
 
 def _load_manifest(path: Path) -> dict[str, Any]:
     manifest = json.loads(path.read_text(encoding="utf-8"))
-    if manifest.get("schema_version") != "persistent_mask_sequence_v1":
+    if manifest.get("schema_version") not in (
+        "persistent_video_mask_sequence_v1",  # stage B 实际输出的 schema 名
+        "persistent_mask_sequence_v1",
+    ):
         raise ValueError(
             f"Unsupported v17A manifest schema: {manifest.get('schema_version')!r}"
         )

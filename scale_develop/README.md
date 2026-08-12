@@ -56,3 +56,20 @@ detections.json(手框) + 视频。两段式:
   upstream_explicit,本就设计为上游选帧)。
 - 尺度:`sam3d_scale/run_sequence.py:66` `_estimate_scale_given_orientation`,现为单帧
   单标量 PCA 主轴比;优化空间 = 多帧融合/多轴/鲁棒回归,选帧质量直接影响它的参考帧。
+
+## 尺度第 1 层原型:多帧跨度比(scale_extent_v1.py,2026-08-11)
+
+去朝向化:stage1 干净帧上 mask 反投影点云的 PCA 鲁棒跨度(P2-P98)直接当物体最长边,
+不信 SAM3D/FP 朝向(扫把案例证明朝向错=尺度错:obs_len 18.4cm 是对的,朝向歪导致 40cm)。
+跑 foundationpose env(要 OpenEXR 读 vipe 深度)。两种聚合口径的三视频验证:
+
+| 视频 | 原版几何 | median_all | median_topclean(npts门槛+干净度top10) | 参照 |
+|---|---|---|---|---|
+| 扫把 | 40.2cm (2.2×) | 18.9cm | **22.1cm** | 伪GT≥18cm,口头~25cm,Qwen 22-30cm |
+| ketchup | 34.2cm (1.60×) | **20.5cm (0.96×)** | 14.3cm (0.67×) | GT 21.3cm |
+| laptop | 100.3cm (3.07×) | 69.2cm | 68.6cm | GT(合拢模板)32.6cm;视频中摊开,口径失配 |
+
+结论:跨度比全面优于几何路径,但聚合口径未定——扫把赢在 topclean(远帧截断拉低 median_all),
+ketchup 赢在 median_all(topclean 选中的干净帧物体偏小)。待做:可见完整度门控(mask 是否
+触边/被手截断)代替单纯点数门槛;铰接物体(laptop)最长边口径需按构型定义;第 4 条 microwave
+重建完后进 compare_scale_gt.py 闭环。

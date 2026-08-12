@@ -12,7 +12,7 @@ from typing import Any, Iterable
 from openai import OpenAI
 
 BASE_URL = "https://ws-mn8oji6058okce6e.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
-MODEL = "qwen3.7-plus"
+MODEL = os.getenv("QWEN_MODEL", "qwen3.8-max")
 API_KEY = os.getenv(
     "DASHSCOPE_API_KEY",
     "sk-ws-H.EHDRRER.eCKD.MEUCIHCWcRPtx-zr47BtPDrVN-ERMZSyTvVoDbhHS9fqzmiiAiEA3Z8bf-JIDRJgIlW7aRhd-VFtsa2HgTrBN3BtwXKFycI",

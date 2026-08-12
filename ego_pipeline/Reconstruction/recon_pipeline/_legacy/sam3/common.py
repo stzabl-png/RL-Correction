@@ -485,6 +485,9 @@ def segment_hand_on_video(
         {
             "type": "start_session",
             "resource_path": str(video_path),
+            # 长视频(数千帧)整体 .cuda() 会要 50GB+ 显存直接 OOM;帧张量放 CPU 内存,
+            # 推理时逐帧上卡。v17A 的 SAM2 链路同款选择。
+            "offload_video_to_cpu": True,
         }
     )
     session_id = response["session_id"]
@@ -692,6 +695,10 @@ def run_hand_masks_sequence(
                     output_prob_thresh=config.output_prob_thresh,
                 )
             except Exception as exc:
+                import traceback
+
+                print(f"[sam3_hands] prompt set {prompt_set} failed:", flush=True)
+                traceback.print_exc()
                 height, width = video_frame_size(video_path)
                 result = {
                     "obj_id": obj_id,

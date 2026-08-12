@@ -41,6 +41,7 @@ def run_sam3_hands(
     force: bool,
     frame_idx: int,
     checkpoint: Path | None,
+    sam3_version: str = "sam3.1",
 ) -> dict:
     sam3 = _load_sam3_common()
     step_dir = interim_step_dir(job.dataset, job.video_id, "sam3_hands")
@@ -57,6 +58,7 @@ def run_sam3_hands(
     config = sam3.Sam3RunConfig(
         output_dir=step_dir,
         frame_idx=frame_idx,
+        version=sam3_version,
         checkpoint=resolve_repo_path(checkpoint) if checkpoint is not None else None,
         visualize=False,
         cleanup_intermediates=True,
@@ -123,6 +125,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--frame-idx", type=int, default=0)
     parser.add_argument("--checkpoint", type=Path, default=None, help="Optional local SAM3/SAM3.1 checkpoint")
+    parser.add_argument("--sam3-version", default="sam3.1", choices=["sam3", "sam3.1"], help="SAM3 variant; use sam3 when the env's sam3.1 path is broken (e.g. missing flash_attn_interface)")
     parser.add_argument("--visualize", action="store_true", help="Write combined L+R hand mask MP4 under vis/")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args(argv)
@@ -139,6 +142,7 @@ def main(argv: list[str] | None = None) -> int:
         force=args.force,
         frame_idx=args.frame_idx,
         checkpoint=args.checkpoint,
+        sam3_version=args.sam3_version,
     )
     return 0
 

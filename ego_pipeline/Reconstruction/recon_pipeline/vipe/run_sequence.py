@@ -146,6 +146,7 @@ def _estimate_gravity_artifact(step_dir: Path, video_id: str, video_path: Path) 
 
 def run_vipe(job, *, gpu: int, visualize: bool, force: bool) -> dict:
     from _common.gravity import vipe_gravity_path
+    from _common.io import count_video_frames
     from _common.paths import interim_step_dir, is_step_complete, resolve_repo_path, write_step_completion
 
     vipe = _load_vipe()
@@ -176,6 +177,9 @@ def run_vipe(job, *, gpu: int, visualize: bool, force: bool) -> dict:
         input_path=video_path,
         output_dir=step_dir.resolve(),
         vipe_root=vipe.VIPE_ROOT,
+        # VipeRunConfig.frame_end 默认 1000,超过 1000 帧的视频会被静默截断
+        # (pose/depth 只出前 1000 帧,下游 fp_pose 才炸出来)。按真实帧数覆盖。
+        frame_end=count_video_frames(video_path),
         discard_nonessential_artifacts=not visualize,
     )
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu)

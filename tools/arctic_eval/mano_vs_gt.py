@@ -97,14 +97,20 @@ def fmt(s):
 
 
 def main():
-    dev = [t for t in TAKES if t.split("__")[1].split("_grab")[0] in DEV]
-    held = [t for t in TAKES if t not in dev]
+    import sys
+    takes = TAKES
+    if len(sys.argv) > 1:                      # 可选: 传 take 清单文件(每行 s01/box_grab_01 或 s01__box_grab_01)
+        takes = [l.strip().replace("/", "__") for l in open(sys.argv[1]) if l.strip()]
+        takes = [t for t in takes
+                 if (GT / t / "gt_contact.npz").is_file()]
+    dev = [t for t in takes if t.split("__")[1].split("_grab")[0] in DEV]
+    held = [t for t in takes if t not in dev]
     print(f"dev {len(dev)} 条 {sorted(DEV)} / held-out {len(held)} 条\n")
     print("── dev 网格标定 (F1):")
     best, best_f1 = None, -1
-    for tau in (0.008, 0.010, 0.015, 0.020, 0.025):
+    for tau in (0.015, 0.025, 0.035, 0.045):
         row = []
-        for vote in (0.4, 0.5, 0.6, 0.7):
+        for vote in (0.3, 0.4, 0.5):
             s = eval_takes(dev, tau, vote)
             P = s["tp"] / max(1, s["tp"] + s["fp"]); R = s["tp"] / max(1, s["tp"] + s["fn"])
             f1 = 2 * P * R / max(1e-9, P + R)

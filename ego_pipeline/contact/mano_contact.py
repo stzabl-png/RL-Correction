@@ -146,12 +146,33 @@ def measure(take: Path, tau: float, vote: float, min_frames: int, align: bool = 
                 continue
             c0, c1 = core
             contact_frac = hit[c0:c1 + 1].mean(axis=0)             # 只在核心段内投票
-            fingers = [REGIONS[i] for i in range(5) if contact_frac[i] >= vote]
+            # scale-aware: 核心段逐区中位距离找"断崖"(真接触簇 vs 悬空簇)。
+            # 捏取小物体时悬空指 15~30mm 也在 τ_base 内, 一刀切会多报;
+            # 断崖(相邻排序距离差≥8mm)自适应把它切出去。全手包握无断崖 → 回退投票。
+            med = np.median(dists[c0:c1 + 1], axis=0)              # (6,)
+            order = np.argsort(med)
+            gaps = np.diff(med[order])
+            k = int(np.argmax(gaps)) if len(gaps) else 0
+            near_max = med[order[k]] if len(gaps) else 0.0
+            far_min = med[order[k + 1]] if len(gaps) else 0.0
+            # 双条件: 缺口≥8mm 且 远簇起点≥2×近簇终点 —— power 包握的指间散布(噪声)
+            # 不满足比例条件, 回退投票; 捏取的悬空指(15~30mm vs 贴着的 0~5mm)满足。
+            if len(gaps) and gaps[k] >= 0.008 and far_min >= 2 * max(near_max, 0.004):
+                thr = float((med[order[k]] + med[order[k + 1]]) / 2)
+                near = (med <= thr) & (med <= tau)
+                fingers = [REGIONS[i] for i in range(5) if near[i]]
+                palm_hit = bool(near[5])
+                tau_method = {"method": "cliff", "thr_mm": round(thr * 1000, 1)}
+            else:                                                  # 无明显断崖(如全手包握)
+                fingers = [REGIONS[i] for i in range(5) if contact_frac[i] >= vote]
+                palm_hit = bool(contact_frac[5] >= vote)
+                tau_method = {"method": "vote_fallback", "thr_mm": round(tau * 1000, 1)}
             depth_frac = float(np.median(depth[c0:c1 + 1]))
             per_obj[oid] = {
                 "status": "ok", "n_frames": len(frames),
                 "fingers": fingers, "n_fingers": len(fingers),
-                "palm": bool(contact_frac[5] >= vote),
+                "palm": palm_hit,
+                "tau_rule": tau_method,
                 "contact_frac": {REGIONS[i]: round(float(contact_frac[i]), 3) for i in range(6)},
                 "median_dist_mm": {REGIONS[i]: round(float(np.median(dists[:, i])) * 1000, 1)
                                    for i in range(6)},

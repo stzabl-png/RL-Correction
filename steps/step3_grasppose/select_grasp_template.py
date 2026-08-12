@@ -48,6 +48,9 @@ def geometric_fingers(take: Path, side: str) -> dict | None:
         oid = h.get("primary")
         r = (h.get("objects") or {}).get(oid) if oid else None
         if r and r.get("status") == "ok":
+            q = r.get("quality") or {}
+            if q.get("reliable") is False:      # 几何证人自报不可靠(烂重建) → 让权威给 VLM
+                return None
             return {"n": r["n_fingers"], "pads": r["fingers"], "palm": r["palm"],
                     "depth": r["depth_class"], "object": oid, "source": "mano_full_hand",
                     "grasp_core_frames": r.get("grasp_core_frames")}

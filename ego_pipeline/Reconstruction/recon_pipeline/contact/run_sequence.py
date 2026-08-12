@@ -80,6 +80,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--dataset-root", type=Path, default=None)
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--visualize", action="store_true")      # 诊断图本来就总是产出
+    ap.add_argument("--no-heatmap", action="store_true",
+                    help="跳过 4/4 对齐+热度图(每手~9min 的单帧优化)。接触语义走 "
+                         "mano_contact(C1 全手探头)时热度图仅是选择器 fallback/RL 可视化, "
+                         "GraspPose 已携带接触信息 —— 批量提取用这个开关提速 10x+")
     args, _extra = ap.parse_known_args(argv)
 
     scene = final_video_dir(args.dataset, args.video_id)
@@ -142,6 +146,10 @@ def main(argv: list[str] | None = None) -> int:
                 if rc:
                     return rc
             done_qpos.add(side)
+            if args.no_heatmap:
+                osum[side] = {"status": "heatmap_skipped", "frame": frame, "intervals": ivs}
+                print(f"[contact] {oid}/{side}: --no-heatmap, 跳过对齐+热度图")
+                continue
             cmd = ["conda", "run", "--no-capture-output", "-n", "biv2ap", "python",
                    REPO_ROOT / "tools" / "contact_align_heatmap.py", scene,
                    "--retarget-dir", scene, "--side", side, "--frame", frame,

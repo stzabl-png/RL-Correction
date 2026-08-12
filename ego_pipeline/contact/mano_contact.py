@@ -101,7 +101,8 @@ def measure(take: Path, tau: float, vote: float, min_frames: int, align: bool = 
         for oid, pose, ovalid in objs:
             ivs = _load_intervals(take, oid, side)
             frames = [f for s, e in ivs for f in range(s, e + 1)
-                      if f < len(verts_t) and hvalid[f] and bool(ovalid[f])]
+                      if f < len(verts_t) and hvalid[f] and bool(ovalid[f])
+                      and np.isfinite(verts_t[f]).all() and np.isfinite(pose[f]).all()]
             if len(frames) < min_frames:
                 per_obj[oid] = {"status": "no_interval" if not ivs else "too_few_valid_frames",
                                 "n_frames": len(frames)}

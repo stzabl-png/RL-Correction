@@ -17,6 +17,25 @@ from _common.dataset import discover_videos, resolve_video_job, write_video_mani
 from _common.paths import INTERIM_ROOT, resolve_repo_path  # noqa: E402
 from _common.step_launcher import build_step_cmd  # noqa: E402
 
+EGO_ROOT = Path(__file__).resolve().parents[2]   # ego_pipeline/
+
+
+def _post_sam2_contact_hook(dataset: str, video_id: str) -> None:
+    """sam2_object 完成即有全片手/物 mask —— 立刻做 2D 接触检测,
+    把 first_contact 写进 frame_plan(GT 实测该判据对首次接触 ±1 帧, 87% 在 ±3 帧内)。
+    非致命: 失败只警告, 不挡重建。"""
+    take = INTERIM_ROOT / dataset / video_id
+    try:
+        r = subprocess.run([sys.executable, "-m", "phase.detect", str(take), "--write-plan"],
+                           cwd=EGO_ROOT, capture_output=True, text=True, timeout=600)
+        tail = (r.stdout or r.stderr).strip().splitlines()
+        print(f"[contact-early] {tail[-1] if tail else 'no output'}", flush=True)
+        if r.returncode:
+            print(f"[contact-early] 警告: detect rc={r.returncode}(不挡重建)", flush=True)
+    except Exception as e:
+        print(f"[contact-early] 警告: {e}(不挡重建)", flush=True)
+
+
 STEPS = (
     "vipe",
     "sam3_hands",
@@ -181,6 +200,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Step {step} failed with code {step_rc}", flush=True)
                 rc = step_rc
                 break
+            if step == "sam2_object":
+                _post_sam2_contact_hook(job.dataset, job.video_id)
     return rc
 
 

@@ -96,11 +96,20 @@ def _binarize_clean(flags: np.ndarray, min_len: int, max_gap: int) -> list[list[
 
 
 def _object_masks_dir(take_dir: Path) -> Path:
-    return take_dir / "masks" / "objects" / "frames"
+    p = take_dir / "masks" / "objects" / "frames"          # 最终产物布局
+    if p.is_dir():
+        return p
+    q = take_dir / "sam2_object" / "video_segmentation" / "masks"   # interim 布局(重建早期)
+    return q if q.is_dir() else p
 
 
 def _hand_masks_dir(take_dir: Path) -> Path:
-    return take_dir / "masks" / "hands" / "frames"
+    p = take_dir / "masks" / "hands" / "frames"
+    if p.is_dir():
+        return p
+    for q in sorted((take_dir / "sam3_hands").glob("*/video_segmentation/masks")):
+        return q
+    return p
 
 
 def _frame_dir(base: Path, i: int) -> Path:
@@ -180,7 +189,16 @@ def detect_contact(take_dir, *, dilation_frac: float = 0.012, frac_thr: float = 
             if fr >= frac_thr:
                 flags[side][i] = True
 
-    segs = {side: _binarize_clean(flags[side], min_len, max_gap) for side in HAND_FILES}
+    segs = {}
+    for side in HAND_FILES:
+        raw = flags[side]
+        cleaned = _binarize_clean(raw, min_len, max_gap)
+        for seg in cleaned:                       # 段首抗闪烁: 掠过型单帧重叠不当 onset
+            for i in range(seg[0], seg[1]):
+                if raw[i] and raw[i + 1]:
+                    seg[0] = i
+                    break
+        segs[side] = cleaned
 
     return {
         "video": video,
@@ -199,6 +217,37 @@ def detect_contact(take_dir, *, dilation_frac: float = 0.012, frac_thr: float = 
 
 
 AUTO_RESULT_NAME = "contact_auto.json"
+
+
+def write_plan_first_contact(take_dir: Path, doc_by_oid: dict) -> Path | None:
+    """把逐物体 first_contact 合入 interim 的 frame_plan.json。
+    只补字段, 不覆盖已有 fp_register_frame(人工/HOI 标注优先级更高)。"""
+    plan_p = Path(take_dir) / "sam2_object" / FRAME_PLAN_NAME
+    plan = {"schema_version": "frame_plan_v1", "objects": {}}
+    if plan_p.is_file():
+        try:
+            plan = json.loads(plan_p.read_text())
+        except Exception:
+            pass
+    objs = plan.setdefault("objects", {})
+    for oid, doc in doc_by_oid.items():
+        starts = [iv[0] for side in ("left", "right")
+                  for iv in (doc["annotations"].get(side) or [])]
+        if not starts:
+            continue
+        onset = int(min(starts))
+        o = objs.setdefault(oid, {})
+        o["first_contact"] = onset
+        o["first_contact_source"] = f"{METHOD}+leadin"
+        if o.get("fp_register_frame") is None:
+            o["fp_register_frame"] = onset + 10
+            o["fp_source"] = f"first_contact({onset}, {METHOD})+10"
+    plan_p.parent.mkdir(parents=True, exist_ok=True)
+    plan_p.write_text(json.dumps(plan, ensure_ascii=False, indent=1), encoding="utf-8")
+    return plan_p
+
+
+FRAME_PLAN_NAME = "frame_plan.json"
 
 
 def write_contact_auto(take_dir, *, dry_run: bool = False, out_name: str | None = None,
@@ -232,9 +281,28 @@ def main(argv=None):
                     help="只对该物体判接触(如 object_1); 缺省=全部物体并集(旧行为)")
     ap.add_argument("--out-name", default=None,
                     help="输出文件名(缺省 contact_auto.json; 多物体建议 contact_auto_<oid>.json)")
+    ap.add_argument("--write-plan", action="store_true",
+                    help="逐物体检测并把 first_contact 写进 interim frame_plan.json"
+                         "(重建早期 sam2_object 完成后调用; 不覆盖已有 fp_register_frame)")
     args = ap.parse_args(argv)
     for td in args.take_dir:
         try:
+            if args.write_plan:
+                od = _object_masks_dir(Path(td))
+                oids = sorted({q.stem for fd in od.glob("frame_*_masks")
+                               for q in fd.glob("object_*.png")})
+                docs = {}
+                for oid in oids or [None]:
+                    doc = write_contact_auto(
+                        td, dry_run=args.dry_run, dilation_frac=args.dilation_frac,
+                        frac_thr=args.frac_thr, min_len=args.min_len, max_gap=args.max_gap,
+                        object_id=oid,
+                        out_name=(f"contact_auto_{oid}.json" if oid and len(oids) > 1 else None))
+                    docs[oid or "object_0"] = doc
+                    print(f"[ok ] {td} {oid}: {_summary(doc)}")
+                pp = write_plan_first_contact(Path(td), docs)
+                print(f"[plan] first_contact -> {pp}")
+                continue
             doc = write_contact_auto(
                 td, dry_run=args.dry_run, dilation_frac=args.dilation_frac,
                 frac_thr=args.frac_thr, min_len=args.min_len, max_gap=args.max_gap,

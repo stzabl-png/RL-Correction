@@ -182,6 +182,10 @@ def measure(take: Path, tau: float, vote: float, min_frames: int, align: bool = 
                 "median_dist_mm": {REGIONS[i]: round(float(np.median(dists[:, i])) * 1000, 1)
                                    for i in range(6)},
                 "grasp_core_frames": [int(frames[c0]), int(frames[c1])],
+                # 抓稳时刻: 核心段内首个 ≥3 区同时接触的帧(σ 起算锚/模板抓握段用);
+                # 全程不足 3 区(两指捏)回退核心段起点
+                "grasp_established_frame": int(frames[c0 + int(np.argmax(hit[c0:c1 + 1].sum(1) >= 3))])
+                                           if (hit[c0:c1 + 1].sum(1) >= 3).any() else int(frames[c0]),
                 "offset_mm": {"median": round(float(np.median(offsets)) * 1000, 1),
                               "p90": round(float(np.percentile(offsets, 90)) * 1000, 1)},
                 "depth_frac": round(depth_frac, 3),

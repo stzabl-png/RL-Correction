@@ -58,3 +58,4 @@ ego_pipeline/Reconstruction/third_party
 
 # results/ 快照里的轨迹/权重 npz 是交付物, 不受全局 *.npz 排除
 !results/**/*.npz
+!ego_pipeline/contact/data/*.npy

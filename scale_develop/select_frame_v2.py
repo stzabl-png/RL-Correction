@@ -164,8 +164,15 @@ def main() -> None:
     cap = cv2.VideoCapture(str(video))
     shape = (int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)), int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)))
 
+    tf_path = run / "track_filter.json"
+    track_filter = json.loads(tf_path.read_text())["tracks"] if tf_path.exists() else {}
+
     summary = {"video": str(video), "objects": {}}
     for object_id in manifest.get("object_ids") or []:
+        tf = track_filter.get(object_id)
+        if tf and tf.get("verdict", "keep") != "keep":
+            print(f"[{object_id}] track_filter -> {tf['verdict']},跳过选帧")
+            continue
         accepted = load_accepted(manifest, object_id)
         idxs = sorted(accepted)
         feats = {}

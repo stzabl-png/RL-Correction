@@ -58,6 +58,11 @@ for oid, e in (targets or valid).items():
       || echo "== $s sam3d_scale 报错(stage1 mesh 若已导出仍可用) =="
     echo "== $s sam3d_scale done =="
   fi
+  # ── 尺度:多帧跨度比 + 三路共识融合(修正 mesh 落在 runs/<id>/scale_fuse/) ──
+  $CONDA run --no-capture-output -n foundationpose python scale_extent_v1.py \
+    --run "$R" --dataset arctic --video-id "$VID" || echo "== $s FAILED(extent) =="
+  $CONDA run --no-capture-output -n sam3 python scale_fuse_qwen.py \
+    --run "$R" --dataset arctic --video-id "$VID" || echo "== $s FAILED(fuse) =="
   echo "== $s RECON DONE $(date +%H:%M:%S) =="
 done
 echo "== RECON CHAIN DONE =="

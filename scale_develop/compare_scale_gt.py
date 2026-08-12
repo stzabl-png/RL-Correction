@@ -50,14 +50,22 @@ def main() -> None:
             row.update(guard_m=g["L_final_m"], guard_ratio=round(g["L_final_m"] / gt, 2),
                        guard_verdict=g["verdict"],
                        anchor_m=g["L_hand_anchor_m"], band=g["guard_band_m"])
+        fuse = list((SD / "runs" / vid / "scale_fuse").glob("object_*.json")) \
+            if (SD / "runs" / vid / "scale_fuse").exists() else []
+        if fuse:
+            f = json.loads(fuse[0].read_text())
+            row.update(fuse_m=f["L_final_m"], fuse_ratio=round(f["L_final_m"] / gt, 2),
+                       fuse_verdict=f["verdict"])
         rows.append(row)
 
-    print(f"{'video':<12}{'GT(m)':>7}{'原版(m)':>9}{'原/GT':>7}{'护栏(m)':>9}{'护栏/GT':>8}  verdict")
+    print(f"{'video':<12}{'GT(m)':>7}{'原版(m)':>9}{'原/GT':>7}{'护栏(m)':>9}{'护栏/GT':>8}"
+          f"{'融合(m)':>9}{'融合/GT':>8}  verdict")
     for r in rows:
         print(f"{r['video']:<12}{r['GT_m']:>7}"
               f"{r.get('orig_m', '—'):>9}{r.get('orig_ratio', '—'):>7}"
               f"{r.get('guard_m', '—'):>9}{r.get('guard_ratio', '—'):>8}"
-              f"  {r.get('guard_verdict', '—')}")
+              f"{r.get('fuse_m', '—'):>9}{r.get('fuse_ratio', '—'):>8}"
+              f"  {r.get('fuse_verdict', r.get('guard_verdict', '—'))}")
     out = SD / "runs" / "scale_comparison.json"
     out.write_text(json.dumps(rows, ensure_ascii=False, indent=2))
     print("->", out)

@@ -190,10 +190,28 @@ def main() -> None:
         if tf:
             entry["track_filter"] = tf
         entry["qwen_log"] = log
+        # 最终帧的明确可视化(绿框),避免与 v2.1 阶段图(标几何 top-1)混淆
+        if entry.get("final_frame") is not None:
+            ff = int(entry["final_frame"])
+            img = frame_at(ff).copy()
+            mb = load_mask_for(manifest, object_id, ff)
+            cnts, _ = cv2.findContours(mb.astype(np.uint8), cv2.RETR_EXTERNAL,
+                                       cv2.CHAIN_APPROX_SIMPLE)
+            cv2.drawContours(img, cnts, -1, (0, 255, 0), 4)
+            cv2.putText(img, f"FINAL {object_id} f{ff} ({entry['source']})",
+                        (30, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.6, (0, 255, 0), 4)
+            cv2.imwrite(str(run / f"final_frame_{object_id}_f{ff:06d}.jpg"), img)
         final[object_id] = entry
         print(f"[{object_id}] top1=f{top1} -> {entry['source']}"
               f" final=f{entry.get('final_frame')}"
               + (f" ({verify.get('object_description')})" if verify else ""))
+
+    # 被 select_frame_v2 跳过而不在 report 里的过滤 track,也留档到 final_selection
+    for oid, tf in track_filter.items():
+        if oid not in final and tf.get("verdict", "keep") != "keep":
+            final[oid] = {"final_frame": None, "source": tf["verdict"],
+                          "skip_reconstruction": True, "track_filter": tf}
+            print(f"[{oid}] 前置过滤(未进选帧) -> {tf['verdict']}")
 
     # ── 主体仲裁:多个 track 通过时标 interaction_target ──
     passers = [oid for oid, e in final.items() if e.get("final_frame") is not None]

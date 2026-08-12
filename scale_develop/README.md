@@ -73,3 +73,20 @@ detections.json(手框) + 视频。两段式:
 ketchup 赢在 median_all(topclean 选中的干净帧物体偏小)。待做:可见完整度门控(mask 是否
 触边/被手截断)代替单纯点数门槛;铰接物体(laptop)最长边口径需按构型定义;第 4 条 microwave
 重建完后进 compare_scale_gt.py 闭环。
+
+## 尺度最终层:三路共识融合(scale_fuse_qwen.py,2026-08-11)
+
+L_extent(点云跨度) x L_hand(手长锚点) x L_typical(类别常识),一次 Qwen 调用。
+锚点仲裁 extent 双口径(解决上表僵局);三路一致->consensus 用 extent;extent 离群且
+锚点互洽->corrected_by_prior 用 geomean(锚点);identity confidence 低->弃 typical。
+已接入 chain_recon.sh(sam3d_scale 之后),修正 mesh 落 runs/<id>/scale_fuse/。
+
+| 视频 | 原版 | 旧护栏 | 融合 | verdict |
+|---|---|---|---|---|
+| ketchup | 1.60x | 1.60x(pass放行) | **0.96x** | consensus(口径仲裁选 median_all) |
+| laptop | 3.07x | 2.71x | **1.15x** | corrected_by_prior(extent 68.6cm 被否) |
+| 扫把 | ~2x | ~2x | **22.1cm≈1x** | consensus(口径仲裁选 topclean) |
+
+注:laptop 被 Qwen 认成"木质砧板"(conf high)但尺寸反而准——手长锚点不依赖类别认对,
+这正是双锚点设计的容错。前置 track 过滤(filter_tracks.py A+B 层)与终审主体仲裁见
+qwen_final_arbiter.py 头注。

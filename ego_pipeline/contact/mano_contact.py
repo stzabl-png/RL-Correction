@@ -76,7 +76,8 @@ def _object_poses(w, n_obj: int):
     return [("object_0", T, np.isfinite(T).all((1, 2)))]
 
 
-def measure(take: Path, tau: float, vote: float, min_frames: int, align: bool = True) -> dict:
+def measure(take: Path, tau: float, vote: float, min_frames: int, align: bool = True,
+            cliff: bool = False) -> dict:
     rw = np.load(take / "replay_world.npz", allow_pickle=True)
     w = np.load(take / "world_fused.npz", allow_pickle=True)
     labels = {s: np.load(HERE / "data" / f"mano_vert_regions_{s}.npy") for s in SIDES}
@@ -94,6 +95,7 @@ def measure(take: Path, tau: float, vote: float, min_frames: int, align: bool = 
            "align": align, "hands": {}}
     for side in SIDES:
         verts_t = np.asarray(rw[f"mano_verts_{side}"], dtype=np.float64)   # (T,778,3)
+        hconf = float(np.nanmean(rw[f"confidence_{side}"])) if f"confidence_{side}" in rw else None
         hvalid = np.asarray(rw[f"valid_{side}"]) > 0.5
         lab = labels[side]
         reg_idx = [np.where(lab == i)[0] for i in range(6)]
@@ -157,7 +159,7 @@ def measure(take: Path, tau: float, vote: float, min_frames: int, align: bool = 
             far_min = med[order[k + 1]] if len(gaps) else 0.0
             # 双条件: 缺口≥8mm 且 远簇起点≥2×近簇终点 —— power 包握的指间散布(噪声)
             # 不满足比例条件, 回退投票; 捏取的悬空指(15~30mm vs 贴着的 0~5mm)满足。
-            if len(gaps) and gaps[k] >= 0.008 and far_min >= 2 * max(near_max, 0.004):
+            if cliff and len(gaps) and gaps[k] >= 0.008 and far_min >= 2 * max(near_max, 0.004):
                 thr = float((med[order[k]] + med[order[k + 1]]) / 2)
                 near = (med <= thr) & (med <= tau)
                 fingers = [REGIONS[i] for i in range(5) if near[i]]
@@ -173,6 +175,9 @@ def measure(take: Path, tau: float, vote: float, min_frames: int, align: bool = 
                 "fingers": fingers, "n_fingers": len(fingers),
                 "palm": palm_hit,
                 "tau_rule": tau_method,
+                "quality": {"hand_confidence": round(hconf, 3) if hconf is not None else None,
+                            # 门槛 0.6 在 dev 标定; 低置信≠丢弃, 是让下游把权威让给 VLM
+                            "reliable": bool(hconf is None or hconf >= 0.6)},
                 "contact_frac": {REGIONS[i]: round(float(contact_frac[i]), 3) for i in range(6)},
                 "median_dist_mm": {REGIONS[i]: round(float(np.median(dists[:, i])) * 1000, 1)
                                    for i in range(6)},
@@ -208,9 +213,11 @@ def main(argv=None) -> int:
     ap.add_argument("--vote", type=float, default=0.3, help="核心段内接触帧占比阈值; dev 标定")
     ap.add_argument("--min-frames", type=int, default=3)
     ap.add_argument("--no-align", action="store_true", help="关掉最近点贴合(诊断用)")
+    ap.add_argument("--cliff", action="store_true",
+                    help="断崖分簇阈值(诊断用; GT 判卷证实伤包握, 默认关)")
     a = ap.parse_args(argv)
     (a.take / "contact").mkdir(exist_ok=True)
-    out = measure(a.take, a.tau, a.vote, a.min_frames, align=not a.no_align)
+    out = measure(a.take, a.tau, a.vote, a.min_frames, align=not a.no_align, cliff=a.cliff)
     p = a.take / "contact" / "contact_fingers.json"
     p.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
     for side, h in out["hands"].items():

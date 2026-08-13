@@ -100,6 +100,12 @@ def main(argv: list[str] | None = None) -> int:
                            "--out", POSEQA / "TAKE_MANIFEST.json"])
     if rc:
         return rc
+    # 锚后误差预测(逐帧绝对 mm) —— conf_pos 评的是绝对贴合, 而 RL 摆放会把交互开始帧的
+    # 偏移归零, 所以它承受的是"锚后"误差。二者口径不同, 必须各出一路。详见该工具 docstring。
+    rc = _run("anchored_sigma", [py, TOOLS / "anchored_sigma.py", "--scene", scene,
+                                 "--out", POSEQA / "anchored"])
+    if rc:
+        return rc
     if args.visualize:
         _run("conf_viz", [py, TOOLS / "conf_viz.py", "--audit", audit_json,
                           "--out", POSEQA / "confviz", "--ct-dir", POSEQA / "cc",
@@ -117,6 +123,13 @@ def main(argv: list[str] | None = None) -> int:
                            "position_grade", "rotation_usable", "refuted_frames")})
     except Exception as e:                                   # 摘要失败不挡完成
         extra["summary_error"] = f"{type(e).__name__}: {e}"
+    try:
+        ts = json.loads((scene / "traj_sigma.json").read_text())
+        o0 = next(iter(ts["objects"].values()))
+        extra["anchor_frame"] = ts["anchor_frame"]
+        extra["pred_err_mm_median"] = o0.get("pred_err_mm_median")
+    except Exception:
+        pass
     write_step_completion(scene, STEP, dataset=args.dataset,
                           video_id=args.video_id, extra=extra)
     print(f"[confidence] ✓ {args.video_id}: "

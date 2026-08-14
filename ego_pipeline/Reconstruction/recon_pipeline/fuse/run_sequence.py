@@ -215,6 +215,8 @@ def _validate_hand_roots_in_front(data: np.lib.npyio.NpzFile, *, num_frames: int
     if hand_trans.shape[-1] != 3:
         raise RuntimeError(f"Invalid hand_trans shape {hand_trans.shape}; expected (..., 3)")
 
+    j0_all = (np.asarray(data["hand_root_offset_mano"], dtype=np.float64)
+              if "hand_root_offset_mano" in data.files else None)
     valid_samples = 0
     front_samples = 0
     sample_frames = np.unique(np.linspace(0, num_frames - 1, min(32, num_frames), dtype=np.int32))
@@ -225,7 +227,13 @@ def _validate_hand_roots_in_front(data: np.lib.npyio.NpzFile, *, num_frames: int
             if not hand_valid[hand_idx_side, hand_idx]:
                 continue
             valid_samples += 1
-            point_world = np.concatenate([hand_trans[hand_idx_side, hand_idx], [1.0]])
+            # ⚠ hand_trans 是 MANO 的 `transl`, **不是腕位**: 世界腕位 = J0 + transl。
+            #   拿 transl 当世界点判"在相机前方", 在手离相机很近(~30cm)时会因为
+            #   |J0|~9cm 的偏差把好数据判成"手在相机背后"(2026-08-13 重跑 118 条时误杀 4 条)。
+            root = hand_trans[hand_idx_side, hand_idx]
+            if j0_all is not None:
+                root = root + j0_all[hand_idx_side]
+            point_world = np.concatenate([root, [1.0]])
             point_cam = w2c @ point_world
             if np.isfinite(point_cam).all() and point_cam[2] > 1e-4:
                 front_samples += 1
@@ -422,6 +430,33 @@ def _export_final_2d_masks(
     return manifest
 
 
+def _mano_root_offset(betas: np.ndarray, *, is_right: bool) -> np.ndarray:
+    """MANO 的 joint0 在**模型自身坐标系**里的位置(只随 betas 变, 不随朝向/世界系变)。
+
+    为什么需要它: HaWoR 存的 `trans` 是 MANO 的 `transl`, 满足 世界腕位 = J0 + transl。
+    J0 是模型常量(右手约 87mm / 左手约 95mm), **不是世界向量**。
+    """
+    import torch                                                # noqa: E402
+    import smplx                                                # noqa: E402
+    sub = "data/mano" if is_right else "data_left/mano_left"
+    mp = Path(__file__).resolve().parents[2] / "third_party" / "hawor" / "_DATA" / sub
+    if not mp.is_dir():
+        mp = Path(__file__).resolve().parents[4] / "third_party" / "hawor" / "_DATA" / sub
+    m = smplx.MANOLayer(model_path=str(mp), gender="neutral", num_hand_joints=15,
+                        create_body_pose=False, is_rhand=is_right)
+    # ⚠ HaWoR 的 betas 可能整行 NaN(arctic15/s04 实测 2610/15320 是 NaN)。
+    #   直接取第 0 行会让 J0=NaN, 再进 R@(t+J0)-J0 就把 NaN 从个别帧**扩散到整条轨迹**
+    #   (实测 783 -> 4596 全 NaN)。取第一行有限值; 全 NaN 就退回零 betas(平均手)。
+    bb = np.asarray(betas, np.float64).reshape(-1, 10)
+    finite = bb[np.isfinite(bb).all(axis=1)]
+    row = finite[0] if len(finite) else np.zeros(10)
+    b = torch.as_tensor(row.astype(np.float32).reshape(1, 10))
+    eye = torch.eye(3).view(1, 1, 3, 3)
+    with torch.no_grad():
+        o = m(global_orient=eye, hand_pose=eye.expand(1, 15, 3, 3).contiguous(), betas=b)
+    return o.joints[0, 0].numpy().astype(np.float64)
+
+
 def _transform_hand_payload_to_zup(hand_payload: dict[str, np.ndarray], r_zup_from_vipe: np.ndarray) -> dict[str, np.ndarray]:
     """Convert raw HaWoR MANO world params into the exported z-up world frame."""
     from scipy.spatial.transform import Rotation
@@ -437,7 +472,30 @@ def _transform_hand_payload_to_zup(hand_payload: dict[str, np.ndarray], r_zup_fr
     rotvec = np.asarray(out["hand_rot"], dtype=np.float64)
     out["hand_trans_hawor_world"] = np.array(out["hand_trans"], copy=True)
     out["hand_rot_hawor_world"] = np.array(out["hand_rot"], copy=True)
-    out["hand_trans"] = np.einsum("ij,...j->...i", r_zup_from_hawor, trans).astype(trans.dtype, copy=False)
+    # ★ `trans` 是 MANO 的 `transl`, **不是世界点**: 世界腕位 = J0 + transl, J0 是模型常量。
+    #   直接旋转 transl 会让腕位偏 |J0 - R·J0| —— 世界对齐偏航普遍 ~90deg, 实测偏 12~16cm
+    #   (EgoDex 15.9cm; arctic15 三条 12.6~13.0cm), 表现为"重建的手完全不落在视频的手上"
+    #   (contact_align_heatmap 的 hand_reprojection_health 实测 0%)。2026-08-13 修。
+    #   正确做法: 先还原腕位再转, 转完再退回 transl —— new_transl = R@(transl + J0) - J0。
+    j0 = None
+    try:
+        betas = np.asarray(out.get("hand_betas"))
+        if betas is not None and betas.size:
+            j0 = np.stack([_mano_root_offset(betas[i], is_right=(i == 1))
+                           for i in range(trans.shape[0])])          # (2,3), 0=left 1=right
+    except Exception as exc:                                          # 缺 smplx/模型不该让 fuse 挂
+        print(f"[fuse] ⚠ 取不到 MANO joint0({type(exc).__name__}: {exc}); "
+              f"手部平移退回旧的直接旋转 —— 腕位会偏 ~1 个 J0 的量级", flush=True)
+    if j0 is None:
+        out["hand_trans"] = np.einsum("ij,...j->...i", r_zup_from_hawor, trans).astype(trans.dtype, copy=False)
+    else:
+        shp = (trans.shape[0],) + (1,) * (trans.ndim - 2) + (3,)
+        j0b = j0.reshape(shp)
+        fixed = np.einsum("ij,...j->...i", r_zup_from_hawor, trans + j0b) - j0b
+        out["hand_trans"] = fixed.astype(trans.dtype, copy=False)
+        out["hand_root_offset_mano"] = j0.astype(np.float64)
+        print(f"[fuse] 手部平移按 R@(t+J0)-J0 变换 (|J0|= "
+              f"{np.round(np.linalg.norm(j0, axis=1) * 1000, 1).tolist()} mm)", flush=True)
     root_rot = Rotation.from_matrix(
         np.einsum("ij,...jk->...ik", r_zup_from_hawor, Rotation.from_rotvec(rotvec.reshape(-1, 3)).as_matrix())
     ).as_rotvec()

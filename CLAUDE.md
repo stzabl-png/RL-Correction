@@ -12,6 +12,7 @@ GitHub = stzabl-png/RL-Correction 的 Step2_NoisyRecon 分支(本目录就是其
 | 分步耗时与设备边界 | `ego_pipeline/Reconstruction/docs/RUNTIME_LEDGER.md` |
 | 可信度评分/σ 用法 | `RL_Correction/steps/step2_reconstruction/CONFIDENCE_GUIDE.md`(仓内快照 `confidence/`) |
 | HV2RD 收编史(已删除) | `HV2RD_MIGRATION.md` |
+| **选帧器/尺度接入(给杜邦)** | `ego_pipeline/Reconstruction/docs/HANDOFF_SELECTFRAME_SCALE_2026-08-14.md` |
 
 ## 立刻会犯错的几件事
 

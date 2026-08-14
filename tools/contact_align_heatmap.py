@@ -107,6 +107,9 @@ def main() -> int:
                          "change in silhouette overlap. 3.0 was measured better than 0.5 on "
                          "8 takes (violations 4/8 -> 1/8, median IoU 0.599 -> 0.617); it is "
                          "NOT a tuned optimum, only a tested improvement")
+    ap.add_argument("--hand-depth", action="store_true", default=True,
+                    help="沿视线的深度由**手**解出(默认开); --no-hand-depth 退回 5 起点搜索")
+    ap.add_argument("--no-hand-depth", dest="hand_depth", action="store_false")
     ap.add_argument("--single-start", action="store_true",
                     help="one search from one seed (the old behaviour); by default the "
                          "search is seeded at several depths along the viewing ray, which "
@@ -290,6 +293,7 @@ def main() -> int:
                                      w_touch=args.w_touch, w_neg=args.w_neg,
                                      pen_metric=args.pen_metric)
 
+        hand_depth_info = None
         if args.params:
             params = np.array([float(v) for v in args.params.split(",")], dtype=np.float64)
             if params.size not in (3, 6):
@@ -304,6 +308,12 @@ def main() -> int:
                   f"{np.round(t0*100, 1).tolist()} cm (|t0|={np.linalg.norm(t0)*100:.1f} cm)")
             if args.single_start:
                 res = search.solve(t0)
+            elif args.hand_depth:
+                # ★ 深度用**手**解出来, 不撒 5 个起点碰运气(见 align.hand_depth_seed)。
+                #   垂直于视线的两个自由度仍交给下面的优化器 + 2D 证据 —— 那两个本来就准。
+                seed, _hd = search.hand_depth_seed(t0, take.c2w[f][:3, 3], log=print)
+                hand_depth_info = _hd
+                res = search.solve_multistart([seed])
             else:
                 res = search.solve_multistart(search.ray_seeds(t0, take.c2w[f][:3, 3]))
         params = res["params"]

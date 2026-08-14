@@ -14,6 +14,7 @@
 #
 # 标注：**默认全自动**(v17A 自动出物体 mask, 无需人工; --no-auto-label 关闭)。
 #      人工点选只是 fallback：--web 网页标注一条龙, 或先 ./label.sh 标好。
+#      --hoi-only 只运行 HOI-DETR 手/物检测并保存评审视频，不调用 SAM2 或重建。
 # 选卡：--gpu-ids 5 或 --gpu-ids 2,3（自动标注也用第一张，不再固定吃 0 号卡）。
 # 其它 flag 透传 run_batch_queue（--force / --dry-run / --workers-per-gpu 2 ...）。
 set -euo pipefail
@@ -35,7 +36,7 @@ declare -A DATASET_ROOTS=(
   [egodex]="$EGODEX_ROOT"
 )
 
-DATASET=hoi4d; ROOT=""; N=10; WEB=0; AUTOLABEL=1; GPUS=0; TAKES=(); PASS=()
+DATASET=hoi4d; ROOT=""; N=10; WEB=0; AUTOLABEL=1; HOI_ONLY=0; GPUS=0; TAKES=(); PASS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --dataset) DATASET="$2"; shift 2 ;;
@@ -44,11 +45,21 @@ while [ $# -gt 0 ]; do
     --gpu-ids=*) GPUS="${1#*=}"; shift ;;
     --web)     WEB=1; shift ;;
     --no-auto-label) AUTOLABEL=0; shift ;;
+    --hoi-only) HOI_ONLY=1; shift ;;
     [0-9]*)    N="$1"; shift ;;
     -*)        PASS+=("$1"); shift ;;   # 透传 run_batch_queue（--force 等）
     *)         TAKES+=("$1"); shift ;;  # take 路径/父目录/视频/id
   esac
 done
+[ "$HOI_ONLY" -eq 0 ] || [ "$WEB" -eq 0 ] || {
+  echo "[reconstruct] --hoi-only 不能与 --web 同时使用" >&2; exit 1;
+}
+[ "$HOI_ONLY" -eq 0 ] || [ "$AUTOLABEL" -eq 1 ] || {
+  echo "[reconstruct] --hoi-only 不能与 --no-auto-label 同时使用" >&2; exit 1;
+}
+[ "$HOI_ONLY" -eq 0 ] || [ "$DATASET" != "hoi4d" ] || {
+  echo "[reconstruct] --hoi-only 当前需要传入文件型数据集：请使用 --dataset <name> --root <video-root>" >&2; exit 1;
+}
 [ -n "$ROOT" ] || ROOT="${DATASET_ROOTS[$DATASET]:-}"
 [ -n "$ROOT" ] || { echo "[reconstruct] 未知数据集 '$DATASET'，请用 --root 指定 dataset-root" >&2; exit 1; }
 
@@ -93,14 +104,28 @@ else
     conda run --no-capture-output -n hawor python "$HERE/bin/video_preflight.py" \
       --list "$LIST" --root "$ROOT" --staging "$PRE_ROOT"
     ROOT="$PRE_ROOT"   # 镜像保持相对路径不变 => video_id 不变
-    echo "[reconstruct] v17A 自动标注 + VLM 透明门(--no-auto-label 跳过; 门 AUTO_LABEL_VLM_GATE=0 单独关)"
+    if [[ "$HOI_ONLY" == 1 ]]; then
+      echo "[reconstruct] HOI-only：运行 v17A HOI-DETR 并保存评审视频；不调用 SAM2/重建"
+    else
+      echo "[reconstruct] v17A 自动标注 + VLM 透明门(--no-auto-label 跳过; 门 AUTO_LABEL_VLM_GATE=0 单独关)"
+    fi
     KEEP="$LIST.keep"; : > "$KEEP"; FAILED=()
     while IFS= read -r vp; do
-      [[ -f "$vp" ]] || { echo "$vp" >> "$KEEP"; continue; }
+      if [[ ! -f "$vp" ]]; then
+        if [[ "$HOI_ONLY" == 1 ]]; then
+          echo "[reconstruct] ! HOI-only 找不到视频，跳过: $vp" >&2
+          FAILED+=("$vp")
+        else
+          echo "$vp" >> "$KEEP"
+        fi
+        continue
+      fi
       rc=0
+      LABEL_ARGS=(--visualize-hoi)
+      [[ "$HOI_ONLY" == 0 ]] || LABEL_ARGS+=(--hoi-only)
       conda run --no-capture-output -n hawor python "$HERE/bin/auto_label_v17a.py" \
         --dataset "$DATASET" --dataset-root "$ROOT" --video "$vp" \
-        --gpu "${GPUS%%,*}" || rc=$?   # set -e 下必须 ||捕获; 标注用选定的第一张卡
+        --gpu "${GPUS%%,*}" "${LABEL_ARGS[@]}" || rc=$?   # set -e 下必须 ||捕获; 标注用选定的第一张卡
       if [[ $rc -eq 3 ]]; then
         echo "[reconstruct] 跳过本视频(全部实例空透明, 规则 v2): $vp"
         continue          # 不进 KEEP -> 不进重建队列
@@ -118,6 +143,11 @@ else
       echo "[reconstruct]   兜底: ./reconstruct.sh <该视频> --dataset $DATASET --web 人工标注" >&2
     fi
     mv "$KEEP" "$LIST"
+    if [[ "$HOI_ONLY" == 1 ]]; then
+      [[ -s "$LIST" ]] || { echo "[reconstruct] X 没有成功完成 HOI 检测的视频" >&2; exit 1; }
+      echo "[reconstruct] ✓ HOI-only 完成 $(wc -l < "$LIST") 条视频；已停止，未调用 SAM2/重建"
+      exit 0
+    fi
     [[ -s "$LIST" ]] || { echo "[reconstruct] X 清单里没有可重建的视频(全部被透明门过滤或标注失败)" >&2; exit 1; }
   fi
   echo "[reconstruct] 本地模式(--skip-label);自动标注已就位或请先 ./label.sh / --web"

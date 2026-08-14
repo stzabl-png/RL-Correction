@@ -240,29 +240,42 @@ def main(argv=None) -> int:
     ap.add_argument("--recon-frame", default="auto", help="帧号或 auto(=最早 accepted 帧)")
     ap.add_argument("--object-name", default="object")
     ap.add_argument("--gpu", type=int, default=0)
+    ap.add_argument(
+        "--hoi-only",
+        action="store_true",
+        help="只运行 HOI-DETR 手/物框与关系检测并停止; 不要求或调用 SAM2",
+    )
+    ap.add_argument(
+        "--visualize-hoi",
+        action="store_true",
+        help="让 HOI-DETR 同时保存带框和 HF/FS 连线的评审视频",
+    )
     a = ap.parse_args(argv)
     video = a.video.resolve()
     vid = a.video_id or video_id_for(video, a.dataset_root)
 
-    # 幂等: 重建侧标注已就位 -> 什么都不做
+    # HOI-only is independent from reconstruction/SAM2 completion state.
+    # A finished reconstruction must not hide a requested HOI diagnostic run.
     sam2_dir = None
-    try:
-        sys.path.insert(0, str(RECON_PIPELINE))
-        from _common.paths import interim_step_dir, is_step_complete  # noqa: E402
-        sam2_dir = interim_step_dir(a.dataset, vid, "sam2_object")
-        if is_step_complete(sam2_dir, "sam2_object") and not os.environ.get("AUTO_LABEL_FORCE"):
-            print(f"[auto-label] 标注已就位, 跳过 {vid}")
-            return 0
-        # prompt 已写但 sam2_object 还没跑完(上次中断/人工改过 prompt) -> 别覆盖
-        if (sam2_dir / "label_prompt.json").is_file() and not os.environ.get("AUTO_LABEL_FORCE"):
-            print(f"[auto-label] label_prompt 已存在, 跳过 {vid} (AUTO_LABEL_FORCE=1 重写)")
-            return 0
-    except Exception as e:  # noqa: BLE001 - 查不了就当没有, 继续跑
-        print(f"[auto-label] 完成态检查失败({e}), 继续", flush=True)
+    if not a.hoi_only:
+        try:
+            sys.path.insert(0, str(RECON_PIPELINE))
+            from _common.paths import interim_step_dir, is_step_complete  # noqa: E402
+            sam2_dir = interim_step_dir(a.dataset, vid, "sam2_object")
+            if is_step_complete(sam2_dir, "sam2_object") and not os.environ.get("AUTO_LABEL_FORCE"):
+                print(f"[auto-label] 标注已就位, 跳过 {vid}")
+                return 0
+            # prompt 已写但 sam2_object 还没跑完(上次中断/人工改过 prompt) -> 别覆盖
+            if (sam2_dir / "label_prompt.json").is_file() and not os.environ.get("AUTO_LABEL_FORCE"):
+                print(f"[auto-label] label_prompt 已存在, 跳过 {vid} (AUTO_LABEL_FORCE=1 重写)")
+                return 0
+        except Exception as e:  # noqa: BLE001 - 查不了就当没有, 继续跑
+            print(f"[auto-label] 完成态检查失败({e}), 继续", flush=True)
 
     ck_hoi = TP / "HOI-DETR" / "checkpoints" / "epoch_5.pth"
     ck_sam2 = TP / "sam2" / "checkpoints" / "sam2.1_hiera_large.pt"
-    for ck in (ck_hoi, ck_sam2):
+    required_checkpoints = (ck_hoi,) if a.hoi_only else (ck_hoi, ck_sam2)
+    for ck in required_checkpoints:
         if not ck.is_file():
             raise SystemExit(f"[auto-label] X 缺权重 {ck}")
 
@@ -270,8 +283,9 @@ def main(argv=None) -> int:
     det = out / "hoi_detr_probe" / "detections.json"
     inst_out = out / "instance_pipeline_v17a"
 
+    hoi_vis = out / "hoi_detr_probe" / "vis" / f"{vid}.mp4"
     if not det.is_file():
-        run("1/3 HOI-DETR 检测 (~2-3 分钟 GPU)", [
+        cmd = [
             "conda", "run", "--no-capture-output", "-n", "codetr", "python", "-m",
             "experiments.hoi_detr.run_sequence",
             "--dataset", a.dataset, "--video-id", vid, "--video", video,
@@ -279,7 +293,28 @@ def main(argv=None) -> int:
             "--checkpoint", ck_hoi, "--checkpoint-authorized",
             "--source-revision", "1b367292f3833afd64a204bd4d9d84519541d035",
             "--checkpoint-revision", "85719ac7bf20b8b67e26206faddf0d9582052046",
-            "--frame-stride", "1"], cwd=V17A_ROOT)
+            "--frame-stride", "1",
+        ]
+        if a.visualize_hoi:
+            cmd.append("--visualize")
+        run("HOI-DETR 检测 (~5-6 分钟/20秒视频 GPU)", cmd, cwd=V17A_ROOT)
+    elif a.visualize_hoi and not hoi_vis.is_file():
+        # Render a cached probe without paying the model-load/inference cost again.
+        upstream = det.parent / "upstream_predictions.json"
+        predictions = upstream if upstream.is_file() else det
+        run("HOI-DETR 缓存结果可视化", [
+            "conda", "run", "--no-capture-output", "-n", "codetr", "python", "-m",
+            "experiments.hoi_detr.visualize",
+            "--video", video,
+            "--predictions", predictions,
+            "--output", hoi_vis,
+        ], cwd=V17A_ROOT)
+
+    if a.hoi_only:
+        print(f"[auto-label] ✓ HOI-only 完成 {vid}: {det}")
+        if a.visualize_hoi:
+            print(f"[auto-label] ✓ HOI 可视化: {hoi_vis}")
+        return 0
 
     manifest_path = find_episode_manifest(inst_out)
     if manifest_path is None:

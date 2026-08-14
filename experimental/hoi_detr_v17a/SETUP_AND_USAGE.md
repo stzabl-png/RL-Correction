@@ -1,9 +1,7 @@
 # HOI-DETR / v17A 自动交互分割 —— 打包说明与集成指南
 
-> **状态:实验性,尚未接入主 Pipeline。** 当前 `Reconstruct_and_Retarget` 主流程的
-> **物体 Mask 和抓取 Phase 仍是人工标注**(`--web` 点标物体 + `tools/annotate_grasp_frames.py` 标接触)。
-> 本目录是 Jiakai 的 v17A「纯视觉自动交互物体分割」代码副本,打包随仓库 release,
-> **由接手同学负责后续集成**。集成前请先读完本文件。
+> **状态:** HOI-DETR Step 1 已通过 `ego_pipeline/reconstruct.sh --hoi-only` 接入主入口；
+> 后续 SAM2、重建与抓取 Phase 的边界和实验说明仍见本文其余章节。
 
 ---
 
@@ -79,6 +77,42 @@ git ls-files '*.pyc' '*.egg-info/*' | xargs git update-index --skip-worktree
 ---
 
 ## 3. 运行(三步)
+
+### 3.0 主入口：只运行 HOI Step 1（推荐用于验收和调试）
+
+```bash
+./ego_pipeline/reconstruct.sh <video.mp4> \
+  --dataset <dataset-name> --root <video-root> \
+  --gpu-ids 0 --hoi-only
+```
+
+该模式会执行视频 preflight 和逐帧 HOI-DETR，保存手/物框、HF/FS link 及评审视频，
+随后立即停止。它不检查 SAM2 checkpoint，也不会调用 SAM2、mask 传播或 reconstruction。
+`<dataset-name>` 是输出命名空间；`<video.mp4>` 必须位于 `<video-root>` 内。
+
+输出位于：
+
+```text
+experimental/hoi_detr_v17a/data/interim/<dataset>/<video-id>/hoi_detr_probe/
+├── detections.json
+├── upstream_predictions.json
+├── hoi_detr_report.json
+├── hoi_detr_probe_complete.json
+└── vis/<video-id>.mp4
+```
+
+若检测 JSON 已存在但评审视频缺失，主入口只重新渲染视频，不会重新运行模型。
+也可以单独调用兼容两种 JSON schema 的 renderer：
+
+```bash
+cd experimental/hoi_detr_v17a
+conda run --no-capture-output -n codetr python -m experiments.hoi_detr.visualize \
+  --video <video.mp4> \
+  --predictions <upstream_predictions.json-or-detections.json> \
+  --output <hoi_detr_output.mp4>
+```
+
+### 3.1 分步运行完整 v17A 链路
 
 ```bash
 cd experimental/hoi_detr_v17a        # 这里有 experiments/hoi_detr/

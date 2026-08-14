@@ -153,7 +153,8 @@ def _remove_previous_outputs(step_dir: Path, video_id: str) -> None:
         step_dir / "vis" / f"{video_id}.mp4",
         completion_marker(step_dir, STEP),
     ):
-        path.unlink(missing_ok=True)
+        if path.exists():  # 等价 unlink(missing_ok=True), 但兼容 py3.7 的 hoidetr env
+            path.unlink()
 
 
 def _move_staged_file(staging_dir: Path, step_dir: Path, relative_path: Path) -> None:
@@ -259,7 +260,8 @@ def _run_inference(
                 print(f"[{STEP}] processed video frame {frame_idx}", flush=True)
     finally:
         cap.release()
-        scratch_image.unlink(missing_ok=True)
+        if scratch_image.exists():  # 等价 unlink(missing_ok=True), 兼容 py3.7 的 hoidetr env
+            scratch_image.unlink()
     inference_seconds = time.perf_counter() - inference_started
 
     if frame_idx < 1:

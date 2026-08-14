@@ -62,6 +62,32 @@ SHARPA_WANDB=0 $PY -m rl_rebuild.correction.record \
 SHARPA_WANDB=0 $PY -m rl_rebuild.correction.play --clip pp0_anchor
 ```
 
+### 自动停止（2026-08-09 加，默认关）
+
+训练循环本身**没有**收敛判据 —— `PPO.train()` 只有 `max_agent_steps` 一条出口（1e8 步
+≈ 13.7 小时）。`tasks/pregrasp/train.py` 上加了周期性确定性评测 + 判停：
+
+```bash
+# dry: 评测+记录但不停 (先用它对照判据合不合理)
+... -m tasks.pregrasp.train --auto_stop dry --headless
+# on: 达标或平台期就结束
+... -m tasks.pregrasp.train --auto_stop on --headless
+```
+
+- **评测**：每 `--eval_every`（默认 100）epoch 插一次进程内 mu-only 评测，口径对齐
+  `eval.py` 口径A（`eval_distribution()` 上下文管理器临时切分布再原样还原）。
+  1024 env × ≤160 步 ≈ **82 秒**，overhead ~5%。**每 env 只记第一个回合** → n 精确 1024。
+- **判停**（`tasks/pregrasp/auto_stop.py`，纯 Python，`test_auto_stop.py` 有 14 条单测）：
+  `solved` = 成功率 ≥`--stop_target_sr`(0.99) 连续 2 次；
+  `plateau` = 最佳成功率连续 `--stop_patience`(5) 次没涨够 1pt。**plateau 是主判据** ——
+  阈值在难物体上永不触发，只靠它会烧满预算。
+- **两道门**：`--stop_min_steps`(20M) 之前一律不停；课程**还在推进**时不判 plateau
+  （任务正在变难，平坦是设计内）。但课程**停摆**时放行 —— 课程驱动量就是成功率，
+  sr 卡低位会把课程一起冻住，不放行的话最该早停的 run 反而永远停不下来。
+- **`stage1_nn/eval_best.pth`** 按确定性成功率存；基类的 `best.pth` 按 `mean_rewards` 存，
+  多项奖励里回报高 ≠ 成功率高，别拿它当发布权重。
+- 停止后仍**必须**跑 `eval.py` 复核（对外口径只认它）。
+
 ### TensorBoard
 
 ```bash

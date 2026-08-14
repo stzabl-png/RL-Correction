@@ -299,7 +299,8 @@ def _pour17(primary: str):
         oid="object_0", hand="left",
         label="graycup (scaled 0.4516 -> 7.0x10.5cm)",
         mesh=os.path.join(base, "objects", "object_0", "object_mesh_scaled_final.obj"),
-        usd=os.path.join(base, "objects", "object_0.usd"),
+        usd=os.path.join(base, "objects", "object_0.usd"),          # 视觉(主体时运行时贴物理)
+        usd_physics=os.path.join(base, "cache", "object_0.usd"),    # 烘焙物理(当 aux 时)
         semantics=ObjectSemantics(label="graycup", mass_kg=0.15, friction=0.5,
                                   mass_range=(0.08, 0.30)),
     )
@@ -308,6 +309,7 @@ def _pour17(primary: str):
         label="Proud Source bottle (capped)",
         mesh=os.path.join(base, "objects", "object_1", "object_mesh_scaled_final.obj"),
         usd=os.path.join(base, "objects", "object_1.usd"),
+        usd_physics=os.path.join(base, "cache", "object_1.usd"),
         # 与 screw27 同一只瓶 -> 沿用已验证的质量/摩擦
         semantics=ObjectSemantics(label="Proud Source bottle", mass_kg=0.53, friction=0.5),
     )
@@ -322,8 +324,12 @@ def _pour17(primary: str):
         hand=pri["hand"], robot_hand=pri["hand"],
         semantics=pri["semantics"],
         primary_oid=pri["oid"],
-        secondary=dict(label=sec["label"], mesh=sec["mesh"], usd=sec["usd"],
-                       semantics=sec["semantics"], oid=sec["oid"]),
+        # aux 用**烘焙物理**的 USD(ensure_mesh_usd 生成); 容器类必须 128 hulls +
+        # shrink_wrap, 否则 VHACD 把"肩→颈"/杯内腔的凹陷桥接成幻影壳(screw27 实测
+        # 手指在离盖 1.5cm 处被看不见的壳挡住, 整瓶被推走)。
+        secondary=dict(label=sec["label"], mesh=sec["mesh"], usd=sec["usd_physics"],
+                       semantics=sec["semantics"], oid=sec["oid"],
+                       usd_convex_hulls=128, usd_shrink_wrap=True),
         # ★ 摆放与关键帧的唯一来源(env 读这两份, 不在 clips 里写死任何帧号/位姿)
         scene_layout_json=os.path.join(base, "scene_layout.json"),
         keyframes_json=os.path.join(base, "keyframes.json"),

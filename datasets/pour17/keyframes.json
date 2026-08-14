@@ -1,0 +1,119 @@
+{
+ "schema_version": "keyframes_v1",
+ "take": "datasets/pour17",
+ "n_frames": 142,
+ "fps": 15.0,
+ "roles": {
+  "object_0": "left",
+  "object_1": "right"
+ },
+ "rotation_usable": {
+  "object_0": false,
+  "object_1": true
+ },
+ "interaction_window": [
+  34,
+  137
+ ],
+ "gate_rule": "gate_i = slowEMA(第 i 环达成率) ≥ 0.8 才放行第 i+1 环",
+ "tolerance_rule": "tol = 0.02·(1+1.5(1-c))",
+ "keyframes": [
+  {
+   "kind": "grasp",
+   "t": 19,
+   "object": "object_1",
+   "hand": "right",
+   "conf": 0.83,
+   "tol_m": 0.0251,
+   "target_rel_fingertip_centroid_m": [
+    0.0538,
+    -0.0091,
+    -0.0129
+   ],
+   "source": "物体运动起始(运动起始 f19(接触起点 f8, 阈 0.8cm/3帧)); 接触起点 f8",
+   "stage": 1
+  },
+  {
+   "kind": "grasp",
+   "t": 34,
+   "object": "object_0",
+   "hand": "left",
+   "conf": 0.52,
+   "tol_m": 0.0344,
+   "target_rel_fingertip_centroid_m": [
+    0.0598,
+    0.0244,
+    -0.0373
+   ],
+   "source": "物体运动起始(运动起始 f34(接触起点 f0, 阈 0.8cm/3帧)); 接触起点 f0",
+   "stage": 2
+  },
+  {
+   "kind": "dwell",
+   "t": [
+    63,
+    76
+   ],
+   "hold_steps": 13,
+   "conf": 0.52,
+   "tol_m": 0.0344,
+   "source": "相对构型驻留(窗口[34,137], 分位40%, ≥10帧)",
+   "objects": [
+    "object_0",
+    "object_1"
+   ],
+   "target_rel_pos_m": [
+    0.0083,
+    -0.1885,
+    0.0906
+   ],
+   "target_tilt_deg": 65.6,
+   "tilt_object": "object_1",
+   "stage": 3
+  },
+  {
+   "kind": "release",
+   "t": 102,
+   "object": "object_0",
+   "hand": "left",
+   "conf": 0.52,
+   "tol_m": 0.0344,
+   "target_pos_m": [
+    0.5162,
+    0.0256,
+    0.9323
+   ],
+   "source": "物体末次运动",
+   "stage": 4
+  },
+  {
+   "kind": "dwell",
+   "t": [
+    109,
+    137
+   ],
+   "hold_steps": 28,
+   "conf": 0.52,
+   "tol_m": 0.0344,
+   "source": "相对构型驻留(窗口[34,137], 分位40%, ≥10帧)",
+   "objects": [
+    "object_0",
+    "object_1"
+   ],
+   "target_rel_pos_m": [
+    0.0003,
+    -0.2024,
+    0.0179
+   ],
+   "target_tilt_deg": 12.1,
+   "tilt_object": "object_1",
+   "absorbed_releases": [
+    {
+     "object": "object_1",
+     "t": 122
+    }
+   ],
+   "stage": 5
+  }
+ ]
+}

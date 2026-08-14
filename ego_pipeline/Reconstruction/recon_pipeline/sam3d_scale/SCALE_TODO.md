@@ -1,4 +1,10 @@
-# 尺度估计的硬性缺口 —— 等杜邦(7mare)接入
+# 尺度估计的硬性缺口 —— ✅ 已接入(2026-08-14, 杜邦)
+
+> 实现: `scale_fusion.py`(run_sequence 在写 metadata 前调用)。约定字段
+> `scale_geometric` / `scale_fused` / `scale_verdict` 均落盘, 几何 mesh 留
+> `object_mesh_scaled_geometric.obj` 对照; Qwen/extent 不可用自动退回旧行为。
+> ketchup 复验: 选帧 f591, 尺度 0.205m(GT 0.213, 0.96x, consensus)。
+> 下文保留为背景说明。
 
 > ⚠ 这不是可选优化。现行 `_estimate_scale_given_orientation` 是**单帧单标量 PCA 主轴比**,
 > 实测系统性偏大: ketchup 1.60×、laptop 3.07×、扫把 ~2×。尺度错 = 物体大小错 =

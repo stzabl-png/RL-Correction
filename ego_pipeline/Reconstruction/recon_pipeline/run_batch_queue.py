@@ -32,8 +32,8 @@ AUTO_STEPS = (
     "vipe",
     "sam3_hands",
     "sam2_object",
-    # ★ 选帧: 定 SAM3D 重建帧/尺度参考帧。**占位, 等杜邦接入**(未接时回退 prompt 帧)。
-    #   不碰 fp_register_frame —— 那个固定是"交互帧+10"。指引见 select_frame/run_sequence.py
+    # ★ 选帧: 定 SAM3D 重建帧/尺度参考帧。已接入(2026-08-14, 杜邦三层选帧器);
+    #   v17A 产物缺失时自动回退 prompt 帧。不碰 fp_register_frame(固定"交互帧+10")。
     "select_frame",
     "hawor",
     # ★ VLM 门必须在 sam3d **之前**: 它的分件判定决定下一步是"重建网格"还是"取 CAD 资产"。

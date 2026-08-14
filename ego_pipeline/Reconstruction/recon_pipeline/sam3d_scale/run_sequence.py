@@ -310,6 +310,7 @@ def _run_sam3d_scale_one(
     force: bool,
     depth_scale: float = 1.0,
     register_iters: int = 5,
+    skip_fp_diagnostic: bool = False,
 ) -> dict:
     import cv2
 
@@ -394,37 +395,49 @@ def _run_sam3d_scale_one(
         label=f"stage 1 | orientation={r0_source}",
     )
 
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu)
-    estimator = _load_foundation_pose(stage1_mesh_path, gpu=gpu, debug_dir=step_dir / "fp_debug_stage1")
-    rgb_rgb = cv2.cvtColor(rgb_bgr, cv2.COLOR_BGR2RGB)
-    pose = estimator.register(k_mat, rgb_rgb, depth, component_mask > 0, iteration=register_iters)
-    pose = np.asarray(pose, dtype=np.float64)
-    pose_path = step_dir / "foundationpose_ref_pose.txt"
-    np.savetxt(pose_path, pose, fmt="%.8f")
-    fp_overlay = _write_foundationpose_overlay(
-        rgb_bgr=rgb_bgr,
-        mask=component_mask,
-        mesh=stage1_mesh,
-        pose=pose,
-        k_mat=k_mat,
-        out_path=step_dir / "debug_foundationpose_overlay.png",
-        frame_idx=frame_idx,
-    )
+    # FoundationPose 在本步骤只是诊断性朝向核对(final mesh 不用它改尺度, 见下方注释),
+    # register 的 scorer 批处理在 1080p 上要 ~47GB 显存 —— 显存不足的机器可 --skip-fp-diagnostic
+    # 跳过, 不影响任何下游(foundationpose_ref_pose.txt 无消费者, fp_pose 步骤独立注册)。
+    if skip_fp_diagnostic:
+        warnings.append("FoundationPose diagnostic stage skipped (--skip-fp-diagnostic).")
+        pose = None
+        pose_path = None
+        fp_overlay = None
+        r1 = None
+        stage2 = None
+        ratio = None
+    else:
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu)
+        estimator = _load_foundation_pose(stage1_mesh_path, gpu=gpu, debug_dir=step_dir / "fp_debug_stage1")
+        rgb_rgb = cv2.cvtColor(rgb_bgr, cv2.COLOR_BGR2RGB)
+        pose = estimator.register(k_mat, rgb_rgb, depth, component_mask > 0, iteration=register_iters)
+        pose = np.asarray(pose, dtype=np.float64)
+        pose_path = step_dir / "foundationpose_ref_pose.txt"
+        np.savetxt(pose_path, pose, fmt="%.8f")
+        fp_overlay = _write_foundationpose_overlay(
+            rgb_bgr=rgb_bgr,
+            mask=component_mask,
+            mesh=stage1_mesh,
+            pose=pose,
+            k_mat=k_mat,
+            out_path=step_dir / "debug_foundationpose_overlay.png",
+            frame_idx=frame_idx,
+        )
 
-    r1 = pose[:3, :3]
-    stage2 = _estimate_scale_given_orientation(
-        helpers=helpers,
-        mesh=raw_mesh,
-        orientation=r1,
-        orientation_source="foundationpose_ref_pose_stage1",
-        observed_pointcloud=obs_points,
-        camera_intrinsics=k_mat,
-        image_shape=rgb_bgr.shape,
-    )
-    warnings.extend(stage2["warnings"])
-    ratio = float(stage2["scale"] / stage1["scale"])
-    if ratio > 2.0 or ratio < 0.5:
-        warnings.append(f"Stage-2/stage-1 scale ratio is unstable: {ratio:.4f}.")
+        r1 = pose[:3, :3]
+        stage2 = _estimate_scale_given_orientation(
+            helpers=helpers,
+            mesh=raw_mesh,
+            orientation=r1,
+            orientation_source="foundationpose_ref_pose_stage1",
+            observed_pointcloud=obs_points,
+            camera_intrinsics=k_mat,
+            image_shape=rgb_bgr.shape,
+        )
+        warnings.extend(stage2["warnings"])
+        ratio = float(stage2["scale"] / stage1["scale"])
+        if ratio > 2.0 or ratio < 0.5:
+            warnings.append(f"Stage-2/stage-1 scale ratio is unstable: {ratio:.4f}.")
 
     # The production scale contract uses the SAM3D visible-surface estimate.
     # FoundationPose remains a diagnostic orientation check here and supplies
@@ -469,9 +482,9 @@ def _run_sam3d_scale_one(
         "scale_final": float(final_result["scale"]),
         "sam3d_orientation_used_stage1": r0.tolist(),
         "sam3d_orientation_source_stage1": r0_source,
-        "foundationpose_orientation_used_stage2": r1.tolist(),
-        "foundationpose_translation_stage1": pose[:3, 3].tolist(),
-        "foundationpose_ref_pose": str(pose_path),
+        "foundationpose_orientation_used_stage2": r1.tolist() if r1 is not None else None,
+        "foundationpose_translation_stage1": pose[:3, 3].tolist() if pose is not None else None,
+        "foundationpose_ref_pose": str(pose_path) if pose_path is not None else None,
         "num_observed_object_points": int(len(obs_points)),
         "num_valid_depth_pixels": int(valid_depth_mask.sum()),
         "num_clean_mask_pixels": int(clean_mask.sum()),
@@ -481,8 +494,10 @@ def _run_sam3d_scale_one(
         "mesh_center_raw": final_result["mesh_center"].tolist(),
         "observed_principal_axis_length_stage1": float(stage1["observed_principal_axis_length"]),
         "visible_mesh_principal_axis_length_stage1": float(stage1["visible_mesh_principal_axis_length"]),
-        "observed_principal_axis_length_stage2": float(stage2["observed_principal_axis_length"]),
-        "visible_mesh_principal_axis_length_stage2": float(stage2["visible_mesh_principal_axis_length"]),
+        "observed_principal_axis_length_stage2": (
+            float(stage2["observed_principal_axis_length"]) if stage2 else None),
+        "visible_mesh_principal_axis_length_stage2": (
+            float(stage2["visible_mesh_principal_axis_length"]) if stage2 else None),
         "scale_ratio_stage2_over_stage1": ratio,
         "final_projected_mask_iou": final_iou,
         "camera_intrinsics": k_mat.tolist(),
@@ -494,13 +509,28 @@ def _run_sam3d_scale_one(
         "object_mesh_scaled_final": str(final_mesh_path),
         "observed_object_pointcloud_ref": str(pointcloud_path),
         "debug_stage1_scale_overlay": str(stage1_overlay),
-        "debug_foundationpose_overlay": str(fp_overlay),
+        "debug_foundationpose_overlay": str(fp_overlay) if fp_overlay is not None else None,
         "debug_final_scale_overlay": str(final_overlay),
         "debug_scale_3d": str(debug_3d),
         "scale_method": "sam3d_visible_surface_principal_axis",
         "foundationpose_stage2_diagnostic_only": True,
         "warnings": warnings,
     }
+    # ── 三路共识尺度融合(2026-08-14 接入, 详见 scale_fusion.py 头注) ──
+    # 约定: 几何路径保留当对照(scale_geometric + object_mesh_scaled_geometric.obj),
+    # 融合成立时 final mesh 改写为融合尺度; Qwen/extent 不可用时退回旧行为。
+    try:
+        from scale_fusion import fuse_object_scale
+        _rv = np.asarray(raw_mesh.vertices, dtype=np.float64)
+        meta.update(fuse_object_scale(
+            job, object_id=object_id, step_dir=step_dir, obj_dir=obj_dir, vipe_dir=vipe_dir,
+            raw_mesh_longest=float((_rv.max(0) - _rv.min(0)).max()),
+            frame_idx=frame_idx, k_mat=k_mat, depth_scale=depth_scale,
+            scale_geometric=float(final_result["scale"]),
+            final_mesh_path=final_mesh_path))
+    except Exception as exc:  # 融合任何失败都不阻断本步骤
+        meta["scale_verdict"] = f"fusion_error: {exc!r}"
+        print(f"[scale_fusion] 失败({exc!r}) -> 保持几何尺度", flush=True)
     metadata_path = step_dir / "scale_fpalign_scale_metadata.json"
     metadata_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
     if warnings:
@@ -517,6 +547,7 @@ def run_sam3d_scale(
     force: bool,
     depth_scale: float = 1.0,
     register_iters: int = 5,
+    skip_fp_diagnostic: bool = False,
 ) -> dict:
     from sam2_object.sam2_object_common import load_label_prompt
 
@@ -537,6 +568,7 @@ def run_sam3d_scale(
             force=force,
             depth_scale=depth_scale,
             register_iters=register_iters,
+            skip_fp_diagnostic=skip_fp_diagnostic,
         )
         objects.append(meta_i)
 
@@ -567,6 +599,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--depth-scale", type=float, default=1.0, help="Scale ViPE depth to metres")
     parser.add_argument("--register-iters", type=int, default=5)
+    parser.add_argument("--skip-fp-diagnostic", action="store_true",
+                        help="跳过 FoundationPose 诊断段(显存不足时用; 其产物无下游消费者)")
     parser.add_argument("--visualize", action="store_true", help="Accepted for pipeline consistency; debug outputs are always written.")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args(argv)
@@ -579,6 +613,7 @@ def main(argv: list[str] | None = None) -> int:
         force=args.force,
         depth_scale=args.depth_scale,
         register_iters=args.register_iters,
+        skip_fp_diagnostic=args.skip_fp_diagnostic,
     )
     return 0
 

@@ -1108,6 +1108,16 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    # ★ 必须设默认设备。模型虽然显式放在 cuda:{args.gpu}, 但 SAM2 内部隐式创建的张量
+    #   会落在**默认设备 cuda:0** 上; GPU0 被别人占满时整条传播就在那里排队 ——
+    #   现象是模型所在卡 util≈0、进程 5/8 时间在 D 态、速度与是否争抢无关。
+    #   2026-08-12 对照实测(同视频同配置, 传播稳态): 不设 3173 ms/帧 -> 设了 103 ms/帧, 31x。
+    try:
+        import torch as _torch
+        if _torch.cuda.is_available():
+            _torch.cuda.set_device(int(args.gpu))
+    except Exception as _e:          # 设不上不该让整步失败
+        print(f'[v17a] warn: set_device({args.gpu}) 失败: {_e}')
     try:
         summary = run(args)
     except Exception as exc:

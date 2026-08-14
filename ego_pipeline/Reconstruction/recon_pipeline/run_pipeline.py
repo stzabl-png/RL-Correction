@@ -41,6 +41,9 @@ STEPS = (
     "sam3_hands",
     "label",
     "sam2_object",
+    # ★ 选帧: 定 SAM3D 重建帧/尺度参考帧。**占位, 等杜邦接入**(未接时回退 prompt 帧)。
+    #   不碰 fp_register_frame —— 那个固定是"交互帧+10"。指引见 select_frame/run_sequence.py
+    "select_frame",
     "hawor",
     # ★ VLM 门必须在 sam3d **之前**: 它的分件判定决定下一步是"重建网格"还是"取 CAD 资产"。
     #   单刚体网格表达不了"盖相对瓶身转", 放到最后就来不及了。
@@ -60,6 +63,7 @@ STEP_SCRIPTS = {
     "label": RECON_ROOT / "sam2_object" / "label_object.py",
     "sam2_object": RECON_ROOT / "sam2_object" / "run_sequence.py",
     "hawor": RECON_ROOT / "hawor" / "run_sequence.py",
+    "select_frame": RECON_ROOT / "select_frame" / "run_sequence.py",   # 占位: 杜邦选帧器
     "vlm_retrieval": RECON_ROOT / "vlm_retrieval" / "run_sequence.py",     # 材质+分件判定, CPU+远端VLM
     "retrieval": RECON_ROOT / "retrieval" / "run_sequence.py",   # 命中则替 sam3d/sam3d_scale 写完成标记
     "sam3d": RECON_ROOT / "sam3d" / "run_sequence.py",

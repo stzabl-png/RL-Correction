@@ -125,7 +125,7 @@ if not (0.01 <= d <= 10.0):
   # 4) 手 + 物体 mask。★ AUTO_LABEL_INSTANCE=all: 默认只注册"主实例", 而本任务是
   #    瓶身+瓶盖的配对场景, 两件都要 —— 实测 29 条里 8 条 v17A 找到了 2 个实例但只注册了 1 个,
   #    其中 6 条注册的还是**瓶盖**(按峰值面积排序, 瓶身多数帧被质量门拒掉反而排后)。
-  if [ "$VARIANT" = "dev" ]; then PRE=sam3_hands,sam2_object; else PRE=sam3_hands,sam2_object,hawor; fi
+  if [ "$VARIANT" = "dev" ]; then PRE=sam3_hands,sam2_object,select_frame; else PRE=sam3_hands,sam2_object,select_frame,hawor; fi
   AUTO_LABEL_INSTANCE=all "$HERE/reconstruct.sh" "$MP4" --dataset "$DATASET" --root "$WORK" \
       --steps="$PRE" --keep-interim --gpu-ids "$GPUS" "${PASS[@]+"${PASS[@]}"}"
 

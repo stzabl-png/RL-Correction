@@ -178,7 +178,7 @@ def _gap_no_depth(obj_w, hand_w, c2w_t, K, *, k=16):
 
 
 def extract(recon_dir: Path, object_id: str, side: str, *, tau_mm: float = 8.0,
-            max_frames: int = 60, use_2d_veto: bool = True,
+            max_frames: int = 60, use_2d_veto: bool = True, use_normal_gate: bool = True,
             stable_r_m: float = 0.015, touch_gap_m: float = 0.010,
             min_window: int = 5, n_probe: int = 60000, min_opposition: float = 0.40,
             object_follows_hand: bool = False, min_hand_agreement: float = 0.25,
@@ -391,6 +391,7 @@ def extract(recon_dir: Path, object_id: str, side: str, *, tau_mm: float = 8.0,
 
     hits = np.zeros(len(Vl), np.int32)
     vetoed = np.zeros(len(Vl), np.int32)
+    wrong_side = np.zeros(len(Vl), np.int32)
     seen = 0
     tau = tau_mm / 1000.0
     dmins = []
@@ -404,6 +405,21 @@ def extract(recon_dir: Path, object_id: str, side: str, *, tau_mm: float = 8.0,
             d = cKDTree(hand[t]).query(Vw)[0]          # 每个物体顶点到人手的最近距离
             touch = d < tau
         dmins.append(float(d.min()))
+        if use_normal_gate:
+            # ★ 法向一致性: 接触点的**外法向必须朝着手**。薄壁物体(杯/碗/瓶)上
+            #   "最近点"分不清内外壁 —— 人从外面扶杯子, 几毫米的手位误差就能让
+            #   最近点落到**内壁**上(pour/17 实测: 2314 个热点里 52% 在杯内)。
+            #   下游会忠实地照着把手指伸进杯子里。
+            #   判据是物理的、不需要区分"内外壁"这种物体相关概念:
+            #     法向·(手 - 点) > 0  => 手在这个面的正面, 接触成立
+            #   剪刀指环那种"手指穿进环内"照样成立(环内壁法向正指向手指), 所以
+            #   不能简化成"只要外壁"。
+            _, hidx = cKDTree(hand[t]).query(Vw)
+            to_hand = hand[t][hidx] - Vw
+            nw = (M[:3, :3] @ Nl.T).T                  # 探针外法向转到世界系
+            facing = (nw * to_hand).sum(1) > 0
+            wrong_side += (touch & ~facing).astype(np.int32)
+            touch = touch & facing
         if use_2d_veto:
             hm = None
             for pat in (D / "masks/hands/frames" / f"frame_{t:06d}_masks" / f"{side}_hand_0.png",):
@@ -440,6 +456,7 @@ def extract(recon_dir: Path, object_id: str, side: str, *, tau_mm: float = 8.0,
     if int((weight > 0).sum()) == 0:
         return {"status": "no_contact_verts", "object_id": object_id, "side": side,
                 "stable_window": stable, "vetoed_total": int(vetoed.sum()),
+                "wrong_side_total": int(wrong_side.sum()),
                 "why": "稳定窗内没有任何物体点被判接触"
                        + ("(全部被 2D 否证毙掉)" if vetoed.sum() else "")}
     return {"status": "ok", "object_id": object_id, "side": side,
@@ -458,7 +475,7 @@ def extract(recon_dir: Path, object_id: str, side: str, *, tau_mm: float = 8.0,
             "opposition_tips": float(stable["opposition_in_window"]),
             "opposition_area": opposition,
             "is_graspable": bool(stable["opposition_in_window"] >= min_opposition),
-            "weight": weight, "hits": hits, "vetoed": vetoed,
+            "weight": weight, "hits": hits, "vetoed": vetoed, "wrong_side": wrong_side,
             "n_contact_verts": int((weight > 0).sum()),
             "contact_frac": float((weight > 0).mean()),
             "hot_verts": int((weight >= 0.5).sum()),
@@ -521,6 +538,8 @@ def main(argv=None) -> int:
                          "产物走 contact_prior_*, **不进** GRASP 阶段标签、不给 RL 当监督 —— "
                          "它是假设不是测量。用于位姿太差测不出接触的 take")
     ap.add_argument("--no-2d-veto", dest="use_2d_veto", action="store_false")
+    ap.add_argument("--no-normal-gate", dest="use_normal_gate", action="store_false",
+                    help="关掉法向一致性过滤(诊断用)")
     ap.add_argument("--out-dir", type=Path, default=None)
     a = ap.parse_args(argv)
 
@@ -537,6 +556,7 @@ def main(argv=None) -> int:
             t0 = time.time()
             res = extract(a.recon_dir, oid, side, tau_mm=a.tau_mm,
                           max_frames=a.max_frames, use_2d_veto=a.use_2d_veto,
+                          use_normal_gate=a.use_normal_gate,
                           stable_r_m=a.stable_r_mm / 1000.0,
                           touch_gap_m=a.touch_gap_mm / 1000.0, min_window=a.min_window,
                           n_probe=a.n_probe, depth_blind=a.depth_blind,

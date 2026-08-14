@@ -1,244 +1,142 @@
-"""Diagnostic figures. Everything here is for a human to eyeball -- no pipeline logic."""
+#!/usr/bin/env python3
+"""接触提取结果的可视化。产物落在 `<take>/contact/` 里, 与数据同处。
+
+    contact_heatmap.png    物体点云 + 接触频率热力图(4 视角 × 每个成功的组合)
+    contact_overlay.jpg    把接触区投回**原视频**帧上 —— 用来肉眼核对位置对不对
+
+两张图回答不同问题, 都要看:
+
+  * 点云图看**接触区在物体上的哪里**(高度、包裹角度、成不成形)。
+    形状散成几块通常意味着物体位姿在飘 —— 位姿越准接触区越集中。
+  * 叠加图看**这个位置在真实画面里对不对**。3D 里再漂亮, 投回去落在手背上就是错的。
+
+⚠ 只画 status=ok 的组合。失败的组合在 contact_v2_summary.json 里有原因, 不在图上 ——
+  图里没有的组合不等于"没碰过", 可能是"碰了但不构成抓握"。
+"""
 from __future__ import annotations
 
+import argparse
+import glob
+import json
 from pathlib import Path
 
 import numpy as np
 
-from .observe2d import project_points
 
-
-def figure_align(take, ev, mesh, before, after, out_path, extra_px=()):
-    """Stage 3: did the translation reproduce the occlusion the video shows?"""
+def heatmap(recon_dir: Path, out: Path) -> Path | None:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    f = ev["frame"]
-    H, W = ev["obj_mask"].shape
-    img = load_video_frame(take.video_path, f)
-
-    fig = plt.figure(figsize=(17, 9.4), constrained_layout=True)
-    gs = fig.add_gridspec(2, 2)
-
-    for col, (tag, st) in enumerate((("before", before), ("after", after))):
-        ax = fig.add_subplot(gs[0, col])
-        _bg(ax, img, (H, W), f"({'ab'[col]}) {tag} alignment: observed bite (red) vs "
-                             f"SharpaWave's bite (cyan)   IoU={st['bite_iou']:.3f}")
-        overlay_mask(ax, ev["obj_mask"], (0.3, 0.6, 1.0), 0.22)
-        overlay_mask(ax, ev["bite2d"], (1.0, 0.15, 0.15), 0.60)
-        overlay_mask(ax, st["bite_pred_full"], (0.1, 0.95, 1.0), 0.45)
-
-        ax = fig.add_subplot(gs[1, col])
-        _bg(ax, img, (H, W), f"({'cd'[col]}) SharpaWave {tag}: pads red, surface grey")
-        overlay_mask(ax, ev["hand_mask"], (0.2, 1.0, 0.2), 0.16)
-        overlay_mask(ax, ev["obj_mask"], (0.3, 0.6, 1.0), 0.28)
-        for pts, col_, size, lbl in st["layers"]:
-            uvh, zh, inbh = project_points(pts, take.c2w[f], take.K, (H, W))
-            m = inbh & (zh > 0)
-            ax.scatter(uvh[m, 0], uvh[m, 1], s=size, c=[col_], linewidths=0, label=lbl)
-        for px, col_, lbl in extra_px:
-            ax.scatter([px[0]], [px[1]], s=200, marker="X", c=[col_], edgecolors="k",
-                       linewidths=1.2, label=lbl, zorder=5)
-        if col == 1:
-            ax.legend(loc="upper left", fontsize=8, framealpha=0.65)
-
-    a = after
-    fig.suptitle(
-        f"{take.recon_dir.name} | {take.side} hand | frame {f} | translation "
-        f"{np.round(a['t']*100, 1).tolist()} cm (|t|={np.linalg.norm(a['t'])*100:.1f} cm)\n"
-        f"bite IoU {before['bite_iou']:.3f} -> {a['bite_iou']:.3f}   |   "
-        f"pad->surface min {before['pad_min_cm']:.1f} -> {a['pad_min_cm']:.1f} cm   |   "
-        f"max penetration {a['pen_max_cm']:.1f} cm   |   "
-        f"pads on plainly-visible surface {a['neg']*100:.0f}%", fontsize=10.5)
-
-    out_path = Path(out_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, dpi=120)
-    plt.close(fig)
-    return out_path
-
-
-def figure_heatmap(take, ev, mesh, hm, pads_world, out_path, link_names=()):
-    """Stage 4: the contact heatmap on the object, plus where it came from."""
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    from .heatmap import colorize
-
-    f = ev["frame"]
-    H, W = ev["obj_mask"].shape
-    img = load_video_frame(take.video_path, f)
-    V = np.asarray(mesh.vertices)
-    w = hm["weight"]
-    step = max(1, len(V) // 40000)
-    Vs, ws = V[::step], w[::step]
-    rgb = colorize(ws) / 255.0
-
-    fig = plt.figure(figsize=(17, 9.4), constrained_layout=True)
-    gs = fig.add_gridspec(2, 3)
-
-    # three orbit views of the object, coloured by heat
-    for i, (elev, azim) in enumerate(((22, -60), (22, 40), (70, -60))):
-        ax = fig.add_subplot(gs[0, i], projection="3d")
-        order = np.argsort(ws)                                  # hot points drawn last
-        ax.scatter(Vs[order, 0], Vs[order, 1], Vs[order, 2], c=rgb[order],
-                   s=np.where(ws[order] > 0.05, 5.0, 1.0), linewidths=0, depthshade=False)
-        r = np.abs(V).max()
-        ax.set_xlim(-r, r); ax.set_ylim(-r, r); ax.set_zlim(-r, r)
-        ax.set_box_aspect((1, 1, 1))
-        ax.view_init(elev=elev, azim=azim)
-        ax.tick_params(labelsize=5)
-        ax.set_title(f"contact heat, object-local  (view {i+1})", fontsize=9)
-
-    # the aligned hand on the video frame
-    ax = fig.add_subplot(gs[1, 0])
-    _bg(ax, img, (H, W), "aligned SharpaWave pads on the video frame")
-    overlay_mask(ax, ev["obj_mask"], (0.3, 0.6, 1.0), 0.28)
-    uvh, zh, inbh = project_points(pads_world, take.c2w[f], take.K, (H, W))
-    m = inbh & (zh > 0)
-    ax.scatter(uvh[m, 0], uvh[m, 1], s=2.0, c=[(1.0, 0.15, 0.15)], linewidths=0)
-
-    # heat projected back onto the image
-    ax = fig.add_subplot(gs[1, 1])
-    _bg(ax, img, (H, W), "heat projected back into the image (veto region in blue)")
-    sel = ev["visible"] & ev["in_bounds"]
-    uv = ev["uv"][sel]
-    ax.scatter(uv[ev["free"][sel], 0], uv[ev["free"][sel], 1], s=0.5,
-               c=[(0.25, 0.55, 1.0)], linewidths=0)
-    hot = sel & (w > 0.05)
-    uvh2 = ev["uv"][hot]
-    ax.scatter(uvh2[:, 0], uvh2[:, 1], s=2.0, c=colorize(w[hot]) / 255.0, linewidths=0)
-
-    # per-finger breakdown
-    ax = fig.add_subplot(gs[1, 2])
-    from .heatmap import summarize_by_link
-    per = summarize_by_link(hm, link_names)
-    names = [n.split("_")[1] if "_" in n else n for n in per]
-    ax.barh(names, list(per.values()), color="#d1495b")
-    ax.set_xlabel("hot vertices (weight > 0.5)", fontsize=9)
-    ax.set_title("which pad owns the contact", fontsize=9)
-    ax.tick_params(labelsize=8)
-
-    fig.suptitle(
-        f"{take.recon_dir.name} | {take.side} | frames {hm['frames']} | sigma "
-        f"{hm['sigma']*1000:.0f} mm | hot verts {hm['n_hot']} "
-        f"({hm['hot_area_frac']*100:.1f}% of the surface) | "
-        f"vetoed by direct observation {hm['n_vetoed']}", fontsize=10.5)
-
-    out_path = Path(out_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, dpi=120)
-    plt.close(fig)
-    return out_path
-
-
-def load_video_frame(video_path, f: int):
-    import cv2
-    if video_path is None or not Path(video_path).exists():
+    files = sorted(glob.glob(str(recon_dir / "contact" / "contact_v2_*.npz")))
+    if not files:
         return None
-    cap = cv2.VideoCapture(str(video_path))
-    cap.set(cv2.CAP_PROP_POS_FRAMES, int(f))
-    ok, img = cap.read()
-    cap.release()
-    return img[:, :, ::-1].copy() if ok else None
-
-
-def _bg(ax, img, hw, title):
-    H, W = hw
-    ax.imshow(img if img is not None else np.full((H, W, 3), 40, np.uint8))
-    ax.set_xlim(0, W)
-    ax.set_ylim(H, 0)
-    ax.set_title(title, fontsize=10)
-    ax.axis("off")
-
-
-def overlay_mask(ax, mask, color, alpha=0.35):
-    rgba = np.zeros(mask.shape + (4,))
-    rgba[..., :3] = color
-    rgba[..., 3] = mask * alpha
-    ax.imshow(rgba)
-
-
-def figure_step12(take, obs, mesh, hand_pts, out_path, fk_info=None, sanity=None,
-                  extra_px=()):
-    """4-panel report for stages 1-2: frames unified, hand FK'd, contact region observed."""
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    f = obs["frame"]
-    H, W = obs["obj_mask"].shape
-    img = load_video_frame(take.video_path, f)
-
-    fig = plt.figure(figsize=(17, 9.4), constrained_layout=True)
-    gs = fig.add_gridspec(2, 2)
-
-    # (a) masks + contact band -------------------------------------------------
-    ax = fig.add_subplot(gs[0, 0])
-    _bg(ax, img, (H, W), f"(a) frame {f}: hand mask (green) / object mask (blue) / "
-                         f"object hidden by the hand = 'bite' (red, {obs['bite_px']} px, "
-                         f"{obs['occlusion_ratio']*100:.0f}% of the object)")
-    overlay_mask(ax, obs["hand_mask"], (0.2, 1.0, 0.2), 0.25)
-    overlay_mask(ax, obs["obj_mask"], (0.3, 0.6, 1.0), 0.35)
-    overlay_mask(ax, obs["bite2d"], (1.0, 0.15, 0.15), 0.75)
-
-    # (b) observed contact region on the object -------------------------------
-    ax = fig.add_subplot(gs[0, 1])
-    _bg(ax, img, (H, W), f"(b) object surface evidence: hidden behind the hand "
-                         f"(orange, {obs['n_occluded']}) vs plainly visible = provably "
-                         f"NOT touched (blue, {obs['n_free']})")
-    sel = obs["visible"] & obs["in_bounds"]
-    uv = obs["uv"][sel]
-    ax.scatter(uv[obs["free"][sel], 0], uv[obs["free"][sel], 1], s=0.6,
-               c=[(0.25, 0.55, 1.0)], linewidths=0, label="free (no contact possible)")
-    ax.scatter(uv[obs["occluded"][sel], 0], uv[obs["occluded"][sel], 1], s=1.2,
-               c=[(1.0, 0.55, 0.05)], linewidths=0, label="occluded (contact may be here / behind)")
-    ax.legend(loc="lower right", fontsize=8, framealpha=0.65)
-
-    # (c) SharpaWave hand where the retarget currently puts it -----------------
-    ax = fig.add_subplot(gs[1, 0])
-    _bg(ax, img, (H, W), "(c) where the reconstruction puts the hand, vs where the video shows it")
-    overlay_mask(ax, obs["hand_mask"], (0.2, 1.0, 0.2), 0.18)
-    overlay_mask(ax, obs["obj_mask"], (0.3, 0.6, 1.0), 0.30)
-    for pts, col, size, lbl in hand_pts:
-        uvh, zh, inbh = project_points(np.atleast_2d(pts), take.c2w[f], take.K, (H, W))
-        m = inbh & (zh > 0)
-        ax.scatter(uvh[m, 0], uvh[m, 1], s=size, c=[col], linewidths=0, label=lbl)
-    for px, col, lbl in extra_px:
-        ax.scatter([px[0]], [px[1]], s=220, marker="X", c=[col], edgecolors="k",
-                   linewidths=1.2, label=lbl, zorder=5)
-    ax.legend(loc="upper left", fontsize=8, framealpha=0.65)
-
-    # (d) the same region, on the object mesh in its own frame ------------------
-    ax = fig.add_subplot(gs[1, 1], projection="3d")
-    V = np.asarray(mesh.vertices)
-    step = max(1, len(V) // 30000)
-    Vs = V[::step]
-    occ, fre = obs["occluded"][::step], obs["free"][::step]
-    rest = ~(occ | fre)
-    ax.scatter(Vs[rest, 0], Vs[rest, 1], Vs[rest, 2], c="0.85", s=1.0,
-               linewidths=0, depthshade=False)
-    ax.scatter(Vs[fre, 0], Vs[fre, 1], Vs[fre, 2], c=[(0.25, 0.55, 1.0)], s=2.0,
-               linewidths=0, depthshade=False)
-    ax.scatter(Vs[occ, 0], Vs[occ, 1], Vs[occ, 2], c=[(1.0, 0.55, 0.05)], s=4.0,
-               linewidths=0, depthshade=False)
-    r = np.abs(V).max()
-    ax.set_xlim(-r, r); ax.set_ylim(-r, r); ax.set_zlim(-r, r)
-    ax.set_box_aspect((1, 1, 1))
-    ax.set_title("(d) object-local frame: orange = hidden by the hand,\n"
-                 "blue = provably untouched, grey = unobserved (back side)", fontsize=10)
-    ax.view_init(elev=22, azim=-60)
-    ax.tick_params(labelsize=6)
-
-    l1 = (f"{take.recon_dir.name} | {take.side} hand | frame {f}/{take.Tv} | "
-          f"scene->world residual {take.fit_residual_mm:.3f} mm")
-    if sanity:
-        l1 += f" | object-mask IoU {sanity['iou']:.3f}"
-    fig.suptitle(l1 + ("\n" + fk_info if fk_info else ""), fontsize=10.5)
-
-    out_path = Path(out_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, dpi=120)
+    fig = plt.figure(figsize=(20, 6.4 * len(files)))
+    sc = None
+    for row, f in enumerate(files):
+        z = np.load(f, allow_pickle=True)
+        m = json.loads(str(z["meta"]))
+        V = z["probe_local"].astype(float) - z["probe_local"].mean(0)
+        w = z["weight"]
+        hot = w > 0
+        idx = np.arange(len(V))
+        # 物体本体抽稀但画实, 否则形状看不出来(热点浮在空中没有参照)
+        bg = idx[~hot][:: max(1, (~hot).sum() // 12000)]
+        for k, (az, el, name) in enumerate([(-60, 15, "3/4 view"), (0, 8, "front"),
+                                            (90, 8, "side"), (0, 88, "top")]):
+            ax = fig.add_subplot(len(files), 4, row * 4 + k + 1, projection="3d")
+            ax.scatter(V[bg, 0], V[bg, 1], V[bg, 2], s=3.0, c="#b8c4cc", alpha=0.55,
+                       linewidths=0, depthshade=False)
+            sc = ax.scatter(V[hot, 0], V[hot, 1], V[hot, 2], s=34, c=w[hot], cmap="turbo",
+                            vmin=0, vmax=1, linewidths=0, depthshade=False)
+            ax.view_init(elev=el, azim=az)
+            r = np.abs(V).max() * 1.02
+            ax.set_xlim(-r, r); ax.set_ylim(-r, r); ax.set_zlim(-r, r)
+            ax.set_box_aspect([1, 1, 1]); ax.set_axis_off()
+            ax.set_title(name, fontsize=12, pad=0)
+        sw = m["stable_window"]
+        fig.text(0.012, 1 - (row + 0.05) / len(files),
+                 f"[MEASURED]  {m['object_id']} x {m['side']} hand   hot={m['hot_verts']}   "
+                 f"window f{sw['span'][0]}-f{sw['span'][1]} ({sw['n']}f)   "
+                 f"opposition {m['opposition_tips']:.2f}   gap {m['min_dist_mm_median']:.1f}mm   "
+                 f"2D-veto {int(z['vetoed'].sum())}",
+                 fontsize=14, color="#1a6b3c", va="top")
+    cb = fig.colorbar(sc, ax=fig.axes, fraction=0.010, pad=0.01)
+    cb.set_label("contact frequency  (frames touched / frames in window)", fontsize=12)
+    plt.savefig(out, dpi=100, bbox_inches="tight", facecolor="white")
     plt.close(fig)
-    return out_path
+    return out
+
+
+def overlay(recon_dir: Path, video: Path, out: Path) -> Path | None:
+    """接触区投回原视频帧。绿=被碰到过, 红=热点(≥半数帧)。"""
+    import cv2
+    files = sorted(glob.glob(str(recon_dir / "contact" / "contact_v2_*.npz")))
+    if not files or not video.is_file():
+        return None
+    w = np.load(recon_dir / "world_fused.npz", allow_pickle=True)
+    allT = (w["object_ob_in_world_all"] if "object_ob_in_world_all" in w.files
+            else w["object_ob_in_world"][None])
+    oids = ([str(x) for x in w["object_ids"]] if "object_ids" in w.files else ["object_0"])
+    c2w, K = w["c2w"], w["K"]
+    cap = cv2.VideoCapture(str(video))
+    panels = []
+    for f in files:
+        z = np.load(f, allow_pickle=True)
+        m = json.loads(str(z["meta"]))
+        V, wt = z["probe_local"].astype(float), z["weight"]
+        sw = m["stable_window"]
+        t = int((sw["span"][0] + sw["span"][1]) // 2)          # 稳定窗中点最有代表性
+        if t >= allT.shape[1] or m["object_id"] not in oids:
+            continue
+        cap.set(cv2.CAP_PROP_POS_FRAMES, t)
+        ok, img = cap.read()
+        if not ok:
+            continue
+        M = allT[oids.index(m["object_id"]), t]
+        Vw = (M[:3, :3] @ V.T).T + M[:3, 3]
+        Kc = np.linalg.inv(c2w[t])
+        P = (Kc[:3, :3] @ Vw.T).T + Kc[:3, 3]
+        vis = P[:, 2] > 1e-6
+        u = P[:, 0] / np.clip(P[:, 2], 1e-6, None) * K[0, 0] + K[0, 2]
+        v = P[:, 1] / np.clip(P[:, 2], 1e-6, None) * K[1, 1] + K[1, 2]
+        H, W = img.shape[:2]
+        inb = vis & (u >= 0) & (u < W) & (v >= 0) & (v < H)
+        for msk, col in (((wt > 0) & inb, (0, 255, 0)), ((wt >= 0.5) & inb, (0, 0, 255))):
+            img[v[msk].astype(int), u[msk].astype(int)] = col
+        cv2.putText(img, f"{m['object_id']} x {m['side']}  f{t} (win f{sw['span'][0]}-"
+                    f"f{sw['span'][1]})  hot={m['hot_verts']}  oppo={m['opposition_tips']:.2f}",
+                    (14, 42), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0, 0, 0), 6)
+        cv2.putText(img, f"{m['object_id']} x {m['side']}  f{t} (win f{sw['span'][0]}-"
+                    f"f{sw['span'][1]})  hot={m['hot_verts']}  oppo={m['opposition_tips']:.2f}",
+                    (14, 42), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0, 255, 255), 2)
+        cv2.putText(img, "green=touched  red=hot(>=50% frames)", (14, 78),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4)
+        cv2.putText(img, "green=touched  red=hot(>=50% frames)", (14, 78),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 1)
+        panels.append(cv2.resize(img, (W // 2, H // 2)))
+    cap.release()
+    if not panels:
+        return None
+    cv2.imwrite(str(out), np.vstack(panels), [cv2.IMWRITE_JPEG_QUALITY, 90])
+    return out
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("recon_dir", type=Path)
+    ap.add_argument("--video", type=Path, default=None, help="原视频; 给了才画叠加图")
+    a = ap.parse_args(argv)
+    cd = a.recon_dir / "contact"
+    cd.mkdir(parents=True, exist_ok=True)
+    p = heatmap(a.recon_dir, cd / "contact_heatmap.png")
+    print(f"  热力图  -> {p}" if p else "  热力图: 没有 status=ok 的组合, 跳过")
+    if a.video:
+        q = overlay(a.recon_dir, a.video, cd / "contact_overlay.jpg")
+        print(f"  叠加图  -> {q}" if q else "  叠加图: 跳过")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

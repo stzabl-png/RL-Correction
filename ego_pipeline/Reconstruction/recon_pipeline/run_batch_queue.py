@@ -63,11 +63,18 @@ STEP_SCRIPTS = {
 
 STEP_ENVS = {
     "vipe": "cu128",
-    "sam3_hands": "HV2RD",
-    # SAM2 MP4 propagation imports decord.  The maintained codetr environment
-    # contains eva-decord + the editable SAM2 package and is also the environment
-    # used by the upstream v17A propagation.  HV2RD lacks decord on the A6000 and
-    # fails at predictor.init_state(video_path=...).
+    # ★ 两步都用 codetr, **不再用 HV2RD**。
+    #   HV2RD 是被收编删除的那个仓留下的 env 名(见 HV2RD_MIGRATION.md: 收编删的是仓,
+    #   env 名没人动), 指向一个已经不存在的项目, 留着只会让人以为还有那个依赖。
+    #   codetr 实测是 HV2RD 的**超集**: 同样的 torch 2.11.0+cu128 / sam2 / decord 0.6.0,
+    #   另外多了 HOI-DETR 那套 mmcv+transformers。缺的只有 sam3(+ftfy==6.1.1), 已补装
+    #   (sam3 是仓内 third_party/sam3 的 editable, --no-deps 装, 未动 codetr 原有依赖)。
+    #
+    #   ⚠ 上游改这行时给的理由是"HV2RD 在 A6000 上缺 decord, init_state 会挂" —— 该理由
+    #     **实测不成立**: 两个 env 都有 decord 0.6.0、指向同一个 editable sam2, 在 A6000 上
+    #     跑 init_state(video_path=17.mp4) 都成功(4.9s / 4.8s)。改动本身可行, 但别把那条
+    #     错误诊断当依据传下去。真正的理由是上面那条: 不再保留已删项目的 env 名。
+    "sam3_hands": "codetr",
     "sam2_object": "codetr",
     "hawor": "hawor",
     "vlm_gate": "hawor",

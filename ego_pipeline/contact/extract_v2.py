@@ -406,20 +406,24 @@ def extract(recon_dir: Path, object_id: str, side: str, *, tau_mm: float = 8.0,
             touch = d < tau
         dmins.append(float(d.min()))
         if use_normal_gate:
-            # ★ 法向一致性: 接触点的**外法向必须朝着手**。薄壁物体(杯/碗/瓶)上
-            #   "最近点"分不清内外壁 —— 人从外面扶杯子, 几毫米的手位误差就能让
-            #   最近点落到**内壁**上(pour/17 实测: 2314 个热点里 52% 在杯内)。
-            #   下游会忠实地照着把手指伸进杯子里。
-            #   判据是物理的、不需要区分"内外壁"这种物体相关概念:
-            #     法向·(手 - 点) > 0  => 手在这个面的正面, 接触成立
-            #   剪刀指环那种"手指穿进环内"照样成立(环内壁法向正指向手指), 所以
-            #   不能简化成"只要外壁"。
-            _, hidx = cKDTree(hand[t]).query(Vw)
-            to_hand = hand[t][hidx] - Vw
-            nw = (M[:3, :3] @ Nl.T).T                  # 探针外法向转到世界系
-            facing = (nw * to_hand).sum(1) > 0
-            wrong_side += (touch & ~facing).astype(np.int32)
-            touch = touch & facing
+            # ★ 遮挡门: 接触点到最近手顶点的**连线不能穿过物体**。
+            #   薄壁物体(杯/碗)上"最近点"分不清内外壁 —— 人从外面扶杯, 几毫米手位误差
+            #   就能让最近点落到内壁(pour/17 实测 2314 热点里 52% 在杯内), 下游会忠实
+            #   地把手指伸进杯子里。
+            #   ⚠ 不用面法向做判据: 重建网格(68万面, 内部噪声结构)实测 39~46% 的面法向
+            #     指向体内, fix_normals 也修不好 —— 法向在这类网格上不可信。
+            #   连线中点落在实体内 => 手在物体另一侧 => 该点是穿透出来的假接触。
+            #   剪刀指环那种"手指穿进环内"不受影响(连线在空腔里, 不穿实体)。
+            hl = (hand[t] - M[:3, 3]) @ M[:3, :3]        # 手顶点 → 物体局部系
+            _, hidx = cKDTree(hl).query(Vl)
+            seg = hl[hidx] - Vl
+            L = np.linalg.norm(seg, axis=1)
+            cand = touch & (L > 0.0015)                  # 段太短没法判, 放行
+            if cand.any():
+                blocked = mesh.contains(Vl[cand] + seg[cand] * 0.5)
+                bad = np.where(cand)[0][blocked]
+                wrong_side[bad] += 1
+                touch[bad] = False
         if use_2d_veto:
             hm = None
             for pat in (D / "masks/hands/frames" / f"frame_{t:06d}_masks" / f"{side}_hand_0.png",):
@@ -538,8 +542,8 @@ def main(argv=None) -> int:
                          "产物走 contact_prior_*, **不进** GRASP 阶段标签、不给 RL 当监督 —— "
                          "它是假设不是测量。用于位姿太差测不出接触的 take")
     ap.add_argument("--no-2d-veto", dest="use_2d_veto", action="store_false")
-    ap.add_argument("--no-normal-gate", dest="use_normal_gate", action="store_false",
-                    help="关掉法向一致性过滤(诊断用)")
+    ap.add_argument("--no-occlusion-gate", dest="use_normal_gate", action="store_false",
+                    help="关掉遮挡门(连线穿过物体则否决; 诊断用)")
     ap.add_argument("--out-dir", type=Path, default=None)
     a = ap.parse_args(argv)
 

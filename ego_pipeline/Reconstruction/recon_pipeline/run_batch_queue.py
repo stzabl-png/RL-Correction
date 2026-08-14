@@ -1283,7 +1283,16 @@ def main(argv: list[str] | None = None) -> int:
                 terminal = state.done | set(state.failed)
                 known = state.queued | set(state.running) | terminal
             for job in jobs:
-                label_ready = _restore_cached_label_prompt(job) if args.skip_label else _label_ready(job)
+                # ★ 不需要物体标注的步骤(如 --steps=vipe)必须能直接入队。
+                #   ⚠ 这个坑踩过两次: 上一次只修了上面那道"快速失败"门, **入队这道没修**,
+                #     结果不报错也不干活 —— 任务永远进不了队列, worker 空等, 日志停在
+                #     "Labeling not required..." 一动不动(实测本次空转 11 分钟才被发现)。
+                #     两处判据必须同源, 否则修一处等于没修。
+                if not _steps_need_object_label(steps):
+                    label_ready = True
+                else:
+                    label_ready = (_restore_cached_label_prompt(job) if args.skip_label
+                                   else _label_ready(job))
                 if job.video_id not in known and label_ready:
                     cached_label = _cache_label_prompt(job)
                     print(f"[queue] ({job.video_id}) label ready -> enqueue reconstruction", flush=True)

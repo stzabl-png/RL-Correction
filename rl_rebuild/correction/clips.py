@@ -65,7 +65,22 @@ def _td_static(dataset, obj, mass_kg=None, friction=None):
 
 
 def _water_bottle_static(screw_mode: str | None = None):
-    """Bundled two-part PCO-1810 bottle scene used for reconstruction QA."""
+    """Bundled two-part PCO-1810 bottle scene used for reconstruction QA.
+
+    ⚠ **重建里的左右手命名是反的** (2026-08-05 核实, 依据源视频
+    ``V2AP/data/egocentric/egodex/test/screw_unscrew_bottle_cap/27.mp4``):
+    视频里**左手拧瓶盖、右手扶瓶身**, 而 `meta.json` / `VALIDATION.md` 记的正相反。
+
+    但**物体↔轨迹的关联是正确的**, 只有轨迹的名字错了:
+
+        track_left  (低, 均低 4cm)  -> 扶瓶身  -> 物理**右**手
+        track_right (高)            -> 拧瓶盖  -> 物理**左**手
+
+    所以这里分成两个字段, 不要混:
+      * ``hand``       选**哪条轨迹**去定物体的桌面 XY —— 保持 meta.json 的原值,
+                       改了会把物体摆到另一只手的位置上 (踩过)。
+      * ``robot_hand`` 机器人实际该用哪只手 (决定用左/右手的 GraspPose 模板库)。
+    """
 
     base = os.path.join(_DATASETS, "recon_kailang", "water_bottle_twist_static")
     entry = dict(
@@ -77,7 +92,8 @@ def _water_bottle_static(screw_mode: str | None = None):
         override_cfg_mass=True,
         flatten_converted_usd=True,
         place_mode="object_only",
-        hand="left",
+        hand="left",              # 轨迹名 (实为物理右手) —— 勿改, 见 docstring
+        robot_hand="right",       # 机器人用右手扶瓶身
         placement_frame=31,
         semantics=ObjectSemantics(
             label="PCO-1810 filled bottle body", mass_kg=0.53, friction=0.5),
@@ -85,7 +101,8 @@ def _water_bottle_static(screw_mode: str | None = None):
             label="PCO-1810 cap",
             mesh=os.path.join(base, "reconstruction", "bottle_cap.obj"),
             usd=os.path.join(base, "cache", "bottle_cap.usd"),
-            hand="right",
+            hand="right",         # 轨迹名 (实为物理左手) —— 勿改
+            robot_hand="left",    # 机器人用左手拧瓶盖
             placement_frame=13,
             semantics=ObjectSemantics(
                 label="PCO-1810 cap", mass_kg=0.003, friction=0.4),
@@ -112,12 +129,6 @@ def _water_bottle_static(screw_mode: str | None = None):
 #   骨干 = cuRobo 规划的 close 轨迹, RL 只做残差修正. 详见 docs/TRAINING_SETUPS_A_B.md
 # =============================================================================
 CLIPS = {
-    "clip11": dict(
-        source="bi_v2ap",
-        npz=f"{CLIP11}/replay_world.npz", mesh=CLIP11_MESH,
-        usd=f"{CLIP11}/object.usd", semantics=CLIP11_SEMANTICS,
-        runtime_object_physics=True,      # object.usd 无物理, 运行时贴
-    ),
     "pp0_human": _td_ocir("egodex", "pp0"),
     "pp55_human": _td_ocir("egodex", "pp55", grasp_file="failed_grasp_002.json"),
     # Staged from the selected Test-video reconstruction.
@@ -162,10 +173,269 @@ for _i in range(20):
 del _i
 
 
+# =============================================================================
+# 双手拧瓶盖 egodex/test/screw_unscrew_bottle_cap/27 (2026-08-05 入库)
+#   人手/物体轨迹 = 27_scene 重建 (188帧@15fps, 双手全有效, phase 通道由
+#   contact_auto.json 自动标注烘入; ⚠ 与旧 water_bottle_twist_static 相反,
+#   27_scene 的左右手命名**物理正确**: left=拧盖手, right=扶瓶手).
+#   物体网格 = BOSL2 CAD 替身 (SAM3D 分不开瓶身瓶盖, 用户裁定另行建模).
+#   摆放 = recon_pose.infer_resting_pose 推断的静置位姿 (稳定支撑姿态自动否决
+#   前 42 帧横躺跟踪失败段), 见 resting_pose.json; 盖按螺旋全闭合预咬合在瓶口.
+#   两条 clip 共享同一个双物体场景, 只是"哪个物体是抓取主体"不同:
+#     Screw27_body: 右手 5 指抓瓶身 (11_5 模板), 微抬升验证
+#     Screw27_cap : 左手 2 指捏瓶盖 (Tip_Pinch 模板), 微拧验证 (盖被螺旋钉死,
+#                   抬不动 —— 判据换成"腕旋转时 screw_angle 跟进" = 握持传扭矩)
+# =============================================================================
+
+
+def _screw27(primary: str):
+    rt = os.path.join(_DATASETS, "RR", "Output", "RetargetOutput",
+                      "egodex", "screw_unscrew_bottle_cap", "27_scene")
+    rc = os.path.join(_DATASETS, "RR", "Output", "ReconstructOutput",
+                      "egodex", "screw_unscrew_bottle_cap", "27_scene")
+    wb = os.path.join(_DATASETS, "recon_kailang", "water_bottle_twist_static")
+    body = dict(
+        label="PCO-1810 filled bottle body",
+        mesh=os.path.join(wb, "reconstruction", "bottle_body.obj"),
+        usd=os.path.join(wb, "cache", "bottle_body.usd"),
+        semantics=ObjectSemantics(
+            label="PCO-1810 filled bottle body", mass_kg=0.53, friction=0.5),
+    )
+    cap = dict(
+        label="PCO-1810 cap",
+        mesh=os.path.join(wb, "reconstruction", "bottle_cap.obj"),
+        usd=os.path.join(wb, "cache", "bottle_cap.usd"),
+        semantics=ObjectSemantics(label="PCO-1810 cap", mass_kg=0.003, friction=0.4),
+    )
+    pri, sec = (body, cap) if primary == "body" else (cap, body)
+    hand = "right" if primary == "body" else "left"   # 27_scene 命名物理正确, 轨迹=机器人同侧
+    entry = dict(
+        source="replay_grasp",
+        npz=os.path.join(rt, "replay_world.npz"),
+        mesh=pri["mesh"],
+        usd=pri["usd"],
+        runtime_object_physics=True,
+        override_cfg_mass=True,
+        flatten_converted_usd=True,     # 同 cache 目录两个 USD, 不 flatten 会互相覆盖几何
+        hand=hand,
+        robot_hand=hand,
+        semantics=pri["semantics"],
+        # 抓取主体之外的另一个物体 (场景第二刚体), 由任务层建体 + 螺旋约束钉接
+        secondary=dict(
+            label=sec["label"], mesh=sec["mesh"], usd=sec["usd"],
+            semantics=sec["semantics"],
+            assembly=dict(
+                pitch_m=0.00318, turns=2.0, closed_offset_m=0.180, direction=1,
+                mode="preengaged", capture_radial_m=0.003, capture_axial_m=0.003,
+                capture_tilt_deg=10.0, capture_yaw_deg=30.0,
+                max_angular_velocity_rad_s=20.0,
+            ),
+        ),
+        screw_primary=primary,          # 抓取主体是螺旋的哪一端 ("body"/"cap")
+        resting_pose_json=os.path.join(rc, "resting_pose.json"),
+        verify_mode=("lift" if primary == "body" else "twist"),
+        arm_table_shell=True,           # 臂罚按连杆外壳口径 (真机带壳不碰桌, 用户要求)
+        upright_hold=True,              # 姿态保持 (用户要求物体原姿态略微提起; 盖任务
+                                        # 同样需要瓶身/盖轴竖直 —— 倾角指标对 yaw 不敏感)
+        # 无 affordance: prior 模式对齐目标来自 GraspPose 接触质心, 不需要热图
+    )
+    if primary == "body":
+        # 用户裁定模板 35_8 (2026-08-06, 顶替 11_5): 11_5 的腕朝向使前臂外壳
+        # 必然贴/穿桌面 (全池垫底 -3.8cm, 压桌的 l5~l7 段被腕位姿钉死, 上移/
+        # 换 yaw/零空间抬肘三招全部无效); 35_8 腕位高 3cm, 外壳稳态 +0.8~1.8cm.
+        # 工程适配 (全部烘进 35_8_mid_p12.npz): ① 接触带沿圆柱对称上移到质心
+        # 9.2cm; ② 沿"四指→拇指"轴平移 12mm 使开口居中 (原位姿拇指早接触
+        # 33.7N/四指够不着); 适配后 c=1.3 全五指接触, 深挤 Q 转正 (+0.17~0.35,
+        # 过筛选硬判据 H2). closure_max 放宽给挤压行程, 零动作仍停 c_grasp=1.0.
+        entry["closure_max"] = 1.6
+        entry["pad_contact_calib"] = False   # 定向平移已烘进 npz, 均值校准会双重平移
+    if primary == "cap":
+        # 模板 = Dexonomy 15_2 (用户 2026-08-06 定, 原样加载): 六候选合拢扫描中
+        # 唯一"候选门可达"的 (零学习 cand_ok 7.8%, 拇 5.85N+中 1.03N 同时受力).
+        # 死因复盘 (47_6/4_6 训至全零): Dexonomy 接触标在指尖极点, 我们力垫在
+        # 指腹, 系统差 ~2.5cm, 模板回放合拢轨迹从盖旁掠过 -> 接触梯度为零.
+        # 补救 = 视频接触点 affordance (甜甜圈设定B经验): 左手 frame47 热图蒸馏
+        # 成盖侧壁环带 (72 点), pad_approach 塑形改推参与垫去环带; 候选门/cent/
+        # 微拧验证等物理裁判不动. 蒸馏脚本见台账 §2.22.
+        entry["pad_contact_calib"] = False   # 只用 affordance 塑形, 不平移腕
+        entry["affordance_npz"] = os.path.abspath(os.path.join(
+            os.path.dirname(__file__),
+            "../../tasks/pregrasp/priors/Screw27_cap_affordance.npz"))
+    return entry
+
+
+CLIPS["Screw27_body"] = _screw27("body")
+CLIPS["Screw27_cap"] = _screw27("cap")
+
+
+# =============================================================================
+# 倒水 egodex/test/pour/17 (2026-08-14 入库) —— **a 组**(简化手指动作空间)
+#   数据 = `datasets/pour17/`(自包含 stage), 上游 take:
+#     recon  R&R/Output/ReconstructOutput/egodex_auto/pour/17
+#     retarget .../RetargetOutput/egodex_auto/pour/17
+#   两个自由物体, 各听各的手(逐物体接触自动配对): 杯 object_0×左, 瓶 object_1×右。
+#   **不是装配任务**: 两物体之间没有约束 —— 所以 secondary 不带 assembly(与 screw27 的
+#   螺旋钉接相反), 第二个物体只是场景里另一个自由刚体。
+#
+#   摆放/关键帧**不写死在这里**, 由两份自动产物给(它们是唯一来源):
+#     scene_layout.json  逐物体听手 + 姿态(稳定候选->筛直立->筛开口朝上, **不用重建旋转**)
+#     keyframes.json     里程碑链 = 训练阶段顺序/目标/容差(B 项裁定: 顺序不许人工设定)
+#
+#   ⚠ 本 clip 含**人为改动**, 全部记在 datasets/pour17/PROVENANCE.md:
+#     杯等比缩放 0.4516(超出手抓握包络)、两网格减面到 80k、抓握模板手写 fingertip_middle。
+#     上游 Dexonomy / 重建尺度成熟后应逐条还掉。
+#
+#   分两条注册, 对应关键帧链的前两阶段 —— 它们都是**单臂**任务, 现有 env 直接可跑,
+#   不必等双臂改造(S3 倒水才需要双臂):
+#     Pour17_bottle : 右手抓瓶 (链上 S1, f19)
+#     Pour17_cup    : 左手抓杯 (链上 S2, f28)
+# =============================================================================
+
+
+def _pour17(primary: str):
+    base = os.path.join(_DATASETS, "pour17")
+    rt = os.path.join(paths.RR_OUTPUT, "RetargetOutput", "egodex_auto", "pour", "17")
+    cup = dict(
+        oid="object_0", hand="left",
+        label="graycup (scaled 0.4516 -> 7.0x10.5cm)",
+        mesh=os.path.join(base, "objects", "object_0", "object_mesh_scaled_final.obj"),
+        usd=os.path.join(base, "objects", "object_0.usd"),
+        semantics=ObjectSemantics(label="graycup", mass_kg=0.15, friction=0.5,
+                                  mass_range=(0.08, 0.30)),
+    )
+    bottle = dict(
+        oid="object_1", hand="right",
+        label="Proud Source bottle (capped)",
+        mesh=os.path.join(base, "objects", "object_1", "object_mesh_scaled_final.obj"),
+        usd=os.path.join(base, "objects", "object_1.usd"),
+        # 与 screw27 同一只瓶 -> 沿用已验证的质量/摩擦
+        semantics=ObjectSemantics(label="Proud Source bottle", mass_kg=0.53, friction=0.5),
+    )
+    pri, sec = (bottle, cup) if primary == "bottle" else (cup, bottle)
+    return dict(
+        source="replay_grasp",
+        npz=os.path.join(rt, "replay_world.npz"),
+        mesh=pri["mesh"], usd=pri["usd"],
+        runtime_object_physics=True,
+        override_cfg_mass=True,
+        flatten_converted_usd=True,
+        hand=pri["hand"], robot_hand=pri["hand"],
+        semantics=pri["semantics"],
+        primary_oid=pri["oid"],
+        secondary=dict(label=sec["label"], mesh=sec["mesh"], usd=sec["usd"],
+                       semantics=sec["semantics"], oid=sec["oid"]),
+        # ★ 摆放与关键帧的唯一来源(env 读这两份, 不在 clips 里写死任何帧号/位姿)
+        scene_layout_json=os.path.join(base, "scene_layout.json"),
+        keyframes_json=os.path.join(base, "keyframes.json"),
+        grasp_template="fingertip_middle",   # 用户 2026-08-14 裁定, 两手同一模板(欠账)
+        verify_mode="lift",                  # S1/S2 = 接近+抓稳+微抬升
+        arm_table_shell=True,
+        upright_hold=True,
+    )
+
+
+CLIPS["Pour17_bottle"] = _pour17("bottle")
+CLIPS["Pour17_cup"] = _pour17("cup")
+
+
 def clip_entry(name: str) -> dict:
     if name not in CLIPS:
         raise KeyError(f"未知 clip '{name}', 可选: {list(CLIPS)}")
     return CLIPS[name]
+
+
+def _screw_from_layout(recon_dir: str, *, screw_primary: str = "cap",
+                       robot_hand: str | None = None):
+    """重建产物 + `scene_layout.json` -> 走**既有** `secondary` 双物体螺旋通路的 clip。
+
+    ★ 不要再另造多物体机制: `tasks/pregrasp/screw_assembly.py` 已经实现了双物体螺旋
+      装配, 只要注册表里有 `secondary` 就自动激活(train/eval/record/play 全部免改)。
+      本函数只负责把 `scene_layout.py` 算出来的**逐物体听手摆放**翻译成它的字段。
+
+    摆放规则(在 scene_layout.py, 与本文件无关):
+        每个物体听自己的那只手 —— XY = 该手在**该物体**接触起始帧的抓取锚点, Z 贴桌。
+        clip0 实测: 瓶身听左手@f3(该手 0.5mm/另一手 216.6mm),
+                    瓶盖听右手@f10(该手 0.2mm/另一手 175.1mm)。
+
+    `screw_primary` 决定谁是 env.object(机器人抓的那个), 另一个是 env.aux ——
+    因为 **RL env 是单手的**(robot_cfg 写死一只 SharpaWave)。
+    """
+    import json as _j
+    import os as _os
+    rd = _os.path.abspath(recon_dir)
+    lay = _j.load(open(_os.path.join(rd, "scene_layout.json")))
+    objs = lay["objects"]
+    # 按尺寸认部件: 大的是瓶身, 小的是盖 —— 不靠 object_id 顺序(实测 29 条里有 6 条
+    # 的 object_0 其实是盖)
+    by_size = sorted(objs, key=lambda o: -max(objs[o]["extent_cm"]))
+    body_id, cap_id = by_size[0], by_size[-1]
+    A = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(
+        _os.path.dirname(_os.path.abspath(__file__))))))   # 仓根
+    rt = rd.replace("ReconstructOutput", "RetargetOutput")
+    prim_id = cap_id if screw_primary == "cap" else body_id
+    rh = robot_hand or objs[prim_id]["anchor_hand"]
+    # ⚠ USD 必须指向**待转换的 cache**, 不能用 RetargetOutput 里的 —— 那是纯视觉网格,
+    #   没有 RigidBodyAPI, 直接用会报 "Failed to find a rigid body"。
+    #   指向不存在的 cache 路径, `ensure_object_usd` 会用 MeshConverter 从 .obj 烘焙物理。
+    _cache = _os.path.join(rd, "cache")
+    def _part(oid, mass, fric, label):
+        return dict(label=label, mesh=objs[oid]["mesh"],
+                    usd=_os.path.join(_cache, f"{label}.usd"),
+                    hand=objs[oid]["anchor_hand"],
+                    robot_hand=objs[oid]["anchor_hand"],
+                    placement_frame=objs[oid]["onset_frame"],
+                    semantics=ObjectSemantics(label=label, mass_kg=mass, friction=fric))
+    prim, sec_id = _part(prim_id, 0.53 if prim_id == body_id else 0.003,
+                         0.5 if prim_id == body_id else 0.4,
+                         "bottle_body" if prim_id == body_id else "bottle_cap"), \
+        (body_id if prim_id == cap_id else cap_id)
+    sec = _part(sec_id, 0.53 if sec_id == body_id else 0.003,
+                0.5 if sec_id == body_id else 0.4,
+                "bottle_body" if sec_id == body_id else "bottle_cap")
+    # 螺纹参数直接沿用 screw27 —— **我们用的就是它那套 CAD**(同出 27_cad2), 不是近似。
+    # `mode` 由 VLM 的分件判定推出, 不用人填:
+    #     combines(把盖拧回去) -> 盖起始是**分开**的, 要被捕获 -> capture
+    #     separates(把盖拧下来) -> 盖起始是**装好**的            -> preengaged
+    _pc = (lay.get("part_change") or {}).get("part_change") if isinstance(
+        lay.get("part_change"), dict) else None
+    if _pc is None:
+        # interim 的目录名是 <task>__<n>, 与最终目录的 <task>/<n> 不同 —— 要换算
+        try:
+            _n = _os.path.basename(rd)
+            _t = _os.path.basename(_os.path.dirname(rd))
+            _root = _os.path.dirname(_os.path.dirname(_os.path.dirname(rd)))
+            _ds = _os.path.basename(_os.path.dirname(_os.path.dirname(rd)))
+            _gp = _os.path.join(_root, "interim", _ds, f"{_t}__{_n}", "vlm_gate.json")
+            _pc = (_j.load(open(_gp)).get("part_change") or {}).get("part_change")
+        except Exception:
+            _pc = None
+    _mode = "capture" if _pc in ("combines", "both", None) else "preengaged"
+    sec["assembly"] = dict(
+        pitch_m=0.00318, turns=2.0, closed_offset_m=0.180, direction=1,
+        mode=_mode, capture_radial_m=0.003, capture_axial_m=0.003,
+        capture_tilt_deg=10.0, capture_yaw_deg=30.0, max_angular_velocity_rad_s=20.0)
+    sec["assembly_mode_source"] = f"VLM part_change={_pc}"
+    return dict(
+        source="static_reconstruction", npz=_os.path.join(rt, "replay_world.npz"),
+        mesh=prim["mesh"], usd=prim["usd"],
+        runtime_object_physics=False, override_cfg_mass=True,
+        flatten_converted_usd=True, place_mode="object_only",
+        hand=prim["hand"], robot_hand=rh,
+        placement_frame=prim["placement_frame"],
+        semantics=prim["semantics"], secondary=sec,
+        screw_primary=screw_primary,
+        scene_layout=lay, recon_dir=rd,
+    )
+
+
+# ── 由 scene_layout 驱动的双物体螺旋 clip ──
+_RR_OUT = "/home/lyh/Project/Reconstruct_and_Retarget/Output/ReconstructOutput"
+for _n, _d, _pm in (("screw0_cap", f"{_RR_OUT}/egodex_auto/screw_unscrew_bottle_cap/0", "cap"),
+                    ("screw0_body", f"{_RR_OUT}/egodex_auto/screw_unscrew_bottle_cap/0", "body")):
+    try:
+        CLIPS[_n] = _screw_from_layout(_d, screw_primary=_pm)
+    except Exception:      # 缺 scene_layout.json 不该让模块导入失败
+        pass
 
 
 def configure_cfg(cfg, name: str):
@@ -173,12 +443,46 @@ def configure_cfg(cfg, name: str):
     e = clip_entry(name)
     cfg.clip_name = name
     cfg.object_cfg.spawn.usd_path = e["usd"]
+    # ---- 交互手 → 接触传感器 (2026-08-05 修) ----
+    # cfg 里 fingertip_bodies/contact_sensors 写死 right_*_elastomer, 而场景在
+    # _resolve_joint_ids 之前就建好了 —— 左手 clip 会**静默**读右手的垫: pads 恒 0、
+    # 向心分恒 0、成功率恒 0 且不报错 (2026-08-05 左手冒烟日志里 pads=0 就是它).
+    # 修法: 在 env 构建之前按交互手重建传感器表. 传感器 prim 与 _resolve_joint_ids
+    # 用同一个 interact_hand() 判定, 二者必然一致.
+    side = interact_hand(name, getattr(cfg, "hand_side", "right"))
+    ovr = e.get("sensor_link_override", {})
+    if hasattr(cfg, "fingertip_bodies"):
+        names = [f"{side}_{f}_{ovr.get(f, 'elastomer')}"
+                 for f in ("thumb", "index", "middle", "ring", "pinky")]
+        if list(cfg.fingertip_bodies) != names:
+            from isaaclab.sensors import ContactSensorCfg
+            cfg.hand_side = side
+            cfg.fingertip_bodies = names
+            cfg.contact_sensors = [
+                ContactSensorCfg(
+                    prim_path=f"/World/envs/env_.*/Robot/{n}",
+                    history_length=1,
+                    filter_prim_paths_expr=["/World/envs/env_.*/Object"],
+                ) for n in names]
+            print(f"[clips] 交互手={side}: 接触传感器已重建 ({names})")
     if e.get("override_cfg_mass", False):
         # The base cfg carries a 0.2 kg placeholder. This task must use the
         # bottle semantics instead of silently overriding the converted USD.
         cfg.object_cfg.spawn.mass_props.mass = float(e["semantics"].mass_kg)
     if "place_mode" in e:
         cfg.place_mode = e["place_mode"]
+    if "verify_mode" in e and hasattr(cfg, "verify_mode"):
+        cfg.verify_mode = e["verify_mode"]   # screw 27 盖 = "twist" (微拧验证)
+    if "closure_max" in e and hasattr(cfg, "closure_max"):
+        cfg.closure_max = float(e["closure_max"])
+    if "arm_table_shell" in e and hasattr(cfg, "arm_table_shell"):
+        cfg.arm_table_shell = bool(e["arm_table_shell"])
+    if "pad_contact_calib" in e and hasattr(cfg, "pad_contact_calib"):
+        cfg.pad_contact_calib = bool(e["pad_contact_calib"])
+    if "affordance_npz" in e and hasattr(cfg, "affordance_npz"):
+        cfg.affordance_npz = e["affordance_npz"]   # 视频接触带 (pad_approach 塑形)
+    if "upright_hold" in e and hasattr(cfg, "upright_hold"):
+        cfg.upright_hold = bool(e["upright_hold"])
     return cfg
 
 
@@ -250,12 +554,18 @@ def ensure_object_usd(name: str):
     return usd
 
 
-def ensure_mesh_usd(mesh: str, usd: str, semantics: ObjectSemantics):
+def ensure_mesh_usd(mesh: str, usd: str, semantics: ObjectSemantics,
+                    max_convex_hulls: int | None = None,
+                    shrink_wrap: bool | None = None):
     """Convert one auxiliary mesh to a cached rigid-body USD.
 
     This mirrors ``ensure_object_usd`` for task-specific secondary assets that
     are deliberately not registered as the environment's primary object.
     Kit must already be running.
+
+    ``max_convex_hulls``/``shrink_wrap``: VHACD 预算覆盖. 默认 32 hulls 会把
+    瓶身"肩→颈"的凹陷桥接成幻影锥壳 (screw 27 实测: 手指在离盖 1.5cm 处被
+    看不见的壳挡住, 把整瓶推走), 瓶类资产要开到 128 + shrink_wrap.
     """
 
     if os.path.exists(usd) and os.path.getmtime(usd) >= os.path.getmtime(mesh):
@@ -269,7 +579,8 @@ def ensure_mesh_usd(mesh: str, usd: str, semantics: ObjectSemantics):
         usd_dir=os.path.dirname(usd),
         usd_file_name=os.path.basename(usd),
         force_usd_conversion=True,
-        mesh_collision_props=ConvexDecompositionPropertiesCfg(),
+        mesh_collision_props=ConvexDecompositionPropertiesCfg(
+            max_convex_hulls=max_convex_hulls, shrink_wrap=shrink_wrap),
         collision_props=sim_utils.CollisionPropertiesCfg(
             collision_enabled=True, contact_offset=0.002, rest_offset=0.0),
         mass_props=sim_utils.MassPropertiesCfg(mass=semantics.mass_kg),
@@ -297,8 +608,16 @@ def ensure_mesh_usd(mesh: str, usd: str, semantics: ObjectSemantics):
 
 
 def interact_hand(clip_name: str, default: str = "right") -> str:
-    """从 phase_left/phase_right 判定这条 clip 是哪只手在交互."""
+    """从 phase_left/phase_right 判定这条 clip 是哪只手在交互.
+
+    注册条目带 ``robot_hand`` 时它是权威答案 —— 双手 clip (screw 27) 的 npz 里
+    两只手都有 phase 段, "帧数多者胜"会把两条 clip 判成同一只手; 以及旧
+    water_bottle_twist_static 的轨迹名 left/right 是反的 (见 _water_bottle_static
+    docstring), 都不能靠 phase 通道自动判.
+    """
     e = CLIPS.get(clip_name, {})
+    if e.get("robot_hand"):
+        return e["robot_hand"]
     if not e.get("npz"):
         return default
     if e.get("source") == "static_reconstruction":
@@ -337,14 +656,24 @@ def load_data_unit(cfg) -> DataUnit:
             semantics=e["semantics"], verbose=True)
     if e["source"] == "replay_grasp":
         from rl_rebuild.correction.ref_builders.replay_grasp import load_replay_grasp
+        # 权威静置姿态 (screw 27 等跟踪坏帧 clip): 稳定支撑约束推断的 竖直姿态+贴桌 z
+        # 下沉给 builder —— 摆放的 XY 听手 (约定第③步), 姿态/z 听 resting_pose.
+        _ro = None
+        if e.get("resting_pose_json"):
+            import json as _j
+            with open(e["resting_pose_json"]) as _f:
+                _rj = _j.load(_f)
+            _k = "body" if e.get("screw_primary", "body") == "body" else "cap"
+            _ro = (tuple(float(v) for v in _rj[f"{_k}_quat_wxyz"]),
+                   float(_rj[f"{_k}_pos"][2]))
         return load_replay_grasp(e["npz"], e["mesh"], usd_path=e["usd"],
+                                 rest_override=_ro,
                                  # 交互手从 phase_* 自动判定, 不能写死 "right":
                                  # Grasp10/12 在重建里是**左手**交互, 写死右手 = 拿垃圾数据
                                  # (实测 Grasp12 的物体被摆到 x=-0.58, 在机器人底座后面)
                                  hand=interact_hand(cfg.clip_name),
                                  clearance=getattr(cfg, "clearance", None),
                                  freeze_wrist=getattr(cfg, "freeze_wrist", True),
-                                 anchor_mode=getattr(cfg, "anchor_mode", None),
                                  pregrasp_align=getattr(cfg, "pregrasp_align", None),
                                  clip_id=cfg.clip_name, target_hz=cfg.target_hz,
                                  table_height=cfg.table_top_z, affordance_npz=e.get("affordance"),
@@ -352,10 +681,6 @@ def load_data_unit(cfg) -> DataUnit:
                                  # 硬顶进桌子, 真机械臂顶不动). cfg 没这项时沿用旧默认.
                                  hover_gap=getattr(cfg, "hover_gap", None),
                                  semantics=e["semantics"], verbose=True)
-    if e["source"] == "bi_v2ap":
-        return load(e["npz"], e["mesh"], usd_path=e["usd"],
-                    clip_id=cfg.clip_name, target_hz=cfg.target_hz,
-                    semantics=e["semantics"], obj_gap=0.002)
     return load_ocir(e["seq_dir"], e["grasp_json"], e["traj_dir"],
                      usd_path=e["usd"], variant=e["variant"],
                      target_hz=cfg.target_hz, table_height=cfg.table_top_z,

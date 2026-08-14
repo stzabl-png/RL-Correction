@@ -117,12 +117,15 @@ except Exception: print('1.0')")
   #      现在它们排在 sam3d 之前(分件判定决定"重建网格还是取 CAD"), 所有数据集通用。
   #      retrieval 命中时会替 sam3d/sam3d_scale 写完成标记, 于是那两步自然跳过。
 
-  # 7) VLM门 → 检索 → 位姿 → 融合 → 打分 (→ 接触, 默认关)。
-  # ⚠ contact 单条要 43.6 分钟, 占全程 97%(实测 clip1: 其余步骤加起来才 90 秒) ——
-  #   它内部是**沿视线的多起点深度搜索**, 每个"物体×手"约 12 分钟。
-  #   摆放(scene_layout)要用它的逐物体接触区间, 但可以事后单独补跑, 不必挡住重建。
-  #   打开: WITH_CONTACT=1 ./reconstruct_egodex.sh ...
-  STEPS="vlm_gate,retrieval,sam3d,sam3d_scale,fp_pose,fuse,confidence${WITH_CONTACT:+,contact}"
+  # 7) VLM门 → 检索 → 位姿 → 融合 → 打分 → 接触。**contact 默认开**。
+  # 历史: 这里曾默认关掉 contact —— 旧提取器一条 43.6 分钟, 占全程 97%(实测 clip1:
+  #   其余步骤加起来才 90 秒), 因为它内部是**沿视线的多起点深度搜索**, 每个"物体×手"
+  #   约 12 分钟。换成 extract_v2(不搜索, 逐帧量一次)后实测 **18.9 秒/条**, 这个默认
+  #   就没有道理了 —— 而且接触点是 GraspPose 选模板要的 Video Prior, 默认缺席会让
+  #   下游以为"这条没有接触", 而不是"这条没跑过接触"。
+  #   要关: NO_CONTACT=1 ./reconstruct_egodex.sh ...
+  STEPS="vlm_gate,retrieval,sam3d,sam3d_scale,fp_pose,fuse,confidence"
+  [ -n "${NO_CONTACT:-}" ] || STEPS="$STEPS,contact"
   # ⚠ --step-arg 用等号写法: reconstruct.sh 的透传对空格写法只传 flag 不传值
   "$HERE/reconstruct.sh" "$MP4" --dataset "$DATASET" --root "$WORK" \
       --steps="$STEPS" --keep-interim --gpu-ids "$GPUS" \

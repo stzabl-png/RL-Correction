@@ -420,7 +420,7 @@ def extract(recon_dir: Path, object_id: str, side: str, *, tau_mm: float = 8.0,
     vetoed = np.zeros(len(Vl), np.int32)
     wrong_side = np.zeros(len(Vl), np.int32)
     occ = None
-    if False:
+    if use_normal_gate:
         # 遮挡门用**体素占据**判"实体内", 不用 mesh.contains: 后者在没有 embree 的机器上
         # 退化成纯 Python 射线求交, 60k 点×14 帧能跑到十几分钟(UCB 实测把 ssh 拖断);
         # 体素网格建一次 0.1s, 之后查询 O(1)。3mm 体素对"手在壁的哪一侧"足够。
@@ -442,28 +442,28 @@ def extract(recon_dir: Path, object_id: str, side: str, *, tau_mm: float = 8.0,
             d = cKDTree(hand[t]).query(Vw)[0]          # 每个物体顶点到人手的最近距离
             touch = d < tau
         dmins.append(float(d.min()))
-        if use_normal_gate:
-            # ★ 自遮挡门: 只有**朝向相机的那一面**能被手碰到(ego 视角下手在相机与物体之间)。
-            #   薄壁物体上"最近点"分不清内外壁 —— 人从外面扶杯, 内壁点同样落在 tau 内,
-            #   下游会忠实地把手指伸进杯子(pour/17 实测 52% 热点在杯内)。
-            #   ⚠ 判据必须和 touch 同口径: depth_blind 下 touch 用**面内**距离, 若拿全 3D
-            #     连线去判遮挡, 深度误差会让连线穿过物体, 把 92% 的合法接触误杀(实测
-            #     瓶子热点 7195→273)。所以这里用 z-buffer: 同一像素上只有最前面的表面
-            #     (含 tol 容差的同层)算数, 明显在其后的是背面/内壁。
-            Xc = (Vw - c2w[t][:3, 3]) @ c2w[t][:3, :3]
-            z = Xc[:, 2]
-            ok = z > 1e-4
-            uv = np.full((len(Vw), 2), -1.0)
-            uv[ok] = (K @ (Xc[ok] / z[ok, None]).T).T[:, :2]
-            H, W = 1080, 1920
-            px = np.clip(uv[:, 0].astype(np.int32), 0, W - 1)
-            py = np.clip(uv[:, 1].astype(np.int32), 0, H - 1)
-            key = py * W + px
-            zmin = np.full(H * W, np.inf)
-            np.minimum.at(zmin, key[ok], z[ok])
-            front = ok & (z <= zmin[key] + 0.006)      # 6mm 容差: 壁厚+重建噪声
-            wrong_side += (touch & ~front).astype(np.int32)
-            touch = touch & front
+        if use_normal_gate and occ is not None:
+            # ★ 自遮挡门: 从接触点朝相机步进, 撞到自身实体 => 该点在物体背面/内壁。
+            #   ego 视角下手在相机与物体之间, 背面的点手够不着 —— 薄壁物体上"最近点"
+            #   分不清内外壁(pour/17 杯子 52% 热点在杯内), 下游会把手指伸进杯子里。
+            #   ⚠ 前两版都错了, 记在这里避免重犯:
+            #     ① 用面法向判 —— 重建网格 39~46% 的面法向指向体内, fix_normals 无效;
+            #     ② 用全 3D 连线穿透判 —— 与 depth_blind 的面内口径冲突, 深度误差让连线
+            #        穿过物体, 热点被误杀 92%(7195→273);
+            #     ③ 用 z-buffer —— 6 万稀疏采样点建的深度图每像素摊不到 1 个样本, 门形同
+            #        虚设(实测通过后仍有 61~80% 的点朝相机被自身遮挡)。
+            #   本版用体素占据沿视线步进, 与口径无关, 也不依赖法向。
+            idx = np.where(touch)[0]
+            if len(idx):
+                hw = Vw[idx]
+                dv = c2w[t][:3, 3] - hw
+                dv /= np.maximum(np.linalg.norm(dv, axis=1, keepdims=True), 1e-9)
+                blocked = np.zeros(len(idx), bool)
+                for step in (0.004, 0.007, 0.010, 0.014, 0.020, 0.028):
+                    ql = ((hw + dv * step) - M[:3, 3]) @ M[:3, :3]
+                    blocked |= occ.is_filled(ql)
+                wrong_side[idx[blocked]] += 1
+                touch[idx[blocked]] = False
         if use_2d_veto:
             hm = None
             for pat in (D / "masks/hands/frames" / f"frame_{t:06d}_masks" / f"{side}_hand_0.png",):

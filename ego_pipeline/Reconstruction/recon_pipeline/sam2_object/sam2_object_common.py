@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
+import shutil
 import sys
 from contextlib import nullcontext
 from dataclasses import dataclass
@@ -62,11 +64,42 @@ class ObjectPrompt:
 
     @classmethod
     def from_json(cls, data: dict[str, Any], *, default_object_id: str = OBJECT_MASK_ID) -> "ObjectPrompt":
+        if not isinstance(data, dict):
+            raise ValueError("Each object prompt must be a JSON object")
+        try:
+            frame_idx = int(data["frame_idx"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("Object prompt frame_idx must be an integer") from exc
+        if frame_idx < 0:
+            raise ValueError(f"Object prompt frame_idx must be non-negative, got {frame_idx}")
+
+        raw_points = data.get("points")
+        raw_labels = data.get("labels")
+        if not isinstance(raw_points, list) or not raw_points:
+            raise ValueError("Object prompt points must be a non-empty list")
+        if not isinstance(raw_labels, list) or len(raw_labels) != len(raw_points):
+            raise ValueError("Object prompt labels must have the same length as points")
+
+        points: list[tuple[float, float]] = []
+        for point in raw_points:
+            if not isinstance(point, (list, tuple)) or len(point) != 2:
+                raise ValueError(f"Each prompt point must be [x, y], got {point!r}")
+            x, y = float(point[0]), float(point[1])
+            if not math.isfinite(x) or not math.isfinite(y):
+                raise ValueError(f"Prompt coordinates must be finite, got {point!r}")
+            points.append((x, y))
+
+        labels = [int(value) for value in raw_labels]
+        if any(value not in (0, 1) for value in labels):
+            raise ValueError(f"Prompt labels must contain only 0 or 1, got {labels}")
+        if not any(labels):
+            raise ValueError("Each object prompt needs at least one positive point (label=1)")
+
         return cls(
             object_id=validate_object_id(data.get("object_id") or default_object_id),
-            frame_idx=int(data["frame_idx"]),
-            points=[(float(p[0]), float(p[1])) for p in data["points"]],
-            labels=[int(v) for v in data["labels"]],
+            frame_idx=frame_idx,
+            points=points,
+            labels=labels,
             name=data.get("name"),
             locked=bool(data.get("locked", False)),
         )
@@ -147,6 +180,40 @@ def save_label_prompt(step_dir: Path, prompt: LabelPrompt) -> Path:
 
 def load_label_prompt(step_dir: Path) -> LabelPrompt:
     return LabelPrompt.from_json(json.loads(label_prompt_path(step_dir).read_text(encoding="utf-8")))
+
+
+def validate_label_prompt_for_video(
+    prompt: LabelPrompt,
+    *,
+    num_frames: int,
+    height: int,
+    width: int,
+) -> None:
+    """Validate frame and point coordinates before loading the SAM2 model."""
+    if num_frames <= 0 or height <= 0 or width <= 0:
+        raise ValueError(
+            f"Invalid video geometry: frames={num_frames}, height={height}, width={width}"
+        )
+    for obj in prompt.objects:
+        if obj.frame_idx >= num_frames:
+            raise ValueError(
+                f"Prompt frame for {obj.object_id} is outside the video: "
+                f"{obj.frame_idx} not in [0, {num_frames - 1}]"
+            )
+        for x, y in obj.points:
+            if not (0.0 <= x < width and 0.0 <= y < height):
+                raise ValueError(
+                    f"Prompt point for {obj.object_id} is outside the video frame: "
+                    f"({x}, {y}) not within {width}x{height}"
+                )
+
+
+def clear_generated_object_outputs(step_dir: Path) -> None:
+    """Remove only generated SAM2 outputs; preserve label_prompt.json and frame_plan.json."""
+    for dirname in ("video_segmentation", "vis"):
+        shutil.rmtree(step_dir / dirname, ignore_errors=True)
+    for filename in ("object_masks_vis.mp4", "object_masks_complete.json"):
+        (step_dir / filename).unlink(missing_ok=True)
 
 
 def object_mask_filename(object_id: str) -> str:
@@ -425,6 +492,17 @@ def run_object_masks(
             f"Missing {LABEL_PROMPT_FILENAME}. Run label_object.py first for this video."
         )
     prompt = load_label_prompt(step_dir)
+    num_frames = count_video_frames(video_path)
+    height, width = read_frame_size(video_path, 0)
+    validate_label_prompt_for_video(
+        prompt,
+        num_frames=num_frames,
+        height=height,
+        width=width,
+    )
+    # A retry or changed multi-object prompt must never inherit masks from an
+    # earlier partial/forced run.  The prompt and frame plan remain untouched.
+    clear_generated_object_outputs(step_dir)
 
     predictor = build_object_predictor(gpu_id=gpu_id, checkpoint=checkpoint, model_cfg=model_cfg)
     object_stats: list[dict[str, Any]] = []

@@ -16,7 +16,13 @@ if str(SAM2_OBJ_DIR) not in sys.path:
     sys.path.insert(0, str(SAM2_OBJ_DIR))
 
 from _common.dataset import VideoJob  # noqa: E402
-from _common.paths import REPO_ROOT, interim_step_dir, is_step_complete, write_step_completion  # noqa: E402
+from _common.paths import (  # noqa: E402
+    REPO_ROOT,
+    completion_marker,
+    interim_step_dir,
+    is_step_complete,
+    write_step_completion,
+)
 from sam2_object_common import (  # noqa: E402
     DEFAULT_SAM2_CHECKPOINT,
     DEFAULT_SAM2_MODEL_CFG,
@@ -81,6 +87,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.force and is_step_complete(step_dir, "sam2_object"):
         return 0
+
+    # Invalidate an older success marker before any forced/retry work starts.
+    # If propagation fails, downstream steps must not mistake stale masks for a
+    # complete result.
+    completion_marker(step_dir, "sam2_object").unlink(missing_ok=True)
 
     stats = run_object_masks(
         video_path=job.video_path,

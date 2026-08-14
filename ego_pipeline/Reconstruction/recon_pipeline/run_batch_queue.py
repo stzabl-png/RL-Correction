@@ -64,7 +64,11 @@ STEP_SCRIPTS = {
 STEP_ENVS = {
     "vipe": "cu128",
     "sam3_hands": "HV2RD",
-    "sam2_object": "HV2RD",
+    # SAM2 MP4 propagation imports decord.  The maintained codetr environment
+    # contains eva-decord + the editable SAM2 package and is also the environment
+    # used by the upstream v17A propagation.  HV2RD lacks decord on the A6000 and
+    # fails at predictor.init_state(video_path=...).
+    "sam2_object": "codetr",
     "hawor": "hawor",
     "vlm_gate": "hawor",
     "retrieval": "hawor",

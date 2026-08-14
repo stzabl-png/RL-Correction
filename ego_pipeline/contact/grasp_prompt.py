@@ -94,6 +94,12 @@ def build(recon_dir: Path) -> tuple[dict, str]:
                 "hand_mask_agreement": (None if m.get("hand_mask_agreement") is None
                                         else round(m["hand_mask_agreement"], 3)),
                 "hand_mask_agreement_note": "重建手落在实测手mask里的比例; 正常 0.55~0.63",
+                # 物体那半边的对称体检: 低 -> 接触区**整体偏移**(形状还像样但位置错了)
+                "object_mask_agreement": (None if m.get("object_mask_agreement") is None
+                                          else round(m["object_mask_agreement"], 3)),
+                "object_pose_suspect": m.get("object_pose_suspect"),
+                "object_mask_agreement_note": "重建物体投影 vs 实测物体 mask 的 IoU; "
+                                              "实测健康 0.45~0.69, <0.30 判可疑(门槛暂定)",
                 "hand_surface_gap_mm": round(m["min_dist_mm_median"], 2),
                 "object_conf_pos": oc.get("conf_pos_median"),
                 "object_conf_rot": oc.get("conf_rot_median"),
@@ -166,6 +172,9 @@ def _md(d: dict) -> str:
               "**可信度**", "",
               f"- 对生度 {t['opposition']}(≥0.40 才算抓握; 0.5≈环抱180°)",
               f"- 手部体检 {t['hand_mask_agreement']}(正常 0.55~0.63)",
+              f"- 物体体检 {t.get('object_mask_agreement')}(健康 0.45~0.69)"
+              + ("  ⚠**位姿可疑**: 接触区可能整体偏移, 相对形状比绝对坐标可信"
+                 if t.get("object_pose_suspect") else ""),
               f"- 手到物体表面 {t['hand_surface_gap_mm']} mm",
               f"- 物体位姿可信度 conf_pos={t['object_conf_pos']} conf_rot={t['object_conf_rot']}"
               # ⚠ 不能写 `t[...] or 99` —— conf_rot 恰好是 0.0 时 falsy, 会被换成 99,

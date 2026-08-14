@@ -117,6 +117,64 @@ def hand_mask_agreement(D: Path, side: str, frames, c2w, K, hand, *, n=15):
     return (float(np.median(vals)), len(vals)) if vals else (None, 0)
 
 
+def object_mask_agreement(D: Path, object_id: str, frames, c2w, K, allT, oi,
+                         Vl: np.ndarray, *, n: int = 15):
+    """重建物体投影落在**实测物体 mask** 里的吻合度(IoU)。→ (IoU, 用到的帧数); 无 mask 返回 (None, 0)。
+
+    ============================ 为什么要这道体检 ============================
+
+    提取器分不清两件完全不同的事, 报的字却一样(`no_stable_contact`):
+        ① 人真的没抓这个物体        —— 正确答案, 数据没问题
+        ② 人抓了, 但**物体被重建歪了** —— 数据坏了, 该回去修重建
+
+    手那半边已有对称的体检(hand_mask_agreement: 重建手 vs 实测手 mask)。这里补上物体
+    那半边, 于是失败信息能从"没有稳定抓握"细化成"没碰过 / 物体位姿不可信"。
+
+    ⚠ **门槛是暂定的, 因为只量到健康样本、没有已知坏样本做对照**:
+        pour/17 0.658 | screw/0 0.692 | screw/1 0.463 | screw/4 0.450
+      其中 screw 1/4 是**能用**的(修好 replay 后正常出接触), 所以门槛必须 < 0.45。
+      取 0.30 —— 比所有实测健康值低一截, 只用来**解释失败原因**, **不用来拒数据**。
+      等出现真正的坏样本再回来标定。
+    """
+    import cv2
+    md = D / "masks/objects/frames"
+    if not md.is_dir() or not len(frames):
+        return None, 0
+    fr = list(frames)[:: max(1, len(frames) // n)]
+    ious = []
+    for t in fr:
+        fd = md / f"frame_{t:06d}_masks"
+        pm = fd / f"{object_id}.png"
+        if not pm.is_file():
+            g = sorted(fd.glob("*.png")) if fd.is_dir() else []
+            if not g:
+                continue
+            pm = g[0]
+        m = cv2.imread(str(pm), 0)
+        if m is None or (m > 127).sum() < 50 or t >= allT.shape[1]:
+            continue
+        m = m > 127
+        M = allT[oi, t]
+        Vw = (M[:3, :3] @ Vl.T).T + M[:3, 3]
+        Kc = np.linalg.inv(c2w[t])
+        P = (Kc[:3, :3] @ Vw.T).T + Kc[:3, 3]
+        P = P[P[:, 2] > 1e-6]
+        if len(P) < 10:
+            continue
+        u = P[:, 0] / P[:, 2] * K[0, 0] + K[0, 2]
+        v = P[:, 1] / P[:, 2] * K[1, 1] + K[1, 2]
+        H, W = m.shape
+        ok = (u >= 0) & (u < W) & (v >= 0) & (v < H)
+        if ok.sum() < 10:
+            ious.append(0.0)
+            continue
+        pr = np.zeros_like(m)
+        pr[v[ok].astype(int), u[ok].astype(int)] = True
+        pr = cv2.dilate(pr.astype(np.uint8), np.ones((5, 5), np.uint8)).astype(bool)
+        ious.append(float((pr & m).sum() / max((pr | m).sum(), 1)))
+    return (float(np.median(ious)), len(ious)) if ious else (None, 0)
+
+
 def _azimuth_span(V: np.ndarray, w: np.ndarray, thr: float = 0.5) -> int:
     """热点绕物体主轴的方位跨度(度)。12 个 30° 扇区里被占用的数量 × 30。
 
@@ -198,6 +256,7 @@ def extract(recon_dir: Path, object_id: str, side: str, *, tau_mm: float = 8.0,
             stable_r_m: float = 0.015, touch_gap_m: float = 0.010,
             min_window: int = 5, n_probe: int = 60000, min_opposition: float = 0.40,
             object_follows_hand: bool = False, min_hand_agreement: float = 0.25,
+            min_object_agreement: float = 0.30,
             depth_blind: bool = True, ray_cap_m: float = 0.10) -> dict:
     import cv2
     import trimesh
@@ -289,9 +348,12 @@ def extract(recon_dir: Path, object_id: str, side: str, *, tau_mm: float = 8.0,
     #   "手没碰到物体"(都是 no_stable_contact) —— 实测 take1/4 用陈旧 replay 时手在图里
     #   偏了 379~432px, 我据此误判成"物体位姿差", 还把正确报警的 2D 否证关掉了。
     agree, n_agree = hand_mask_agreement(D, side, frames, c2w, K, hand)
+    obj_agree, n_obj = object_mask_agreement(D, object_id, frames, c2w, K, allT, oi, Vl)
     if agree is not None and agree < min_hand_agreement:
         return {"status": "hand_unreliable", "object_id": object_id, "side": side,
-                "hand_mask_agreement": agree, "n_checked": n_agree,
+                "hand_mask_agreement": agree,
+                "object_mask_agreement": obj_agree,
+                "n_checked": n_agree,
                 "threshold": min_hand_agreement,
                 "why": ("重建的手只有 %.1f%% 落在实测手 mask 里(正常 55~63%%) —— "
                         "手被重建到了错的位置, 接触结果不可信。常见原因: "
@@ -380,7 +442,14 @@ def extract(recon_dir: Path, object_id: str, side: str, *, tau_mm: float = 8.0,
     if win_n == 0:                                     # 没有既稳又贴的段 -> 如实报告
         n_touch = int((gap <= max(tau_mm / 1000.0, touch_gap_m)).sum())
         n_opp = int((oppo >= min_opposition).sum())
+        # ★ 区分"真没碰"与"物体位姿不可信" —— 两者原本报的字一样, 下游无从判断
+        #   该回去修重建还是接受"这只手没抓它"。门槛 0.30 只用于**解释**, 不拒数据。
+        obj_bad = obj_agree is not None and obj_agree < min_object_agreement
         return {"status": "no_stable_contact", "object_id": object_id, "side": side,
+                "object_mask_agreement": obj_agree,
+                "likely_cause": ("物体位姿不可信(投影与实测 mask 吻合度 %.2f < %.2f) —— "
+                                 "别急着当成'没碰过', 先查重建" % (obj_agree or 0, min_object_agreement))
+                                if obj_bad else "手确实没有稳定抓握该物体(物体位姿体检正常)",
                 "n_interval_frames": len(frames),
                 # ★ 分开报: 早先只给合并后的 close, 于是"贴着但不对生"和"根本够不着"
                 #   都显示成"0 帧贴合", 病因指错。
@@ -514,6 +583,9 @@ def extract(recon_dir: Path, object_id: str, side: str, *, tau_mm: float = 8.0,
             #  - opposition_area(诊断用): 热点法向, 受接触**面积**加权 -> 手指侧面积大时
             #    会被压低(真抓握也常是 0.2~0.3), 所以**不拿它做判定**, 否则选对了还报警
             "hand_mask_agreement": agree,
+            "object_mask_agreement": obj_agree,   # 重建物体投影 vs 实测物体 mask 的 IoU
+            # 成功也要报警: 物体位姿不可信时接触点会**整体偏移** —— 形状还像样但位置是错的
+            "object_pose_suspect": bool(obj_agree is not None and obj_agree < min_object_agreement),
             "is_prior": bool(object_follows_hand),
             "prior_shift_mm": (None if prior_shift is None
                                else (np.asarray(prior_shift) * 1000).round(1).tolist()),
@@ -580,6 +652,9 @@ def main(argv=None) -> int:
     ap.add_argument("--min-hand-agreement", type=float, default=0.25,
                     help="重建手落在实测手mask里的最低比例。实测正常 0.55~0.63, "
                          "手被重建错时 0.00~0.01 —— 不查的话它会伪装成'手没碰到'")
+    ap.add_argument("--min-object-agreement", type=float, default=0.30,
+                    help="物体投影 vs 实测 mask 的 IoU 门槛。**只用于解释失败原因, 不拒数据** —— "
+                         "只量到健康样本(0.45~0.69), 没有已知坏样本做对照, 门槛是暂定的")
     ap.add_argument("--min-window", type=int, default=5,
                     help="稳定窗最少帧数; 低于它判'无稳定抓握'。2 帧窗的热点是分母太小的假象")
     ap.add_argument("--full-3d", dest="depth_blind", action="store_false",
@@ -618,7 +693,8 @@ def main(argv=None) -> int:
                           ray_cap_m=a.ray_cap_mm / 1000.0,
                           min_opposition=a.min_opposition,
                           object_follows_hand=a.object_follows_hand,
-                          min_hand_agreement=a.min_hand_agreement)
+                          min_hand_agreement=a.min_hand_agreement,
+                          min_object_agreement=a.min_object_agreement)
             dt = time.time() - t0
             attempts.append({"object_id": oid, "side": side, "status": res["status"],
                              "why": res.get("why"),
@@ -642,7 +718,7 @@ def main(argv=None) -> int:
                           f"f{sw['span'][1]} 稳且贴, 但 {res['why']}; 否证 {res['vetoed_total']})")
                     continue
                 extra = ("" if res["status"] != "no_stable_contact" else
-                         f"  (病因: {res.get('blocker')}; 区间 {res['n_interval_frames']} 帧里 "
+                         f"  (病因: {res.get('blocker')}; {res.get('likely_cause','')}; 区间 {res['n_interval_frames']} 帧里 "
                          f"贴合 {res.get('n_touch_frames')} 帧 / 对生 {res.get('n_opposed_frames_')} 帧; "
                          f"间距中位 {res['gap_median_mm']:.0f}mm 最小 {res['gap_min_mm']:.1f}mm)")
                 print(f"  {oid} × {side}: {res['status']}{extra}")
@@ -667,7 +743,9 @@ def main(argv=None) -> int:
                   f"全区间漂移 {sw['drift_over_interval_mm']:.0f}mm)")
             print(f"  {'':>{len(oid)+len(side)+5}}  用 {res['frames_used']} 帧  接触顶点 "
                   f"{res['n_contact_verts']} ({res['contact_frac']*100:.1f}%)  "
-                  f"热点(≥半数帧) {res['hot_verts']}  对生度 {res['opposition_tips']:.2f}"
+                  + ("⚠物体位姿可疑(体检 %.2f) " % res['object_mask_agreement']
+                     if res.get('object_pose_suspect') else "")
+                  + f"热点(≥半数帧) {res['hot_verts']}  对生度 {res['opposition_tips']:.2f}"
                   f"(面积口径 {res['opposition_area']:.2f})"
                   f"{'' if res['is_graspable'] else ' ⚠非抓握'}  手到面中位 "
                   f"{res['min_dist_mm_median']:.1f}mm  否证 {int(res['vetoed'].sum())}  "

@@ -420,7 +420,7 @@ def extract(recon_dir: Path, object_id: str, side: str, *, tau_mm: float = 8.0,
     vetoed = np.zeros(len(Vl), np.int32)
     wrong_side = np.zeros(len(Vl), np.int32)
     occ = None
-    if use_normal_gate:
+    if False:
         # 遮挡门用**体素占据**判"实体内", 不用 mesh.contains: 后者在没有 embree 的机器上
         # 退化成纯 Python 射线求交, 60k 点×14 帧能跑到十几分钟(UCB 实测把 ssh 拖断);
         # 体素网格建一次 0.1s, 之后查询 O(1)。3mm 体素对"手在壁的哪一侧"足够。
@@ -443,24 +443,27 @@ def extract(recon_dir: Path, object_id: str, side: str, *, tau_mm: float = 8.0,
             touch = d < tau
         dmins.append(float(d.min()))
         if use_normal_gate:
-            # ★ 遮挡门: 接触点到最近手顶点的**连线不能穿过物体**。
-            #   薄壁物体(杯/碗)上"最近点"分不清内外壁 —— 人从外面扶杯, 几毫米手位误差
-            #   就能让最近点落到内壁(pour/17 实测 2314 热点里 52% 在杯内), 下游会忠实
-            #   地把手指伸进杯子里。
-            #   ⚠ 不用面法向做判据: 重建网格(68万面, 内部噪声结构)实测 39~46% 的面法向
-            #     指向体内, fix_normals 也修不好 —— 法向在这类网格上不可信。
-            #   连线中点落在实体内 => 手在物体另一侧 => 该点是穿透出来的假接触。
-            #   剪刀指环那种"手指穿进环内"不受影响(连线在空腔里, 不穿实体)。
-            hl = (hand[t] - M[:3, 3]) @ M[:3, :3]        # 手顶点 → 物体局部系
-            _, hidx = cKDTree(hl).query(Vl)
-            seg = hl[hidx] - Vl
-            L = np.linalg.norm(seg, axis=1)
-            cand = touch & (L > 0.0015)                  # 段太短没法判, 放行
-            if cand.any():
-                blocked = _inside(Vl[cand] + seg[cand] * 0.5)
-                bad = np.where(cand)[0][blocked]
-                wrong_side[bad] += 1
-                touch[bad] = False
+            # ★ 自遮挡门: 只有**朝向相机的那一面**能被手碰到(ego 视角下手在相机与物体之间)。
+            #   薄壁物体上"最近点"分不清内外壁 —— 人从外面扶杯, 内壁点同样落在 tau 内,
+            #   下游会忠实地把手指伸进杯子(pour/17 实测 52% 热点在杯内)。
+            #   ⚠ 判据必须和 touch 同口径: depth_blind 下 touch 用**面内**距离, 若拿全 3D
+            #     连线去判遮挡, 深度误差会让连线穿过物体, 把 92% 的合法接触误杀(实测
+            #     瓶子热点 7195→273)。所以这里用 z-buffer: 同一像素上只有最前面的表面
+            #     (含 tol 容差的同层)算数, 明显在其后的是背面/内壁。
+            Xc = (Vw - c2w[t][:3, 3]) @ c2w[t][:3, :3]
+            z = Xc[:, 2]
+            ok = z > 1e-4
+            uv = np.full((len(Vw), 2), -1.0)
+            uv[ok] = (K @ (Xc[ok] / z[ok, None]).T).T[:, :2]
+            H, W = 1080, 1920
+            px = np.clip(uv[:, 0].astype(np.int32), 0, W - 1)
+            py = np.clip(uv[:, 1].astype(np.int32), 0, H - 1)
+            key = py * W + px
+            zmin = np.full(H * W, np.inf)
+            np.minimum.at(zmin, key[ok], z[ok])
+            front = ok & (z <= zmin[key] + 0.006)      # 6mm 容差: 壁厚+重建噪声
+            wrong_side += (touch & ~front).astype(np.int32)
+            touch = touch & front
         if use_2d_veto:
             hm = None
             for pat in (D / "masks/hands/frames" / f"frame_{t:06d}_masks" / f"{side}_hand_0.png",):
@@ -580,7 +583,7 @@ def main(argv=None) -> int:
                          "它是假设不是测量。用于位姿太差测不出接触的 take")
     ap.add_argument("--no-2d-veto", dest="use_2d_veto", action="store_false")
     ap.add_argument("--no-occlusion-gate", dest="use_normal_gate", action="store_false",
-                    help="关掉遮挡门(连线穿过物体则否决; 诊断用)")
+                    help="关掉自遮挡门(只认朝相机那一面; 诊断用)")
     ap.add_argument("--out-dir", type=Path, default=None)
     a = ap.parse_args(argv)
 

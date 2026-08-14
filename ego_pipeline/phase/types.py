@@ -11,8 +11,12 @@ world_fused 里是 Th=2*Tv @30fps,需要时用 to_hand_timeline() 上采样。
   UNKNOWN = -1  无标注/未知(完全没有标注文件时)
   FREE    =  0  未接触(自由移动、接近、松手后)
   CONTACT =  1  接触/抓取中
-  2+           预留给更细粒度(APPROACH / MANIPULATE / RELEASE …),
-               由自动接触检测(auto provider)按需扩展,下游用 PHASE_NAMES 解释。
+  GRASP   =  2  稳定抓握(CONTACT 的**子集**):手物相对位姿稳定的那一段。
+               由 ego_pipeline/contact/extract_v2.py 产出,写进 contact_auto_grasp.json。
+               为什么需要它:CONTACT 区间还含接近/调整/松开——clip0 左手×瓶身整个
+               130 帧区间里手在物体局部系漂了 94mm,直接摊平后**没有任何一点**
+               在半数帧里被碰到(热点=0)。抓握的本质是相对位姿稳定,不是碰到。
+  3+           仍预留给更细(APPROACH / RELEASE …),下游用 PHASE_NAMES 解释。
 """
 from __future__ import annotations
 
@@ -23,8 +27,9 @@ import numpy as np
 UNKNOWN = -1
 FREE = 0
 CONTACT = 1
+GRASP = 2        # 稳定抓握: CONTACT 的子集, 手物**相对位姿**稳定的那一段
 
-PHASE_NAMES = {UNKNOWN: "unknown", FREE: "free", CONTACT: "contact"}
+PHASE_NAMES = {UNKNOWN: "unknown", FREE: "free", CONTACT: "contact", GRASP: "grasp"}
 
 DTYPE = np.int8
 

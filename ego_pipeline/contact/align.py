@@ -232,6 +232,54 @@ class TranslationAligner:
             target = target + (out / n) * 0.02 if n > 1e-6 else target
         return target - self.pad.mean(0)
 
+    # ── 试过并**否决**的做法: 三维平移 ICP 种子 (2026-08-13) ──
+    # 想法: 最终解里沿视线只占 2.4cm、垂直于视线占 15.3cm, 所以"只解深度"只优化了 14%,
+    #       不如反复"查指垫最近表面点 -> 整体挪过去", 三维一起给好起点。
+    # 结果: **更差**, 已删除实现。同一用例(clip0 左手×瓶身 f67, 正确手位):
+    #       指垫到面 0.004 -> 0.4 cm;  2D 咬合 IoU 1.000 -> 0.000;  食指垫差 2.91cm;
+    #       评估次数只省 18% (3941->3212), 耗时几乎不变 (246->231s)。
+    # 原因: 纯 ICP 只管"指垫贴表面", **完全不看 2D 证据** —— 它把手拉出去 21.4cm,
+    #       停在一个"指垫确实贴着表面、但投影根本不在物体上"的位置, 优化器再也拉不回来。
+    #       要三维一起解, 必须把轮廓项也纳入目标, 那就不是廉价的最近点迭代了。
+
+    def hand_depth_seed(self, t0, cam_pos, span=0.12, step=0.002, log=None):
+        """沿视线**解**出深度, 而不是撒点碰运气。→ (seed, 诊断)
+
+        `ray_seeds` 的注释说清了病因: 轮廓项对深度是盲的, 沿射线串着几个几乎等价的
+        能量盆地, 所以要撒 5 个起点各跑一遍完整优化 —— 5 倍开销买一个"别掉错盆地"。
+
+        但深度这条轴上我们其实**有测量**: 接触帧上手正贴着物体, 而手是米制可信通道
+        (EgoDex 设备追踪; ARCTIC 上 HaWoR 锚后 74mm 也远好于物体深度)。
+        于是把"撞运气"换成"直接找让指垫最贴合表面的那个偏移":
+
+            对每个候选 s: d_i = 指垫点(平移 t0 + s·d) 到物体表面的距离
+            取使 **中位距离**最小的 s  —— 中位而非均值: 被遮挡/没参与接触的垫点
+            会拖偏均值, 中位对它们不敏感。
+
+        只做 KDTree 最近点查询, 不渲染, 一次扫描 ~120 个候选也只要毫秒级。
+        返回的 seed 交给原来的优化器继续精修, 垂直于视线的两个自由度仍由 2D 证据管
+        —— 那两个本来就准, 不该动。
+        """
+        import numpy as _np
+        t0 = _np.asarray(t0, dtype=_np.float64)
+        d = self.pad.mean(0) + t0 - _np.asarray(cam_pos, dtype=_np.float64)
+        n = _np.linalg.norm(d)
+        if n < 1e-9:
+            return t0, {"ok": False, "why": "指垫与相机重合, 视线方向不定"}
+        d = d / n
+        ss = _np.arange(-span, span + 1e-9, step)
+        med = _np.array([float(_np.median(self.g.distance(self.pad + t0 + s * d))) for s in ss])
+        k = int(_np.argmin(med))
+        seed = t0 + ss[k] * d
+        info = {"ok": True, "s_m": float(ss[k]), "median_gap_m": float(med[k]),
+                "median_gap_at_t0_m": float(med[int(len(ss) // 2)]),
+                "n_candidates": int(len(ss))}
+        if log:
+            log(f"[align]  手定深度: 沿视线移 {ss[k]*100:+.1f}cm -> 指垫到面中位 "
+                f"{med[k]*1000:.1f}mm (t0 处 {med[len(ss)//2]*1000:.1f}mm), "
+                f"扫了 {len(ss)} 个候选")
+        return seed, info
+
     def ray_seeds(self, t0, cam_pos, depths=(-0.06, -0.03, 0.03, 0.06)) -> list:
         """t0 plus copies displaced ALONG THE VIEWING RAY.
 

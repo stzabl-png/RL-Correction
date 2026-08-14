@@ -77,6 +77,14 @@ STEP_ENVS = {
     "contact_align": "hawor",
 }
 
+# 只有这些步骤会读 sam2_object/label_prompt.json; 其余步骤不该被"缺标注"拦住。
+OBJECT_LABEL_STEPS = {"label", "sam2_object"}
+
+
+def _steps_need_object_label(steps) -> bool:
+    return bool(OBJECT_LABEL_STEPS & set(steps))
+
+
 GPU_STEPS = {"vipe", "sam3_hands", "sam2_object", "hawor", "sam3d", "sam3d_scale", "fp_pose", "confidence"}
 CUDA_VISIBLE_DEVICE_STEPS = {"fp_pose"}
 DEFAULT_GPU_MEM_BUDGET_MB = 43000
@@ -1204,6 +1212,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Remote access: ssh -L {args.http_port}:127.0.0.1:{args.http_port} user@host", flush=True)
     elif not args.skip_label:
         print("All videos already have valid final outputs; labeling is skipped.", flush=True)
+    elif not _steps_need_object_label(steps):
+        # ★ 只有真正消费 label_prompt.json 的步骤才需要物体标注。--steps=vipe 之类不需要,
+        #   却被这道门拦下 —— 实测 reconstruct_egodex.sh 第一步只跑 vipe(拿深度), 直接
+        #   "Missing labels with --skip-label" 退出码 2, 整条 EgoDex 入口起不来。
+        #   同样的漏洞早先在 run_pipeline.py 修过, 这个文件漏了。
+        print(f"Labeling not required for steps={','.join(steps)}; continuing.", flush=True)
     elif not all(_restore_cached_label_prompt(job) or (not args.force and _final_complete(job)) for job in jobs):
         missing = [
             job.video_id

@@ -301,7 +301,12 @@ def extract(recon_dir: Path, object_id: str, side: str, *, tau_mm: float = 8.0,
         if depth_blind:
             ip, rz = _gap_no_depth(Vw, hand[t], c2w[t], K)
             ok = rz <= ray_cap_m
-            gap.append(float(ip[ok].min()) if ok.any() else float(ip.min()))
+            # ★ 没有任何点满足视线上限 -> 本帧**判为远**, 不能退回去报面内距离。
+            #   曾经写成 `ip.min() if not ok.any()`, 结果 egodex/pour/17 实测手离物体
+            #   756~1137mm(一米开外), 而 2D 投影恰好重合, 于是被报成"间距 0.13mm 贴合",
+            #   把一个粗错伪装成完美接触。深度盲是**忽略深度噪声**, 不是忽略深度本身 ——
+            #   ray_cap 就是区分二者的那道线, 越过它必须如实说远。
+            gap.append(float(ip[ok].min()) if ok.any() else float(rz.min()))
         else:
             gap.append(float(cKDTree(hand[t]).query(Vw)[0].min()))
     loc, gap, oppo = np.array(loc), np.array(gap), np.array(oppo)
@@ -350,8 +355,15 @@ def extract(recon_dir: Path, object_id: str, side: str, *, tau_mm: float = 8.0,
     if 0 < win_n < min_window:
         win_n = 0
     if win_n == 0:                                     # 没有既稳又贴的段 -> 如实报告
+        n_touch = int((gap <= max(tau_mm / 1000.0, touch_gap_m)).sum())
+        n_opp = int((oppo >= min_opposition).sum())
         return {"status": "no_stable_contact", "object_id": object_id, "side": side,
                 "n_interval_frames": len(frames),
+                # ★ 分开报: 早先只给合并后的 close, 于是"贴着但不对生"和"根本够不着"
+                #   都显示成"0 帧贴合", 病因指错。
+                "n_touch_frames": n_touch, "n_opposed_frames_": n_opp,
+                "blocker": ("够不着" if n_touch == 0 else
+                            "贴合但不对生(不是抓握)" if n_opp == 0 else "窗口太短"),
                 "n_close_frames": int(close.sum()),
                 "gap_median_mm": float(np.median(gap) * 1000),
                 "gap_min_mm": float(gap.min() * 1000),
@@ -555,9 +567,9 @@ def main(argv=None) -> int:
                           f"f{sw['span'][1]} 稳且贴, 但 {res['why']}; 否证 {res['vetoed_total']})")
                     continue
                 extra = ("" if res["status"] != "no_stable_contact" else
-                         f"  ({res.get('why','')}; 区间 {res['n_interval_frames']} 帧里 "
-                         f"{res['n_close_frames']} 帧贴合, 间距中位 "
-                         f"{res['gap_median_mm']:.0f}mm 最小 {res['gap_min_mm']:.1f}mm)")
+                         f"  (病因: {res.get('blocker')}; 区间 {res['n_interval_frames']} 帧里 "
+                         f"贴合 {res.get('n_touch_frames')} 帧 / 对生 {res.get('n_opposed_frames_')} 帧; "
+                         f"间距中位 {res['gap_median_mm']:.0f}mm 最小 {res['gap_min_mm']:.1f}mm)")
                 print(f"  {oid} × {side}: {res['status']}{extra}")
                 continue
             f = f_out

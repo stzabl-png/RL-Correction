@@ -236,26 +236,6 @@ def extract(recon_dir: Path, object_id: str, side: str, *, tau_mm: float = 8.0,
     #   把 extract_v2 "整条 take 2~5 秒"这个立身之本弄没了。
     #   体素只建一次, 之后是 O(1) 查表(align.ObjectGeometry 同款做法, 实测建表 ~1.7s)。
     #   pitch 跟物体尺寸走: 太粗会把薄壁填实(把真接触误判成穿透), 太细白费内存。
-    _occ = _occ_inv = None
-    if use_normal_gate:
-        try:
-            _pitch = float(np.clip(np.linalg.norm(np.ptp(Vl, axis=0)) / 300.0, 0.0015, 0.004))
-            _vg = mesh.voxelized(pitch=_pitch).fill()
-            _occ = np.asarray(_vg.matrix, dtype=bool)
-            _occ_inv = np.linalg.inv(np.asarray(_vg.transform, np.float64))
-        except Exception as e:                     # 非 watertight 等 -> 放弃该门, 但要留痕
-            print(f"  [contact] {object_id}×{side}: 体素化失败({type(e).__name__}), 遮挡门跳过")
-            use_normal_gate = False
-
-    def _inside(P):
-        """P(物体局部系) 是否落在实体内。越界视为体外。"""
-        idx = np.rint((P @ _occ_inv[:3, :3].T + _occ_inv[:3, 3])).astype(int)
-        ok = np.all((idx >= 0) & (idx < np.array(_occ.shape)), axis=1)
-        out = np.zeros(len(P), bool)
-        if ok.any():
-            i = idx[ok]
-            out[ok] = _occ[i[:, 0], i[:, 1], i[:, 2]]
-        return out
 
     # ★★ 先验模式: "物体跟着手走" —— 假设一定有抓握, 把物体整体挪到手上。
     #    ⚠ 这是**假设不是测量**, 产物走 contact_prior_*, 不进 GRASP 阶段标签, 不给 RL 当监督。
@@ -421,9 +401,14 @@ def extract(recon_dir: Path, object_id: str, side: str, *, tau_mm: float = 8.0,
     wrong_side = np.zeros(len(Vl), np.int32)
     occ = None
     if use_normal_gate:
-        # 遮挡门用**体素占据**判"实体内", 不用 mesh.contains: 后者在没有 embree 的机器上
-        # 退化成纯 Python 射线求交, 60k 点×14 帧能跑到十几分钟(UCB 实测把 ssh 拖断);
-        # 体素网格建一次 0.1s, 之后查询 O(1)。3mm 体素对"手在壁的哪一侧"足够。
+        # 遮挡门用**体素占据**判"实体内", 不用 mesh.contains。
+        #   contains 在没有 embree 的机器上退化成纯 Python 射线求交(UCB 实测把 ssh 拖断);
+        #   即使有 embree, 代价也随面数暴涨 —— 实测 screw/0(CAD 13.5万面) 单个"物体×手"
+        #   2.9s -> 254.4s(87x), pour/17(SAM3D 68.8万面) 直接 OOM 被杀(退出码 137)。
+        #   而 extract_v2 存在的全部理由就是"整条 take 2~5 秒"(旧提取器 8 分钟/手)。
+        #   体素建一次 ~0.1s, 之后查询 O(1)。3mm 对"手在壁的哪一侧"足够。
+        # ⚠ 这里曾经**建了两次**体素(两个 Agent 并行改同一文件, 一份成了死代码从未被调用),
+        #   白付一次建表: screw/0 22.8s/4.2GB -> 7.0s/1.2GB, pour/17 10.1s/1.1GB -> 7.8s/0.6GB。
         try:
             occ = mesh.voxelized(pitch=0.003).fill()
         except Exception as e:

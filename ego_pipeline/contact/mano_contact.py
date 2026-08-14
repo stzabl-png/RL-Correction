@@ -217,9 +217,10 @@ def main(argv=None) -> int:
     ap.add_argument("--vote", type=float, default=0.3, help="核心段内接触帧占比阈值; dev 标定")
     ap.add_argument("--min-frames", type=int, default=3)
     ap.add_argument("--align", action="store_true",
-                    help="开最近点贴合。**默认关**: 它是给 fuse 的 J0 腕位 bug(偏12~16cm)
-                         打的补丁, 该 bug 已于 2026-08-13 修复(手到物面实测 0.4~2mm)。
-                         A/B 实测(54条 held-out): 关掉后 F1 0.87→0.89、指集合全对 28%→36%")
+                    help="开最近点贴合(默认关)。它原是给 fuse 的 J0 腕位 bug"
+                         "(偏 12~16cm)打的补丁, 该 bug 已于 2026-08-13 修复"
+                         "(手到物面实测 0.4~2mm)。A/B 实测 54 条 held-out: "
+                         "关掉后 F1 0.87→0.89, 指集合全对 28%→36%")
     ap.add_argument("--cliff", action="store_true",
                     help="断崖分簇阈值(诊断用; GT 判卷证实伤包握, 默认关)")
     a = ap.parse_args(argv)

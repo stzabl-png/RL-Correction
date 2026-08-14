@@ -39,6 +39,22 @@ DEPTH_COMPAT = {"fingertip": {"tip", "pad"}, "pad": {"pad", "tip", "full"},
                 "whole_finger": {"full"}, "none": {"tip", "pad", "full"}}
 
 
+def load_v2_prompt(take: Path) -> dict:
+    """contact v2 的交接件 grasp_prompt.json -> {accepted:{(oid,side):rec}, rejected:{(oid,side):why}}。
+
+    v2 判"是不是抓握"用的是 稳定窗口 + 贴合 + 对生度 三条件, 正是 ARCTIC 标定不出来的
+    那一维(实测: ARCTIC 110 只手 GT 全部有抓握, 零负样本 -> τ 网格必然选最大值)。
+    所以这里只借它的**否决权**与**对生度数值**, 指数仍由 VLM/几何双证人定。"""
+    p = take / "contact" / "grasp_prompt.json"
+    if not p.is_file():
+        return {"accepted": {}, "rejected": {}, "present": False}
+    d = json.loads(p.read_text())
+    acc = {(g["object_id"], g["hand"]): g for g in d.get("grasps", [])}
+    rej = {(r["object_id"], r["hand"]): r.get("why") or r.get("status")
+           for r in d.get("rejected", [])}
+    return {"accepted": acc, "rejected": rej, "present": True}
+
+
 def geometric_fingers(take: Path, side: str) -> dict | None:
     """几何证人。优先 contact_fingers.json(C1 MANO 全手探头: held-out P0.91/R0.83,
     且能报掌与深度——旧指垫探头结构性测不到); 回退旧指垫热图 {n, pads}。"""
@@ -90,7 +106,7 @@ def _filter(table, target, tol, palm, depth, vlm):
     return cands
 
 
-def rank(table: dict, vlm: dict, geo: dict | None) -> dict:
+def rank(table: dict, vlm: dict, geo: dict | None, v2: dict | None = None) -> dict:
     v_n = int(vlm["n_contact_fingers"])
     power = vlm["contact_depth"] == "whole_finger" or bool(vlm["palm_contact"])
     regime = "power" if power else "precision"
@@ -118,6 +134,24 @@ def rank(table: dict, vlm: dict, geo: dict | None) -> dict:
         if geo is not None and not agree:
             notes.append(f"VLM 指数 {v_n} vs 几何 {geo['n']} (差>1) —— VLM 为准, 候选放宽到 ±2")
 
+    # 第三证人: v2 的对生度(几何数值, 0=接触点全朝同一边夹不住, 1=完全对生)
+    v2info = None
+    if v2 is not None:
+        opp = float((v2.get("trust") or {}).get("opposition", 0))
+        v2info = {"opposition": opp,
+                  "grasp_window_frames": v2.get("grasp_window_frames"),
+                  "contact_region": v2.get("contact_region"),
+                  "contact_cloud_npz": v2.get("contact_cloud_npz"),
+                  "hand_mask_agreement": (v2.get("trust") or {}).get("hand_mask_agreement"),
+                  "object_conf_rot": (v2.get("trust") or {}).get("object_conf_rot")}
+        if opp < 0.5:                       # 0.40 以下 v2 已判非抓握; 0.40~0.5 是勉强
+            conf = "low"
+            notes.append(f"v2 对生度仅 {opp:.2f}(勉强够抓握线) —— 候选放宽, 下游建议多带几个")
+            tol = max(tol, 2)
+        cr = v2.get("contact_region") or {}
+        if (v2.get("trust") or {}).get("object_conf_rot", 99) < 10:
+            notes.append("v2: 物体朝向不可信 -> 区域只用高度/半径, 别用方位角")
+
     palm = bool(vlm["palm_contact"])
     cands = _filter(table, target, tol, palm, vlm["contact_depth"], vlm)
     degraded = []
@@ -135,6 +169,7 @@ def rank(table: dict, vlm: dict, geo: dict | None) -> dict:
                                         "n_contact_fingers", "palm_contact", "contact_depth",
                                         "opposition", "object_shape", "object_scale")},
             "geometric": geo,
+            "v2": v2info,
             "notes": notes or None,
             "candidates": cands}
 
@@ -148,16 +183,31 @@ def main(argv=None) -> int:
     table = json.loads(a.table.read_text())["templates"]
     vg = json.loads((a.take / "vlm_grasp.json").read_text())["answer"]
 
-    plan = {"schema_version": "grasp_template_plan_v1", "take": str(a.take),
-            "task_summary": vg.get("task_summary"), "hands": {}}
+    v2p = load_v2_prompt(a.take)
+    plan = {"schema_version": "grasp_template_plan_v2", "take": str(a.take),
+            "task_summary": vg.get("task_summary"),
+            "v2_prompt_present": v2p["present"], "hands": {}}
     for side in ("left", "right"):
         h = vg[side]
         if h["role"] == "idle" or h["n_contact_fingers"] == 0:
             plan["hands"][side] = {"confidence": "n/a", "candidates": [],
                                    "note": "idle / 无接触, 不需要模板"}
             continue
+        # v2 否决: 这只手被判"不是抓握"(没有既稳又贴又对生的窗口) -> 不编模板,
+        # 但要写明原因, 让下游能区分"试过不可用"与"没有这条数据"
+        rej = [(oid, why) for (oid, sd), why in v2p["rejected"].items() if sd == side]
+        acc = {oid: g for (oid, sd), g in v2p["accepted"].items() if sd == side}
+        if v2p["present"] and not acc and rej:
+            plan["hands"][side] = {"confidence": "n/a", "candidates": [],
+                                   "rejected_by_v2": [{"object_id": o, "why": w} for o, w in rej],
+                                   "note": "contact v2 判定非抓握, 不编模板"}
+            continue
         geo = geometric_fingers(a.take, side)
-        plan["hands"][side] = rank(table, h, geo)
+        v2rec = None
+        if acc:
+            oid = (geo or {}).get("object") or sorted(acc)[0]
+            v2rec = acc.get(oid) or acc[sorted(acc)[0]]
+        plan["hands"][side] = rank(table, h, geo, v2rec)
 
     out = a.out or (a.take / "grasp_template_plan.json")
     out.write_text(json.dumps(plan, ensure_ascii=False, indent=1), encoding="utf-8")

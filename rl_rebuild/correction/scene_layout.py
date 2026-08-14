@@ -215,14 +215,21 @@ def _motion_onset(P: np.ndarray, c0: int, win: int = 3) -> tuple[int, str]:
     if T < win + 4:
         return c0, "帧数不足, 用接触起点"
     d = np.linalg.norm(P[win:] - P[:-win], axis=1)
-    base = float(np.median(d[:max(8, win)]))
-    thr = max(0.008, base * 3.0)                      # 0.8cm 或 3× 静止基线
-    cand = np.flatnonzero(d > thr)
-    cand = cand[cand >= max(0, c0 - 2)]               # 不早于接触起点(容 2 帧)
-    if len(cand) == 0:
-        return c0, f"未检出运动(阈{thr*100:.1f}cm), 用接触起点"
-    t = int(cand[0])
-    return t, (f"运动起始 f{t}(接触起点 f{c0}, 阈 {thr*100:.1f}cm/3帧)"
+    # 静止基线取**前段的低分位**而不是中位数: 中位数会被早期抖动抬高(pour17 重建更新后
+    # 前 8 帧混进 0.8~1.1cm 的噪声, 基线从 0.13 抬到 0.37cm, 阈值随之虚高)。
+    base = float(np.percentile(d[:max(12, win * 3)], 25))
+    thr = max(0.008, base * 3.0)
+    # ★ 必须**持续 K 帧**超阈才算"开始动" —— 单帧越阈会被噪声骗(实测早 13 帧)。
+    K = 3
+    ok = d > thr
+    t = None
+    for s in range(max(0, c0 - 2), len(d) - K):
+        if ok[s:s + K].all():
+            t = int(s)
+            break
+    if t is None:
+        return c0, f"未检出持续运动(阈{thr*100:.1f}cm×{K}帧), 用接触起点"
+    return t, (f"运动起始 f{t}(接触起点 f{c0}, 阈 {thr*100:.1f}cm/3帧, 持续{K}帧)"
                if t != c0 else f"运动起始=接触起点 f{c0}")
 
 

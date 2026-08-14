@@ -109,17 +109,38 @@ def per_frame_conf(take_id: str, poseqa: Path) -> dict[str, np.ndarray]:
     return out
 
 
-def _pick_frame(window: tuple[int, int], conf: np.ndarray | None) -> tuple[int, float]:
-    """窗口内取 conf 最高的一帧; 无逐帧 conf 时取中点。→ (帧, c∈[0,1])"""
-    a, b = int(window[0]), int(window[1])
+C_MIN = 0.35           # 锚点可信度下限: 低于它**不发这个锚**(宁缺毋假)
+
+
+def _seg_conf(conf: np.ndarray | None, a: int, b: int) -> np.ndarray | None:
     if conf is None or len(conf) == 0:
-        return (a + b) // 2, 0.5
-    a2, b2 = max(0, a), min(len(conf), max(a + 1, b))
+        return None
+    a2, b2 = max(0, int(a)), min(len(conf), max(int(a) + 1, int(b)))
     seg = conf[a2:b2]
-    if len(seg) == 0:
-        return (a + b) // 2, 0.5
+    return seg / 100.0 if len(seg) else None
+
+
+def _pick_target_frame(conf: np.ndarray | None, t: int, back: int = 3, fwd: int = 5,
+                       fallback_c: float = 0.5) -> tuple[int, float, str]:
+    """**事件时刻由运动学定, 读数时刻由可信度定**。
+
+    在事件邻域 [t-back, t+fwd] 里取逐帧 conf 最高的那一帧来读目标量 ——
+    事件本身(抓稳/驻留)是运动学事实, 不该因为别处更清晰就挪走;
+    但"从哪一帧读目标数值"应当挑最可信的。→ (读数帧, c∈[0,1], 来源说明)
+    """
+    seg = _seg_conf(conf, t - back, t + fwd + 1)
+    if seg is None:
+        return int(t), float(fallback_c), "无逐帧conf, 用物体中位数"
     k = int(np.argmax(seg))
-    return a2 + k, float(seg[k]) / 100.0
+    t2 = max(0, t - back) + k
+    return int(t2), float(seg[k]), f"邻域[{max(0,t-back)},{t+fwd}]取conf最高帧"
+
+
+def _wmean(X: np.ndarray, w: np.ndarray | None) -> np.ndarray:
+    """置信加权均值 —— 让更可信的帧主导目标量。"""
+    if w is None or len(w) != len(X) or float(w.sum()) <= 0:
+        return X.mean(0)
+    return (X * w[:, None]).sum(0) / float(w.sum())
 
 
 def _tol(c: float) -> float:
@@ -158,7 +179,7 @@ def build(recon_dir: Path, replay_npz: Path, *, poseqa: Path | None = None,
     P = _obj_positions(Tw)
 
     # ---------- 1. 抓握事件(物体运动起始) ----------
-    chain, roles = [], {}
+    chain, roles, dropped = [], {}, []
     grasp_f = {}
     for i, oid in enumerate(oids):
         if oid not in onsets:
@@ -167,12 +188,21 @@ def build(recon_dir: Path, replay_npz: Path, *, poseqa: Path | None = None,
         roles[oid] = hand
         t, why = _motion_onset(P[i], int(c0))
         grasp_f[oid] = t
-        cpos = (co.get(oid, {}).get("conf_pos_median") or 50.0) / 100.0
-        anchor = J[hand][int(np.clip(t, 0, len(J[hand]) - 1))][FINGERTIPS].mean(0)
+        med = (co.get(oid, {}).get("conf_pos_median") or 50.0) / 100.0
+        # ★ 事件时刻 t 由运动学定; **读数帧 tt 由逐帧可信度定**
+        tt, cpos, csrc = _pick_target_frame(pfc.get(oid), int(t), fallback_c=med)
+        if cpos < C_MIN:
+            dropped.append({"kind": "grasp", "t": int(t), "object": oid,
+                            "conf": round(cpos, 3), "why": f"conf < C_MIN({C_MIN})"})
+            continue
+        anchor = J[hand][int(np.clip(tt, 0, len(J[hand]) - 1))][FINGERTIPS].mean(0)
         # 目标为**相对量**: 指尖质心相对该物体质心(世界系差, 物体系由摆放给)
-        rel = (anchor - P[i][int(np.clip(t, 0, T - 1))]).tolist()
-        chain.append({"kind": "grasp", "t": int(t), "object": oid, "hand": hand,
-                      "conf": round(cpos, 3), "tol_m": round(_tol(cpos), 4),
+        rel = (anchor - P[i][int(np.clip(tt, 0, T - 1))]).tolist()
+        chain.append({"kind": "grasp", "t": int(t), "t_target": int(tt),
+                      "object": oid, "hand": hand,
+                      "conf": round(cpos, 3), "conf_source": csrc,
+                      "conf_object_median": round(med, 3),
+                      "tol_m": round(_tol(cpos), 4),
                       "target_rel_fingertip_centroid_m": [round(x, 4) for x in rel],
                       "source": f"物体运动起始({why}); 接触起点 f{c0}"})
 
@@ -181,17 +211,34 @@ def build(recon_dir: Path, replay_npz: Path, *, poseqa: Path | None = None,
     segs = dwells(Tw, lo, T - 5)
     rot_ok = {oid: bool(co.get(oid, {}).get("rotation_usable")) for oid in oids}
     for (a, b) in segs:
-        c_use = min((co.get(o, {}).get("conf_pos_median") or 50.0) / 100.0 for o in oids)
+        # ★ 用**该段内的逐帧 conf**, 不用物体中位数 —— 交互段恰恰是最不可信的时候
+        #   (pour17 实测: 瓶中位 0.83, 但倒水段只有 0.54)。多物体取**较弱**的那个。
+        segc = {o: _seg_conf(pfc.get(o), a, b) for o in oids}
+        have = [s for s in segc.values() if s is not None]
+        if have:
+            w = np.minimum.reduce(have) if len(have) > 1 else have[0]
+            c_use, csrc = float(w.mean()), "段内逐帧conf(多物体取较弱者)"
+        else:
+            w = None
+            c_use = min((co.get(o, {}).get("conf_pos_median") or 50.0) / 100.0 for o in oids)
+            csrc = "无逐帧conf, 用物体中位数"
+        if c_use < C_MIN:
+            dropped.append({"kind": "dwell", "t": [int(a), int(b)],
+                            "conf": round(c_use, 3), "why": f"conf < C_MIN({C_MIN})"})
+            continue
         item = {"kind": "dwell", "t": [int(a), int(b)], "hold_steps": int(b - a),
-                "conf": round(c_use, 3), "tol_m": round(_tol(c_use), 4),
+                "conf": round(c_use, 3), "conf_source": csrc,
+                "tol_m": round(_tol(c_use), 4),
                 "source": f"相对构型驻留(窗口[{lo},{T-5}], 分位{DWELL_PCT}%, ≥{DWELL_MIN_LEN}帧)"}
         if len(oids) >= 2:
-            rel = (P[1][a:b] - P[0][a:b]).mean(0)
+            # 目标量用**置信加权均值**: 让更可信的帧主导
+            rel = _wmean(P[1][a:b] - P[0][a:b], w)
             item["objects"] = [oids[0], oids[1]]
             item["target_rel_pos_m"] = [round(float(x), 4) for x in rel]
             # 朝向只有在**权威裁定可用**时才进目标
             if rot_ok.get(oids[1]):
-                ax = _main_axis_world(Tw, 1)[a:b].mean(0)
+                ax = _wmean(_main_axis_world(Tw, 1)[a:b], w)
+                ax = ax / (np.linalg.norm(ax) + 1e-9)
                 tilt = float(np.degrees(np.arccos(abs(np.clip(ax[2], -1, 1)))))
                 item["target_tilt_deg"] = round(tilt, 1)
                 item["tilt_object"] = oids[1]
@@ -204,10 +251,18 @@ def build(recon_dir: Path, replay_npz: Path, *, poseqa: Path | None = None,
         if oid not in roles:
             continue
         t = last_motion(P[i])
-        cpos = (co.get(oid, {}).get("conf_pos_median") or 50.0) / 100.0
-        chain.append({"kind": "release", "t": int(t), "object": oid, "hand": roles[oid],
-                      "conf": round(cpos, 3), "tol_m": round(_tol(cpos), 4),
-                      "target_pos_m": [round(float(x), 4) for x in P[i][min(t, T - 1)]],
+        med = (co.get(oid, {}).get("conf_pos_median") or 50.0) / 100.0
+        tt, cpos, csrc = _pick_target_frame(pfc.get(oid), int(t), fallback_c=med)
+        if cpos < C_MIN:
+            dropped.append({"kind": "release", "t": int(t), "object": oid,
+                            "conf": round(cpos, 3), "why": f"conf < C_MIN({C_MIN})"})
+            continue
+        chain.append({"kind": "release", "t": int(t), "t_target": int(tt),
+                      "object": oid, "hand": roles[oid],
+                      "conf": round(cpos, 3), "conf_source": csrc,
+                      "conf_object_median": round(med, 3),
+                      "tol_m": round(_tol(cpos), 4),
+                      "target_pos_m": [round(float(x), 4) for x in P[i][min(tt, T - 1)]],
                       "source": "物体末次运动"})
 
     # ---------- 4. 清理: release 落在某个 dwell 内 ⟹ 并入该 dwell ----------
@@ -229,13 +284,23 @@ def build(recon_dir: Path, replay_npz: Path, *, poseqa: Path | None = None,
     for n, k in enumerate(chain):
         k["stage"] = n + 1                      # ★ 训练阶段 = 链上序号(不许人工设定)
 
+    wf = recon_dir / "world_fused.npz"
+    src = wf.resolve()
+    stamp = {"world_fused": str(src),
+             "mtime": __import__("datetime").datetime.fromtimestamp(
+                 src.stat().st_mtime).isoformat(timespec="seconds"),
+             "size": src.stat().st_size,
+             "note": "上游重建仍在优化中; 数据一变本产物必须重跑(帧号会随之变)"}
     return {"schema_version": "keyframes_v1", "take": str(recon_dir), "n_frames": int(T),
+            "source_stamp": stamp,
             "fps": float(r["fps"]) if "fps" in r.files else None,
             "roles": roles, "rotation_usable": rot_ok,
             "interaction_window": [int(lo), int(T - 5)],
             "gate_rule": "gate_i = slowEMA(第 i 环达成率) ≥ 0.8 才放行第 i+1 环",
             "tolerance_rule": f"tol = {TOL0_M}·(1+{TOL_K}(1-c))",
-            "keyframes": chain}
+            "conf_rule": (f"事件时刻由运动学定; 读数帧/容差由**逐帧**可信度定; "
+                          f"低于 C_MIN={C_MIN} 的锚**不发**(宁缺毋假)"),
+            "dropped": dropped, "keyframes": chain}
 
 
 def main(argv=None) -> int:

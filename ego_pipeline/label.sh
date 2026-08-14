@@ -41,6 +41,8 @@ else
   echo "[label] 本地标注前 $N 条（绿 mask, GPU）。列表: $LIST ($(wc -l < "$LIST") 条)"
 fi
 
-exec conda run --no-capture-output -n HV2RD python "$RECON/sam2_object/label_object.py" \
+# HV2RD env 已废弃(那个仓 2026-08-10 收编删除, env 名一直留到 2026-08-14)。
+# codetr 是它的超集: 同 torch/sam2/decord, 另有 HOI-DETR 的 mmcv+transformers。
+exec conda run --no-capture-output -n codetr python "$RECON/sam2_object/label_object.py" \
   --dataset hoi4d --dataset-root "$BIV2AP/Data/HOI4D" \
   --video-list "$LIST" --label-mode headed --preview-device cuda --gpu 0 ${PASS[@]+"${PASS[@]}"}

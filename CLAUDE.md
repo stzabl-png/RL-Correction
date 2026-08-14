@@ -35,3 +35,16 @@ GitHub = stzabl-png/RL-Correction 的 Step2_NoisyRecon 分支(本目录就是其
      (或环境变量 `AUTO_LABEL_INSTANCE=all`)。
 7. 从单个文件的 docstring 推断能力边界之前, 先 grep `tools/` 和 `ego_pipeline/bin/`——
    这个仓的自动化入口多数在这两处。
+8. **环境分工**(权威在 `run_batch_queue.STEP_ENVS`, 别凭记忆):
+
+   | env | 步骤 |
+   |---|---|
+   | `cu128` | vipe |
+   | `codetr` | sam3_hands(SAM3 手分割) / sam2_object(SAM2 物体传播) / HOI-DETR v17A / label.sh |
+   | `biv2ap` | sam3d / sam3d_scale / fp_pose |
+   | `hawor` | hawor / vlm_gate / retrieval / fuse / confidence / contact |
+
+   ★ **`HV2RD` env 已于 2026-08-14 删除**(本地+UCB)。那是被收编删仓后遗留的 env 名;
+   codetr 是它的超集(同 torch 2.11.0+cu128 / 同一个 editable sam2 / decord 0.6.0,
+   另有 mmcv+transformers), 补装 sam3 与 ftfy==6.1.1 后接管了它的两步。
+   包清单存档 `docs/hv2rd_archive/HV2RD_env_packages.txt`。

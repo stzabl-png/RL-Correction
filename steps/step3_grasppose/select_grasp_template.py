@@ -35,6 +35,20 @@ import numpy as np
 
 HERE = Path(__file__).resolve().parent
 PAD_MIN_VERTS = 150          # 指垫热顶点数低于此视为未接触(pour实测: 真接触 305~4000, 假 0)
+# 模板手指跨距(mm) = 模板接触点两两最大距离, 由 assets/hand/*/init_tmpl/*.npy 量出。
+# 用来判"这个物体这只手根本抓不抓得住" —— pour/17 实测: 杯子接触带直径 137~153mm,
+# 而选择器给了跨距 58mm 的捏取模板, 合成器只能去勾杯沿(47 个候选全是这个模式)。
+# ⚠ 上限按族给, 不能取全库最大值: 跨距最大的 17_Index_Finger_Extension(147mm) 是
+#   伸展/钩状, 接触点铺开但**不构成包围**, 不该算进"能抓多大"。
+# 各模板实测跨距(mm), 由 Dexonomy/assets/hand/sharpa_wave/init_tmpl/*.npy 量出并落盘
+try:
+    TEMPLATE_SPAN_MM = json.loads((HERE / "template_spans.json").read_text())
+except Exception:
+    TEMPLATE_SPAN_MM = {}
+
+WRAP_MAX_MM = 126.0        # 环握族上限: 30_Palmar 126 / 1_Large_Diameter 114 / 3_Medium_Wrap 105
+PINCH_MAX_MM = 76.0        # 捏取族上限: 6_Prismatic_4_Finger 76 / 7_Prismatic_3 58 / 8_Prismatic_2 48
+
 DEPTH_COMPAT = {"fingertip": {"tip", "pad"}, "pad": {"pad", "tip", "full"},
                 "whole_finger": {"full"}, "none": {"tip", "pad", "full"}}
 
@@ -53,6 +67,56 @@ def load_v2_prompt(take: Path) -> dict:
     rej = {(r["object_id"], r["hand"]): r.get("why") or r.get("status")
            for r in d.get("rejected", [])}
     return {"accepted": acc, "rejected": rej, "present": True}
+
+
+def graspable_size(take: Path, side: str) -> dict | None:
+    """接触带处的横截面直径(mm) —— 判物体抓不抓得住用的尺寸。
+
+    ★用**接触带处**的截面, 不用整体包围盒: 剪刀整体 20cm 但人抓的指环只有 2cm,
+      按整体尺寸判会把所有模板都毙掉。接触带来自 contact v2 的热点高度分布。
+    """
+    try:
+        import trimesh
+    except ImportError:
+        return None
+    cf = take / "contact" / "contact_fingers.json"
+    prompt = take / "contact" / "grasp_prompt.json"
+    oid = None
+    if prompt.is_file():
+        for g in json.loads(prompt.read_text()).get("grasps", []):
+            if g["hand"] == side:
+                oid = g["object_id"]
+                break
+    if oid is None and cf.is_file():
+        oid = (json.loads(cf.read_text())["hands"].get(side) or {}).get("primary")
+    if oid is None:
+        return None
+    mesh_p = next((q for q in (take / "objects" / oid / "object_mesh_scaled_final.obj",
+                               take / "object_mesh_scaled_final.obj") if q.is_file()), None)
+    hot_p = next((q for q in take.glob(f"contact/contact_v2_{oid}_{side}.npz")), None)
+    if mesh_p is None:
+        return None
+    m = trimesh.load(mesh_p, force="mesh", process=False)
+    V = np.asarray(m.vertices)
+    ext = m.bounds[1] - m.bounds[0]
+    ax = int(np.argmax(ext))
+    band = None
+    if hot_p is not None:
+        z = np.load(hot_p, allow_pickle=True)
+        hot = z["probe_local"][z["weight"] >= 0.5]
+        if len(hot) > 20:
+            band = (float(hot[:, ax].min()), float(hot[:, ax].max()))
+    if band is None:                       # 没有接触带就退回整体(标明来源)
+        band, src = (float(V[:, ax].min()), float(V[:, ax].max())), "whole_object"
+    else:
+        src = "contact_band"
+    sl = V[(V[:, ax] >= band[0] - 0.004) & (V[:, ax] <= band[1] + 0.004)]
+    if len(sl) < 20:
+        sl = V
+    o = [i for i in range(3) if i != ax]
+    dia = max(float(np.ptp(sl[:, o[0]])), float(np.ptp(sl[:, o[1]]))) * 1000
+    return {"object": oid, "diameter_mm": round(dia, 1), "source": src,
+            "band_frac": round((band[1] - band[0]) / float(ext[ax]), 2)}
 
 
 def geometric_fingers(take: Path, side: str) -> dict | None:
@@ -106,7 +170,8 @@ def _filter(table, target, tol, palm, depth, vlm):
     return cands
 
 
-def rank(table: dict, vlm: dict, geo: dict | None, v2: dict | None = None) -> dict:
+def rank(table: dict, vlm: dict, geo: dict | None, v2: dict | None = None,
+         size: dict | None = None) -> dict:
     v_n = int(vlm["n_contact_fingers"])
     power = vlm["contact_depth"] == "whole_finger" or bool(vlm["palm_contact"])
     regime = "power" if power else "precision"
@@ -152,8 +217,31 @@ def rank(table: dict, vlm: dict, geo: dict | None, v2: dict | None = None) -> di
         if (v2.get("trust") or {}).get("object_conf_rot", 99) < 10:
             notes.append("v2: 物体朝向不可信 -> 区域只用高度/半径, 别用方位角")
 
+    # ★尺寸门: 物体在接触带处有多粗, 决定这只手够不够得着 —— 与 VLM 的语义判断无关,
+    #   是纯物理约束。pour/17 杯子(接触带直径 137~153mm)配了跨距 58mm 的捏取模板,
+    #   合成器只能去勾杯沿, 47 个候选全废。
+    size_note = None
+    if size is not None:
+        dia = size["diameter_mm"]
+        if dia > WRAP_MAX_MM:
+            size_note = (f"接触带直径 {dia:.0f}mm > 环握族上限 {WRAP_MAX_MM:.0f}mm —— "
+                         f"**全库无模板能抓住它**, 只能扶/勾边; 下游别指望闭合抓取")
+            conf = "low"
+            notes.append(size_note)
+        elif regime == "precision" and dia > PINCH_MAX_MM:
+            size_note = (f"接触带直径 {dia:.0f}mm > 捏取族上限 {PINCH_MAX_MM:.0f}mm —— "
+                         f"VLM 判 precision 但物体捏不住, 改按环握族出候选")
+            notes.append(size_note)
+            regime = "power_by_size"          # 体制被物理约束改写
+            palm_override = True
+
     palm = bool(vlm["palm_contact"])
+    if size_note and "捏取族上限" in size_note:
+        palm = None                            # 放开掌部约束, 让环握族进来
     cands = _filter(table, target, tol, palm, vlm["contact_depth"], vlm)
+    if size is not None:                       # 硬过滤: 跨距装不下的模板直接剔除
+        cands = [c for c in cands
+                 if TEMPLATE_SPAN_MM.get(c["template"], 0) >= size["diameter_mm"] * 0.55]
     degraded = []
     if not cands:                                    # 兜底: 逐级降级, 全程记账
         degraded.append(f"tol {tol}->{tol + 1}")
@@ -169,6 +257,7 @@ def rank(table: dict, vlm: dict, geo: dict | None, v2: dict | None = None) -> di
                                         "n_contact_fingers", "palm_contact", "contact_depth",
                                         "opposition", "object_shape", "object_scale")},
             "geometric": geo,
+            "size": size,
             "v2": v2info,
             "notes": notes or None,
             "candidates": cands}
@@ -216,7 +305,7 @@ def main(argv=None) -> int:
         if acc:
             oid = (geo or {}).get("object") or sorted(acc)[0]
             v2rec = acc.get(oid) or acc[sorted(acc)[0]]
-        entry = rank(table, h, geo, v2rec)
+        entry = rank(table, h, geo, v2rec, graspable_size(a.take, side))
         if v2_note:
             entry["v2_warnings"] = v2_note
         plan["hands"][side] = entry

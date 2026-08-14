@@ -22,7 +22,17 @@ _RP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${RECON_PIPELINE:=$RR_ROOT/ego_pipeline/Reconstruction/recon_pipeline}"
 : "${V2AP_ROOT:=/home/lyh/Project/V2AP}"
 : "${EGODEX_ROOT:=$V2AP_ROOT/data/egocentric/egodex}"
-: "${HAWOR_PYTHON:=/home/lyh/anaconda3/envs/hawor/bin/python}"
+# hawor 解释器: **自动探测**, 不写死。本地是 anaconda3, 远端 UCB 是 miniconda3,
+# 写死本地路径会让远端在 vipe 之后立刻 "No such file or directory" 退出 ——
+# 而 vipe 本身是成功的, 所以看起来像"每条都跑了 2 分钟然后失败"(2026-08-12 空烧 10 条)。
+if [ -z "${HAWOR_PYTHON:-}" ]; then
+  for _c in "$HOME/anaconda3/envs/hawor/bin/python" "$HOME/miniconda3/envs/hawor/bin/python" \
+            /home/lyh/anaconda3/envs/hawor/bin/python; do
+    [ -x "$_c" ] && { HAWOR_PYTHON="$_c"; break; }
+  done
+  : "${HAWOR_PYTHON:=python3}"
+  unset _c
+fi
 : "${ISAAC_PYTHON:=$THIRD_PARTY/MagicDexMate/.venv-isaac/bin/python}"
 
 : "${A2G_ROOT:=/home/lyh/Project/Affordance2Grasp}"

@@ -121,8 +121,17 @@ else
         continue
       fi
       rc=0
-      LABEL_ARGS=(--visualize-hoi)
-      [[ "$HOI_ONLY" == 0 ]] || LABEL_ARGS+=(--hoi-only)
+      # ★ 评审视频**只在 --hoi-only 时**渲染, 正常重建不渲染。
+      #   正常重建没人会看这段视频, 却要为每条视频多付一次整片解码+绘制+编码;
+      #   本地已有 90 条探针都没渲染过, 无条件打开等于给它们各补渲一遍。
+      #   真要看时 --hoi-only 本来就渲染, 且 auto_label 有"用缓存只重画不重跑模型"的快路径。
+      #
+      #   ⚠ 曾据"visualize 进了 run_spec -> run_fingerprint 变 -> 90 条探针全部重跑模型
+      #     (≈8 小时 GPU)"来论证, **该论证不成立**: auto_label 先判 det.is_file(), 已有
+      #     detections.json 时根本不调 run_sequence, 指纹检查到不了。指纹确实会变
+      #     (实测 4b17a7.. -> dc26a0b..), 但那条路走不到。真实代价只是渲染, 不是推理。
+      LABEL_ARGS=()
+      [[ "$HOI_ONLY" == 0 ]] || LABEL_ARGS+=(--hoi-only --visualize-hoi)
       conda run --no-capture-output -n hawor python "$HERE/bin/auto_label_v17a.py" \
         --dataset "$DATASET" --dataset-root "$ROOT" --video "$vp" \
         --gpu "${GPUS%%,*}" "${LABEL_ARGS[@]}" || rc=$?   # set -e 下必须 ||捕获; 标注用选定的第一张卡

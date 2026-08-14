@@ -35,6 +35,19 @@ if str(RECON_ROOT) not in sys.path:
 
 from _common.paths import final_video_dir, is_step_complete, write_step_completion  # noqa: E402
 
+
+def _collect(summary, scene, oid, side, frame, ivs):
+    """把一个 (物体,手) 的对齐结果并进 summary。并行完成后逐个调用。"""
+    sfx = "" if oid == "object_0" else f"_{oid}"
+    res = scene / "contact" / f"stage4_frame{frame:04d}_{side}{sfx}.json"
+    row: dict = {"status": "ok", "frame": frame, "intervals": ivs}
+    try:
+        d = json.loads(res.read_text())
+        row.update({k: d[k] for k in ("hot_verts", "hot_frac", "per_pad") if k in d})
+    except Exception:                                 # 摘要缺失不挡完成
+        row["summary"] = "unparsed"
+    summary["objects"].setdefault(oid, {})[side] = row
+
 STEP = "contact"
 REPO_ROOT = RECON_ROOT.parent.parent.parent          # Reconstruct_and_Retarget 仓库根
 EGO = REPO_ROOT / "ego_pipeline"
@@ -80,6 +93,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--dataset-root", type=Path, default=None)
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--visualize", action="store_true")      # 诊断图本来就总是产出
+    ap.add_argument("--jobs", type=int, default=0,
+                    help="对齐+热度图的并行度; 0=自动(核数/8)。各(物体×手)互相独立, "
+                         "纯 CPU —— 串行时 2 物体×2 手要 4×12 分钟")
     ap.add_argument("--no-heatmap", action="store_true",
                     help="跳过 4/4 对齐+热度图(每手~9min 的单帧优化)。接触语义走 "
                          "mano_contact(C1 全手探头)时热度图仅是选择器 fallback/RL 可视化, "
@@ -102,7 +118,21 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     py = _hawor_py()
-    if not (scene / "replay_world.npz").is_file():
+    # ★ 陈旧检查: 只判"存在"会静默用过期数据。实测踩过 —— fuse 修复(手位偏 16cm)后,
+    #   RetargetOutput 那份 replay 重生成了, 而**重建目录里 contact 自己那份没人动**,
+    #   于是对齐读的是修复前的手, 腕位差 158.8mm, 而且不报任何错
+    #   (只有 contact_align_heatmap 的 hand_reprojection_health=0% 隐约提示)。
+    #   下游产物必须比它的源新, 否则重做。
+    def _stale(dst: Path, *srcs: Path) -> bool:
+        if not dst.is_file():
+            return True
+        m = dst.stat().st_mtime
+        return any(s.is_file() and s.stat().st_mtime > m + 1.0 for s in srcs)
+
+    replay = scene / "replay_world.npz"
+    if _stale(replay, scene / "world_fused.npz"):
+        why = "缺失" if not replay.is_file() else "比 world_fused.npz 旧(源已重生成)"
+        print(f"[contact] replay_world.npz {why} -> 重做 bridge")
         rc = _run("1/4 bridge", [py, EGO / "bridge" / "recon_to_replay.py",
                                  "--in", scene, "--cpu"])
         if rc:
@@ -121,6 +151,7 @@ def main(argv: list[str] | None = None) -> int:
 
     summary: dict = {"objects": {}}
     done_qpos: set[str] = set()
+    jobs: list = []
     for oid in obj_ids:
         ca = scene / ("contact_auto.json" if len(obj_ids) == 1
                       else f"contact_auto_{oid}.json")
@@ -140,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             frame = pick_frame(ivs)
             qp = scene / f"ref_qpos_{side}.npz"
-            if side not in done_qpos and not qp.is_file():
+            if side not in done_qpos and _stale(qp, replay):
                 rc = _run(f"3/4 {side} 重定向", [MDM_PY, "-m", "contact.make_ref_qpos",
                                                 scene, "--hand", side, "--out", qp], cwd=EGO)
                 if rc:
@@ -156,19 +187,29 @@ def main(argv: list[str] | None = None) -> int:
                    "--object", oid, "--stage", "heatmap"]
             if args.video.is_file():
                 cmd += ["--video", args.video]
-            rc = _run(f"4/4 {oid}/{side} 对齐+热度图 @f{frame}", cmd)
-            if rc:
-                return rc
-            sfx = "" if oid == "object_0" else f"_{oid}"
-            res = scene / "contact" / f"stage4_frame{frame:04d}_{side}{sfx}.json"
-            row: dict = {"status": "ok", "frame": frame, "intervals": ivs}
-            try:
-                d = json.loads(res.read_text())
-                row.update({k: d[k] for k in ("hot_verts", "hot_frac", "per_pad") if k in d})
-            except Exception:                                 # 摘要缺失不挡完成
-                row["summary"] = "unparsed"
-            osum[side] = row
+            jobs.append((oid, side, frame, ivs, cmd))
+            continue
         summary["objects"][oid] = osum
+
+    # ★ 并行跑对齐+热度图: 纯 CPU, 各 (物体×手) 互相独立, 而机器是多核的。
+    #   串行时 2 物体×2 手 = 4×12 分钟; 并行后 = 一个的时间。
+    #   ⚠ 不要无限并行 —— 每个进程自己会用多线程做最近点/渲染, 开太多反而互相抢核。
+    if jobs:
+        import concurrent.futures as _cf
+        nw = max(1, min(len(jobs), args.jobs if args.jobs > 0
+                        else max(1, (os.cpu_count() or 4) // 8)))
+        print(f"[contact] 4/4 对齐+热度图 ×{len(jobs)} 个(物体×手), 并行度 {nw}")
+        with _cf.ThreadPoolExecutor(max_workers=nw) as ex:
+            futs = {ex.submit(_run, f"4/4 {o}/{sd} 对齐+热度图 @f{fr}", c): (o, sd, fr, iv)
+                    for o, sd, fr, iv, c in jobs}
+            for fu in _cf.as_completed(futs):
+                o, sd, fr, iv = futs[fu]
+                if fu.result():
+                    print(f"[contact] ⚠ {o}/{sd} 失败 —— 不挡其余(该手记 failed)")
+                    summary["objects"].setdefault(o, {})[sd] = {
+                        "status": "failed", "frame": fr, "intervals": iv}
+                    continue
+                _collect(summary, scene, o, sd, fr, iv)
 
     write_step_completion(scene, STEP, dataset=args.dataset, video_id=args.video_id,
                           extra=summary)

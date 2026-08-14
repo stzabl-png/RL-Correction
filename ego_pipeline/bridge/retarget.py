@@ -79,11 +79,20 @@ def main() -> int:
             else:
                 print(f"{tag}: replay_world.npz exists (skip; --force to redo)")
 
-            if not args.skip_usd and mesh.exists() and (args.force or not usd.exists()):
-                print(f"{tag}: obj_to_usd …")
+            # ★ 多物体(瓶身+盖这类配对场景)要逐件转 USD: 查看器的 --object-usd 接受多个,
+            #   按顺序匹配 replay 里的 obj_pose_all。只转一个的话第二条轨迹没有网格可挂,
+            #   而"拧盖"这个动作的本质就是盖相对瓶身转 —— 单件根本表达不了。
+            meshes = sorted((take / "objects").glob("object_*/object_mesh_scaled_final.obj"))
+            if meshes:
+                targets = [(m, dest / f"{m.parent.name}.usd") for m in meshes]
+            else:
+                targets = [(mesh, usd)] if mesh.exists() else []
+            if not args.skip_usd and targets and (args.force or not all(u.exists() for _, u in targets)):
                 env = {**os.environ, "OMNI_KIT_ACCEPT_EULA": "YES"}
-                subprocess.run([str(ISAAC_PY), str(OBJ_TO_USD),
-                                "--in", str(mesh), "--out", str(usd)], check=True, env=env)
+                for mi, ui in targets:
+                    print(f"{tag}: obj_to_usd {ui.name} …")
+                    subprocess.run([str(ISAAC_PY), str(OBJ_TO_USD),
+                                    "--in", str(mi), "--out", str(ui)], check=True, env=env)
             ok += 1
         except subprocess.CalledProcessError as e:
             print(f"{tag}: FAILED ({e})", file=sys.stderr)

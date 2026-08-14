@@ -73,7 +73,8 @@ parser.add_argument("--max-depen-vel", type=float, default=0.5,
 parser.add_argument("--solver-pos-iter", type=int, default=32,
                     help="(physics) object solver position iterations (higher = more stable contact)")
 # scene / placement
-parser.add_argument("--table", action="store_true", help="add a square table")
+parser.add_argument("--table", action=argparse.BooleanOptionalAction, default=True,
+                    help="add a square table (默认开: 下游要放机器人, 没有桌子无从摆放; --no-table 关闭)")
 parser.add_argument("--table-size", type=float, default=4.0, help="table side length (m)")
 parser.add_argument("--table-height", type=float, default=0.85, help="table top surface height (m)")
 parser.add_argument("--table-thickness", type=float, default=0.04, help="tabletop slab thickness (m)")
@@ -83,8 +84,10 @@ parser.add_argument("--scene-rot", default="1,0,0,0",
                          "lift; correct for HOI4D's downward-looking camera)")
 parser.add_argument("--smooth", type=int, default=1,
                     help="moving-average window (frames) on hand/object positions; 1=off")
-parser.add_argument("--recenter", choices=["none", "table"], default="none",
-                    help="translate so the object's frame-0 lands at the table center")
+parser.add_argument("--recenter", choices=["none", "table"], default="table",
+                    help="translate so the object's frame-0 lands at the table center "
+                         "(默认 table: 与 rl_rebuild/correction/frames.py align_replay 同一约定, "
+                         "手和物体施加**同一个**变换, 相对几何不变)")
 parser.add_argument("--obj-place", choices=["traj", "grip"], default="traj",
                     help="traj = object follows obj_pose; grip = ignore object trajectory and "
                          "place the object statically at the two-hand grip midpoint (physics decides)")
@@ -106,6 +109,13 @@ parser.add_argument("--palm-flip", default="left",
                          "(SharpaWave left model is mirrored, so its palm needs this; "
                          "default 'left'. Use '' to disable, or 'left,right' for both)")
 parser.add_argument("--no-base-motion", action="store_true", help="freeze base at frame-0 wrist pose")
+parser.add_argument("--record", default=None,
+                    help="录像输出 mp4。逐帧抓 /World/snap_cam 的 RGB 写视频 —— 与 --snap-times "
+                         "的定时抓拍不同, 这个是连续的。会自动开 --headless(无窗口更稳更快)。")
+parser.add_argument("--record-fps", type=float, default=15.0, help="录像帧率")
+parser.add_argument("--record-res", default="1600,1000", help="录像分辨率 w,h")
+parser.add_argument("--record-focal", type=float, default=2.4,
+                    help="录像相机焦距(Isaac 单位)。默认 2.4 是很广的视角; 想拉近放大到 4~6")
 parser.add_argument("--snap-dir", default=None, help="save RGB snapshots here")
 parser.add_argument("--snap-times", default="", help="comma sim-seconds to snap, e.g. 0.0,1.5,3.0")
 parser.add_argument("--cam-view", choices=["topdown", "iso", "manual"], default="topdown",
@@ -316,8 +326,34 @@ if args.recenter == "table":
     # x,y: center the object's frame-0 on the table; z: rest the LOWEST point of the whole
     # object trajectory on the table, so the object sits on the table at its resting moment
     # and lifts ABOVE it (anchoring frame 0 sinks the rest below the table if frame 0 is high)
+    # ★ 落桌高度必须用**真实顶点**最低点。原来用 obj_pos_w[:,2].min() —— 那是物体
+    #   **原点**的高度, 与网格底面差多少完全取决于建模时原点放哪, 可以差十几厘米。
+    #   (rl_rebuild align_replay 的注释只警告了 AABB 角点的 4.6cm 悬空; 用原点更糟。)
+    _bottom = None
+    if "obj_verts_local" in data:
+        Vl = np.asarray(data["obj_verts_local"], np.float64)      # (n_obj,N,3)
+        zs = []
+        for oi in range(len(Vl)):
+            q = obj_quat_w if oi == 0 else None
+            P = obj_pos_w if oi == 0 else None
+            if oi > 0 and oi < len(obj_poses):
+                P = np.einsum("ij,tj->ti", Rs, obj_poses[oi][:, :3])
+                q = np.stack([quat_mul(qs, obj_poses[oi][i, 3:7])
+                              for i in range(len(obj_poses[oi]))])
+            if q is None:
+                continue
+            for t in range(0, len(q), max(1, len(q) // 40)):
+                zs.append((quat_to_rotmat(q[t]) @ Vl[oi].T).T[:, 2].min() + P[t, 2])
+        if zs:
+            _bottom = float(np.min(zs))
+    if _bottom is None:
+        _bottom = float(obj_pos_w[:, 2].min())
+        print("[setup] ⚠ replay 里没有 obj_verts_local, 落桌退回物体原点高度 —— 可能悬空/陷入桌面; "
+              "重跑 retarget 可修")
     scene_shift = np.array([-obj_pos_w[0, 0], -obj_pos_w[0, 1],
-                            args.table_height + args.obj_lift - obj_pos_w[:, 2].min()])
+                            args.table_height + args.obj_lift - _bottom])
+    print(f"[setup] 落桌: 物体轨迹真实最低点 z={_bottom:.3f} -> 桌面 {args.table_height:.2f}"
+          f"+{args.obj_lift:.2f}m, 场景平移 {scene_shift.round(3).tolist()}")
 for side in hand_joints_raw:
     hand_joints_raw[side] = np.einsum("ij,tkj->tki", Rs, hand_joints_raw[side]) + scene_shift
 obj_pos_w = obj_pos_w + scene_shift
@@ -408,6 +444,10 @@ for h in HANDS:
 # ---- boot Kit --------------------------------------------------------------
 from isaacsim import SimulationApp  # noqa: E402
 
+if args.record:
+    # 录像走离屏相机, 开窗口只会更慢更容易被窗口管理器打断; 也不该停在交互提示上。
+    args.headless = True
+    args.auto = True
 app = SimulationApp({"headless": args.headless})
 
 import omni.usd  # noqa: E402
@@ -675,18 +715,79 @@ print(f"[cam] view={args.cam_view} eye={cam_eye.round(2).tolist()} target={cam_t
 
 cam = None
 snap_times = [float(x) for x in args.snap_times.split(",") if x.strip()] if args.snap_times else []
-if args.snap_dir:
-    os.makedirs(args.snap_dir, exist_ok=True)
+_rec_w, _rec_h = (int(x) for x in args.record_res.split(","))
+if args.snap_dir or args.record:
+    if args.snap_dir:
+        os.makedirs(args.snap_dir, exist_ok=True)
     try:
         from isaacsim.sensors.camera import Camera
-        cam = Camera(prim_path="/World/snap_cam", resolution=(1280, 800), position=cam_eye)
+        cam = Camera(prim_path="/World/snap_cam",
+                     resolution=((_rec_w, _rec_h) if args.record else (1280, 800)),
+                     position=cam_eye)
         cam.initialize()
-        cam.set_focal_length(2.4)
+        cam.set_focal_length(args.record_focal)
         set_camera_view(eye=cam_eye, target=cam_target, camera_prim_path="/World/snap_cam")
+        # ★ 不依赖 set_camera_view 对**非视口**相机是否生效 —— 显式算 look-at 位姿。
+        #   实测只调 set_camera_view 时录出来的是白桌面+网格地板, 手和物体不在画面里。
+        #   USD 相机约定: 局部 -Z 为视线方向, +Y 为上。
+        _f = cam_target - cam_eye
+        _f = _f / (np.linalg.norm(_f) + 1e-9)
+        _up0 = np.array([0.0, 0.0, 1.0])
+        if abs(float(_f @ _up0)) > 0.95:                  # 近乎垂直俯视时换个参考上方向
+            _up0 = np.array([0.0, 1.0, 0.0])
+        _r = np.cross(_f, _up0); _r /= (np.linalg.norm(_r) + 1e-9)
+        _u = np.cross(_r, _f)
+        _R = np.stack([_r, _u, -_f], axis=1)              # 列 = 右/上/-视线
+        _t = np.trace(_R)
+        if _t > 0:
+            _s = np.sqrt(_t + 1.0) * 2
+            _q = np.array([0.25 * _s, (_R[2, 1] - _R[1, 2]) / _s,
+                           (_R[0, 2] - _R[2, 0]) / _s, (_R[1, 0] - _R[0, 1]) / _s])
+        else:
+            _i = int(np.argmax(np.diag(_R)))
+            if _i == 0:
+                _s = np.sqrt(1.0 + _R[0, 0] - _R[1, 1] - _R[2, 2]) * 2
+                _q = np.array([(_R[2, 1] - _R[1, 2]) / _s, 0.25 * _s,
+                               (_R[0, 1] + _R[1, 0]) / _s, (_R[0, 2] + _R[2, 0]) / _s])
+            elif _i == 1:
+                _s = np.sqrt(1.0 + _R[1, 1] - _R[0, 0] - _R[2, 2]) * 2
+                _q = np.array([(_R[0, 2] - _R[2, 0]) / _s, (_R[0, 1] + _R[1, 0]) / _s,
+                               0.25 * _s, (_R[1, 2] + _R[2, 1]) / _s])
+            else:
+                _s = np.sqrt(1.0 + _R[2, 2] - _R[0, 0] - _R[1, 1]) * 2
+                _q = np.array([(_R[1, 0] - _R[0, 1]) / _s, (_R[0, 2] + _R[2, 0]) / _s,
+                               (_R[1, 2] + _R[2, 1]) / _s, 0.25 * _s])
+        _q = _q / (np.linalg.norm(_q) + 1e-9)
+        try:
+            cam.set_world_pose(position=cam_eye, orientation=_q)
+            print(f"[cam] snap_cam 显式位姿 eye={cam_eye.round(3).tolist()} "
+                  f"look={cam_target.round(3).tolist()}")
+        except Exception as e:
+            print(f"[warn] snap_cam set_world_pose 失败: {e!r}")
         print(f"[snap] camera -> {args.snap_dir}")
     except Exception as e:  # snapshots are best-effort
         print(f"[warn] camera init failed, skipping snapshots: {e!r}")
         cam = None
+
+
+_writer = None
+if args.record and cam is not None:
+    import imageio
+    os.makedirs(os.path.dirname(os.path.abspath(args.record)) or ".", exist_ok=True)
+    _writer = imageio.get_writer(args.record, fps=args.record_fps, macro_block_size=1)
+    print(f"[record] -> {args.record}  {_rec_w}x{_rec_h} @{args.record_fps}fps")
+
+
+def maybe_record():
+    """逐帧抓一张写进 mp4。相机首帧可能还没渲染出来(全黑), 跳过空帧。"""
+    if _writer is None:
+        return
+    try:
+        rgba = cam.get_rgba()
+        if rgba is not None and rgba.size and rgba[:, :, :3].max() > 0:
+            _writer.append_data(rgba[:, :, :3])
+    except Exception as e:
+        print(f"[warn] record frame failed: {e!r}")
 
 
 def maybe_snap(t):
@@ -785,6 +886,7 @@ def play_one_pass():
             world.step(render=_render or cam is not None)
         t += steps_per_frame * world.get_physics_dt()
         maybe_snap(t)
+        maybe_record()
         if physics and obj is not None:
             p, _ = obj.get_world_pose()
             obj_log.append((round(t, 3), float(p[2])))
@@ -871,3 +973,7 @@ finally:
     sys.stdout.flush()  # os._exit skips buffer flush; keep redirected logs intact
     threading.Timer(20.0, lambda: os._exit(0)).start()  # known shutdown hang
     app.close()
+
+if _writer is not None:
+    _writer.close()
+    print(f"[record] ✓ 写完 {args.record}")

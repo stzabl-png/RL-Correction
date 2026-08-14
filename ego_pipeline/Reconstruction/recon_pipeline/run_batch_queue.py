@@ -33,6 +33,10 @@ AUTO_STEPS = (
     "sam3_hands",
     "sam2_object",
     "hawor",
+    # ★ VLM 门必须在 sam3d **之前**: 它的分件判定决定下一步是"重建网格"还是"取 CAD 资产"。
+    #   单刚体网格表达不了"盖相对瓶身转", 放到最后就来不及了。
+    "vlm_gate",
+    "retrieval",
     "sam3d",
     "sam3d_scale",
     "fp_pose",
@@ -46,12 +50,15 @@ STEP_SCRIPTS = {
     "sam3_hands": RECON_ROOT / "sam3_hands" / "run_sequence.py",
     "sam2_object": RECON_ROOT / "sam2_object" / "run_sequence.py",
     "hawor": RECON_ROOT / "hawor" / "run_sequence.py",
+    "vlm_gate": RECON_ROOT / "vlm_gate" / "run_sequence.py",     # 材质+分件判定, CPU+远端VLM
+    "retrieval": RECON_ROOT / "retrieval" / "run_sequence.py",   # 命中则替 sam3d/sam3d_scale 写完成标记
     "sam3d": RECON_ROOT / "sam3d" / "run_sequence.py",
     "sam3d_scale": RECON_ROOT / "sam3d_scale" / "run_sequence.py",
     "fp_pose": RECON_ROOT / "fp_pose" / "run_sequence.py",
     "fuse": RECON_ROOT / "fuse" / "run_sequence.py",
     "confidence": RECON_ROOT / "confidence" / "run_sequence.py",
-    "contact": RECON_ROOT / "contact" / "run_sequence.py",
+    "contact": RECON_ROOT / "contact_v2" / "run_sequence.py",
+    "contact_align": RECON_ROOT / "contact" / "run_sequence.py",  # 旧: 默认不启用
 }
 
 STEP_ENVS = {
@@ -59,12 +66,15 @@ STEP_ENVS = {
     "sam3_hands": "HV2RD",
     "sam2_object": "HV2RD",
     "hawor": "hawor",
+    "vlm_gate": "hawor",
+    "retrieval": "hawor",
     "sam3d": "biv2ap",
     "sam3d_scale": "biv2ap",
     "fp_pose": "biv2ap",
     "fuse": "hawor",
     "confidence": "hawor",
     "contact": "hawor",
+    "contact_align": "hawor",
 }
 
 GPU_STEPS = {"vipe", "sam3_hands", "sam2_object", "hawor", "sam3d", "sam3d_scale", "fp_pose", "confidence"}
@@ -83,6 +93,8 @@ DEFAULT_STEP_GPU_MEM_MB = {
 STEP_EXTRA_ARGS: dict[str, list[str]] = {}   # --step-arg 透传表 (step -> [flags])
 
 DEFAULT_STEP_CPU_THREADS = {
+    "vlm_gate": "2",     # 只是 HTTP 等远端 VLM
+    "retrieval": "2",
     "fp_pose": "4",
     "confidence": "4",
     "contact": "4",

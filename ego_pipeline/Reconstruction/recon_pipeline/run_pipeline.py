@@ -42,6 +42,10 @@ STEPS = (
     "label",
     "sam2_object",
     "hawor",
+    # ★ VLM 门必须在 sam3d **之前**: 它的分件判定决定下一步是"重建网格"还是"取 CAD 资产"。
+    #   单刚体网格表达不了"盖相对瓶身转", 放到最后就来不及了。
+    "vlm_gate",
+    "retrieval",
     "sam3d",
     "sam3d_scale",
     "fp_pose",
@@ -56,12 +60,19 @@ STEP_SCRIPTS = {
     "label": RECON_ROOT / "sam2_object" / "label_object.py",
     "sam2_object": RECON_ROOT / "sam2_object" / "run_sequence.py",
     "hawor": RECON_ROOT / "hawor" / "run_sequence.py",
+    "vlm_gate": RECON_ROOT / "vlm_gate" / "run_sequence.py",     # 材质+分件判定, CPU+远端VLM
+    "retrieval": RECON_ROOT / "retrieval" / "run_sequence.py",   # 命中则替 sam3d/sam3d_scale 写完成标记
     "sam3d": RECON_ROOT / "sam3d" / "run_sequence.py",
     "sam3d_scale": RECON_ROOT / "sam3d_scale" / "run_sequence.py",
     "fp_pose": RECON_ROOT / "fp_pose" / "run_sequence.py",
     "fuse": RECON_ROOT / "fuse" / "run_sequence.py",
     "confidence": RECON_ROOT / "confidence" / "run_sequence.py",  # 轨迹可信度打分+平滑, env: hawor
-    "contact": RECON_ROOT / "contact" / "run_sequence.py",  # 手↔物接触点提取(2D修3D), CPU, env: hawor
+    # ★ 默认走**新**提取器(测量): 不搜索, 逐帧量一次, 整条 take 2~5 秒。
+    "contact": RECON_ROOT / "contact_v2" / "run_sequence.py",  # 接触点提取(测量), CPU, hawor
+    # 旧的对齐+热度图**保留但不启用**(不在 STEPS 里, 需要时 --steps contact_align 单独跑)。
+    # 它不是"同一件事更慢", 而是**假设一定有抓握**后把 SharpaWave 手搜到物体上(单帧 ~7min,
+    # 约 1200 次能量评估) —— 输出是先验不是证据; 手位修正后它的 bite IoU 已掉到 0.000。
+    "contact_align": RECON_ROOT / "contact" / "run_sequence.py",  # 旧: 对齐+热度图, 默认关闭
 }
 
 

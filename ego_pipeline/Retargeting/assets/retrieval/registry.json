@@ -1,0 +1,31 @@
+{
+  "schema_version": "retrieval_registry_v1",
+  "note": "资产库检索表。VLM 判 needs_retrieval=true 时, 用这里的分件资产替代 SAM3D 重建。为什么需要: 重建出来的是单个刚体网格, 表达不了'盖相对瓶身转'这类分件动作 —— 实测 clip 0 单件 SAM3D 时 conf_pos 50 / conf_rot 23(旋转弃用), 换 CAD 双件后 82 / 34(旋转可用)。目前是按任务名硬指定; 真正的检索(按外观/几何匹配资产库)尚未实现, 接口在 retrieve_assets.py 里留好了。 ★ 资产必须放在仓内资产库, **不能**指向 Output/ —— 输出目录会被清理(2026-08-13 就删过 13 个 take)。",
+  "assets": {
+    "screw_unscrew_bottle_cap": {
+      "description": "金属/塑料水瓶 + 螺纹瓶盖",
+      "source": "手工 CAD (原在 Output/.../27_cad2, 2026-08-13 收进资产库)",
+      "matched_by": "task_name",
+      "parts": [
+        {
+          "name": "bottle_body",
+          "mesh": "ego_pipeline/Retargeting/assets/retrieval/screw_unscrew_bottle_cap/bottle_body.obj",
+          "extent_cm": [
+            6.5,
+            6.5,
+            19.7
+          ]
+        },
+        {
+          "name": "bottle_cap",
+          "mesh": "ego_pipeline/Retargeting/assets/retrieval/screw_unscrew_bottle_cap/bottle_cap.obj",
+          "extent_cm": [
+            3.5,
+            3.5,
+            1.7
+          ]
+        }
+      ]
+    }
+  }
+}

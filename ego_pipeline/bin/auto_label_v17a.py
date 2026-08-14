@@ -188,24 +188,28 @@ def gate_samples(manifest: dict, inst: str, n: int = 3) -> list[tuple[int, "Path
     return [(rows[i][0], Path(rows[i][1]["raw_mask"])) for i in sorted(set(idx))]
 
 
-def vlm_gate(video: Path, manifest: dict, ids: list[str]) -> dict[str, dict]:
+def vlm_gate(video: Path, manifest: dict, ids: list[str], *,
+             dataset: str = "", vid: str = "") -> dict[str, dict]:
     """逐实例过 VLM 透明门。返回 {inst: verdict}; 服务不可达 → fail-open 返回 {}。"""
     if os.environ.get("AUTO_LABEL_VLM_GATE", "1") == "0":
         print("[auto-label] 透明门已禁用(AUTO_LABEL_VLM_GATE=0)")
         return {}
     import vlm_transparency_gate as G
-    out: dict[str, dict] = {}
-    for inst in ids:
-        sm = gate_samples(manifest, inst)
-        if not sm:
-            continue
-        try:
-            v = G.judge_instance(video, sm)
-        except G.VLMUnavailable as e:
-            print(f"[auto-label] ⚠⚠ 透明门 fail-open(全放行): {e}", flush=True)
-            return {}
-        out[inst] = v
-        print(f"[auto-label] 透明门 {inst}: {v['material']}({v['confidence']}) — {v['evidence'][:60]}")
+    # ★ 走**缓存版**: 判定结果落在 vlm_gate.json, vlm_gate_step 读同一份, 不再各问一遍 VLM。
+    #   两个调用点各判一次不只是浪费(每次要把整段视频 base64 传过去), 更会出现
+    #   "标注时判透明、门里判不透明"这种自相矛盾且没人知道该信谁的情况。
+    samples = {i: sm for i in ids if (sm := gate_samples(manifest, i))}
+    if not samples:
+        return {}
+    try:
+        out = G.judge_instances(video, samples, dataset=dataset, video_id=vid,
+                                force=os.environ.get("AUTO_LABEL_VLM_FORCE") == "1")
+    except G.VLMUnavailable as e:
+        print(f"[auto-label] ⚠⚠ 透明门 fail-open(全放行): {e}", flush=True)
+        return {}
+    for inst, v in out.items():
+        print(f"[auto-label] 透明门 {inst}: {v.get('material')}({v.get('confidence')})"
+              f" — {str(v.get('evidence'))[:60]}")
     return out
 
 
@@ -390,7 +394,7 @@ def main(argv=None) -> int:
             return 0
         vm = json.loads(vman.read_text())
         import vlm_transparency_gate as G
-        verdicts = vlm_gate(video, vm, vm.get("object_ids") or [])
+        verdicts = vlm_gate(video, vm, vm.get("object_ids") or [], dataset=a.dataset, vid=vid)
         excluded = [i for i, v in verdicts.items() if G.should_filter(v)]
         if excluded and len(excluded) == len(vm.get("object_ids") or []):
             print(f"[auto-label] 全部实例为空透明, 本视频跳过(透明规则 v2): {excluded}")
@@ -422,13 +426,13 @@ def main(argv=None) -> int:
     manifest = json.loads(manifest_path.read_text())
     inst, frame = pick(manifest, a.instance, a.recon_frame)
     import vlm_transparency_gate as G
-    verdicts = vlm_gate(video, manifest, [inst])
+    verdicts = vlm_gate(video, manifest, [inst], dataset=a.dataset, vid=vid)
     if verdicts.get(inst) and G.should_filter(verdicts[inst]):
         others = [i for i in (manifest.get("object_ids") or []) if i != inst]
         fallback = None
         if a.instance == "auto":
             for cand in others:                      # 主实例被滤 → 顺位尝试其它实例
-                v2 = vlm_gate(video, manifest, [cand]).get(cand)
+                v2 = vlm_gate(video, manifest, [cand], dataset=a.dataset, vid=vid).get(cand)
                 if v2 is None or not G.should_filter(v2):
                     fallback = cand
                     break

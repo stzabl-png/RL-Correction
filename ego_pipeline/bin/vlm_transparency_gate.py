@@ -28,7 +28,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-API_BASE = os.environ.get("VLM_API_BASE", "http://127.0.0.1:8807/v1")
+# QWEN_BASE_URL 是 qwen_client 那条线用的名字; 两个名字指同一个服务, 别让人记两套。
+API_BASE = (os.environ.get("VLM_API_BASE") or os.environ.get("QWEN_BASE_URL")
+            or "http://127.0.0.1:8807/v1")
 MODEL = os.environ.get("VLM_MODEL", "vlm")
 
 VERDICTS = ("empty_transparent", "transparent_with_contents", "opaque")
@@ -56,11 +58,139 @@ PROMPT = (
 )
 
 
+# ───────────────────────── 分件/合件(Retrieval 判据) ─────────────────────────
+# 为什么要问这个: 重建出来的是**单个刚体网格**。若被操作的物体在视频里会一分为多
+# (瓶子→瓶身+瓶盖)或多合一, 单刚体在原理上就表达不了这个动作 —— 拧盖的本质就是
+# 盖相对瓶身转。这类 take 必须换成**分件资产**(Retrieval), 而不是把重建网格凑合用。
+# 实测佐证: clip 0 用单件 SAM3D 网格时 conf_pos 50/rot 23(旋转弃用);
+# 换成 CAD 瓶身+瓶盖两件后 conf_pos 82/rot 34(旋转可用)。
+PART_VERDICTS = ("separates", "combines", "both", "none")
+PART_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "part_change": {"type": "string", "enum": list(PART_VERDICTS),
+                        "description": "被操作物体在视频中是否发生分件/合件"},
+        "parts": {"type": "array", "items": {"type": "string"},
+                  "description": "涉及的部件名, 如 ['瓶身','瓶盖']; none 时给空数组"},
+        "confidence": {"type": "string", "enum": ["high", "low"]},
+        "evidence": {"type": "string", "description": "在第几段发生、看到哪两部分分开或合上"},
+    },
+    "required": ["part_change", "parts", "confidence", "evidence"],
+}
+PART_PROMPT = (
+    "看完整段视频。判据只有一条: **被手操作的那个物体, 本身是否发生了部件的分离或合并**。\n"
+    "- separates: 原本是一个整体, 过程中被拆成两个及以上可分开的部件"
+    "(拧下瓶盖、揭开锅盖、拔出笔帽)\n"
+    "- combines: 原本分开的部件被装配成一个整体(把盖拧回瓶子、把笔帽套回去)\n"
+    "- both: 先分开又合上(或先合上又分开)\n"
+    "- none: 物体始终是一个整体, 只是被拿起/移动/倾倒/放下\n"
+    "★ 不算分件的情况: 手挡住物体的一部分; 把物体放进/拿出另一个容器;"
+    "倒出液体或内容物; 物体只是转动或变形。\n"
+    "★ 判据是**部件之间的相对运动**: 两部分能各自独立移动才叫分开。\n"
+    "evidence 里写清是在视频的哪一段、看到哪两个部分分离或合上。"
+)
+
+
+def judge_part_identity(video_path: Path, samples: list, part_names: list[str],
+                        fps: float = 1.0) -> dict:
+    """红轮廓圈出的实例**是哪个部件**。用于实例数 < 部件数时的指认。
+
+    ★ 为什么不能按大小猜: 只有一个实例时"最大实例配最大部件"会无条件装上大件 ——
+      实测 clip 2 的唯一实例是**瓶盖**(mask 4696px / 网格 3.8cm), 却被装成 bottle_body。
+      两个实例且面积比够大时排序是可靠的; 否则必须看图指认。
+    """
+    schema = {
+        "type": "object",
+        "properties": {
+            "part": {"type": "string", "enum": list(part_names) + ["none"],
+                     "description": "红色轮廓圈出的那个物体是哪个部件; 都不是则 none"},
+            "confidence": {"type": "string", "enum": ["high", "low"]},
+            "evidence": {"type": "string", "description": "依据: 形状/大小/在整体中的位置"},
+        },
+        "required": ["part", "confidence", "evidence"],
+    }
+    prompt = (
+        "视频每帧里有一个用红色粗轮廓线圈出的物体(同一个物体, 不同时刻)。\n"
+        "判断它是下列哪个部件, 只能选一个: " + " / ".join(part_names) + " (都不是就选 none)。\n"
+        "判据: 形状与相对大小 —— 瓶身是细长的主体, 瓶盖是扁的小圆盘/短圆柱。\n"
+        "注意: 只看红色轮廓**圈住的那一块**, 不要被画面里其他物体带偏。\n"
+        "evidence 里写清你依据的是什么形状特征。"
+    )
+    with tempfile.TemporaryDirectory() as td:
+        clip = Path(td) / "id.mp4"
+        _overlay_clip(video_path, samples, clip)
+        return _ask(clip, prompt, fps=fps, schema=schema, schema_name="part_identity")
+
+
+def judge_part_change(video_path: Path, fps: float = 1.0) -> dict:
+    """→ {part_change, parts, confidence, evidence}。直接看原视频, 不需要 mask。"""
+    v = _ask(video_path, PART_PROMPT, fps=fps, schema=PART_SCHEMA, schema_name="part_change")
+    v["needs_retrieval"] = v.get("part_change") in ("separates", "combines", "both")
+    return v
+
+
+def gate_path(dataset: str, video_id: str) -> "Path":
+    """vlm_gate.json 的规范位置。RECON_INTERIM_ROOT 与管线其余部分保持一致。"""
+    root = os.environ.get("RECON_INTERIM_ROOT")
+    base = Path(root) if root else (Path(__file__).resolve().parents[2]
+                                    / "Output/ReconstructOutput/interim")
+    return base / dataset / video_id / "vlm_gate.json"
+
+
+def judge_instances(video: Path, samples: dict, *, dataset: str, video_id: str,
+                    policy: str = "strict", force: bool = False,
+                    max_instances: int = 4) -> dict:
+    """逐实例判材质, **结果缓存在 vlm_gate.json**。→ {inst: verdict}
+
+    ============================ 为什么要缓存 ============================
+
+    同一条视频的材质判定原来有**两个调用点**, 各问一遍 VLM:
+      * auto_label_v17a 里的透明门 —— 它要据此把透明实例从 label_prompt 里剔掉
+      * vlm_gate_step   —— 它还要判分件(needs_retrieval), 顺带也判了材质
+
+    两次调用花两倍 VLM(每次要把整段视频 base64 传过去), 而且**结果可能不一致**
+    (温度虽为 0, 但采样帧不同就会不同) —— 于是"标注时判它透明"和"门里判它不透明"
+    可以同时存在, 谁也不知道该信哪个。
+
+    现在: 谁先跑谁写 vlm_gate.json, 后来者读缓存。判定只发生一次。
+    force=True 或缺的实例才会真去问。
+    """
+    gp = gate_path(dataset, video_id)
+    doc = {}
+    if gp.is_file() and not force:
+        try:
+            doc = json.loads(gp.read_text())
+        except json.JSONDecodeError:
+            doc = {}
+    cached = (doc.get("objects") or {}) if doc.get("status") == "ok" else {}
+
+    out, asked = {}, 0
+    for inst, sm in list(samples.items())[:max_instances]:
+        hit = cached.get(inst)
+        if hit and not force and "error" not in hit:
+            out[inst] = hit
+            continue
+        v = judge_instance(video, sm)
+        v["filter"] = should_filter(v, policy)
+        v["sample_frames"] = [f for f, _ in sm]
+        out[inst] = v
+        asked += 1
+
+    if asked:
+        doc.update({"status": "ok", "api": API_BASE, "filter_policy": policy,
+                    "objects": {**cached, **out},
+                    "note": "只记录不删数据; 过滤与否交下游"})
+        gp.parent.mkdir(parents=True, exist_ok=True)
+        gp.write_text(json.dumps(doc, ensure_ascii=False, indent=1), encoding="utf-8")
+    return out
+
+
 class VLMUnavailable(RuntimeError):
     pass
 
 
-def _ask(video_path: Path, prompt: str, fps: float = 1.0, timeout: int = 600) -> dict:
+def _ask(video_path: Path, prompt: str, fps: float = 1.0, timeout: int = 600,
+         schema: dict | None = None, schema_name: str = "material") -> dict:
     b64 = base64.b64encode(video_path.read_bytes()).decode()
     body = {
         "model": MODEL, "temperature": 0.0, "max_tokens": 400,
@@ -70,7 +200,7 @@ def _ask(video_path: Path, prompt: str, fps: float = 1.0, timeout: int = 600) ->
         "mm_processor_kwargs": {"fps": fps},
         "chat_template_kwargs": {"enable_thinking": False},
         "response_format": {"type": "json_schema",
-                            "json_schema": {"name": "material", "schema": SCHEMA}},
+                            "json_schema": {"name": schema_name, "schema": schema or SCHEMA}},
     }
     req = urllib.request.Request(API_BASE + "/chat/completions",
                                  data=json.dumps(body).encode(),
@@ -126,10 +256,34 @@ def judge_instance(video: Path, samples: list[tuple[int, Path]],
         return _ask(clip, PROMPT)
 
 
-def should_filter(verdict: dict) -> bool:
-    """规则 v2: 只有高置信的空透明才过滤; 拿不准放进来让 confidence 打分。"""
-    return (verdict.get("material") == "empty_transparent"
-            and verdict.get("confidence") == "high")
+# 过滤策略。默认 strict —— **透明材质一律不用于重建与训练**(用户 2026-08-13 裁定, 通用规则)。
+#
+# 为什么从 v2 收紧到 strict:
+#   v2 只过滤"空透明", 理由是"装深色液体的透明瓶实测可重建"(pour 茶瓶 87/46 可用)。
+#   但那是在问"这一条能不能勉强重建", 而现在的口径是"要不要拿它做训练数据"。
+#   透明材质会系统性破坏深度估计 —— 实测 29 条 screw_unscrew_bottle_cap:
+#     全 opaque 13 条        depth_scale 帧间离散中位 0.031, 0 条离谱
+#     含透明带内容物 8 条                        0.039, 0 条离谱
+#     含空透明     8 条                        0.066, **2 条爆掉(208 / 156)**
+#   梯度单调: 越透明深度越不稳。而且 VLM 只看视频、不知道深度数据, 却独立把爆掉的
+#   两条标了出来 —— 两条独立证据互相佐证。
+#
+# 保留 v2 仅为复现旧结论(如 pour/11 的 87/46), 不建议用于新数据。
+FILTER_POLICIES = ("strict", "v2")
+
+
+def should_filter(verdict: dict, policy: str = "strict") -> bool:
+    """→ 该实例是否应被剔除。
+
+    strict(默认): 只要判为透明材质就剔除, 不看置信度也不看装没装东西。
+    v2(旧):       只有高置信的"空透明"才剔除; 装了深色内容物的放行。
+    """
+    m = verdict.get("material")
+    if policy == "v2":
+        return m == "empty_transparent" and verdict.get("confidence") == "high"
+    if policy != "strict":
+        raise ValueError(f"未知过滤策略 {policy!r}; 可选 {FILTER_POLICIES}")
+    return m in ("empty_transparent", "transparent_with_contents")
 
 
 def main(argv=None) -> int:
@@ -137,13 +291,15 @@ def main(argv=None) -> int:
     ap.add_argument("--video", type=Path, required=True)
     ap.add_argument("--sample", action="append", required=True,
                     help="frame_idx:mask_path, 可重复 2~3 次")
+    ap.add_argument("--filter-policy", choices=list(FILTER_POLICIES), default="strict")
     a = ap.parse_args(argv)
     samples = []
     for s in a.sample:
         fi, mp = s.split(":", 1)
         samples.append((int(fi), Path(mp)))
     v = judge_instance(a.video, samples)
-    v["filter"] = should_filter(v)
+    v["filter"] = should_filter(v, a.filter_policy)
+    v["filter_policy"] = a.filter_policy
     print(json.dumps(v, ensure_ascii=False, indent=1))
     return 0
 

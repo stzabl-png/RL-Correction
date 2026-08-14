@@ -37,20 +37,23 @@ import numpy as np
 
 from .types import CONTACT, FREE, PhaseTracks, segments_to_dense
 
-AUTO_RESULT_NAME = "contact_auto.json"   # 文件契约(方式 A)
+AUTO_RESULT_NAME = "contact_auto.json"          # 文件契约(方式 A), 二分类 FREE/CONTACT
+AUTO_GRASP_NAME = "contact_auto_grasp.json"     # 细粒度版(含 GRASP=2), 有则优先
 
 
 def _find_result(take_dir=None, *, annotation_path=None, video_dir=None) -> Path | None:
     """定位 contact_auto.json。优先级:显式路径 > take 目录 > 视频目录。"""
     if annotation_path:
         p = Path(annotation_path)
-        if p.is_file() and p.name == AUTO_RESULT_NAME:
+        if p.is_file() and p.name in (AUTO_GRASP_NAME, AUTO_RESULT_NAME):
             return p
-    for base in (take_dir, video_dir):
-        if base:
-            c = Path(base) / AUTO_RESULT_NAME
-            if c.is_file():
-                return c
+    # 细粒度(含 GRASP)是二分类的**超集**, 有就用它 —— 下游按 int 处理, 不受影响
+    for name in (AUTO_GRASP_NAME, AUTO_RESULT_NAME):
+        for base in (take_dir, video_dir):
+            if base:
+                for c in (Path(base) / name, Path(base) / "contact" / name):
+                    if c.is_file():
+                        return c
     return None
 
 

@@ -20,6 +20,8 @@ import os
 from pathlib import Path
 import sys
 
+import pathlib
+
 import numpy as np
 import torch
 from scipy.spatial.transform import Rotation
@@ -119,6 +121,32 @@ def main() -> int:
     # silently misplaces one against the other. When the recon carried several objects,
     # export them all here. `obj_pose` stays the first object so every existing consumer
     # (contact extraction, load_replay, the single-object Isaac replay) is unaffected.
+    # ★ 物体顶点采样(物体局部系), 供下游"落桌"用真实最低点而非物体原点/AABB 角点。
+    #   rl_rebuild/correction/frames.py: align_replay 的注释记着这个坑 ——
+    #   "AABB 角点对圆柱/圆弧面是空气, 会把物体悬空数厘米(躺置圆柱实测 4.6cm)";
+    #   而 Isaac 查看器原来用的是**物体原点** z 的最小值, 比 AABB 还离谱。
+    #   存局部系顶点(而非世界系最低点)是因为下游还会施加 scene_rot, 必须变换后再取 min。
+    try:
+        import trimesh                                   # noqa: E402
+        rd = pathlib.Path(inp).parent
+        mesh_files = []
+        if "object_mesh_filenames" in d.files:
+            mesh_files = [rd / str(x) for x in np.atleast_1d(d["object_mesh_filenames"])]
+        if not mesh_files or not all(f.is_file() for f in mesh_files):
+            mesh_files = [rd / "object_mesh_scaled_final.obj"]
+        vs = []
+        for f in mesh_files:
+            if f.is_file():
+                m = trimesh.load(f, process=False, force="mesh")
+                V = np.asarray(m.vertices, np.float32)
+                idx = np.linspace(0, len(V) - 1, min(len(V), 2000)).astype(int)
+                vs.append(V[idx])
+        if vs:
+            n = min(len(v) for v in vs)
+            payload["obj_verts_local"] = np.stack([v[:n] for v in vs])   # (n_obj,N,3)
+    except Exception as e:
+        print(f"[recon_to_replay] 顶点采样失败({e}); 下游落桌会退回物体原点(不准)", flush=True)
+
     if "object_ob_in_world_all" in d.files:
         all_w = np.asarray(d["object_ob_in_world_all"], dtype=np.float64)   # (n,Tv,4,4)
         if all_w.ndim == 4 and all_w.shape[1] == Tv:

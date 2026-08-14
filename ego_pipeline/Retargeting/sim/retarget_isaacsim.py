@@ -109,12 +109,11 @@ parser.add_argument("--palm-flip", default="left",
                          "(SharpaWave left model is mirrored, so its palm needs this; "
                          "default 'left'. Use '' to disable, or 'left,right' for both)")
 parser.add_argument("--no-base-motion", action="store_true", help="freeze base at frame-0 wrist pose")
-parser.add_argument("--record", default=None,
-                    help="录像输出 mp4。逐帧抓 /World/snap_cam 的 RGB 写视频 —— 与 --snap-times "
-                         "的定时抓拍不同, 这个是连续的。会自动开 --headless(无窗口更稳更快)。")
-parser.add_argument("--record-fps", type=float, default=15.0, help="录像帧率")
-parser.add_argument("--record-res", default="1600,1000", help="录像分辨率 w,h")
-parser.add_argument("--record-focal", type=float, default=2.4,
+# ★ --record 已于 2026-08-14 删除: 无头录像的 /World/snap_cam 位姿设不上去(set_world_pose
+#   与 set_camera_view 都试过), 录出来是只有网格地板的空场景 —— 一个看起来能用、实际
+#   永远产出废片的功能。GUI 走的是**视口相机**(第 711 行 set_camera_view), 不受影响。
+#   要录像请用屏幕录制, 或先修好 snap_cam 再重新引入。
+parser.add_argument("--snap-focal", "--record-focal", dest="record_focal", type=float, default=2.4,
                     help="录像相机焦距(Isaac 单位)。默认 2.4 是很广的视角; 想拉近放大到 4~6")
 parser.add_argument("--snap-dir", default=None, help="save RGB snapshots here")
 parser.add_argument("--snap-times", default="", help="comma sim-seconds to snap, e.g. 0.0,1.5,3.0")
@@ -444,10 +443,6 @@ for h in HANDS:
 # ---- boot Kit --------------------------------------------------------------
 from isaacsim import SimulationApp  # noqa: E402
 
-if args.record:
-    # 录像走离屏相机, 开窗口只会更慢更容易被窗口管理器打断; 也不该停在交互提示上。
-    args.headless = True
-    args.auto = True
 app = SimulationApp({"headless": args.headless})
 
 import omni.usd  # noqa: E402
@@ -715,14 +710,13 @@ print(f"[cam] view={args.cam_view} eye={cam_eye.round(2).tolist()} target={cam_t
 
 cam = None
 snap_times = [float(x) for x in args.snap_times.split(",") if x.strip()] if args.snap_times else []
-_rec_w, _rec_h = (int(x) for x in args.record_res.split(","))
-if args.snap_dir or args.record:
+if args.snap_dir:
     if args.snap_dir:
         os.makedirs(args.snap_dir, exist_ok=True)
     try:
         from isaacsim.sensors.camera import Camera
         cam = Camera(prim_path="/World/snap_cam",
-                     resolution=((_rec_w, _rec_h) if args.record else (1280, 800)),
+                     resolution=(1280, 800),
                      position=cam_eye)
         cam.initialize()
         cam.set_focal_length(args.record_focal)
@@ -768,26 +762,6 @@ if args.snap_dir or args.record:
     except Exception as e:  # snapshots are best-effort
         print(f"[warn] camera init failed, skipping snapshots: {e!r}")
         cam = None
-
-
-_writer = None
-if args.record and cam is not None:
-    import imageio
-    os.makedirs(os.path.dirname(os.path.abspath(args.record)) or ".", exist_ok=True)
-    _writer = imageio.get_writer(args.record, fps=args.record_fps, macro_block_size=1)
-    print(f"[record] -> {args.record}  {_rec_w}x{_rec_h} @{args.record_fps}fps")
-
-
-def maybe_record():
-    """逐帧抓一张写进 mp4。相机首帧可能还没渲染出来(全黑), 跳过空帧。"""
-    if _writer is None:
-        return
-    try:
-        rgba = cam.get_rgba()
-        if rgba is not None and rgba.size and rgba[:, :, :3].max() > 0:
-            _writer.append_data(rgba[:, :, :3])
-    except Exception as e:
-        print(f"[warn] record frame failed: {e!r}")
 
 
 def maybe_snap(t):
@@ -886,7 +860,6 @@ def play_one_pass():
             world.step(render=_render or cam is not None)
         t += steps_per_frame * world.get_physics_dt()
         maybe_snap(t)
-        maybe_record()
         if physics and obj is not None:
             p, _ = obj.get_world_pose()
             obj_log.append((round(t, 3), float(p[2])))
@@ -974,6 +947,3 @@ finally:
     threading.Timer(20.0, lambda: os._exit(0)).start()  # known shutdown hang
     app.close()
 
-if _writer is not None:
-    _writer.close()
-    print(f"[record] ✓ 写完 {args.record}")

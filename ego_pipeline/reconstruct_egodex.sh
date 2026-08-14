@@ -103,6 +103,23 @@ try:
     d=json.load(open('$RECON_INTERIM_ROOT/$DATASET/$VID/egodex_source.json'))
     print(f\"{d.get('depth_scale') or 1.0:.6f}\")
 except Exception: print('1.0')")
+  # ★ 硬闸: depth_scale 离谱就**终止本条并报错**, 不许带着坏尺度往下跑。
+  #   实测 clip 21/22 算出 208 / 156(正常 ~0.29~0.33) —— ViPE 深度整个塌了, 而管线
+  #   照样跑完, 产出一条"看起来齐全"的坏数据。坏尺度会把物体放在错误距离上,
+  #   下游的接触、可信度、RL 全部跟着错, 而且没有任何一步会报警。
+  #   区间取 [0.01, 10]: 比实测正常值宽两个数量级, 只毙掉塌陷这种量级的错。
+  if ! "$HAWOR_PYTHON" -c "
+import sys
+d=float('$DS')
+if not (0.01 <= d <= 10.0):
+    sys.stderr.write(f'[egodex] X depth_scale={d:g} 超出合理区间 [0.01, 10] —— 本条终止。\n'
+                     f'    正常量级 0.29~0.33(EgoDex 实测); 出现 100+ 说明 ViPE 深度塌了。\n'
+                     f'    排查: 看 {"$RECON_INTERIM_ROOT/$DATASET/$VID"}/egodex_source.json 与 vipe 输出。\n')
+    sys.exit(1)
+"; then
+    echo "[egodex] X 跳过本条(depth_scale 异常), 继续下一条" >&2
+    continue
+  fi
   echo "[egodex] depth_scale=$DS -> 传给 sam3d_scale / fp_pose"
 
   # 4) 手 + 物体 mask。★ AUTO_LABEL_INSTANCE=all: 默认只注册"主实例", 而本任务是
@@ -124,7 +141,7 @@ except Exception: print('1.0')")
   #   就没有道理了 —— 而且接触点是 GraspPose 选模板要的 Video Prior, 默认缺席会让
   #   下游以为"这条没有接触", 而不是"这条没跑过接触"。
   #   要关: NO_CONTACT=1 ./reconstruct_egodex.sh ...
-  STEPS="vlm_gate,retrieval,sam3d,sam3d_scale,fp_pose,fuse,confidence"
+  STEPS="vlm_retrieval,retrieval,sam3d,sam3d_scale,fp_pose,fuse,confidence"
   [ -n "${NO_CONTACT:-}" ] || STEPS="$STEPS,contact"
   # ⚠ --step-arg 用等号写法: reconstruct.sh 的透传对空格写法只传 flag 不传值
   "$HERE/reconstruct.sh" "$MP4" --dataset "$DATASET" --root "$WORK" \

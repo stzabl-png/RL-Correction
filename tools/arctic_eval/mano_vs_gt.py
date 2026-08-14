@@ -97,7 +97,15 @@ def fmt(s):
 
 
 def main():
-    import sys
+    import sys, argparse
+    global OURS
+    ap = argparse.ArgumentParser()
+    ap.add_argument("takes_file", nargs="?")
+    ap.add_argument("--ours", type=Path, default=None, help="覆盖产物根(A/B 用)")
+    a = ap.parse_args()
+    if a.ours:
+        OURS = a.ours
+    sys.argv = [sys.argv[0]] + ([str(a.takes_file)] if a.takes_file else [])
     takes = TAKES
     if len(sys.argv) > 1:                      # 可选: 传 take 清单文件(每行 s01/box_grab_01 或 s01__box_grab_01)
         takes = [l.strip().replace("/", "__") for l in open(sys.argv[1]) if l.strip()]

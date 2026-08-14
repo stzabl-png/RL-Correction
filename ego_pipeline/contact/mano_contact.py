@@ -5,8 +5,8 @@ Phase B 账单(arctic15 vs GT)的结论: 指垫探头报的指头 94% 是对的�
 (R 0.46), 病根是 power 抓握的接触界面在中节指骨+手掌, 指垫结构性测不到。
 本模块直接用重建管线已经算好的 MANO 778 顶点(replay_world.npz, 世界系):
 
-  逐帧: 手顶点 → 物体规范系 → 最近点贴合(补偿重建的系统性手物深度偏移)
-        → KDTree 表面测距 → 按 6 区(5指+掌)取最小距离
+  逐帧: 手顶点 → 物体规范系 → KDTree 表面测距 → 按 6 区(5指+掌)取最小距离
+        (最近点贴合已降级为 --align 诊断项, 见下)
   逐段: 接触区间内多帧投票(抗单帧闪烁/重定向抖动/接近相的假贴合)
 
   贴合依据: 重建的手物绝对距离被深度误差污染(pour 实测: 明明握着, 全手悬空
@@ -76,7 +76,7 @@ def _object_poses(w, n_obj: int):
     return [("object_0", T, np.isfinite(T).all((1, 2)))]
 
 
-def measure(take: Path, tau: float, vote: float, min_frames: int, align: bool = True,
+def measure(take: Path, tau: float, vote: float, min_frames: int, align: bool = False,
             cliff: bool = False) -> dict:
     rw = np.load(take / "replay_world.npz", allow_pickle=True)
     w = np.load(take / "world_fused.npz", allow_pickle=True)
@@ -216,12 +216,15 @@ def main(argv=None) -> int:
     ap.add_argument("--tau", type=float, default=0.035, help="接触距离阈值(米); dev 标定 2026-08-12")
     ap.add_argument("--vote", type=float, default=0.3, help="核心段内接触帧占比阈值; dev 标定")
     ap.add_argument("--min-frames", type=int, default=3)
-    ap.add_argument("--no-align", action="store_true", help="关掉最近点贴合(诊断用)")
+    ap.add_argument("--align", action="store_true",
+                    help="开最近点贴合。**默认关**: 它是给 fuse 的 J0 腕位 bug(偏12~16cm)
+                         打的补丁, 该 bug 已于 2026-08-13 修复(手到物面实测 0.4~2mm)。
+                         A/B 实测(54条 held-out): 关掉后 F1 0.87→0.89、指集合全对 28%→36%")
     ap.add_argument("--cliff", action="store_true",
                     help="断崖分簇阈值(诊断用; GT 判卷证实伤包握, 默认关)")
     a = ap.parse_args(argv)
     (a.take / "contact").mkdir(exist_ok=True)
-    out = measure(a.take, a.tau, a.vote, a.min_frames, align=not a.no_align, cliff=a.cliff)
+    out = measure(a.take, a.tau, a.vote, a.min_frames, align=a.align, cliff=a.cliff)
     p = a.take / "contact" / "contact_fingers.json"
     p.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
     for side, h in out["hands"].items():

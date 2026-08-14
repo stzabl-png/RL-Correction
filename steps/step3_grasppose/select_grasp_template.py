@@ -197,17 +197,29 @@ def main(argv=None) -> int:
         # 但要写明原因, 让下游能区分"试过不可用"与"没有这条数据"
         rej = [(oid, why) for (oid, sd), why in v2p["rejected"].items() if sd == side]
         acc = {oid: g for (oid, sd), g in v2p["accepted"].items() if sd == side}
-        if v2p["present"] and not acc and rej:
+        # ★安全阀: v2 的对生度门槛(0.40)在单条 EgoDex 视频上标定, 跨数据集不通用 ——
+        #   ARCTIC 实测 102 只手**全部**被该门拒绝(把门开到 0 则 63 只手有稳定窗)。
+        #   所以只在"这条 take 里 v2 至少认可过一只手"时才承认它的否决权;
+        #   一条都不认可 = 门槛不适用于该数据, 记警告而非否决。
+        v2_applicable = bool(v2p["accepted"])
+        if v2p["present"] and v2_applicable and not acc and rej:
             plan["hands"][side] = {"confidence": "n/a", "candidates": [],
                                    "rejected_by_v2": [{"object_id": o, "why": w} for o, w in rej],
                                    "note": "contact v2 判定非抓握, 不编模板"}
             continue
         geo = geometric_fingers(a.take, side)
+        v2_note = None
+        if v2p["present"] and not v2_applicable and rej:
+            v2_note = [{"object_id": o, "why": w, "honored": False,
+                        "reason": "v2 在本 take 零认可, 判为门槛不适用, 仅告警"} for o, w in rej]
         v2rec = None
         if acc:
             oid = (geo or {}).get("object") or sorted(acc)[0]
             v2rec = acc.get(oid) or acc[sorted(acc)[0]]
-        plan["hands"][side] = rank(table, h, geo, v2rec)
+        entry = rank(table, h, geo, v2rec)
+        if v2_note:
+            entry["v2_warnings"] = v2_note
+        plan["hands"][side] = entry
 
     out = a.out or (a.take / "grasp_template_plan.json")
     out.write_text(json.dumps(plan, ensure_ascii=False, indent=1), encoding="utf-8")

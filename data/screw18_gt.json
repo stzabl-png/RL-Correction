@@ -1,0 +1,33 @@
+{
+  "_readme": "18 号人工事件真值 (用户逐帧标注 2026-08-13)。只供 keyframes 抽取器测试/校准读取, 训练代码禁止读取 (通用性判据: 训练逻辑零 per-clip 人工裁定)。帧号与 data/screw18_frames/frame_XXX.png 及重建/contact_auto 一致 (0..103)。",
+  "video": "screw_unscrew_bottle_cap/18",
+  "num_frames": 104,
+  "events": {
+    "hold_contact": 8,
+    "hold_grasp_stable": 13,
+    "hold_present_rotate": [15, 45],
+    "op_grasp_stable": 48,
+    "twist": [49, 53],
+    "pull_off": [54, 58],
+    "cap_separated": 58,
+    "hold_return_rotate": [86, 100],
+    "op_cap_placed": 85,
+    "hold_bottle_replaced": 100
+  },
+  "notes": {
+    "op_fingers": ["thumb", "index", "middle"],
+    "regrasp": false,
+    "twist_deg_approx": 180,
+    "present_rotate_deg_approx": 90,
+    "present_semantics": "左手顺时针转瓶约90°把盖送到右手旁, 右手才开始接触盖",
+    "return_semantics": "右手放盖的同时左手逆时针转回约90°, 100帧瓶竖直回到原位",
+    "pull_off_semantics": "拧完约180°后瓶盖沿轴向右拔出, 58帧完全脱离"
+  },
+  "auto_vs_gt": {
+    "hold_on": {"auto": 3, "gt_contact": 8, "delta": -5},
+    "op_on": {"auto": 29, "gt_stable": 48, "delta": -19,
+              "cause": "2D邻接假阳性: 左手15-45转瓶期间盖被送近右手, 邻接早于真实接触"},
+    "op_off": {"auto": 61, "gt_place": 85, "delta": -24,
+               "cause": "重建单物体=瓶; 盖脱离后无跟踪, 右手携盖期间与瓶无邻接"}
+  }
+}

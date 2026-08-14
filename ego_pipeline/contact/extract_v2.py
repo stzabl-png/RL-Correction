@@ -117,6 +117,22 @@ def hand_mask_agreement(D: Path, side: str, frames, c2w, K, hand, *, n=15):
     return (float(np.median(vals)), len(vals)) if vals else (None, 0)
 
 
+def _azimuth_span(V: np.ndarray, w: np.ndarray, thr: float = 0.5) -> int:
+    """热点绕物体主轴的方位跨度(度)。12 个 30° 扇区里被占用的数量 × 30。
+
+    ★ 这是**下界**不是真值: 自遮挡门只保留相机可见的一面, 背面的真接触不可观测。
+      下游拿它当"包裹范围"时只能当作"至少这么多"。
+    """
+    hot = w >= thr
+    if not hot.any():
+        return 0
+    ax = int(np.argmax(np.ptp(V, axis=0)))
+    rad = [i for i in range(3) if i != ax]
+    c = V[:, rad].mean(0)
+    ang = np.degrees(np.arctan2(*(V[hot][:, rad] - c).T[::-1])) % 360
+    return int((np.histogram(ang, bins=12, range=(0, 360))[0] > 0).sum() * 30)
+
+
 def _read_segs(D: Path, object_id: str, side: str) -> list:
     ca = D / f"contact_auto_{object_id}.json"
     if not ca.is_file():
@@ -501,6 +517,16 @@ def extract(recon_dir: Path, object_id: str, side: str, *, tau_mm: float = 8.0,
             "is_prior": bool(object_follows_hand),
             "prior_shift_mm": (None if prior_shift is None
                                else (np.asarray(prior_shift) * 1000).round(1).tolist()),
+            # ★ 下游(GraspPose 侧)要的三件, 别让它自己从点云反推:
+            #   ⚠ 语义准确表述是"**只报能看见的一面**", 不是"删掉了假接触" ——
+            #     握瓶时手指确实绕到背面, 那些接触是真的、只是视频看不见。
+            #     occluded_frac 高 + 物体旋转对称 -> 下游应做高度带展开。
+            "occluded_points": int((wrong_side > 0).sum()),
+            "occluded_frac": round(float((wrong_side > 0).sum()
+                                         / max(int(((wrong_side > 0) | (hits > 0)).sum()), 1)), 3),
+            "visibility_note": "本区域只覆盖相机可见的一面; 背面接触真实存在但不可观测",
+            "azimuth_span_deg": _azimuth_span(Vl, weight),
+            "azimuth_is_lower_bound": True,
             "opposition_tips": float(stable["opposition_in_window"]),
             "opposition_area": opposition,
             "is_graspable": bool(stable["opposition_in_window"] >= min_opposition),

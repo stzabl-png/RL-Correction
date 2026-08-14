@@ -97,6 +97,13 @@ def build(recon_dir: Path) -> tuple[dict, str]:
                 "hand_surface_gap_mm": round(m["min_dist_mm_median"], 2),
                 "object_conf_pos": oc.get("conf_pos_median"),
                 "object_conf_rot": oc.get("conf_rot_median"),
+                # 可见性: 自遮挡门只保留相机可见的一面。occluded_frac 高 + 旋转对称物体
+                # -> 下游应按**高度带**展开区域(高度可信、方位不可信), 否则整手环握的
+                #    抓取候选会被落区约束全否掉(GraspPose 侧实测: 16 个候选最好只 3/14 点落区)。
+                "occluded_frac": m.get("occluded_frac"),
+                "visibility_note": m.get("visibility_note"),
+                "azimuth_span_deg": m.get("azimuth_span_deg"),
+                "azimuth_is_lower_bound": m.get("azimuth_is_lower_bound"),
                 "n_alternative_windows": sw.get("n_candidates"),
                 "alternative_windows": sw.get("candidates", [])[1:4],
             },
@@ -166,6 +173,8 @@ def _md(d: dict) -> str:
               + ("  ⚠ conf_rot 低, 朝向不可信 -> 只用高度/半径, 不要用方位角"
                  if (99 if t["object_conf_rot"] is None
                      else t["object_conf_rot"]) < 20 else ""),
+              f"- **只覆盖相机可见的一面**: 自遮挡门删掉 {100*(t.get('occluded_frac') or 0):.0f}% "
+              f"的背面点; 方位跨度 {t.get('azimuth_span_deg')}° 是**下界**, 真实包裹只多不少",
               f"- 同一段视频里还有 {t['n_alternative_windows']} 个不同的稳定抓握",
               f"- 精确点云: `{g['contact_cloud_ply']}`(可直接拖进 MeshLab)", ""]
     if d["rejected"]:

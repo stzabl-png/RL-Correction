@@ -108,15 +108,8 @@ except Exception: print('1.0')")
   #   照样跑完, 产出一条"看起来齐全"的坏数据。坏尺度会把物体放在错误距离上,
   #   下游的接触、可信度、RL 全部跟着错, 而且没有任何一步会报警。
   #   区间取 [0.01, 10]: 比实测正常值宽两个数量级, 只毙掉塌陷这种量级的错。
-  if ! "$HAWOR_PYTHON" -c "
-import sys
-d=float('$DS')
-if not (0.01 <= d <= 10.0):
-    sys.stderr.write(f'[egodex] X depth_scale={d:g} 超出合理区间 [0.01, 10] —— 本条终止。\n'
-                     f'    正常量级 0.29~0.33(EgoDex 实测); 出现 100+ 说明 ViPE 深度塌了。\n'
-                     f'    排查: 看 {"$RECON_INTERIM_ROOT/$DATASET/$VID"}/egodex_source.json 与 vipe 输出。\n')
-    sys.exit(1)
-"; then
+  if ! "$HAWOR_PYTHON" "$HERE/bin/check_depth_scale.py" "$DS" \
+        "$RECON_INTERIM_ROOT/$DATASET/$VID"; then
     echo "[egodex] X 跳过本条(depth_scale 异常), 继续下一条" >&2
     continue
   fi

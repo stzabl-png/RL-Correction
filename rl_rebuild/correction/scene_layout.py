@@ -36,6 +36,8 @@ from pathlib import Path
 
 import numpy as np
 
+from rl_rebuild.correction.kinematics import quat_to_R
+
 TABLE_HEIGHT = 0.85          # 与 replay_grasp / retarget_isaacsim 同一常数
 OBJ_GAP = 0.01               # 物体底面与桌面的间隙; 0 会穿透薄桌板
 FINGERTIPS = [4, 8, 12, 16, 20]      # OpenPose-21 五指尖
@@ -287,7 +289,16 @@ def layout(recon_dir: Path, replay_npz: Path, *, table_height: float = TABLE_HEI
         else:
             gs, gs_why = int(c0), "无物体轨迹, 用接触起点"
         gs_c = int(np.clip(gs, 0, len(J) - 1))
-        anchor = J[gs_c][FINGERTIPS].mean(0)            # 五指尖质心 = 抓取锚点
+        # ★ 锚点必须落在**机器人的合拢位置**, 不是人的指尖质心。
+        #   builder 早就这么做(grasp_center_local, 其注释记着: 用"腕+掌法向 9cm"的
+        #   手调代理与机器人实际合拢位置差 6.88cm -> 19 条 clip 只有 3 条抓得起来);
+        #   scene_layout 之前没跟上, 用的是人指尖质心。
+        #   pour17 实测两者世界系相差: 瓶 1.2cm / 杯 5.9cm(人手长 14.0~14.4cm vs
+        #   机器人 15.0cm, 长度接近, 残差主要来自朝向)。
+        from rl_rebuild.correction import frames as _F
+        from rl_rebuild.correction.ref_builders.replay_grasp import grasp_center_local
+        _Rw = quat_to_R(_F.sharpa_base_quat_from_joints(J[gs_c:gs_c + 1])[0])
+        anchor = J[gs_c][0] + _Rw @ grasp_center_local(hand)   # 机器人合拢质心
 
         mesh_p = recon_dir / "objects" / oid / "object_mesh_scaled_final.obj"
         if not mesh_p.is_file():

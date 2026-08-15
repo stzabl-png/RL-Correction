@@ -41,7 +41,13 @@ def audit_take(take: Path) -> dict:
     z = np.load(take / "world_fused.npz", allow_pickle=True)
     if "hand_trans" not in z.files:
         return {"take": str(take), "error": "no hand_trans"}
-    ht = np.asarray(z["hand_trans"], dtype=np.float64)               # (2, T, 3)
+    # ⚠ hand_trans **不是腕位**, 是 MANO 的 transl: 真腕位 = hand_trans + J0
+    #   (MANO 模型常量, 右 ~87mm / 左 ~95mm, 且**左右符号相反**因为左手是镜像模型)。
+    #   pour17 实测左 +95.3mm / 右 −95.6mm, 全在 X 轴 —— 拿它当腕位, 左右手会各偏
+    #   9.5cm 且方向相反(重建侧 2026-08-15 指出)。腕位的权威来源是
+    #   `replay_world.npz` 的 joints[:, 0]。本审计工具只看**相对运动**, 常量偏移
+    #   不影响结论, 但仍标注在此以免被当成腕位引用。
+    ht = np.asarray(z["hand_trans"], dtype=np.float64)               # (2, T, 3) = MANO transl
     ob = np.asarray(z["object_ob_in_world_all"], dtype=np.float64)   # (n_obj, T, 4, 4)
     valid = np.asarray(z["object_valid_all"]).astype(bool)           # (n_obj, T)
     T = min(ht.shape[1], ob.shape[1])

@@ -292,6 +292,12 @@ CLIPS["Screw27_cap"] = _screw27("cap")
 # =============================================================================
 
 
+def _pour17_aff(primary: str) -> str:
+    return os.path.abspath(os.path.join(
+        os.path.dirname(__file__), "../../tasks/pregrasp/priors",
+        f"Pour17_{'bottle' if primary == 'bottle' else 'cup'}_affordance.npz"))
+
+
 def _pour17(primary: str):
     base = os.path.join(_DATASETS, "pour17")
     rt = os.path.join(paths.RR_OUTPUT, "RetargetOutput", "egodex_auto", "pour", "17")
@@ -318,6 +324,11 @@ def _pour17(primary: str):
         source="replay_grasp",
         npz=os.path.join(rt, "replay_world.npz"),
         mesh=pri["mesh"], usd=pri["usd"],
+        # ★ 必须锁定 ref_builder 摆放: 默认路径会让 `bimanual_align` 整体覆盖, 而它是
+        #   **单物体**逻辑 —— 对本 clip 它把交互帧取成两手的并集起点 f0(左手从 f0 就
+        #   贴着杯子), 于是物体被摆到两手之间。2026-08-15 实测: 参考腕轨迹到物体最近
+        #   **41.5cm**, 五指全程零接触(与 screw27 端到端 0% 同一个病)。
+        place_mode="ref_builder",
         runtime_object_physics=True,
         override_cfg_mass=True,
         flatten_converted_usd=True,
@@ -334,6 +345,11 @@ def _pour17(primary: str):
         scene_layout_json=os.path.join(base, "scene_layout.json"),
         keyframes_json=os.path.join(base, "keyframes.json"),
         grasp_template="fingertip_middle",   # 用户 2026-08-14 裁定, 两手同一模板(欠账)
+        # 视频接触带(自动蒸馏, 还了台账 §2.22 "自动蒸馏链路待建"的欠账)
+        # ⚠ 键名必须是 affordance_npz(蒸馏接触带); `affordance` 是 B 组 AffordanceModel
+        #   的另一种格式(需要 points_raw), 用错会在 env 里报 KeyError。
+        affordance_npz=_pour17_aff(primary),      # pad_approach 塑形(要 pts)
+        affordance=_pour17_aff(primary),          # 对齐目标(要 points_raw+heatmap)
         verify_mode="lift",                  # S1/S2 = 接近+抓稳+微抬升
         arm_table_shell=True,
         upright_hold=True,

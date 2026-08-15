@@ -140,11 +140,24 @@ def _rest_quat(mesh, up_tol_deg: float = 30.0,
             a_ref = a_ref / (np.linalg.norm(a_ref) + 1e-9)
 
             def _axis_ang(Rc):
+                """主轴**带符号**夹角。
+
+                ⚠ 这里绝不能取 abs: 自转不改变主轴指向, 所以比"轴向量"本身就已经
+                对自转免疫了; 取了绝对值会把"口朝上/口朝下"当成同一个候选
+                (夹角 1.7° 与 178.3° 取 abs 后相同) -> 翻转变成随机。
+                2026-08-15 实测: 杯子因此被摆成倒置, 而诊断还显示"轴夹角 1.7°"看着完美
+                —— **翻转不变的度量测不出翻转**。
+                """
                 a = Rc @ axis
                 a = a / (np.linalg.norm(a) + 1e-9)
-                return float(np.degrees(np.arccos(abs(float(np.clip(a @ a_ref, -1, 1))))))
+                return float(np.degrees(np.arccos(float(np.clip(a @ a_ref, -1, 1)))))
             R, p = min(cands, key=lambda c: _axis_ang(c[0]))
-            note.append(f"按重建**主轴指向**挑最近候选(轴夹角 {_axis_ang(R):.1f}°, 概率 {p:.3f})")
+            ang = _axis_ang(R)
+            # ★ 翻转自检: 与重建主轴**同向**才对(>90° = 选到了倒置的那个候选)。
+            #   这条必须打印 —— 2026-08-15 的倒置回归是用户看 GUI 才发现的, 而当时
+            #   诊断显示"轴夹角 1.7°"看着完美(度量取了 abs, 对翻转盲)。
+            flip_ok = "✅同向" if ang < 90 else "⛔**倒置**(与重建主轴反向)"
+            note.append(f"按重建**主轴指向**挑最近候选(轴夹角 {ang:.1f}° {flip_ok}, 概率 {p:.3f})")
         else:
             R, p = max(cands, key=lambda c: c[1])
             note.append(f"取概率最高 {p:.3f}" + ("" if recon_R is None else "(候选唯一)"))

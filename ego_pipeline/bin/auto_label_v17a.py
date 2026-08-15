@@ -102,6 +102,35 @@ def find_episode_manifest(out_dir: Path) -> Path | None:
     return by_episode[sorted(by_episode)[0]]            # episode 取最早
 
 
+def G_FILTER_POLICY() -> str:
+    """当前生效的透明过滤策略。与 vlm_transparency_gate.should_filter 的默认值同源。"""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import inspect
+
+        import vlm_transparency_gate as G
+        return inspect.signature(G.should_filter).parameters["policy"].default
+    except Exception:
+        return "unknown"
+
+
+def _label_policy_mismatch(sam2_dir: Path) -> str | None:
+    """标注是用别的透明策略生成的吗 -> 返回旧策略名; 一致或无记录返回 None。
+
+    无记录时**当作一致**(不强制重跑): 老产物没有这个字段, 一律重跑会把历史数据全废掉。
+    只有明确记着别的策略时才判定过期。
+    """
+    p = sam2_dir / "label_prompt.json"
+    if not p.is_file():
+        return None
+    try:
+        old = (json.loads(p.read_text()).get("provenance") or {}).get("filter_policy")
+    except (OSError, json.JSONDecodeError):
+        return None
+    cur = G_FILTER_POLICY()
+    return old if (old and cur != "unknown" and old != cur) else None
+
+
 def write_label_prompt(manifest: dict, inst: str, frame: int, sam2_dir: Path,
                        object_name: str) -> tuple[float, float]:
     """Hand the pipeline a click, not v17A's masks.
@@ -143,7 +172,9 @@ def write_label_prompt(manifest: dict, inst: str, frame: int, sam2_dir: Path,
     prompt = {"schema_version": "sam2_object_prompt_v2",
               "objects": [{"object_id": "object_0", "frame_idx": int(frame),
                            "points": [[float(x), float(y)]], "labels": [1],
-                           "locked": True, "name": object_name}]}
+                           "locked": True, "name": object_name}],
+              # ★ 记下用什么透明策略筛的。策略一改, 下次进来会据此判定本文件过期并重标注。
+              "provenance": {"filter_policy": G_FILTER_POLICY()}}
     (sam2_dir / "label_prompt.json").write_text(json.dumps(prompt, indent=1))
     return float(x), float(y)
 
@@ -266,11 +297,20 @@ def main(argv=None) -> int:
             sys.path.insert(0, str(RECON_PIPELINE))
             from _common.paths import interim_step_dir, is_step_complete  # noqa: E402
             sam2_dir = interim_step_dir(a.dataset, vid, "sam2_object")
-            if is_step_complete(sam2_dir, "sam2_object") and not os.environ.get("AUTO_LABEL_FORCE"):
+            # ★ 缓存的标注必须带"用什么透明策略生成的"。策略一改, 旧标注就成了不该用、
+            #   却又看不出来的东西 —— 2026-08-14 实测: 试水 5 条用 strict 标注(透明瓶被剔),
+            #   随后把默认改回 v2, 但这几条的标注命中缓存**不重跑**, 于是带着按旧规则筛过的
+            #   物体一路跑到底, 全程不报错。这条规则已经翻过两次(v2->strict->v2), 还会再翻。
+            _stale_policy = _label_policy_mismatch(sam2_dir)
+            if _stale_policy:
+                print(f"[auto-label] 标注是用 {_stale_policy} 策略生成的, 当前是 "
+                      f"{G_FILTER_POLICY()} —— **重新标注** {vid}", flush=True)
+            elif is_step_complete(sam2_dir, "sam2_object") and not os.environ.get("AUTO_LABEL_FORCE"):
                 print(f"[auto-label] 标注已就位, 跳过 {vid}")
                 return 0
             # prompt 已写但 sam2_object 还没跑完(上次中断/人工改过 prompt) -> 别覆盖
-            if (sam2_dir / "label_prompt.json").is_file() and not os.environ.get("AUTO_LABEL_FORCE"):
+            if ((sam2_dir / "label_prompt.json").is_file() and not _stale_policy
+                    and not os.environ.get("AUTO_LABEL_FORCE")):
                 print(f"[auto-label] label_prompt 已存在, 跳过 {vid} (AUTO_LABEL_FORCE=1 重写)")
                 return 0
         except Exception as e:  # noqa: BLE001 - 查不了就当没有, 继续跑
@@ -405,6 +445,8 @@ def main(argv=None) -> int:
             cmd += ["--exclude", i]
         if take is not None:
             cmd += ["--recon-take-dir", take]
+        # 把当前策略传下去, 由多物体工具写进 provenance.filter_policy
+        os.environ["AUTO_LABEL_FILTER_POLICY"] = G_FILTER_POLICY()
         run("3/3 多物体 label_prompt", cmd, cwd=RR_ROOT)
         prompt = json.loads((sam2_dir / "label_prompt.json").read_text())
         n_obj = len(prompt["objects"])

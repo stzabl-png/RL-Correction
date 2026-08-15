@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -102,7 +103,11 @@ def main() -> int:
 
     prompt = {"schema_version": SCHEMA,
               "objects": [{k: v for k, v in o.items() if not k.startswith("_")} for o in objects],
+              # ★ filter_policy: 用什么透明策略筛的。auto_label 下次进来对不上就重标注 ——
+              #   2026-08-14 实测: 策略从 strict 改回 v2 后, 已缓存的标注不会重跑,
+              #   于是带着按旧规则剔掉的物体一路跑到底, 全程不报错。
               "provenance": {"source": "hoi_detr_v17a_multi", "manifest": str(a.manifest),
+                             "filter_policy": os.environ.get("AUTO_LABEL_FILTER_POLICY", "v2"),
                              "objects": [o["_v17a"] | {"object_id": o["object_id"],
                                                        "frame_idx": o["frame_idx"]} for o in objects],
                              "note": "every instance tracked in ONE reconstruction pass so "

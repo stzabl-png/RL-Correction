@@ -4,7 +4,7 @@
  "n_frames": 142,
  "source_stamp": {
   "world_fused": "/home/lyh/Project/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_auto/pour/17/world_fused.npz",
-  "mtime": "2026-08-14T16:29:57",
+  "mtime": "2026-08-14T17:56:53",
   "size": 301146,
   "note": "上游重建仍在优化中; 数据一变本产物必须重跑(帧号会随之变)"
  },
@@ -14,11 +14,11 @@
   "object_1": "right"
  },
  "rotation_usable": {
-  "object_0": false,
+  "object_0": true,
   "object_1": true
  },
  "interaction_window": [
-  28,
+  34,
   137
  ],
  "gate_rule": "gate_i = slowEMA(第 i 环达成率) ≥ 0.8 才放行第 i+1 环",
@@ -34,10 +34,10 @@
    "hand": "right",
    "conf": 0.89,
    "conf_source": "邻域[16,24]取conf最高帧",
-   "conf_object_median": 0.83,
+   "conf_object_median": 0.84,
    "tol_m": 0.0233,
    "target_rel_fingertip_centroid_m": [
-    0.0445,
+    0.0446,
     -0.0093,
     -0.0234
    ],
@@ -46,60 +46,60 @@
   },
   {
    "kind": "grasp",
-   "t": 28,
-   "t_target": 33,
+   "t": 34,
+   "t_target": 31,
    "object": "object_0",
    "hand": "left",
-   "conf": 0.73,
-   "conf_source": "邻域[25,33]取conf最高帧",
-   "conf_object_median": 0.52,
-   "tol_m": 0.0281,
+   "conf": 0.77,
+   "conf_source": "邻域[31,39]取conf最高帧",
+   "conf_object_median": 0.8,
+   "tol_m": 0.0269,
    "target_rel_fingertip_centroid_m": [
-    -0.035,
-    0.0312,
-    -0.0267
+    0.0454,
+    0.0209,
+    -0.0433
    ],
-   "source": "物体运动起始(运动起始 f28(接触起点 f0, 阈 1.0cm/3帧, 持续3帧)); 接触起点 f0",
+   "source": "物体运动起始(运动起始 f34(接触起点 f0, 阈 0.8cm/3帧, 持续3帧)); 接触起点 f0",
    "stage": 2
   },
   {
    "kind": "dwell",
    "t": [
-    66,
+    65,
     76
    ],
-   "hold_steps": 10,
+   "hold_steps": 11,
    "conf": 0.534,
    "conf_source": "段内逐帧conf(多物体取较弱者)",
    "tol_m": 0.034,
-   "source": "相对构型驻留(窗口[28,137], 分位40%, ≥10帧)",
+   "source": "相对构型驻留(窗口[34,137], 分位40%, ≥10帧)",
    "objects": [
     "object_0",
     "object_1"
    ],
    "target_rel_pos_m": [
-    -0.0082,
-    -0.1664,
-    0.0871
+    0.0098,
+    -0.1874,
+    0.0921
    ],
-   "target_tilt_deg": 64.7,
+   "target_tilt_deg": 65.0,
    "tilt_object": "object_1",
    "stage": 3
   },
   {
    "kind": "release",
-   "t": 98,
-   "t_target": 95,
+   "t": 102,
+   "t_target": 107,
    "object": "object_0",
    "hand": "left",
-   "conf": 0.57,
-   "conf_source": "邻域[95,103]取conf最高帧",
-   "conf_object_median": 0.52,
-   "tol_m": 0.0329,
+   "conf": 0.83,
+   "conf_source": "邻域[99,107]取conf最高帧",
+   "conf_object_median": 0.8,
+   "tol_m": 0.0251,
    "target_pos_m": [
-    0.5575,
-    0.0296,
-    0.909
+    0.5175,
+    0.022,
+    0.9276
    ],
    "source": "物体末次运动",
    "stage": 4
@@ -111,20 +111,20 @@
     137
    ],
    "hold_steps": 30,
-   "conf": 0.537,
+   "conf": 0.865,
    "conf_source": "段内逐帧conf(多物体取较弱者)",
-   "tol_m": 0.0339,
-   "source": "相对构型驻留(窗口[28,137], 分位40%, ≥10帧)",
+   "tol_m": 0.0241,
+   "source": "相对构型驻留(窗口[34,137], 分位40%, ≥10帧)",
    "objects": [
     "object_0",
     "object_1"
    ],
    "target_rel_pos_m": [
-    -0.0359,
-    -0.2111,
-    0.0669
+    -0.0018,
+    -0.2014,
+    0.0164
    ],
-   "target_tilt_deg": 9.1,
+   "target_tilt_deg": 9.2,
    "tilt_object": "object_1",
    "absorbed_releases": [
     {

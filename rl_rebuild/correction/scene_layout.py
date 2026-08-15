@@ -100,42 +100,20 @@ def _main_axis(V: np.ndarray) -> tuple[np.ndarray, float]:
     return ax, float(ext[i] / max(other, 1e-9))
 
 
-def _opening_dir(mesh, axis: np.ndarray) -> int:
-    """沿主轴哪一端是开口。+1/-1 = 该方向是开口; 0 = 判不了(实心 / 两端同状)。
+def _rest_quat(mesh, up_tol_deg: float = 30.0,
+               recon_R: np.ndarray | None = None) -> tuple[np.ndarray, str]:
+    """初始姿态裁定: **物理给候选, 重建挑一个**。
 
-    做法: 从物体内部沿主轴两个方向发射线, **能跑出去(命中少)的那端就是开口**。
-    对无内腔的实心网格两端命中数相同 -> 返回 0, 该规则自动不适用(不误伤)。
-    ⚠ 已知局限(2026-08-14 用户指出): 只覆盖"有内腔"的物体, 不是通用姿态裁定。
-    """
-    try:
-        V = np.asarray(mesh.vertices)
-        i = int(np.argmax(np.abs(axis)))
-        c = V.mean(0)
-        lo, hi = float(V[:, i].min()), float(V[:, i].max())
-        O = []
-        for f in (0.3, 0.4, 0.5, 0.6, 0.7):
-            p = c.copy()
-            p[i] = lo + (hi - lo) * f
-            O.append(p)
-        O = np.asarray(O)
-        hits = {}
-        for s in (+1, -1):
-            d = np.tile(axis * s, (len(O), 1))
-            _, idx, _ = mesh.ray.intersects_location(O, d)
-            hits[s] = float(np.bincount(idx, minlength=len(O)).mean())
-        if abs(hits[+1] - hits[-1]) < 0.5:      # 两端同状 -> 判不了
-            return 0
-        return +1 if hits[+1] < hits[-1] else -1
-    except Exception:
-        return 0
+        稳定静置姿态候选 -> 筛掉侧躺(细长物体) -> 若重建旋转可信, 取与之最接近的
+        候选; 否则取概率最高。
 
+    2026-08-15 改动(用户裁定): 上游重建质量提升后不再发生倒置(pour17 新版
+    conf_rot 68.5/52.5 且 rotation_usable=True), **射线开口检测已删除** ——
+    它只覆盖"有内腔"的物体, 通用性不足。现在由重建旋转在物理候选里挑,
+    重建不可信时退回概率最高。判不出来时退回旧规则(最大支撑面贴桌)。
 
-def _rest_quat(mesh, up_tol_deg: float = 30.0) -> tuple[np.ndarray, str]:
-    """初始姿态裁定 —— **不用重建的旋转**(它常常不可信, 实测 conf_rot 5.5)。
-
-        稳定静置姿态候选 -> 筛掉侧躺(细长物体) -> 筛"开口朝上"(有内腔时) -> 取概率最高
-
-    判不出来时退回旧规则(最大支撑面贴桌)。返回 (quat_wxyz, 理由)。
+    recon_R: 静置帧的重建旋转矩阵 (3,3); None 表示不可用。
+    返回 (quat_wxyz, 理由)。
     """
     try:
         import trimesh
@@ -154,19 +132,22 @@ def _rest_quat(mesh, up_tol_deg: float = 30.0) -> tuple[np.ndarray, str]:
                 cands = up
                 note.append(f"筛直立(细长比{elong:.2f})->{len(cands)}")
 
-        od = _opening_dir(mesh, axis)
-        if od != 0:
-            openup = [c for c in cands if float((c[0] @ (axis * od))[2]) > 0]
-            if openup:
-                cands = openup
-                note.append(f"筛开口朝上(开口={'+' if od > 0 else '-'}主轴)->{len(cands)}")
-            else:
-                note.append("⚠ 无候选满足开口朝上")
-        else:
-            note.append("无内腔/判不出开口, 跳过该筛")
+        if recon_R is not None and len(cands) > 1:
+            # ★ 只比**主轴指向**, 不比整体旋转 —— 回转体绕自身轴的自转是**自由**的
+            #   (瓶子立着但自转 90°, 测地距 90° 而几何完全相同; 实测就踩到这个坑)。
+            #   这与可信度契约的 rotation_free_axes 是同一条原则(P3 不可观测自由度)。
+            a_ref = recon_R @ axis
+            a_ref = a_ref / (np.linalg.norm(a_ref) + 1e-9)
 
-        R, p = max(cands, key=lambda c: c[1])
-        note.append(f"取概率最高 {p:.3f}")
+            def _axis_ang(Rc):
+                a = Rc @ axis
+                a = a / (np.linalg.norm(a) + 1e-9)
+                return float(np.degrees(np.arccos(abs(float(np.clip(a @ a_ref, -1, 1))))))
+            R, p = min(cands, key=lambda c: _axis_ang(c[0]))
+            note.append(f"按重建**主轴指向**挑最近候选(轴夹角 {_axis_ang(R):.1f}°, 概率 {p:.3f})")
+        else:
+            R, p = max(cands, key=lambda c: c[1])
+            note.append(f"取概率最高 {p:.3f}" + ("" if recon_R is None else "(候选唯一)"))
         return _mat_to_quat(R), " | ".join(note)
     except Exception as e:
         return _support_rest_quat(np.asarray(mesh.vertices)), f"退回最大支撑面({type(e).__name__})"
@@ -300,7 +281,13 @@ def layout(recon_dir: Path, replay_npz: Path, *, table_height: float = TABLE_HEI
             mesh_p = recon_dir / "object_mesh_scaled_final.obj"
         _mesh = trimesh.load(mesh_p, process=False, force="mesh")
         V = np.asarray(_mesh.vertices)
-        q, q_why = _rest_quat(_mesh)
+        # 重建旋转(静置段均值)—— 仅当该物体 rotation_usable 才交给 _rest_quat 挑候选
+        _recon_R = None
+        if Tw is not None and i < Tw.shape[0] and co.get(oid, {}).get("rotation_usable"):
+            _recon_R = np.asarray(Tw[i, max(0, gs - 5):max(1, gs), :3, :3], float).mean(0)
+            _u, _, _vt = np.linalg.svd(_recon_R)         # 正交化(均值不再是旋转阵)
+            _recon_R = _u @ _vt
+        q, q_why = _rest_quat(_mesh, recon_R=_recon_R)
         Vr = _rot(q, V)
         z = scene_table_z + obj_gap - float(Vr[:, 2].min())
         # 抓取目标点(无 affordance 时退化到质心)对准手锚点

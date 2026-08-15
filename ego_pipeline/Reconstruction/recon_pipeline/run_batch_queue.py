@@ -110,7 +110,11 @@ DEFAULT_STEP_GPU_MEM_MB = {
     "sam2_object": 9000,
     "hawor": 8000,
     "sam3d": 22000,
-    "sam3d_scale": 10000,
+    # ★ 实测峰值 31.86GB, 不是 10GB —— 该步内部会跑 FoundationPose 配准(scorer.predict
+    #   对 252 个候选位姿批量打分)。2026-08-14 pour/32 因此 OOM: 卡上邻居占 11.6GB,
+    #   队列按 10GB 预留放行, 实际要 31.9GB, 47GB 的卡不够。
+    #   预留值低估的危害不是"跑得慢", 是**队列以为还能塞下别的任务**, 于是撞车。
+    "sam3d_scale": 32000,
     "fp_pose": 6000,
     "confidence": 7000,   # CoTracker 实测 ~6.5GB; audit/rts 是 CPU
 }

@@ -67,7 +67,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--dataset-root", type=Path, default=None)
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--visualize", action="store_true")
-    ap.add_argument("--filter-policy", default="strict", choices=("strict", "v2"))
+    ap.add_argument("--filter-policy", default="v2", choices=("strict", "v2"),
+                    help="v2(默认, 用户 2026-08-14 重申): 只剔'空透明'(含只装清水); "
+                         "strict: 透明材质一律剔除(会把'透明瓶装深色液体'也剔掉, "
+                         "pour 任务实测 40%% 的 take 因此少一个物体)")
     args, extra = ap.parse_known_args(argv)
 
     step_dir = interim_step_dir(args.dataset, args.video_id, STEP)

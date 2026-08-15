@@ -88,7 +88,7 @@ def main() -> int:
     ap.add_argument("--video-id", required=True)
     ap.add_argument("--video", type=Path, required=True)
     ap.add_argument("--max-instances", type=int, default=4)
-    ap.add_argument("--filter-policy", default="strict", choices=("strict", "v2"),
+    ap.add_argument("--filter-policy", default="v2", choices=("strict", "v2"),
                     help="strict(默认): 透明材质一律剔除, 不用于重建/训练; "
                          "v2(旧): 只剔高置信空透明, 装内容物的放行")
     ap.add_argument("--force", action="store_true",

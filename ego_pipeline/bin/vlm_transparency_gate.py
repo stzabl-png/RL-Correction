@@ -138,7 +138,7 @@ def gate_path(dataset: str, video_id: str) -> "Path":
 
 
 def judge_instances(video: Path, samples: dict, *, dataset: str, video_id: str,
-                    policy: str = "strict", force: bool = False,
+                    policy: str = "v2", force: bool = False,
                     max_instances: int = 4) -> dict:
     """逐实例判材质, **结果缓存在 vlm_gate.json**。→ {inst: verdict}
 
@@ -256,23 +256,22 @@ def judge_instance(video: Path, samples: list[tuple[int, Path]],
         return _ask(clip, PROMPT)
 
 
-# 过滤策略。默认 strict —— **透明材质一律不用于重建与训练**(用户 2026-08-13 裁定, 通用规则)。
+# 过滤策略。默认 **v2** —— 只剔"空透明"(含只装清水), 装深色/不透明内容物的**保留**。
 #
-# 为什么从 v2 收紧到 strict:
-#   v2 只过滤"空透明", 理由是"装深色液体的透明瓶实测可重建"(pour 茶瓶 87/46 可用)。
-#   但那是在问"这一条能不能勉强重建", 而现在的口径是"要不要拿它做训练数据"。
-#   透明材质会系统性破坏深度估计 —— 实测 29 条 screw_unscrew_bottle_cap:
-#     全 opaque 13 条        depth_scale 帧间离散中位 0.031, 0 条离谱
-#     含透明带内容物 8 条                        0.039, 0 条离谱
-#     含空透明     8 条                        0.066, **2 条爆掉(208 / 156)**
-#   梯度单调: 越透明深度越不稳。而且 VLM 只看视频、不知道深度数据, 却独立把爆掉的
-#   两条标了出来 —— 两条独立证据互相佐证。
+# ★ 这条规则翻过两次, 把经过记下来免得再翻:
+#     2026-08-10 v2      用户裁定: 只滤空透明(pour/11 茶瓶实测 conf 87/46 可用)
+#     2026-08-13 strict  收紧为"透明一律不用"
+#     2026-08-14 **改回 v2**  用户重申: "透明瓶子清水要去掉, 但是有深色液体的还是可以留下"
 #
-# 保留 v2 仅为复现旧结论(如 pour/11 的 87/46), 不建议用于新数据。
+#   改回来的实证依据(2026-08-14 pour 试跑 5 条): strict 会把 pour 任务里"透明瓶装深色
+#   液体"这一类系统性剔掉 —— 5 条里 2 条(40%)因此只剩杯子, 倒水动作缺了倒水的那只手,
+#   整个任务退化成单手扶杯。而 VLM 的三分类本身判得很准(清水那条给出"透过瓶身可以
+#   清晰看到后方的绿色床单和粉色枕头"), 分得开这两类, 不该在过滤这一步把它们合并。
+#
 FILTER_POLICIES = ("strict", "v2")
 
 
-def should_filter(verdict: dict, policy: str = "strict") -> bool:
+def should_filter(verdict: dict, policy: str = "v2") -> bool:
     """→ 该实例是否应被剔除。
 
     strict(默认): 只要判为透明材质就剔除, 不看置信度也不看装没装东西。
@@ -291,7 +290,7 @@ def main(argv=None) -> int:
     ap.add_argument("--video", type=Path, required=True)
     ap.add_argument("--sample", action="append", required=True,
                     help="frame_idx:mask_path, 可重复 2~3 次")
-    ap.add_argument("--filter-policy", choices=list(FILTER_POLICIES), default="strict")
+    ap.add_argument("--filter-policy", choices=list(FILTER_POLICIES), default="v2")
     a = ap.parse_args(argv)
     samples = []
     for s in a.sample:

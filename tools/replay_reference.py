@@ -34,6 +34,7 @@ p.add_argument("--hold", type=int, default=30, help="回放后保持控制步(�
 p.add_argument("--report", default="", help="把结果写成 json")
 p.add_argument("--loop", type=int, default=0, help="GUI: 循环回放几遍(0=一遍后停住)")
 p.add_argument("--realtime", action="store_true", help="GUI: 按控制频率实时播放")
+p.add_argument("--prior", default="", help="GraspPose prior npz(挂上后按 apply_grasp_prior 三件套配置)")
 p.add_argument("--eye", default="1.30,-0.75,1.45")
 p.add_argument("--lookat", default="0.40,0.00,0.92")
 AppLauncher.add_app_launcher_args(p)
@@ -56,6 +57,10 @@ cfg = GraspTaskCfg()
 clips.configure_cfg(cfg, args.clip)
 cfg.scene.num_envs = 1
 cfg.rsi_prob = 0.0
+if args.prior:
+    from tasks.pregrasp.cfg import apply_grasp_prior  # noqa: E402
+    apply_grasp_prior(cfg, args.prior)
+    print(f"[replay] 挂 GraspPose prior: {args.prior} (pregrasp_align 已关)")
 GUI = not args.headless
 if GUI:
     from isaaclab.envs import ViewerCfg  # noqa: E402

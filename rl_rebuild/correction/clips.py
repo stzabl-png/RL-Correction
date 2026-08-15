@@ -344,7 +344,14 @@ def _pour17(primary: str):
         # ★ 摆放与关键帧的唯一来源(env 读这两份, 不在 clips 里写死任何帧号/位姿)
         scene_layout_json=os.path.join(base, "scene_layout.json"),
         keyframes_json=os.path.join(base, "keyframes.json"),
-        grasp_template="fingertip_middle",   # 用户 2026-08-14 裁定, 两手同一模板(欠账)
+        # GraspPose(2026-08-15 到货, Dexonomy 自动选型): **两手都选了 1_Large_Diameter**
+        # (力抓环抱), 而不是先前人工指定的 fingertip_middle —— 自动选型接管, 欠账已还。
+        #   杯×左 1_11(17 接触点) / 瓶×右 3_5(8 接触点), ho_c 贴合 0.8~2.0mm
+        # 姿态交叉核验: canon_rot vs scene_layout 主轴夹角 0.0°/0.1° ✅
+        grasp_prior_npz_default=os.path.abspath(os.path.join(
+            os.path.dirname(__file__), "../../tasks/pregrasp/priors",
+            f"Pour17_{'bottle' if primary == 'bottle' else 'cup'}.npz")),
+        grasp_template="1_Large_Diameter",
         # 视频接触带(自动蒸馏, 还了台账 §2.22 "自动蒸馏链路待建"的欠账)
         # ⚠ 键名必须是 affordance_npz(蒸馏接触带); `affordance` 是 B 组 AffordanceModel
         #   的另一种格式(需要 points_raw), 用错会在 env 里报 KeyError。

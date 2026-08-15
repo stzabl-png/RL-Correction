@@ -63,7 +63,11 @@ done
 [ -n "$ROOT" ] || ROOT="${DATASET_ROOTS[$DATASET]:-}"
 [ -n "$ROOT" ] || { echo "[reconstruct] 未知数据集 '$DATASET'，请用 --root 指定 dataset-root" >&2; exit 1; }
 
-LIST="$RECON_INTERIM_ROOT/_lists/selected.txt"; mkdir -p "$(dirname "$LIST")"
+# ★ 清单文件必须按进程隔离。固定路径时两个并行的 reconstruct.sh 会互相覆盖清单 ——
+#   表现是"跑着跑着换成了别人的视频", 而且**不报错**(清单是合法的, 只是内容被换了)。
+#   2026-08-14 铺开 33 条 pour 前发现: 3 卡并行必踩。
+LIST="$RECON_INTERIM_ROOT/_lists/selected.$$.txt"; mkdir -p "$(dirname "$LIST")"
+trap 'rm -f "$LIST" "$LIST.keep"' EXIT
 if [[ "$DATASET" == "hoi4d" ]]; then
   # 选 take：给了路径就解析成 id 列表，否则前 N 条
   if [[ ${#TAKES[@]} -gt 0 ]]; then

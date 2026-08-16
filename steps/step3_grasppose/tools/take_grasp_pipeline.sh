@@ -31,7 +31,9 @@
 #                                 轮次开销, 加大采样池+按同比例放大配额即可。但配额不能单独
 #                                 放大(5×8192×n_final100 实测 QP 从 25 掉到 9: 配额补齐会
 #                                 从被拒的候选里随机抓来凑数)
-#   STOP_FRAC (0.85) / MAX_TRY (5) / TOP_N (5)
+#   STOP_FRAC (0.85) / MIN_TRY (3) / MAX_TRY (5) / TOP_N (5)
+#                               MIN_TRY: 早停前至少试满几个模板。只试 1 个就收工会让
+#                               排序阶段无从选择 —— 天花板低的档位尤其需要多几批候选
 set -euo pipefail
 TAKE="${1:?usage: $0 <take> <object_id> <left|right> <oid>}"
 OBJ="${2:?}"; SIDE="${3:?}"; OID="${4:?}"
@@ -57,7 +59,7 @@ SUF=""; XML=right.xml; [ "$SIDE" = left ] && { SUF="_left"; XML=left.xml; }
 HAND="${HAND_BASE}${SUF}"; HXML="assets/hand/$HAND/$XML"
 SCAN_EPOCH="${SCAN_EPOCH:-3}"; SCAN_PTS="${SCAN_PTS:-2048}"
 GEN_EPOCH="${GEN_EPOCH:-10}"; GEN_PTS="${GEN_PTS:-4096}"; GEN_NFINAL="${GEN_NFINAL:-50}"
-STOP_FRAC="${STOP_FRAC:-0.85}"; MAX_TRY="${MAX_TRY:-5}"; TOP_N="${TOP_N:-5}"
+STOP_FRAC="${STOP_FRAC:-0.85}"; MIN_TRY="${MIN_TRY:-3}"; MAX_TRY="${MAX_TRY:-5}"; TOP_N="${TOP_N:-5}"
 PD=assets/object/custom/processed_data
 T0=$(date +%s)
 
@@ -154,8 +156,12 @@ for TM in $ORDER; do
   PICKED="$PICKED $TM"
   "$PY" tools/template_prior.py update --shape "$SHAPE" --obj-dia-mm "$OBJ_DIA" $HOLLOW_FLAG \
         --tmpl "$TM" --cov "$BEST" >/dev/null
-  if "$PY" -c "import sys;sys.exit(0 if float('$PCT')>=float('$THR') else 1)"; then
-    echo "     ★ 达到够用阈值, 不再试后面的模板"; break
+  # ★早停要等试满 MIN_TRY 个。只试 1 个就收工的坑(pour/17 杯子实测): 先验里
+  #   18_Extensior_Type 有 37.1%, 而该档位没有更高的历史, 兜底阈值 30% 一上来就被满足 ——
+  #   于是只精生成了这一个模板, 排序阶段无从选择, Top-1 是个从上方钩杯沿的姿势。
+  #   天花板低的档位更需要多几批候选给排序挑, 不是更不需要。
+  if [ $n -ge "$MIN_TRY" ] && "$PY" -c "import sys;sys.exit(0 if float('$PCT')>=float('$THR') else 1)"; then
+    echo "     ★ 已试 $n 个且达到够用阈值, 不再试后面的模板"; break
   fi
 done
 
@@ -188,11 +194,15 @@ rm -rf "$EXP/top" "output/${OID}_final"
 import json, os, sys
 exp, oid, obj, side, hand, dia, refh, shape, hollow, picked, viz = sys.argv[1:12]
 rk = os.path.join(exp, "ranking.json")
+rkd = json.load(open(rk)) if os.path.isfile(rk) else {}
 json.dump({"oid": oid, "object_id": obj, "hand": side, "hand_model": hand,
            "contact_band_diameter_mm": float(dia), "contact_band_height_pct": float(refh),
            "shape": shape, "hollow": bool(int(hollow)),
            "templates_tried": picked.split(), "viz_dir": viz,
-           "ranking": json.load(open(rk)) if os.path.isfile(rk) else []},
+           "ref_height_video": rkd.get("ref_height_video"),
+           "ref_height_used": rkd.get("ref_height_used"),
+           "ref_lifted": rkd.get("ref_lifted", False),
+           "ranking": rkd.get("rows", [])},
           open(os.path.join(exp, "summary.json"), "w"), ensure_ascii=False, indent=1)
 EOF3
 [ -n "$PLACEMENT_JSON" ] && echo "$PLACEMENT_JSON" > "$EXP/placement.json"

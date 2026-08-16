@@ -67,6 +67,8 @@ def main():
     ap.add_argument("--top", type=int, default=15)
     ap.add_argument("--copy-top-to", default=None)
     ap.add_argument("--json", default=None, help="把前 --top 名写成 json(给 run_take.py 汇总)")
+    ap.add_argument("--no-lift-ref", action="store_true",
+                    help="不把过低的目标接触高度抬到安全高度(诊断用)。默认**抬** —— 见下方注释")
     a = ap.parse_args()
 
     # ★腔内判定必须用**精确半空间测试**, 不能用 trimesh.contains ——
@@ -182,25 +184,47 @@ def main():
             elev = float(np.degrees(np.arcsin(np.clip(fa[2], -1, 1))))
             ch_pct = ((np.median(C[:, 2]) - table_z) / (obj_top - table_z) * 100
                       if table_z is not None else np.nan)
-            s_cov = cov
-            s_clr = min(max(clr, 0.0) / 0.05, 1.0) if table_z is not None else 0.0
-            s_hgt = (max(0.0, 1 - abs(ch_pct - a.ref_height) / a.hgt_tol)
-                     if (a.ref_height is not None and table_z is not None) else 0.0)
-            use_clr = table_z is not None
-            use_hgt = a.ref_height is not None and table_z is not None
-            wsum = a.w_cov + (a.w_clr if use_clr else 0) + (a.w_hgt if use_hgt else 0)
-            score = (a.w_cov * s_cov + (a.w_clr * s_clr if use_clr else 0)
-                     + (a.w_hgt * s_hgt if use_hgt else 0)) / max(wsum, 1e-9)
             rows.append(dict(tmpl=tmpl, f=f, cov=cov, tz=tz, cav=cav_frac,
-                             clr=clr, elev=elev, score=score, ch_pct=ch_pct,
+                             clr=clr, elev=elev, ch_pct=ch_pct,
                              ch=float(np.median(C[:, 2]))))
 
     if not rows:
         raise SystemExit("没有候选(可能都被虎口闸筛掉了)")
+
+    # ── 目标接触高度: 视频给的太低时抬到"安全高度" ────────────────────────────
+    # 为什么要抬(pour/17 杯子实测): 杯高 13.2cm, 视频接触带只在离桌 2.5~4.6cm。手要盖住
+    # 那一圈, 最低点必然压到 2cm 以内 —— 覆盖率与离桌余量是**几何上互斥**的:
+    #     覆盖 54% -> 离桌 2.0cm      覆盖 30% -> 离桌 2.4cm
+    #     覆盖 51% -> 离桌 1.8cm      覆盖 0~7% -> 离桌 4.3~7.1cm
+    # 此时死守视频高度, 等于奖励"贴着桌子硬凑接触点": 实测排第一的是手腕近乎垂直、从上方
+    # 钩杯沿的姿势(离桌 2.0cm、仰角 +77°), 而姿态正常的(覆盖 51%、高度 66%)高度分被判 0。
+    # 抬多少: 由**实测候选**给出 —— drop = 接触点高度 − 手最低点高度, 是"这只手 + 这批模板
+    # 在接触点以下还挂多长"。安全高度 = min_clearance + drop。这是自校准的, 不是拍脑袋常数。
+    # ★对不缺高度的物体自动不生效: 瓶子实测 drop≈5.0cm -> 安全高度 37% < 视频的 61%, 不抬。
+    ref_eff, ref_note = a.ref_height, ""
+    if a.ref_height is not None and table_z is not None and not a.no_lift_ref:
+        H = obj_top - table_z
+        drop = float(np.median([(r["ch"] - table_z) - r["clr"] for r in rows]))
+        safe_pct = (a.min_clearance + drop) / H * 100
+        if a.ref_height < safe_pct:
+            ref_eff = safe_pct
+            ref_note = (f" → 抬到 {ref_eff:.0f}% (该高度处手必撞桌: 手在接触点下还挂 "
+                        f"{drop*100:.1f}cm, 加 {a.min_clearance*100:.1f}cm 离桌余量)")
+
+    use_clr = table_z is not None
+    use_hgt = ref_eff is not None and table_z is not None
+    wsum = a.w_cov + (a.w_clr if use_clr else 0) + (a.w_hgt if use_hgt else 0)
+    for r in rows:
+        s_clr = min(max(r["clr"], 0.0) / 0.05, 1.0) if use_clr else 0.0
+        s_hgt = max(0.0, 1 - abs(r["ch_pct"] - ref_eff) / a.hgt_tol) if use_hgt else 0.0
+        r["score"] = (a.w_cov * r["cov"] + (a.w_clr * s_clr if use_clr else 0)
+                      + (a.w_hgt * s_hgt if use_hgt else 0)) / max(wsum, 1e-9)
+
     print(f"热点 {len(hot)} 个, 覆盖半径 {a.r*100:.0f}cm, 虎口闸 >= {a.min_thumb_z}"
           + (f", 腔内闸 <= {a.max_cavity:.0%} (拒绝 {n_rej_cav[0]})" if hull_pl is not None else "")
           + (f", 离桌 >= {a.min_clearance*100:.1f}cm (拒绝 {n_rej_clr[0]})" if table_z is not None else "")
-          + (f", 视频接触带 {a.ref_height:.0f}%±{a.hgt_tol:.0f}" if a.ref_height is not None else ""))
+          + (f", 视频接触带 {a.ref_height:.0f}%±{a.hgt_tol:.0f}{ref_note}"
+             if a.ref_height is not None else ""))
     if a.per_tmpl:
         agg = {}
         for r in rows:
@@ -232,10 +256,12 @@ def main():
         if a.json:
             import json
             keep = ("score", "cov", "clr", "ch_pct", "elev", "tmpl")
-            json.dump([{**{k: (None if r[k] != r[k] else round(float(r[k]), 4)) for k in keep
-                           if k != "tmpl"},
-                        "tmpl": r["tmpl"], "npy": os.path.abspath(r["f"])}
-                       for r in rows[:a.top]],
+            json.dump({"ref_height_video": a.ref_height, "ref_height_used": ref_eff,
+                       "ref_lifted": bool(ref_note),
+                       "rows": [{**{k: (None if r[k] != r[k] else round(float(r[k]), 4))
+                                    for k in keep if k != "tmpl"},
+                                 "tmpl": r["tmpl"], "npy": os.path.abspath(r["f"])}
+                                for r in rows[:a.top]]},
                       open(a.json, "w"), ensure_ascii=False, indent=1)
             print(f"排名 json -> {a.json}")
 

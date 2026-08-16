@@ -144,19 +144,35 @@ if args.second_prior and getattr(E, "aux", None) is not None:
     _err, _q2arm, _q2obj, _yaw2 = _best
     print(f"[view_prior] 第二只手({_side2}) aux 自搜 yaw={_yaw2:.0f}° -> IK 位置误差 "
           f"{_err*100:.2f}cm {'✅' if _err < 0.02 else '⛔ >2cm, 该候选够不着'}")
-    # ★ 穿模自检(数字化, 不靠肉眼看 GUI): 五个胶垫到 aux 网格表面的**带符号**距离。
-    #   负 = 陷进物体里。之前"左手穿模"只能靠看, 一个换序 bug 看了两轮才定位。
+    # ★ 穿模自检(数字化, 不靠肉眼看 GUI)。
+    #
+    # ⚠ 必须用**胶垫面**(elastomer 的 STL 顶点), 不能用 link 原点 —— 垫体整个偏在
+    #   link 原点的一侧, 顶点离原点中位 2.35~2.59cm。按原点量, "距离 12~20mm"其实
+    #   已经贴上了, 而"穿透 0mm"其实是扎进去 2.4cm。2026-08-15 我按原点量了一整轮,
+    #   得出的数全部偏大约 2.4cm, 还据此作废过一个结论。
     try:
+        import os as _os
+        import re as _re
         import trimesh as _tm
+        from rl_rebuild.correction.kinematics import _urdf_path as _up
+        _txt = open(_up()).read()
+        _root = _os.path.dirname(_up())
         _Th2b = np.eye(4)
         _Th2b[:3, :3], _Th2b[:3, 3] = quat_to_R(_g2[3:7]), _g2[:3]   # 校准后的腕位
-        _pads_o = np.stack([_uu.link_pose(f"{_side2}_{f}_elastomer", _qd2, _Th2b,
-                                          f"{_side2}_hand_C_MC")[:3, 3] for f in _FG])
         _m2 = _tm.load(clips.clip_entry(args.clip)["secondary"]["mesh"],
                        process=False, force="mesh")
-        _sd = _tm.proximity.signed_distance(_m2, _pads_o)   # >0 在内部
-        print(f"[view_prior] 第二只手 五垫到 aux 表面带符号距离 mm: "
-              f"{[round(float(-v)*1000, 1) for v in _sd]}  (负=穿模)")
+        _pq2 = _tm.proximity.ProximityQuery(_m2)
+        _sd = []
+        for _f in _FG:
+            _mm = _re.search(rf'<link name="{_side2}_{_f}_elastomer">.*?<mesh filename="([^"]+)"',
+                             _txt, _re.S)
+            _pv = np.asarray(_tm.load(_os.path.normpath(_os.path.join(_root, _mm.group(1))),
+                                      process=False, force="mesh").vertices, float)
+            _pv = np.asarray(_tm.convex.convex_hull(_pv).vertices)[:60]
+            _L = _uu.link_pose(f"{_side2}_{_f}_elastomer", _qd2, _Th2b, f"{_side2}_hand_C_MC")
+            _sd.append(float(_pq2.signed_distance(_pv @ _L[:3, :3].T + _L[:3, 3]).max()))
+        print(f"[view_prior] 第二只手 五**垫面**到 aux 表面带符号距离 mm: "
+              f"{[round(-v*1000, 1) for v in _sd]}  (负=穿模)")
         _pen = float(max(_sd)) * 1000
         print(f"[view_prior]   最深穿透 {_pen:.1f}mm "
               f"{'✅ 正常(摆放不走去穿透)' if _pen < 8 else '⛔ 过深, 该候选/摆放有问题'}")
@@ -191,7 +207,9 @@ target = E._target_w()[0] - W
 print("\n" + "=" * 70)
 print(f"pose={args.pose} | 物体 {np.round((E.obj_init_pos).cpu().numpy(),4).tolist()}"
       f" | 对齐目标(接触质心) {np.round(target.cpu().numpy(),4).tolist()}")
-print(f"五垫(elastomer 原点)到物体表面距离 mm: "
+# ⚠ 这是 **link 原点** 口径(env 的 _pad_dists 同): 垫体离原点中位 2.4cm,
+#   所以这里读到 ~12~20mm 时垫面其实已经贴上了。别当"还差这么多"读。
+print(f"五垫(elastomer **link原点**, 非垫面)到物体表面 mm: "
       f"{[round(float(v),1) for v in pad_d]}")
 print("=" * 70)
 print("[view_prior] 转视角看接触落点; 关窗口或 Ctrl-C 退出")

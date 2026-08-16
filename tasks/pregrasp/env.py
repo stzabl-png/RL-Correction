@@ -969,7 +969,15 @@ class GraspTaskEnv(DexmateCorrectionEnv):
             self.object.data.root_quat_w, self.aff_local.expand(self.num_envs, 3))
 
     def _pad_dists(self) -> torch.Tensor:
-        """(N,5) 每个软垫到物体表面采样点的最近距离."""
+        """(N,5) 每个软垫到物体表面采样点的最近距离.
+
+        ⚠ **口径 = elastomer 的 link 原点**(`tip_pos_w = body_pos_w[tip_ids]`), 不是垫面。
+        垫体整个偏在 link 原点一侧, STL 顶点离原点中位 **2.35~2.59cm** ⟹ 这个值读到
+        ~12~20mm 时, 垫面其实已经接触。**不要把它当"还差多少才碰到"读**。
+        判据侧不受影响(接触/候选走的是**接触力**), 塑形侧也不受影响(单调势, 常数偏移
+        不改变优化方向) —— 受影响的只有**人的判读**。2026-08-15 我按它量了一整轮,
+        所有数偏大约 2.4cm, 并据此作废过一个结论。要量"垫面到表面"请用 STL 顶点。
+        """
         return self._pad_dist_normal()[0]
 
     def _pad_dist_normal(self):

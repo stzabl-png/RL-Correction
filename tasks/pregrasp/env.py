@@ -50,6 +50,10 @@ FINGERS = ("thumb", "index", "middle", "ring", "pinky")   # 与 fingertip_bodies
 
 class GraspTaskEnv(DexmateCorrectionEnv):
     cfg: GraspTaskCfg
+    # 手指距离门控的自标定基准。类属性 = 只在 clip 没有 GraspPose 时兜底;
+    # 有 prior 时由 __init__ 里的 `_load_grasp_prior()` 覆盖成实例属性。
+    # (放这里而不是 __init__ 里, 是为了不可能再把算好的值覆盖回 None —— 踩过这个坑)
+    _fgate_dg = None
 
     def __init__(self, cfg: GraspTaskCfg, render_mode: str | None = None, **kwargs):
         # ---- 双物体螺旋装配 (screw 27): clip 带 secondary 时自动激活 ----
@@ -290,7 +294,11 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         self._diag_contacts = torch.zeros(N, device=dev)   # 盘面: 累计接触指数
         self._diag_actnorm = torch.zeros(N, device=dev)    # 盘面: 累计动作范数
         self._diag_n = torch.zeros(N, device=dev)          # 盘面: 步数
-        self._fgate_dg = None    # GraspPose 处的腕-物体距离(门控的自标定基准)
+        # ⚠ 不要在这里写 `self._fgate_dg = None` —— 它由本 __init__ **上面**第 191 行的
+        #   `_load_grasp_prior()` 算好(GraspPose 处的腕-物体距离)。2026-08-16 我在这里补了
+        #   一行"默认值 None", 结果把算好的 15.1cm 抹成 None, `getattr(..., None)` 恒假 ⟹
+        #   **手指距离门控从上线起一次都没执行过**(TB 里 diag/finger_gate 恒 0 就是这个,
+        #   不是"门关死", 是"整段代码没跑")。默认值改成在类层面声明, 不覆盖实例值。
         self._diag_fgate = torch.zeros(N, device=dev)      # 盘面: 手指门开度累计
         self._diag_fgate_n = torch.zeros(N, device=dev)
         self.verify_k = torch.zeros(N, dtype=torch.long, device=dev)    # 验证段步数
@@ -487,13 +495,38 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         cfg.verify_min_pads = min(cfg.verify_min_pads, self.n_active)
         _near = _cts[_d2.argmin(axis=1)]                        # (5,3) 逐指最近接触点
         _shift = (_near[_act] - _pads[_act]).mean(axis=0)
+        # ⚠ 平移只对**同向系统偏差**成立(两指捏取: 两个垫的 FK 偏差同向, 均值就是它)。
+        #   五指包络时五个垫从各方向朝内指, 均值没有物理意义 —— 整体平移会把一侧压进
+        #   物体、另一侧推得更远。而且这个距离是在**手指尚未合拢的模板位姿**上量的,
+        #   本就该由合拢斜坡消掉, 不该用腕位去补。
+        #   2026-08-16 实测(Grasp3 五指, 零动作合拢到底): 校准开 → 指垫接触 3.00,
+        #   校准关 → 4.75; 候选判据要 ≥4 ⟹ **开着校准这条 clip 永远出不了候选**
+        #   (CTRL2 跑 16.4M 步 0% 就是这个)。
+        #   ⚠ 别用"平移后垫↔接触残差变小"当放行判据 —— 实测它会放行:
+        #   Grasp3 最差指残差 2.67 -> 1.70cm(确实变小), 但合拢后接触垫数仍只有 2.75。
+        #   因为残差是在**手指张开的模板位姿**上量的, 合拢本来就会把垫带进去,
+        #   用腕位再补一次 = 重复补偿。**"张开时的距离"不是"合拢后碰几个垫"的代理量。**
+        #   放行判据只能按物理来: 均值平移只在**捏取**(参与指 ≤2, 两垫偏差同向)成立,
+        #   包络抓交给合拢斜坡。这正是它当初被引入时验证过的那个场景(左手 Tip_Pinch
+        #   "结构性够不着", 台账 2026-07-31)。
+        _dist0 = np.linalg.norm(_near[_act] - _pads[_act], axis=1)
+        _dist1 = np.linalg.norm(_near[_act] - (_pads[_act] + _shift), axis=1)
+        _helps = int(_act.sum()) <= 2
         if getattr(cfg, "pad_contact_calib", True) and np.linalg.norm(_shift) > 0.008:
-            zg[:3] += _shift
-            zpre[:, :3] += _shift
-            print(f"[prior] ⚠ 垫↔接触零位校准: 腕位平移 "
-                  f"{np.round(_shift * 100, 2).tolist()}cm "
-                  f"(|Δ|={np.linalg.norm(_shift)*100:.2f}cm) —— 手模胶垫面与 "
-                  f"Dexonomy 接触标注的系统差, 校准后参与指垫落在接触点上")
+            if _helps:
+                zg[:3] += _shift
+                zpre[:, :3] += _shift
+                print(f"[prior] ⚠ 垫↔接触零位校准: 腕位平移 "
+                      f"{np.round(_shift * 100, 2).tolist()}cm "
+                      f"(|Δ|={np.linalg.norm(_shift)*100:.2f}cm) —— 手模胶垫面与 "
+                      f"Dexonomy 接触标注的系统差, 校准后最差指残差 "
+                      f"{_dist0.max()*100:.2f} -> {_dist1.max()*100:.2f}cm")
+            else:
+                print(f"[prior] 垫↔接触零位校准**已跳过**: 参与指 {int(_act.sum())} 根 "
+                      f"= 包络抓, 均值平移不适用(各指朝向不同, 均值无物理意义)。"
+                      f" 平移 |Δ|={np.linalg.norm(_shift)*100:.2f}cm 虽能把最差指残差 "
+                      f"{_dist0.max()*100:.2f}->{_dist1.max()*100:.2f}cm, 但那是张开位姿上的账;"
+                      f" 实测(2026-08-16 Grasp3 零动作合拢)接触垫数 3.00 vs 关掉 4.75, 判据要 ≥4。")
         print(f"[prior] 模板参与指 {self.n_active}/5: "
               f"{[f for f, a in zip(FINGERS, _act) if a]} "
               f"(逐指最近接触点 {[f'{d*100:.1f}' for d in _cd]}cm) | "
@@ -1770,24 +1803,28 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         start_grasp = torch.ones(n, dtype=torch.bool, device=dev)
         if cfg.approach:
             start_grasp = torch.rand(n, device=dev) < cfg.direct_grasp_prob
-            # ★ 2026-08-16: t0 的采样区间从"[0, ratio×gs)"改成**相对真接近段**。
+            # ⚠ 2026-08-16 一改一退, 记在这里免得有人再改一次:
             #
-            # 旧写法在"站姿前缀长、真接近段短"的数据上会整个落空:
-            #   pour17 瓶 gs=71, 其中前缀占 0~59, 真人接近只有 60~70(11 帧);
-            #   而 [0, 0.774×71) = [0, 54) —— **100% 落在合成的站姿插值里**,
-            #   那是一条关节空间直线, 最容易的一段;**最后 3cm 的对准一次都没从那儿起步过**。
-            #   对照 J22(gs=92, 真接近 60~91): [0, 71) 只覆盖真接近段的前 1/3。
-            # 新写法:t0 ~ U(lo, gs), lo 由 ratio 在**真接近段内**插值 ——
-            #   ratio=1 → lo=前缀末(整段真接近都可能当起点);ratio=0 → lo=gs(退化成从 gs 起步)。
-            #   退火把 ratio→0 时, 起点收敛到 gs 附近而不是收敛到 0 —— 注意这与旧语义相反:
-            #   旧的退火是"越来越从头做", 新的是"越来越靠近抓握点"。**从头做由
-            #   direct_grasp_prob→0 与 stance 前缀保证**, 不该由 t0 承担。
-            _K = int(getattr(cfg, "stance_prefix_frames", 0) or 0)
-            _r = float(getattr(cfg, "approach_t0_max", 0.8))
-            _lo = int(round(_K + (1.0 - _r) * max(self.gs - _K, 0)))
-            _lo = int(min(max(_lo, 0), max(self.gs - 1, 0)))
+            # 我曾把 t0 的采样区间从 [0, ratio×gs) 改成"相对真接近段" [lo, gs), 动机是:
+            # pour17 瓶 gs=71(站姿前缀占 0~59, 真人接近只有 60~70), [0, 0.774×71)=[0,54)
+            # **100% 落在合成的站姿插值里**, 最后 3cm 的对准一次都没从那儿起步过。动机成立。
+            #
+            # **但那个改法把课程和评测的终点改反了, 必须回滚**:
+            #   `eval_distribution()` 把 approach_t0_max 设成 0.0 表示"**从头做**"(t0=0),
+            #   这正是正式口径"从对称站姿走完全程"的实现方式;
+            #   而新写法在 ratio=0 时给出 lo=gs ⟹ **评测变成"直接空降到抓握帧"**。
+            # **t0=0 是课程的目标状态, 不是要被退火掉的东西。**
+            # ⚠ 更正(同日): 我一度用"冠军存档权重在当前代码上评出 0.00%"当作这条的实证,
+            #   那是**误判** —— 真因是场景本身已按设计改过(物体听手把物体挪了 15cm,
+            #   垫↔接触零位校准把腕位挪了 2.2cm), 冠军权重抓的是旧位置。
+            #   语义论证本身仍成立(eval.py:75 把它设成 0.0 表示"从 q_ref[0] 出发"), 故保留回滚;
+            #   但**冠军存档评测已不再是有效对照**, 场景一改它就失效。
+            #
+            # 原动机(真接近段覆盖不到)仍然成立, 但必须用**不动 ratio=0 端点**的办法解决,
+            # 例如"以概率 p 额外从 [K, gs) 采一个 t0", 留待另开。
+            hi = max(int(cfg.approach_t0_max * self.gs), 1)
             t0 = torch.where(start_grasp, t0,
-                             torch.randint(_lo, max(self.gs, _lo + 1), (n,), device=dev))
+                             torch.randint(0, hi, (n,), device=dev))
             c0 = torch.where(start_grasp, c0, torch.zeros_like(c0))   # 接近段手张开
         tmpl0 = self.q_open + c0.unsqueeze(1) * (self.q_close - self.q_open)
         if self.arm_start_pool is None:

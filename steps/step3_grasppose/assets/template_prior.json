@@ -3,14 +3,14 @@
  "buckets": {
   "cylinder|粗|空心": {
    "30_Palmar": {
-    "n": 1,
-    "cov_sum": 0.326,
+    "n": 2,
+    "cov_sum": 0.599,
     "cov_max": 0.326,
     "n_rej": 0
    },
    "3_Medium_Wrap": {
-    "n": 1,
-    "cov_sum": 0.318,
+    "n": 2,
+    "cov_sum": 0.591,
     "cov_max": 0.318,
     "n_rej": 0
    },
@@ -33,15 +33,15 @@
     "n_rej": 0
    },
    "1_Large_Diameter": {
-    "n": 1,
-    "cov_sum": 0.263,
-    "cov_max": 0.263,
+    "n": 2,
+    "cov_sum": 0.536,
+    "cov_max": 0.273,
     "n_rej": 0
    },
    "18_Extensior_Type": {
-    "n": 1,
-    "cov_sum": 0.2457,
-    "cov_max": 0.2457,
+    "n": 2,
+    "cov_sum": 0.6167,
+    "cov_max": 0.371,
     "n_rej": 0
    },
    "31_Ring": {
@@ -84,6 +84,12 @@
     "n": 1,
     "cov_sum": 0.033,
     "cov_max": 0.033,
+    "n_rej": 0
+   },
+   "14_Tripod": {
+    "n": 1,
+    "cov_sum": 0.0,
+    "cov_max": 0.0,
     "n_rej": 0
    }
   },

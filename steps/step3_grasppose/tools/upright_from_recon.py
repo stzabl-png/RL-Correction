@@ -38,6 +38,12 @@ def main():
                     help="用抓握窗定立姿(旧行为)。**默认改用开头 --head-frames 帧的中位数**。")
     ap.add_argument("--head-frames", type=int, default=10,
                     help="取开头多少帧的中位数当立姿(视频开头物体还静置在桌上)")
+    ap.add_argument("--stable-only", action="store_true",
+                    help="完全不用重建朝向, 直接取**概率最高**的稳定静置姿态。"
+                         "由 run_take.py 在 Step2 判 rotation_usable=false 时传入 —— "
+                         "此时重建的朝向本身是错的, 拿它去'吸附最近的稳定姿态'只会把错误"
+                         "四舍五入成一个看起来精确的错误。老老实实退回纯几何, 并在 source "
+                         "里标 stable_pose_only, 让下游知道这个摆放没有视频依据。")
     ap.add_argument("--no-snap", action="store_true",
                     help="不吸附到稳定静置姿态(诊断用)。默认**吸附**: 桌上的刚体物理上只能处于"
                          "有限几个稳定姿态(重心投影落在支撑多边形内), 所以取与重建估计最接近的"
@@ -107,7 +113,19 @@ def main():
             src = f"prior_longest_axis(conf_rot={conf_rot} < {a.min_conf_rot})"
     fx = locals().get("fx", np.array([1.0, 0.0, 0.0]))
     snap_deg = None
-    if not a.no_snap:
+    if a.stable_only:
+        # 朝向不可信: 取概率最高的稳定静置姿态, 方位角也随之失去依据(front 退回 +X)
+        import trimesh
+        mp = next((p for p in (D / "objects" / a.object / "object_mesh_scaled_final.obj",
+                               D / "object_mesh_scaled_final.obj") if p.is_file()), None)
+        Ts, probs = trimesh.poses.compute_stable_poses(
+            trimesh.load(mp, force="mesh", process=False).convex_hull, threshold=0.01)
+        best = int(np.argmax(probs))
+        u = Ts[best][:3, :3].T @ np.array([0.0, 0.0, 1.0])
+        u /= max(np.linalg.norm(u), 1e-9)
+        fx = np.array([1.0, 0.0, 0.0])
+        src = f"stable_pose_only(p={probs[best]:.2f}, rotation_usable=false)"
+    elif not a.no_snap:
         # ★吸附到最近的稳定静置姿态。只用凸包算 —— 稳定性只取决于凸包, 而原网格
         #   (杯 66 万面)直接算慢到不可用。
         import trimesh

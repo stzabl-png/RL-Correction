@@ -66,6 +66,7 @@ def main():
     ap.add_argument("--per-tmpl", action="store_true", help="按模板汇总(选模板用)")
     ap.add_argument("--top", type=int, default=15)
     ap.add_argument("--copy-top-to", default=None)
+    ap.add_argument("--json", default=None, help="把前 --top 名写成 json(给 run_take.py 汇总)")
     a = ap.parse_args()
 
     # ★腔内判定必须用**精确半空间测试**, 不能用 trimesh.contains ——
@@ -199,6 +200,15 @@ def main():
                 shutil.copy(r["f"], os.path.join(a.copy_top_to,
                                                  f"{r['tmpl']}__{os.path.basename(r['f'])}"))
             print(f"前 {min(a.top, len(rows))} 名 -> {a.copy_top_to}")
+        if a.json:
+            import json
+            keep = ("score", "cov", "clr", "ch_pct", "elev", "tmpl")
+            json.dump([{**{k: (None if r[k] != r[k] else round(float(r[k]), 4)) for k in keep
+                           if k != "tmpl"},
+                        "tmpl": r["tmpl"], "npy": os.path.abspath(r["f"])}
+                       for r in rows[:a.top]],
+                      open(a.json, "w"), ensure_ascii=False, indent=1)
+            print(f"排名 json -> {a.json}")
 
 
 if __name__ == "__main__":

@@ -37,7 +37,8 @@ TAKE="${1:?usage: $0 <take> <object_id> <left|right> <oid>}"
 OBJ="${2:?}"; SIDE="${3:?}"; OID="${4:?}"
 
 DEXO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; cd "$DEXO"
-for _c in "$HOME/anaconda3/envs/dexonomy" "$HOME/miniconda3/envs/dexonomy"; do
+DEXO_ENV="${DEXO_ENV:-}"
+[ -n "$DEXO_ENV" ] || for _c in "$HOME/anaconda3/envs/dexonomy" "$HOME/miniconda3/envs/dexonomy"; do
   [ -x "$_c/bin/python" ] && DEXO_ENV="$_c" && break
 done
 PY="${PY:-$DEXO_ENV/bin/python}"; export MUJOCO_GL=egl
@@ -63,10 +64,13 @@ T0=$(date +%s)
 echo "══ $OID  ($OBJ × ${SIDE}手, $HAND)"
 
 # ── ① 摆放
-J=$("$PY" tools/upright_from_recon.py --recon "$TAKE" --object "$OBJ")
+# PLACEMENT_MODE=stable_only 由 run_take.py 在 Step2 判 rotation_usable=false 时传入
+UPRIGHT_ARGS=""; [ "${PLACEMENT_MODE:-recon}" = stable_only ] && UPRIGHT_ARGS="--stable-only"
+J=$("$PY" tools/upright_from_recon.py --recon "$TAKE" --object "$OBJ" $UPRIGHT_ARGS)
 UP=$(echo "$J" | "$PY" -c "import json,sys;print(json.load(sys.stdin)['UP_ENV'])")
 FRONT=$(echo "$J" | "$PY" -c "import json,sys;print(json.load(sys.stdin)['FRONT_ENV'])")
-echo "  [①摆放] UP=$UP  FRONT=$FRONT"
+PLACEMENT_JSON="$J"
+echo "  [①摆放] UP=$UP  FRONT=$FRONT  来源=$(echo "$J" | "$PY" -c "import json,sys;print(json.load(sys.stdin)['source'])")"
 
 REG="/tmp/region_${OID}.npz"
 "$PY" - "$TAKE" "$OBJ" "$SIDE" "$REG" <<'EOF'
@@ -106,12 +110,19 @@ print(f"{dia:.1f} {hollow} {ref_h:.0f}")
 EOF2
 )
 OBJ_DIA=$(echo $FEAT | cut -d' ' -f1); HOLLOW=$(echo $FEAT | cut -d' ' -f2)
-REF_H=$(echo $FEAT | cut -d' ' -f3); SHAPE="${SHAPE:-cylinder}"
-echo "  [物体] 接触带直径 ${OBJ_DIA}mm  接触带高度 ${REF_H}%  $([ "$HOLLOW" = 1 ] && echo 空心 || echo 实心)"
+REF_H=$(echo $FEAT | cut -d' ' -f3)
+# 下面三个可由 run_take.py 从 Step2 交接件覆写, 覆写后就不用这里现算的:
+#   REF_H_OVERRIDE  <- grasp_prompt.json 的 contact_region.height_pct_median
+#                      (Step2 在**原始接触点云**上算, 比这里在重采样后的 region.npz 上算更权威;
+#                       pour/17 两者都是 61%, 是这条改动的对拍基准)
+#   SHAPE           <- vlm_grasp.json 的 answer.<side>.object_shape (先验档位键的形状维)
+#   DIGITS          <- vlm_grasp.json 的 answer.<side>.n_contact_fingers (粗筛的指数目标)
+REF_H="${REF_H_OVERRIDE:-$REF_H}"; SHAPE="${SHAPE:-cylinder}"; DIGITS="${DIGITS:-4}"
+echo "  [物体] 接触带直径 ${OBJ_DIA}mm  接触带高度 ${REF_H}%  形状 ${SHAPE}  $([ "$HOLLOW" = 1 ] && echo 空心 || echo 实心)"
 
 # ── ② 粗筛
 CAND=$("$PY" tools/coarse_filter_templates.py --hand "assets/hand/$HAND" \
-        --obj-diameter-mm "$OBJ_DIA" --digits 4 --tol 1 2>/dev/null | tail -1)
+        --obj-diameter-mm "$OBJ_DIA" --digits "$DIGITS" --tol 1 2>/dev/null | tail -1)
 echo "  [②粗筛] 保留 $(echo $CAND | wc -w) 个模板"
 
 # ── ③ 查先验(含 ε-greedy 探索位)
@@ -167,7 +178,22 @@ done
 rm -rf "$EXP/top" "output/${OID}_final"
 "$PY" tools/rank_by_coverage.py --glob "$EXP" --hand "$HXML" --region "$PD/$OID/region.npz" \
     --mesh "$PD/$OID/mesh/simplified.obj" --r 0.01 --ref-height "$REF_H" \
-    --top "$TOP_N" --copy-top-to "$EXP/top" | sed 's/^/  /'
+    --top "$TOP_N" --copy-top-to "$EXP/top" --json "$EXP/ranking.json" | sed 's/^/  /'
 "$PY" tools/render_grasp_views.py --grasp-dir "$EXP/top" --hand "$HXML" \
     --out-dir "output/${OID}_final" --n "$TOP_N" | sed 's/^/  /'
+
+# ── ⑦ 本次运行的机读小结, 给 run_take.py 汇总成 grasp_pose_plan.json
+"$PY" - "$EXP" "$OID" "$OBJ" "$SIDE" "$HAND" "$OBJ_DIA" "$REF_H" "$SHAPE" "$HOLLOW" \
+      "$PICKED" "$DEXO/output/${OID}_final" <<'EOF3'
+import json, os, sys
+exp, oid, obj, side, hand, dia, refh, shape, hollow, picked, viz = sys.argv[1:12]
+rk = os.path.join(exp, "ranking.json")
+json.dump({"oid": oid, "object_id": obj, "hand": side, "hand_model": hand,
+           "contact_band_diameter_mm": float(dia), "contact_band_height_pct": float(refh),
+           "shape": shape, "hollow": bool(int(hollow)),
+           "templates_tried": picked.split(), "viz_dir": viz,
+           "ranking": json.load(open(rk)) if os.path.isfile(rk) else []},
+          open(os.path.join(exp, "summary.json"), "w"), ensure_ascii=False, indent=1)
+EOF3
+[ -n "$PLACEMENT_JSON" ] && echo "$PLACEMENT_JSON" > "$EXP/placement.json"
 echo "══ 总计 $(( $(date +%s)-T0 ))s   可视化: $DEXO/output/${OID}_final"

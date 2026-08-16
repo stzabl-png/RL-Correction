@@ -11,7 +11,7 @@ import mujoco
 import numpy as np
 import yaml
 
-OUT = Path("/home/lyh/Project/Dexonomy/assets/hand/sharpa_wave")
+OUT = Path(__file__).resolve().parents[2] / "assets/hand/sharpa_wave"
 SCRATCH = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/tmp")
 
 JOINTS = [

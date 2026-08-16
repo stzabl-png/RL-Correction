@@ -40,7 +40,7 @@ def set_side(side: str):
     URDF = OCIR / f"urdf/{side}_sharpa_wave/{side}_sharpa_wave.urdf"
     URDF_MESH_DIR = URDF.parent / "meshes"
     SPHERES_YML = OCIR / f"collision/curobo/sharpa_{side}.yml"
-    OUT = Path("/home/lyh/Project/Dexonomy/assets/hand/sharpa_wave"
+    OUT = Path(__file__).resolve().parents[2] / ("assets/hand/sharpa_wave"
                + ("" if side == "right" else "_left"))
     OUT_MESH = OUT / "meshes"
     XML_NAME = f"{side}.xml"

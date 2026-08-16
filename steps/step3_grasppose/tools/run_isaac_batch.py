@@ -12,7 +12,11 @@ import os
 import time
 import urllib.request
 
-MANIFEST = "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/manifest.json"
+# ⚠ Isaac PhysX 验证栈(isaac/)**尚未随 Step3 迁入本仓**, 仍在旧检出里, 下一轮迁。
+#   在那之前这个脚本只在有旧检出的机器上能跑。
+MANIFEST = os.environ.get(
+    "DEXO_ISAAC_MANIFEST",
+    "/home/lyh/Project/Dexonomy/isaac/data/testing/identity_manifest/manifest.json")
 
 
 def http_json(url, payload=None, timeout=30, retries=5):

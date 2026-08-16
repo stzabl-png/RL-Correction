@@ -138,6 +138,107 @@ def gate0(clip_cfg, info_json):
     return dmax <= 0.0005, dex, rec, dmax
 
 
+
+def _ik_err_at(prior_npz, obj_pos, yaw_deg, hand, from_yaw=0.0) -> float:
+    """在给定物体 yaw 上解抓姿 IK, 返回位置误差(m)。
+
+    ⚠ **必须暖启动**: Gate 1 的可达带扫描是逐 5° 顺序求解、把上一格的解当种子的
+    (`if r["ok"]: q = r["q"]`), 手臂被一点点"绕"过去。单点冷启动会掉进局部极小 ——
+    实测 pour17 瓶 yaw=19.5° 冷启动报 18.53cm(假不可达), 而扫描说它可达。
+    这里从 `from_yaw` 走 5° 步长过去, 每步用上一步的解当种子, 与 Gate 1 同口径。
+    """
+    from rl_rebuild.correction.kinematics import ArmIK
+    z = np.load(prior_npz)
+    canon = np.asarray(z["canon_rot"], np.float64)
+    grasp = np.asarray(z["grasp"], np.float64)
+    ik = ArmIK(hand)
+    q = np.zeros(len(ik.arm_joints))
+    q[0] = np.radians(-45.0)
+    if len(q) > 3:
+        q[3] = np.radians(-90.0)      # ★ 肘部预弯; 漏了它会卡在"伸直臂"的局部极小
+    d = (yaw_deg - from_yaw) % 360
+    path = list(np.arange(from_yaw, from_yaw + d, 5.0)) + [yaw_deg] if d > 5 else [yaw_deg]
+    err = 1e9
+    for y in path:
+        a = np.radians(y)
+        oq2 = qmul(np.array([np.cos(a / 2), 0, 0, np.sin(a / 2)]), canon)
+        gp = quat_to_R(oq2) @ grasp[:3] + obj_pos
+        gq = qmul(oq2, grasp[3:7])
+        r = ik.solve(gp, quat_to_R(gq), q0=q, iters=200)
+        if r["ok"]:
+            q = r["q"]
+        err = float(r["pos_err"])
+    return err
+
+
+# ------------------------------------------------------- Gate 1c (接近侧对齐)
+YAW_SYM_MM = 5.0        # 绕竖轴转任意角的点云中位偏差 < 它 = 回转体, yaw 不携带物理信息
+
+
+def yaw_symmetry_mm(mesh_path, canon_rot) -> float:
+    """物体绕**竖轴**的旋转对称度: 转若干角度后点云到原点云的最近邻中位偏差(mm)取最大。
+
+    小 = 回转体 ⟹ "物体朝哪"在物理上是空的量。判据阈值 YAW_SYM_MM 取 5mm
+    (≈ 重建自身噪声量级)。pour17 实测: 瓶 0.6mm / 杯 3.3mm, 都在这一档。
+    """
+    from scipy.spatial import cKDTree
+    from rl_rebuild.correction import frames as F
+    V = F.load_obj_verts(mesh_path) @ quat_to_R(canon_rot).T      # 摆成 canon 姿态
+    V = V - V.mean(0)
+    rng = np.random.default_rng(0)
+    S = V[rng.choice(len(V), min(3000, len(V)), replace=False)]
+    T = cKDTree(V)
+    return max(float(np.median(T.query((Rz(np.radians(a)) @ S.T).T)[0])) * 1000
+               for a in (15, 45, 90, 180))
+
+
+PRE_WIN = 8          # 接近段末尾窗口长度(帧); 15fps 下约 0.5s
+
+
+def human_approach_azim(clip_cfg, hand):
+    """人手腕在物体的**方位角**(度, 世界 XY, 0=+X, 逆时针), 取接触窗内的圆中位数。
+
+    与 env 系只差一个 XY 平移(相机锚定是纯平移, 见 place_camera), 平移不改方位角,
+    所以可以直接和机器人侧的方位角比。取整窗中位数而不是单帧 —— 单帧对重建抖动敏感。
+    """
+    z = np.load(clip_cfg["npz"], allow_pickle=True)
+    J = np.asarray(z[f"joints_{hand}"], float)
+    oid = clip_cfg.get("primary_oid")
+    oids = [str(v) for v in z["object_ids"]]
+    OP = np.asarray(z["obj_pose_all"], float)[oids.index(oid)]
+    w = np.flatnonzero(np.asarray(z[f"phase_{hand}"]).astype(int) == 1)
+    if not len(w):
+        raise RuntimeError(f"{oid}/{hand}: 没有接触帧, 无法定接近方位")
+    # ⚠ 窗口只取**接近段末尾**(合拢前后), **不能用整条接触窗**: 抓住之后手与物体刚体
+    #   耦合, 而倒水段物体被倾到 84°, "腕相对物体的水平方位角"在那段已经没有意义。
+    #   pour17 实测: 整窗中位 193.1° vs 接近段末 216.4°, 差 23° —— 足以改变裁定。
+    g0 = int(w[0])
+    lo, hi = max(g0 - PRE_WIN, 0), min(g0 + 2, len(J) - 1)
+    v = J[lo:hi + 1, 0, :2] - OP[lo:hi + 1, :2]
+    ok = np.isfinite(v).all(1)
+    ang = np.arctan2(v[ok, 1], v[ok, 0])
+    c, sn = np.cos(ang).mean(), np.sin(ang).mean()
+    spread = float(np.degrees(np.sqrt(-2.0 * np.log(min(np.hypot(c, sn), 1.0)))))  # 圆标准差
+    return float(np.degrees(np.arctan2(sn, c)) % 360), spread, g0, (lo, hi)
+
+
+def approach_offset_K(canon_rot, grasp) -> float:
+    """K = 手腕方位角 − 物体 yaw (度). 由 GraspPose 自身决定(抓法在物体的哪一侧)."""
+    wp = quat_to_R(canon_rot) @ np.asarray(grasp, float)[:3]     # yaw=0 时的腕位偏移
+    return float(np.degrees(np.arctan2(wp[1], wp[0])) % 360)
+
+
+def _parse_band(band: str):
+    """"0-120, 330-355" -> [(0,120),(330,355)]"""
+    out = []
+    for seg in (band or "").split(","):
+        seg = seg.strip()
+        if "-" in seg:
+            a, b = seg.split("-")
+            out.append((float(a), float(b)))
+    return out
+
+
 # ---------------------------------------------------------------- Gate 1
 def gate1(prior_npz, obj_pos, video_yaw, tol_deg, step=5, hand="right"):
     """yaw 扫描: 可达带 Ψ 是否够到视频 yaw.
@@ -209,7 +310,7 @@ def human_pregrasp_wrist(clip_cfg, clip, table_top_z=0.85):
         # ⚠ 必须 False —— 2026-08-02 D7 之后训练侧已关掉 PreGrasp 对齐, 这里若还开着,
         # 算出来的 G 会比训练时**小一半以上** (Grasp3/8_5: 8.9cm vs 实测 17.8cm),
         # 因为对齐会把整条腕轨迹往物体方向挪 13.68cm.
-        anchor_mode="camera", pregrasp_align=False)
+        pregrasp_align=False)   # anchor_mode 已删(相机锚定是唯一模式)
     r = du.ref
     # grasp_phase_frame 是**合拢终点** ge; PreGrasp 帧 gs = ge - close_steps(30)
     gs = int(r.grasp.grasp_phase_frame) - 30
@@ -449,19 +550,74 @@ def main():
             survivors.append(p)
     print(f"  -> {len(survivors)}/{len(priors)} 过 Gate 1")
 
+    # ---- Gate 1c: 接近侧对齐 (新范式"照人手轨迹走"才需要, 2026-08-15 用户裁定走 B) ----
+    #   Gate 1 只保证"物体朝向与视频一致"; 它**不检查**机器人的手是否从人手那一侧接近。
+    #   pour17 实测两者差 108.6° —— 参考轨迹把手领到 216.4°, GraspPose 落在 325°,
+    #   两个权威在训练早期互相拽。物体 yaw 只能对齐其中一件(视频接触带与 Dexonomy
+    #   抓法在**物体系里**就差 108°), 所以必须选。
+    #   裁定规则(可测, 不是拍脑袋): 物体绕竖轴近似对称(< YAW_SYM_MM) ⟹ "它朝哪"在物理
+    #   上是空的量, A 方案在保护一个空的量 ⟹ 走 B(对齐人手接近方位); 否则走 A。
+    print(f"\n[Gate 1c] 接近侧对齐 (方位角 0=+X 远离机器人, 90=机器人左手边, 逆时针)")
+    _hand = clip_cfg.get("robot_hand", clip_cfg.get("hand", "right"))
+    _sym = yaw_symmetry_mm(clip_cfg["mesh"], canon)
+    _azh, _spread, _g0, _win = human_approach_azim(clip_cfg, _hand)
+    _regime = "回转体 -> 走 B" if _sym < YAW_SYM_MM else "朝向有物理意义 -> 走 A"
+    print(f"  绕竖轴对称度 {_sym:.1f}mm (阈 {YAW_SYM_MM:.0f}mm) ⇒ {_regime}")
+    print(f"  人手接近方位角 {_azh:.1f}° (合拢帧 f{_g0}, 窗 f{_win[0]}~f{_win[1]}, "
+          f"圆标准差 {_spread:.1f}°{'  ⚠ 抖动大, 该角不可信' if _spread > 15 else ''})")
+    print(f"  {'候选':>10s} {'K':>7s} {'A yaw':>7s} {'A方位':>7s} {'B yaw':>7s} {'B方位':>7s} "
+          f"{'B处IK':>8s} {'该用':>7s}")
+    use_yaw, b_ok = {}, set()         # 交给 Gate 1b —— 一致性必须在**真要用的角**上评
+    for p in priors:
+        tag = os.path.basename(p)[:-4]
+        if g1.get(tag, {}).get("skipped") or g1.get(tag, {}).get("n_reach", 0) == 0:
+            continue
+        _z = np.load(p)
+        K = approach_offset_K(canon, _z["grasp"])
+        yaw_b = (_azh - K) % 360
+        # ⚠ 不用"在不在可达带"判 —— 可达带是每 5° 采样的, 边界有 ±5° 的不确定,
+        #   pour17 瓶实测 yaw_B=356.6° 落在带外 1.6°, 但那只是采样格点的假边界。
+        #   直接在这个角上解一次 IK 才是真判据。
+        _err = _ik_err_at(p, obj_pos, yaw_b,
+                          clip_cfg.get("robot_hand", clip_cfg.get("hand", "right")))
+        in_band = _err < 0.01
+        yaw_a = g1[tag]["best_yaw"]
+        use = (yaw_b if (_sym < YAW_SYM_MM and in_band) else yaw_a)
+        use_yaw[tag] = use
+        if in_band:
+            b_ok.add(tag)
+        print(f"  {tag:>10s} {K:6.1f}° {yaw_a:6.1f}° {(yaw_a+K)%360:6.1f}° "
+              f"{yaw_b:6.1f}° {(yaw_b+K)%360:6.1f}° {_err*100:7.2f}cm "
+              f"{use:6.1f}°")
+        if _sym < YAW_SYM_MM and not in_band:
+            print(f"  {'':>10s} ⚠ B 的角上 IK 误差 {_err*100:.2f}cm >1cm —— "
+                  f"该候选够不到人手那一侧, 退回 A")
+
+    # ★ 走 B 时改判硬门: Gate 1 的 ok/fail(Δψ≤tol = "物体朝向像不像视频")本身是个
+    #   **A 判据**, 拿它卡 B 方案会把好候选误杀(pour17 杯: Gate1 ❌ 差 0.5°, 但 B 角
+    #   IK 只有 0.08cm)。走 B 时的硬门 = "B 角可达" + 后面的 "B 角上过 H3"。
+    if _regime.endswith("走 B"):
+        _sv = [p for p in priors if os.path.basename(p)[:-4] in b_ok]
+        print(f"  -> 走 B: 硬门换成'B 角可达', {len(_sv)}/{len(priors)} 通过 "
+              f"(Gate 1 的 Δψ 判定仅作参考)")
+        survivors = _sv
+
     # ---- Gate 1b: H3 人手一致性 (只对带接近段的任务是硬判据) ----
     g1b = {}
     if survivors and not args.no_h3:
         wp, wq, gs_f = human_pregrasp_wrist(clip_cfg, args.clip, args.table_top_z)
         print(f"\n[Gate 1b] H3 人手一致性 (PreGrasp 帧 {gs_f}, 腕位 "
               f"{np.round(wp, 3)}; R_hi ≤ {TUBE_R_CAP*100:.0f}cm 才过)")
-        print(f"  {'候选':>10s} {'缺口G':>9s} {'姿态差':>8s} {'派生管壁R_hi':>13s}  判定")
+        print(f"  {'候选':>10s} {'用的yaw':>8s} {'缺口G':>9s} {'姿态差':>8s} {'派生管壁R_hi':>13s}  判定")
         keep = []
         for p in survivors:
             tag = os.path.basename(p)[:-4]
-            r = gate1b(p, obj_pos, g1[tag]["best_yaw"], wp, wq)
+            # ★ 用 Gate 1c 定下的角, 不是 Gate 1 的 best_yaw —— 一致性判据必须在
+            #   **真要用的摆法**上评。用 A 的角评 B 的方案, 必然报"抓法与人差太远"。
+            _uy = use_yaw.get(tag, g1[tag]["best_yaw"])
+            r = gate1b(p, obj_pos, _uy, wp, wq)
             g1b[tag] = r
-            print(f"  {tag:>10s} {r['G']*100:8.1f}cm {r['d_rot_deg']:7.0f}° "
+            print(f"  {tag:>10s} {_uy:7.1f}° {r['G']*100:8.1f}cm {r['d_rot_deg']:7.0f}° "
                   f"{r['R_hi']*100:12.1f}cm  {'✅' if r['ok'] else '❌ 抓法与人差太远'}")
             if r["ok"]:
                 keep.append(p)

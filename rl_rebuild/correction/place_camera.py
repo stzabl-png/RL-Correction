@@ -62,6 +62,27 @@ def load_camera_xy(mesh_path) -> np.ndarray | None:
     return np.median(c2w[:, :3, 3], axis=0)[:2].astype(np.float64)
 
 
+def find_cam_src(mesh_path, npz_path) -> str | None:
+    """找到含 c2w 的 `world_fused.npz` 所在目录, 返回可喂给 `camera_anchor_shift` 的路径。
+
+    c2w 可能落在三处(逐个找):
+      ① 网格旁            —— 老 clip
+      ② 轨迹 npz 旁        —— stage 过的自包含数据仓(软链常放在这一层)
+      ③ 把 npz 路径里的 RetargetOutput 换成 ReconstructOutput —— 重建产物原位
+
+    ⚠ 2026-08-15 抽出来的: `replay_grasp` 一直搜这三处, 而 `screen_prior` 只看①,
+    于是 pour17(网格在 `datasets/pour17/objects/object_1/`、软链在 `datasets/pour17/`)
+    在 builder 里能锚定、在 screen_prior 里报"缺 c2w 过不了 Gate 0"。同一个查找逻辑
+    写两份必然分叉, 统一到这里。
+    """
+    import os
+    for d in (os.path.dirname(mesh_path), os.path.dirname(npz_path),
+              os.path.dirname(npz_path).replace("RetargetOutput", "ReconstructOutput")):
+        if os.path.exists(os.path.join(d, "world_fused.npz")):
+            return os.path.join(d, "_probe.obj")
+    return None
+
+
 def camera_anchor_shift(mesh_path, robot_cam_xy, obj_first_xy) -> np.ndarray | None:
     """求 xy 平移量: 让重建相机落到机器人相机的 xy 上.
 

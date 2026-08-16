@@ -115,7 +115,11 @@ def object_placement(clip_cfg, canon_rot, table_top_z):
     from rl_rebuild.correction import frames as F
     from rl_rebuild.correction import place_camera as PC
     raw = np.load(clip_cfg["npz"], allow_pickle=True)
-    sxy = PC.camera_anchor_shift(clip_cfg["mesh"], PC.ZED_NOMINAL[:2], raw["obj_pose"][0, :2])
+    # c2w 的三处候选统一走 place_camera.find_cam_src(与 replay_grasp 同一份逻辑)。
+    # 之前这里只看网格旁, pour17 的软链在上一层, 会误报"缺 c2w 过不了 Gate 0"。
+    _cam = PC.find_cam_src(clip_cfg["mesh"], clip_cfg["npz"])
+    sxy = (PC.camera_anchor_shift(_cam, PC.ZED_NOMINAL[:2], raw["obj_pose"][0, :2])
+           if _cam is not None else None)
     if sxy is None:
         raise RuntimeError("world_fused.npz 缺 c2w, 无法相机锚定 —— 这条 clip 过不了 Gate 0")
     v = F.load_obj_verts(clip_cfg["mesh"]) @ quat_to_R(canon_rot).T
@@ -135,13 +139,20 @@ def gate0(clip_cfg, info_json):
 
 
 # ---------------------------------------------------------------- Gate 1
-def gate1(prior_npz, obj_pos, video_yaw, tol_deg, step=5):
-    """yaw 扫描: 可达带 Ψ 是否够到视频 yaw."""
+def gate1(prior_npz, obj_pos, video_yaw, tol_deg, step=5, hand="right"):
+    """yaw 扫描: 可达带 Ψ 是否够到视频 yaw.
+
+    ⚠ `hand` 必须跟 clip 的 `robot_hand` 走 —— 之前写死 "right", 拿右臂去筛左手候选
+    (pour17 的杯是左手)会给出完全无意义的可达带。2026-08-15 修。
+    """
     from rl_rebuild.correction.kinematics import ArmIK
     z = np.load(prior_npz)
+    if "canon_rot" not in z.files:      # 老 prior(Screw27 等)没有这一项, 跳过而不是崩
+        return dict(ok=False, n_reach=0, dpsi=None, best_yaw=None, best_err=float("nan"),
+                    band="", skipped="无 canon_rot(老 prior)")
     canon = np.asarray(z["canon_rot"], np.float64)
     grasp = np.asarray(z["grasp"], np.float64)
-    ik = ArmIK("right")
+    ik = ArmIK(hand)
     q = np.zeros(len(ik.arm_joints))
     q[0] = np.radians(-45.0)
     if len(q) > 3:
@@ -421,8 +432,12 @@ def main():
     g1 = {}
     for p in priors:
         tag = os.path.basename(p)[:-4]
-        r = gate1(p, obj_pos, vy, args.tol_deg)
+        r = gate1(p, obj_pos, vy, args.tol_deg,
+                  hand=clip_cfg.get("robot_hand", clip_cfg.get("hand", "right")))
         g1[tag] = r
+        if r.get("skipped"):
+            print(f"  {tag:>10s} {'—':>7s} {'—':>22s} {'—':>7s} {'—':>10s} {'—':>8s}  ⏭ {r['skipped']}")
+            continue
         if r["n_reach"] == 0:
             print(f"  {tag:>10s} {'0/72':>7s} {'—':>22s} {'—':>7s} {'—':>10s} "
                   f"{r['best_err']*100:7.2f}cm  ❌ 全域不可达")

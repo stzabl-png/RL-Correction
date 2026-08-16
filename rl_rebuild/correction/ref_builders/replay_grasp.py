@@ -223,13 +223,7 @@ def load_replay_grasp(npz_path, mesh_path, usd_path="", clip_id="", hand="right"
         # 平移量由"重建相机(人头) xy -> 机器人 ZED 光心 xy"定死.
         # c2w 来源: 老 clip 的 world_fused.npz 在 mesh 旁; CAD 替身 clip (screw 27)
         # 的 mesh 在资产库, c2w 在 ReconstructOutput 的 take 目录里 —— 逐个找.
-        _cam_src = None
-        for _d in (_o.path.dirname(mesh_path), _o.path.dirname(npz_path),
-                   _o.path.dirname(npz_path).replace("RetargetOutput",
-                                                     "ReconstructOutput")):
-            if _o.path.exists(_o.path.join(_d, "world_fused.npz")):
-                _cam_src = _o.path.join(_d, "_probe.obj")
-                break
+        _cam_src = PC.find_cam_src(mesh_path, npz_path)
         sxy = (PC.camera_anchor_shift(_cam_src, PC.ZED_NOMINAL[:2],
                                       raw["obj_pose"][0, :2])
                if _cam_src is not None else None)

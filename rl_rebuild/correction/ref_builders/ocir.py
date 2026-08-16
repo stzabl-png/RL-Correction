@@ -122,6 +122,7 @@ def load_ocir(seq_dir, grasp_json, traj_dir, usd_path="", variant="anchor",
             fq, fq_names = retarget_joints(j_r)   # Kit 内到这行会报错: 先离线跑一次 loader
             os.makedirs(os.path.dirname(cache), exist_ok=True)
             np.savez(cache, fq=fq, names=np.array(fq_names), src_mtime=src_mtime)
+        # hand 用默认 right: 本 builder 在上面 assert 过 mano_side == "right"。
         wrist_q = F.sharpa_base_quat_from_joints(j_r)
         track_obj = np.concatenate([h_op_r, h_oq_r], axis=1)
         track_wrist = np.concatenate([j_r[:, 0], wrist_q], axis=1)

@@ -66,8 +66,18 @@ def _free_aux_from_layout(env, cfg, entry, sec) -> bool:
     """无装配的第二物体: 从 `scene_layout.json` 取**相对主体**的摆放。
 
     只用**相对量**(sec - pri), 因为 layout 在重建世界系、env 在机器人场景系 ——
-    两者都 z-up 且已对齐重力, 差的是平移与一个 yaw; 相对量对平移免疫, yaw 在
-    reset 时按"主体实际姿态 vs layout 主体姿态"的偏航差补上。
+    `place_mode="ref_builder"` 的摆放是 `camera_anchor_shift` 给的**纯 XY 平移**加一个
+    z 抬升(见 replay_grasp "相机锚定 (唯一摆放模式)"), **不含任何 yaw**, 所以相对量
+    可以原样搬过去。
+
+    ⚠ 2026-08-15 修掉的坑: 原实现拿"主体实际偏航 − layout 里主体偏航"当场景偏航补偿。
+    这把**两件不同的事**混为一谈 —— 物体自身的朝向 ≠ 两个坐标系之间的偏航。pour17 的
+    主体是瓶子(旋转体), 它的 yaw 在两边都是任意值: layout 那边来自稳定位姿候选(−180°),
+    env 那边来自 Dexonomy `canon_rot`(+93.6°, 编码的是**抓取接近方向**不是物体朝向)。
+    两个任意值相减得 −86.4°, 于是相对偏移 (−0.5, +24.2)cm(左右并排)被转成
+    (+24.0, +3.0)cm(一前一后) —— GUI 里双物体几乎排在同一条 X 线上, 就是这么来的。
+    env.py 的 canon_rot↔scene_layout 交叉核验查的是**主轴**夹角, 对绕主轴的 yaw 无感,
+    所以核验照过不误。
     """
     lay_p = entry.get("scene_layout_json")
     if not lay_p or not os.path.isfile(lay_p):
@@ -83,7 +93,6 @@ def _free_aux_from_layout(env, cfg, entry, sec) -> bool:
     p_sec = np.asarray(lay[sec_oid]["pos"], float)
     env.aux_rel_offset_np = p_sec - p_pri                    # 相对主体的偏移
     env.aux_quat_lay_np = np.asarray(lay[sec_oid]["quat_wxyz"], float)
-    env.aux_yaw_lay = _yaw_of(lay[pri_oid]["quat_wxyz"])     # layout 里主体的偏航
     # 生成占位位姿(真实位姿 reset 时重算): 用 layout 绝对位姿, z 换到 env 桌面
     z_lay_table = float(json.load(open(lay_p)).get("scene_table_z", p_sec[2]))
     env.aux_init_pose_np = np.concatenate([
@@ -91,6 +100,10 @@ def _free_aux_from_layout(env, cfg, entry, sec) -> bool:
         env.aux_quat_lay_np])
     print(f"[aux] 第二物体 {sec_oid}({sec.get('label')}): 相对主体偏移 "
           f"{np.round(env.aux_rel_offset_np * 100, 1).tolist()}cm (来自 scene_layout)")
+    # 把"曾经被当成场景偏航"的那个量打出来, 便于一眼看出它有多没意义(见 docstring)。
+    _dy = np.degrees(_yaw_of(env.aux_quat_lay_np) - _yaw_of(lay[pri_oid]["quat_wxyz"]))
+    print(f"[aux]   (诊断) layout 内两物体偏航差 {(_dy + 180) % 360 - 180:.1f}° —— "
+          f"**不**用它做任何补偿: 摆放是纯平移, 且旋转体的 yaw 是任意值")
     return True
 
 
@@ -348,39 +361,27 @@ def apply_screw(env, *, integrate_angle: bool = True):
 
 
 def reset_aux_free(env, env_ids):
-    """无约束的第二物体复位: 跟着**抖动后的主体**摆, 保持 layout 给的相对关系。
+    """无约束的第二物体复位: 跟着**抖动后的主体位置**摆, 保持 layout 给的相对关系。
 
-    yaw 处理: layout 在重建世界系、env 在场景系, 两者可能差一个偏航。用
-    "主体实际偏航 − layout 里主体偏航" 作为补偿角, 同时旋转相对偏移与第二物体姿态,
-    于是两物体的相对布局在任何 yaw 下都一致。
+    **不做任何偏航旋转**, 两条独立理由(任一条成立都足够):
+      1. layout 系 → env 系是**纯平移**(`camera_anchor_shift` 的 XY + z 抬升),
+         没有偏航可补 —— 详见 `_free_aux_from_layout` 的 docstring 与那个坑。
+      2. 主体的 yaw 抖动是世界系预乘(`quat_mul(yaw, obj_init_quat)`), 即**原地自旋**;
+         第二个物体是桌上独立的一件东西, 不该绕着主体公转。
+
+    位置抖动照跟(保持两物体相对布局恒定), 姿态直接用 layout 的。
+    与 `reset_screw`(瓶盖拧在瓶上, 刚性连体, 必须跟自旋)是**两条不同的路**, 别混。
     """
     if getattr(env, "aux", None) is None or getattr(env, "aux_rel_offset_np", None) is None:
         return
     n = len(env_ids)
     dev = env.device
     origins = env.scene.env_origins[env_ids]
-    p = env.obj_start_pos[env_ids]                       # (n,3) origin 相对
-    q = env.obj_start_quat[env_ids]                      # (n,4) wxyz
-    # 逐 env 的偏航补偿
-    w, x, y, z = q[:, 0], q[:, 1], q[:, 2], q[:, 3]
-    yaw_env = torch.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
-    dyaw = yaw_env - float(env.aux_yaw_lay)
-    c, s = torch.cos(dyaw), torch.sin(dyaw)
+    p = env.obj_start_pos[env_ids]                       # (n,3) origin 相对, 含抖动
     off = torch.tensor(env.aux_rel_offset_np, dtype=torch.float32, device=dev)
-    ox = c * off[0] - s * off[1]
-    oy = s * off[0] + c * off[1]
-    aux_p = p + torch.stack([ox, oy, off[2].expand(n)], dim=1)
-    # 姿态 = Rz(dyaw) ∘ layout 姿态
-    ql = torch.tensor(env.aux_quat_lay_np, dtype=torch.float32, device=dev).expand(n, 4)
-    h = dyaw * 0.5
-    qz = torch.stack([torch.cos(h), torch.zeros_like(h), torch.zeros_like(h),
-                      torch.sin(h)], dim=1)
-    aux_q = torch.stack([
-        qz[:, 0] * ql[:, 0] - qz[:, 3] * ql[:, 3],
-        qz[:, 0] * ql[:, 1] - qz[:, 3] * ql[:, 2],
-        qz[:, 0] * ql[:, 2] + qz[:, 3] * ql[:, 1],
-        qz[:, 0] * ql[:, 3] + qz[:, 3] * ql[:, 0]], dim=1)
-    aux_q = aux_q / aux_q.norm(dim=1, keepdim=True)
+    aux_p = p + off.expand(n, 3)
+    aux_q = torch.tensor(env.aux_quat_lay_np, dtype=torch.float32,
+                         device=dev).expand(n, 4).contiguous()
     env.aux.write_root_pose_to_sim(torch.cat([aux_p + origins, aux_q], dim=1), env_ids)
     env.aux.write_root_velocity_to_sim(
         torch.zeros(n, 6, dtype=torch.float32, device=dev), env_ids)

@@ -297,7 +297,7 @@ def layout(recon_dir: Path, replay_npz: Path, *, table_height: float = TABLE_HEI
         #   机器人 15.0cm, 长度接近, 残差主要来自朝向)。
         from rl_rebuild.correction import frames as _F
         from rl_rebuild.correction.ref_builders.replay_grasp import grasp_center_local
-        _Rw = quat_to_R(_F.sharpa_base_quat_from_joints(J[gs_c:gs_c + 1])[0])
+        _Rw = quat_to_R(_F.sharpa_base_quat_from_joints(J[gs_c:gs_c + 1], hand)[0])
         anchor = J[gs_c][0] + _Rw @ grasp_center_local(hand)   # 机器人合拢质心
 
         mesh_p = recon_dir / "objects" / oid / "object_mesh_scaled_final.obj"

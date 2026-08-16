@@ -276,7 +276,7 @@ class DexmateCorrectionEnv(SharpaCorrectionEnv):
         # ---- 覆盖参考: 腕 + 物体 (手指 qpos 与放置无关, 不动) ----
         to = lambda x: torch.tensor(_np.asarray(x), dtype=torch.float32, device=dev)
         self.ref_wrist_pos = to(J[:, 0])
-        self.ref_wrist_quat = to(F.sharpa_base_quat_from_joints(J))
+        self.ref_wrist_quat = to(F.sharpa_base_quat_from_joints(J, prim))
         op, oq = to(res["obj_pos"]), to(res["obj_quat"])
         self.obj_init_pos, self.obj_init_quat = op, oq
         self.ref_obj_pos[:] = op                           # 常量 (见 doc "未解决")
@@ -297,7 +297,7 @@ class DexmateCorrectionEnv(SharpaCorrectionEnv):
         anchor_T[:3, :3], anchor_T[:3, 3] = quat_to_R(_aq), _ap
         ik = ArmIK(prim, anchor_link="arm_center", anchor_T=anchor_T)
         self._anchor_T = anchor_T
-        sols = ik.solve_traj(J[:, 0], F.sharpa_base_quat_from_joints(J))
+        sols = ik.solve_traj(J[:, 0], F.sharpa_base_quat_from_joints(J, prim))
         q = _np.stack([s["q"] for s in sols])
         ok = _np.array([s["ok"] for s in sols])
         pe = _np.array([s["pos_err"] for s in sols])

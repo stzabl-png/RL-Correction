@@ -1,8 +1,24 @@
-"""B1 frames.py — 单一坐标约定与变换 (与 rl_rebuild/scripts/check_alignment.py 同源).
+"""B1 frames.py — 单一坐标约定与变换。
 
-约定链 (对 clip-11 已验证, 见 check_alignment.py 全 PASS):
+约定链:
   raw ViPE-gauge world --cv2zup--> z-up --recenter(table)--> 桌面局部系
-手与物体施加同一刚体变换, 保持重建出的 HOI 相对几何; env_origin 由 env 再加.
+
+⚠ **摆放约定已于 2026-08-07 变更, 本文件只提供变换原语, 不再定义摆放。**
+旧约定是"手与物体施加同一刚体变换, 保持重建出的 HOI 相对几何", 配套的
+`rl_rebuild/scripts/check_alignment.py` 会断言该相对几何不变 —— **两者都已删除**。
+现行约定(唯一): `ref_builders/replay_grasp.py` 的三步 ——
+  ① 相机(人头) xy 对齐机器人 ZED 光心;
+  ② 手轨迹整体抬升, 全程离桌 clearance;
+  ③ **物体 XY 听手**: 交互开始帧手的抓取锚点定物体 xy, Z 贴桌。
+第③步**故意改变**手物相对几何 —— 重建的物体 track 在交互期被手遮挡、噪声大,
+而手部轨迹是**明显更可信的通道**(ARCTIC 真值实测, 2026-08-12 修正索引后:
+**锚后**误差 手 74mm vs 物体 123mm —— 手好 **1.7 倍**; 按"每 1mm 真实位移产生多少误差"
+归一后 0.53 vs 0.95, 同样 1.8 倍。且手在接触后走的距离是物体的 2.7 倍, 所以毫米数比法
+其实**低估**了手的优势。绝对口径 手 180mm vs 物 264mm)。
+⚠ 别用"手 58mm vs 物 157mm / 好 2.7 倍" —— 那是拿两个**不同池**的中位数相比
+(30 个手-side 条目 vs 11 条物体 take), 口径不匹配。
+⚠ 早期版本记的"手 198mm / 相对 393mm"是错的: 当时用视频帧号索引 hand_*, 而 world_fused
+的 hand_* 按 ARCTIC 30fps 标注帧索引(长度是 object 的 2 倍), 取到了错的时刻。
 """
 from __future__ import annotations
 
@@ -92,13 +108,30 @@ def sample_surface_points(mesh_path, n, seed=0):
     return v[sel].astype(np.float32)
 
 
-def sharpa_base_quat_from_joints(joints):
+def sharpa_base_quat_from_joints(joints, hand="right"):
     """MANO 关节点 -> SharpaWave 浮动基座姿态 (T,21,3)->(T,4)wxyz.
 
     与 retarget_isaacsim.base_rot_from_joints 同一约定 (retarget README):
     +z = 腕->四指MCP质心(指向), +y = 食指MCP-小指MCP(拇指侧), +x = y×z(掌法向).
-    右手, 无 palm_flip.
+
+    ⚠ **左手必须传 hand="left"**(2026-08-15 修)。下面的公式对两只手都把 +y 定成
+    "食指MCP->小指MCP"即**解剖学上的拇指侧**, 而 SharpaWave 的 URDF 左手基座系是右手
+    系镜像的: 实测 `grasp_center_local` 左 [4.19,+0.86,14.40] / 右 [4.19,-0.86,14.40],
+    **只有 y 反号, x 同号**。于是人手左腕系与机器人左手基座系差一个**绕 z 的 180°**
+    (retarget 侧一直用 `--palm-flip left` 补它, 本函数从前没有, 因为历史上只跑右手)。
+
+    判据与实测(pour/17 抓握窗, 判据 = 机器人合拢中心落到人五指尖质心的残差):
+        左手  不翻 6.20cm / **绕z翻 2.37cm** / 绕x翻 29.3 / 绕y翻 28.7
+        右手  **不翻 1.28cm** / 绕z翻 8.83 / 绕x翻 27.7 / 绕y翻 29.0
+    不预设翻转直接解最优修正旋转: 左 158.1° 绕 [0.32,-0.13,0.94](≈绕z 180°),
+    右 26.6° —— 右手那 26.6° 是"机器人手≠人手"的形状残差基线, 左手 = 它 + 一个 z180。
+    翻正后两手残差同量级(2.4 vs 1.3cm), 即只剩形状残差。
+
+    默认仍是 "right" 且此时**恒等**, 所以历史上所有右手 run(pp0/Grasp0/冠军配方)
+    的数值不受本次改动影响。
     """
+    if hand not in ("left", "right"):
+        raise ValueError(f"hand 必须是 'left'/'right', 收到 {hand!r}")
     w = joints[:, 0]
     z = joints[:, [5, 9, 13, 17]].mean(1) - w
     z /= np.linalg.norm(z, axis=1, keepdims=True) + 1e-9
@@ -107,6 +140,8 @@ def sharpa_base_quat_from_joints(joints):
     y /= np.linalg.norm(y, axis=1, keepdims=True) + 1e-9
     x = np.cross(y, z)
     R = np.stack([x, y, z], axis=-1)          # (T,3,3) 列向量为基
+    if hand == "left":                        # palm flip: 绕 z 转 180° (x,y 同时反号)
+        R = R @ np.diag([-1.0, -1.0, 1.0])
     return np.stack([rotmat_to_quat(R[t]) for t in range(len(R))])
 
 
@@ -194,26 +229,9 @@ def support_faces(verts, min_area=0.002):
     return out
 
 
-def stable_pose_projection(verts, q0_wxyz):
-    """最小旋转把最接近朝下的支撑面压平到桌面 -> (修正后四元数, 修正角度deg).
-
-    用途: 重建的初始物体姿态常带倾斜噪声 (clip-11 实测 43°), 直接放进物理会倒;
-    投影后物体稳稳立在桌上, 参考轨迹姿态不动 (那是跟踪目标, 噪声由 RL 消化)."""
-    faces = support_faces(verts)
-    if not faces:
-        return q0_wxyz, 0.0
-    R = quat_to_rotmat(q0_wxyz)
-    down = np.array([0.0, 0, -1])
-    v = min((R @ nn for _, nn in faces),
-            key=lambda w: np.arccos(np.clip(w @ down, -1, 1)))
-    axis = np.cross(v, down)
-    s, c = np.linalg.norm(axis), float(v @ down)
-    if s < 1e-8:
-        return q0_wxyz, 0.0
-    angle = np.arctan2(s, c)
-    axis = axis / s
-    q_fix = np.concatenate([[np.cos(angle / 2)], np.sin(angle / 2) * axis])
-    return quat_mul(q_fix, q0_wxyz), float(np.degrees(angle))
+# `stable_pose_projection` 于 2026-08-11 删除 (随 load_replay 的 initial_pose_mode 一起):
+# 它属于"以物体自身位姿为准摆放"的旧约定。现行摆放见 ref_builders/replay_grasp.py。
+# `support_faces` 保留 —— replay_grasp 仍用它算贴桌高度。
 
 
 def scene_rotation(scene_rot: str):
@@ -227,9 +245,65 @@ def scene_rotation(scene_rot: str):
     return quat_to_rotmat(np.array([float(x) for x in scene_rot.split(",")]))
 
 
+def pick_anchor_object(npz_path, mesh_path, recon_dir=None):
+    """挑**最可信**的物体来定场景原点。→ (obj_p, obj_q, mesh_path, 说明)
+
+    `align_replay` 用"某个物体首帧的位姿 + 网格最低顶点"定整个场景的平移量。
+    原来固定用**主物体**(机器人抓的那个) —— 但主物体是由"机器人是左手还是右手"
+    决定的, 与"哪个物体的轨迹可信"毫无关系。
+
+    实测 screw_unscrew_bottle_cap/0:
+        object_0 瓶身  conf_pos 82  被证伪 1/133
+        object_1 瓶盖  conf_pos 50  被证伪 **104/133**
+    两者定出的场景平移差 **10.3cm**。机器人只有右手 -> 只能抓瓶盖 -> 整只手的参考
+    轨迹会被那份坏数据带偏 10cm。
+
+    所以改成: 谁可信谁定原点, 与谁被抓无关。判据取 `confidence_complete.json` 的
+    `conf_pos_median`(越高越好), 打平时取被证伪帧少的。没有该文件就退回主物体。
+    """
+    import json as _j
+    import os as _os
+    import numpy as _np
+    d = _np.load(npz_path, allow_pickle=True)
+    prim = (d["obj_pose"][:, :3].astype(_np.float64),
+            d["obj_pose"][:, 3:7].astype(_np.float64), mesh_path, "主物体(无可信度信息)")
+    if "obj_pose_all" not in d.files or "object_ids" not in d.files:
+        return prim
+    rd = recon_dir or _os.path.dirname(str(npz_path)).replace("RetargetOutput",
+                                                              "ReconstructOutput")
+    cf = _os.path.join(rd, "confidence_complete.json")
+    if not _os.path.isfile(cf):
+        return prim
+    try:
+        co = (_j.load(open(cf)).get("objects") or {})
+    except Exception:
+        return prim
+    oids = [str(x) for x in d["object_ids"]]
+    scored = [(co.get(o, {}).get("conf_pos_median") or -1,
+               -(co.get(o, {}).get("refuted_frames") or 0), i, o)
+              for i, o in enumerate(oids) if o in co]
+    if not scored:
+        return prim
+    scored.sort(reverse=True)
+    conf, negref, i, oid = scored[0]
+    m = _os.path.join(rd, "objects", oid, "object_mesh_scaled_final.obj")
+    if not _os.path.isfile(m):
+        m = mesh_path
+    P = d["obj_pose_all"][i]
+    return (P[:, :3].astype(_np.float64), P[:, 3:7].astype(_np.float64), m,
+            f"{oid}(conf_pos={conf}, 被证伪 {-negref} 帧) —— 最可信, 与谁被抓无关")
+
+
 def align_replay(joints, obj_p, obj_q_wxyz, mesh_path,
-                 table_height=0.85, obj_gap=0.01, scene_rot="identity"):
-    """scene_rot + 落桌 recenter, 手物同一变换. 返回 (joints', obj_p', obj_q', info)."""
+                 table_height=0.85, obj_gap=0.01, scene_rot="identity", anchor=None):
+    """scene_rot + 落桌 recenter, 手物同一变换. 返回 (joints', obj_p', obj_q', info).
+
+    `anchor` = `pick_anchor_object()` 的返回 (obj_p, obj_q, mesh, 说明):
+    **用它来算平移量**, 但平移仍然施加给传进来的 joints/obj。
+    为什么要分开: 平移量原本由"机器人抓的那个物体"决定, 而那与"哪个物体可信"无关 ——
+    实测 clip0 拿瓶盖(被证伪 104/133)定原点比拿瓶身(1/133)偏 10.3cm。
+    anchor=None 时行为与原来完全一致。
+    """
     Rs = scene_rotation(scene_rot)
     qs = rotmat_to_quat(Rs)
     T = len(obj_p)
@@ -237,13 +311,23 @@ def align_replay(joints, obj_p, obj_q_wxyz, mesh_path,
     obj_q_r = quat_mul(np.broadcast_to(qs, (T, 4)), obj_q_wxyz)
     joints_r = joints @ Rs.T
 
+    if anchor is not None:
+        a_p, a_q, a_mesh, _why = anchor
+        a_p_r = a_p @ Rs.T
+        a_q_r = quat_mul(np.broadcast_to(qs, (len(a_q), 4)), a_q)
+        a_verts = load_obj_verts(a_mesh)
+        a_v0 = rot_apply(np.broadcast_to(a_q_r[0], (len(a_verts), 4)), a_verts) + a_p_r[0]
     lo, hi = object_aabb_obj(mesh_path)
     # 落桌高度必须用真实顶点最低点: AABB 角点对圆柱/圆弧面是空气,
     # 会把物体悬空数厘米 (躺置圆柱实测 4.6cm), 落地冲击直接滚走
     verts = load_obj_verts(mesh_path)
     v0 = rot_apply(np.broadcast_to(obj_q_r[0], (len(verts), 4)), verts) + obj_p_r[0]
-    shift = np.array([-obj_p_r[0, 0], -obj_p_r[0, 1],
-                      table_height + obj_gap - v0[:, 2].min()])
+    if anchor is not None:
+        shift = np.array([-a_p_r[0, 0], -a_p_r[0, 1],
+                          table_height + obj_gap - a_v0[:, 2].min()])
+    else:
+        shift = np.array([-obj_p_r[0, 0], -obj_p_r[0, 1],
+                          table_height + obj_gap - v0[:, 2].min()])
     info = {"aabb_lo": lo, "aabb_hi": hi, "shift": shift,
             "half_diag": np.linalg.norm(hi - lo) / 2}
     return joints_r + shift, obj_p_r + shift, obj_q_r, info

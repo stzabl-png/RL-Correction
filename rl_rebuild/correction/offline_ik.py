@@ -42,7 +42,7 @@ def solve_clip(name, table_top_z=0.85, grasp_gap=0.045,
     prim = res["primary"]
     J = res["joints"][prim]                       # (T,21,3) 已摆放
     P = J[:, 0]                                   # 腕位
-    Q = F.sharpa_base_quat_from_joints(J)         # 腕姿 (wxyz), 与 dexmate_follow 同约定
+    Q = F.sharpa_base_quat_from_joints(J, prim)   # 腕姿 (wxyz), 与 dexmate_follow 同约定
 
     # 重建数据本身就带 NaN 帧 (轨迹首尾, 或该手整段没被检出). 这些帧不是 IK 解不出来,
     # 是**根本没有目标**, 必须单独统计, 不能混进可达率里 —— 也必须在拿去训练前处理掉。

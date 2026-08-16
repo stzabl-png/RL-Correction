@@ -20,6 +20,7 @@ import time
 import numpy as np
 
 from rl_rebuild.correction import frames as F
+from rl_rebuild.correction import paths          # ⚠ 原来漏了这一行, 一跑就 NameError
 from rl_rebuild.correction.load_replay import CLIP11, CLIP11_MESH
 
 
@@ -61,8 +62,11 @@ def export(npz_path, mesh_path, out_path, hand="right", mode="dexpilot",
     # 但腕位姿要落在同一个桌面局部系里)
     iv = np.flatnonzero(valid)
     joints = joints[iv[np.abs(np.arange(T)[:, None] - iv[None, :]).argmin(1)]]
+    # ★ 场景原点由**最可信的物体**定, 不由"机器人抓哪个"定 (见 F.pick_anchor_object)
+    _a = F.pick_anchor_object(npz_path, mesh_path)
+    print(f"[export_qpos] 场景原点锚定物体: {_a[3]}")
     joints_t, _, _, _ = F.align_replay(joints, obj_p, obj_q, mesh_path,
-                                       table_height, obj_gap, scene_rot)
+                                       table_height, obj_gap, scene_rot, anchor=_a)
 
     retargeting = build_sharpa_retargeting(hand, mode)
     mapper = JointMapper(retargeting, hand)
@@ -74,7 +78,7 @@ def export(npz_path, mesh_path, out_path, hand="right", mode="dexpilot",
     print(f"[export] retarget {T} 帧 ({mode}) 耗时 {time.time() - t0:.1f}s")
 
     import os
-    wrist_q = F.sharpa_base_quat_from_joints(joints_t)
+    wrist_q = F.sharpa_base_quat_from_joints(joints_t, hand)
     np.savez(
         out_path,
         source_mtime=os.path.getmtime(npz_path),   # 过期检测: 源文件重生成后必须重导

@@ -41,8 +41,15 @@ def _longest_true_run(mask):
 def load(npz_path, mesh_path, usd_path="", clip_id="", hand="right",
          table_height=0.85, obj_gap=0.01, scene_rot="identity", quat_order="wxyz",
          smooth_sigma=2.0, outlier_mult=3.0, target_hz=None,
-         semantics: ObjectSemantics | None = None, verbose=False,
-         initial_pose_mode="stable") -> DataUnit:
+         semantics: ObjectSemantics | None = None, verbose=False) -> DataUnit:
+    """读取 replay npz → DataUnit。**只做数据加载, 不做摆放。**
+
+    ⚠ 返回的 `object_init_pose` 是重建轨迹首帧的**原样透传**, 不是场景摆放。
+    摆放由 ref_builder 负责 —— 现行唯一约定见 `ref_builders/replay_grasp.py`
+    (物体 XY 锚到交互开始帧手的抓取锚点, Z 贴桌), 它会覆写这个字段。
+    2026-08-11 删除了这里的 `initial_pose_mode=stable/preserve` 分支: 它按**物体自身
+    XY** 摆放并只重算 Z, 与 2026-08-07 裁定的"物体听手"约定冲突。
+    """
     d = np.load(npz_path, allow_pickle=True)
     T = len(d["frames"])
     src_fps = float(d["fps"])
@@ -55,9 +62,13 @@ def load(npz_path, mesh_path, usd_path="", clip_id="", hand="right",
     if quat_order == "xyzw":
         obj_q = F.quat_xyzw_to_wxyz(obj_q)
 
-    # 离线 retarget 产物 (export_qpos.py), 与源同帧率
+    # 离线 retarget 产物 (export_qpos.py), 与源同帧率.
+    # 双手 clip (如 screw 27) 每只手各导一份 ref_qpos_<hand>.npz —— 交互手是哪只,
+    # 就读哪只的手指 qpos; 单手 clip 只有 ref_qpos.npz, 回落到它 (旧行为不变).
     finger, finger_names = None, None
-    qpos_path = Path(npz_path).parent / "ref_qpos.npz"
+    qpos_path = Path(npz_path).parent / f"ref_qpos_{hand}.npz"
+    if not qpos_path.exists():
+        qpos_path = Path(npz_path).parent / "ref_qpos.npz"
     if qpos_path.exists():
         q = np.load(qpos_path, allow_pickle=True)
         assert len(q["finger_qpos"]) == T, "ref_qpos 与 replay 帧数不一致, 请重新导出"
@@ -75,8 +86,10 @@ def load(npz_path, mesh_path, usd_path="", clip_id="", hand="right",
     fill = iv[np.abs(np.arange(T)[:, None] - iv[None, :]).argmin(1)]
     joints = joints[fill]
 
+    # ★ 场景原点由**最可信的物体**定(与 export_qpos 用同一个, 否则手物差一个刚体平移)
+    _a = F.pick_anchor_object(npz_path, mesh_path)
     joints_t, obj_p_t, obj_q_t, info = F.align_replay(
-        joints, obj_p, obj_q, mesh_path, table_height, obj_gap, scene_rot)
+        joints, obj_p, obj_q, mesh_path, table_height, obj_gap, scene_rot, anchor=_a)
 
     # ---- 物体轨迹: 离群剔除 + 高斯平滑 (逐帧位姿估计必有抖动/漂移) ----
     obj_p_fixed, drift = F.fix_outliers(obj_p_t, outlier_mult)
@@ -113,7 +126,7 @@ def load(npz_path, mesh_path, usd_path="", clip_id="", hand="right",
     drift_out = np.flatnonzero(_dm)
 
     # ---- 派生量在最终时间轴上重算 ----
-    wrist_q = F.sharpa_base_quat_from_joints(joints_s)
+    wrist_q = F.sharpa_base_quat_from_joints(joints_s, hand)
     tip_obj = np.linalg.norm(
         joints_s[:, F.MANO_TIPS] - obj_p_s[:, None], axis=2).min(axis=1)
     interaction = valid & (tip_obj < info["half_diag"] + 0.03)
@@ -131,27 +144,8 @@ def load(npz_path, mesh_path, usd_path="", clip_id="", hand="right",
         finger_names=finger_names,
         obj_drift=drift_out,
     )
-    # 初始物体位姿. 旧 clip 默认做 stable-pose 投影; static reconstruction
-    # 显式使用 preserve, 因为其 FoundationPose 朝向是场景布置的权威输入.
-    t_init = ref.valid_seg[0]
-    mesh_verts = F.load_obj_verts(mesh_path)
-    if initial_pose_mode == "stable":
-        init_q, fix_deg = F.stable_pose_projection(
-            mesh_verts, track_object[t_init, 3:7].astype(np.float64))
-    elif initial_pose_mode == "preserve":
-        init_q = track_object[t_init, 3:7].astype(np.float64)
-        init_q = init_q / np.linalg.norm(init_q)
-        fix_deg = 0.0
-    else:
-        raise ValueError(
-            f"initial_pose_mode must be stable/preserve, got {initial_pose_mode!r}"
-        )
-    v_rot = F.rot_apply(np.broadcast_to(init_q, (len(mesh_verts), 4)), mesh_verts)
-    init_pose = np.concatenate([
-        [track_object[t_init, 0], track_object[t_init, 1],
-         table_height + obj_gap - v_rot[:, 2].min()], init_q])
-    if verbose and initial_pose_mode == "stable":
-        print(f"[init] stable-pose 投影: 修正倾斜 {fix_deg:.1f} deg (t_init={t_init})")
+    # 物体轨迹首帧原样透传 —— **不是摆放**, 由 ref_builder 覆写 (见本文件 docstring).
+    init_pose = track_object[ref.valid_seg[0]].astype(np.float64)
 
     data_unit = DataUnit(
         clip_id=clip_id, mesh_path=str(mesh_path), usd_path=str(usd_path),

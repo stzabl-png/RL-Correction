@@ -88,6 +88,12 @@ def stable_quat(mesh_path, ref_quat=None, cache_name="stable_poses.json"):
     所以结果缓存到 mesh 同目录, Isaac 里只读缓存.
     """
     cache = os.path.join(os.path.dirname(mesh_path), cache_name)
+    # 同目录多网格 (screw 27 的瓶身+盖共用 reconstruction/): 通用名会互相打翻,
+    # 网格专属缓存 <mesh名>.stable_poses.json 优先; 老布局 (一目录一网格) 不受影响.
+    specific = os.path.join(os.path.dirname(mesh_path),
+                            os.path.basename(mesh_path) + ".stable_poses.json")
+    if os.path.exists(specific):
+        cache = specific
     key = f"{os.path.basename(mesh_path)}:{os.path.getmtime(mesh_path):.0f}"
     # 自带快照 (datasets/): key 里的 mtime 在别人 clone 后必然对不上, 只比文件名。
     # 快照的 mesh 和缓存是一起提交的, 不可能不配套。不跳过的话就要在 Isaac 进程里
@@ -223,7 +229,7 @@ def compute_placement(npz_path, mesh_path, robot_hands, robot_head=None,
 
     palm = {}
     for h in J:
-        wq = F.sharpa_base_quat_from_joints(J[h])
+        wq = F.sharpa_base_quat_from_joints(J[h], h)
         palm[h] = J[h][:, 0] + F.rot_apply(
             wq, np.tile([[0.0, 0, palm_offset]], (len(J[h]), 1)))
 

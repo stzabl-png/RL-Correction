@@ -38,6 +38,37 @@ def _longest_true_run(mask):
     return best
 
 
+def per_frame_reliability(npz, key):
+    """读逐帧可靠性字段, **常数字段一律当"无数据"返回 None**。
+
+    ⚠ 这道断言防的是一个真实踩过的坑(2026-08-15):
+    `replay_world.npz` 里的 `confidence_right/left/obj_confidence` **全片恒为 1.0**,
+    名字看起来是"可信度", 实际是 `fuse/run_sequence.py` 里 `clean_hand_payload` 返回的
+    **轨迹清洗器质量标记** —— 含义是"这一帧被清洗器动过没有", 恒 1.0 = 一帧都没改,
+    **与"这一帧的手准不准"毫无关系**。直接拿它当可信度用, 会得出"全片满可信"的错误结论。
+    (我当时差点这么用; 重建侧已同意改名为 `hand_clean_flag`/`obj_clean_flag`。)
+
+    真正的逐帧可信度在**全局** `Data/VideoPrior/poseqa/`:
+      · `pose_audit.json` 的 per_frame: conf / conf_pos / conf_rot / rot_refuted ...
+      · `poseqa/rts/rts_<take>_<obj>.npz`: sigma_pos_reported_m / sigma_rot_reported_deg
+    ⚠ 其中 **σ_rot 常被截断成恒定 6.00°**(smoother 的上限), 同样要过本函数才安全。
+
+    返回: (T,) 数组; 若字段缺失/全 NaN/**全片只有一个取值** -> None。
+    """
+    import numpy as _np
+    if key not in getattr(npz, "files", []):
+        return None
+    a = _np.asarray(npz[key], dtype=_np.float64).ravel()
+    if a.size == 0 or not _np.isfinite(a).any():
+        return None
+    u = _np.unique(a[_np.isfinite(a)])
+    if u.size <= 1:
+        print(f"[reliability] ⚠ `{key}` 全片只有一个取值 ({u.tolist()}) —— "
+              f"按**无数据**处理, 不是'全可信'。真逐帧量见 poseqa/(见本函数 docstring)")
+        return None
+    return a
+
+
 def load(npz_path, mesh_path, usd_path="", clip_id="", hand="right",
          table_height=0.85, obj_gap=0.01, scene_rot="identity", quat_order="wxyz",
          smooth_sigma=2.0, outlier_mult=3.0, target_hz=None,

@@ -5,7 +5,8 @@
 
 三步 (在 load_replay.load 之上):
   1. 接触窗: phase_<hand>==1 的首帧 = PreGrasp 帧 (= grasp_annotation 的接触起点).
-  2. 摆放 (anchor_mode): 物体平放桌面 (最大支撑面朝下); 物体 track 弃用 (噪声太大).
+  2. 摆放: 相机锚定 (相机/手 XY 刚体平移到机器人 ZED) + **物体听手** (XY = 交互
+     开始帧手抓取锚点, Z 稳定贴桌); 物体 track 弃用 (噪声太大, 交互期被手遮挡).
      - "camera" (默认): 相机/手/物体 xy 刚体同步平移, 由"重建相机 -> 机器人 ZED"定死,
        三者相对关系保留重建原样; z 是两条独立约束 (物体贴桌 / 手全程最小抬升).
      - "palm" (旧): 把物体搬到 PreGrasp 合拢中心正下方 —— 会破坏上面那条相机对齐,
@@ -88,6 +89,22 @@ def grasp_center_local(hand: str = "right", closed=None) -> np.ndarray:
     Grasp12 五个指尖离物体 8~10cm, 接触率 0.00/5.
 
     改成从 URDF 正解算出来, 不再有手调常数.
+
+    ⚠ **已知残差(2026-08-15 实测): 定值 CLOSED 构型带来 2.0~2.7cm 的锚点误差**。
+    这里用的是一个**定值**合拢构型, 而人手是**按物体大小张开**的 —— 物体越大手张得
+    越开, 两者差得越多。实测四条 手×take 的"人指尖质心 − 机器人 CLOSED 胶垫质心"
+    (腕局部系, 接触帧中位, cm):
+        pour17  左 [-1.77,-0.89,-0.24] |1.99|   右 [0.90,0.69,-2.43] |2.68|
+        screw18 左 [-0.98,-1.56,-1.82] |2.59|   右 [1.52,1.86,-1.32] |2.74|
+    量级一致但**主导轴逐 take 逐手都在变**(x/z/z/y), 且残差与开合程度显著相关
+    (screw18 左手 r=-0.78, 斜率 0.81 cm/cm) ⟹ 这是姿态差不是坐标系错误
+    (坐标系错误会对同一只手给出一致方向 —— 左手缺 palm flip 那次就是, 见
+    `frames.sharpa_base_quat_from_joints`)。
+
+    可改: Dexonomy prior npz 的 `grasp` 是 29 维 = 7 臂 + 22 手, 即**这次抓取实际的
+    手指构型**; 传给 `closed=` 代替定值, 这项残差原则上归零。**未做** —— 改摆放会动到
+    所有 clip 的初始条件(含冠军配方复现基线), 按 DESIGN_LOOP 规矩要先立台账、一次只
+    改一个参数。
     """
     u = _urdf()
     q = {n.replace("right_", f"{hand}_"): float(v)
@@ -145,7 +162,7 @@ def _affordance_target(affordance_npz):
 def load_replay_grasp(npz_path, mesh_path, usd_path="", clip_id="", hand="right",
                       target_hz=20.0, palm_offset=None, close_steps=None, hover_gap=None,
                       close_scale=None, table_height=0.85, obj_gap=0.002, affordance_npz=None,
-                      clearance=None, freeze_wrist=True, anchor_mode=None, pregrasp_align=None,
+                      clearance=None, freeze_wrist=True, rest_override=None, pregrasp_align=None,
                       semantics: ObjectSemantics | None = None, verbose=False):
     # 抓取几何旋钮 — 支持环境变量覆盖, 便于不改代码扫参 (GRASP_HOVER / GRASP_PALM_OFF / ...)
     import os as _o
@@ -156,11 +173,9 @@ def load_replay_grasp(npz_path, mesh_path, usd_path="", clip_id="", hand="right"
         hover_gap = float(_hg)
     clearance = (float(_o.environ.get("GRASP_CLEARANCE", 0.015))
                  if clearance is None else float(clearance))
-    # 摆放锚: "camera"=相机锚定(默认) / "palm"=旧的掌心re-anchor(复现历史 run 用)
-    anchor_mode = _o.environ.get("GRASP_ANCHOR", anchor_mode or "camera")
-    assert anchor_mode in ("camera", "palm"), f"未知 anchor_mode={anchor_mode}"
-    # PreGrasp 对齐 (只在 camera 锚下有意义; palm 锚按构造已经把物体摆到手下面了).
-    # 关掉它 = 用重建原样的手物相对关系 —— 冒烟对照组用.
+    # 摆放 = 相机锚定 (唯一模式; 旧 "palm" 掌心 re-anchor 2026-08-07 删除 —— 它是
+    # 相机锚定之前时代的产物, 在没对齐相机时把物体搬到掌心导致 Grasp0~9 跨身摆放).
+    # PreGrasp 对齐: 关掉它 = 用重建原样的手物相对关系 —— 冒烟对照组用.
     if pregrasp_align is None:
         pregrasp_align = _o.environ.get("GRASP_PREGRASP_ALIGN", "1") == "1"
     close_steps = int(_o.environ.get("GRASP_CLOSE_STEPS", 30)) if close_steps is None else close_steps
@@ -190,23 +205,37 @@ def load_replay_grasp(npz_path, mesh_path, usd_path="", clip_id="", hand="right"
     # 旧做法是 wp + 掌法向 palm_offset(9cm), 与实际合拢位置差 6.88cm, 见 grasp_center_local.
     palm = wp + F.rot_apply(wq[None], grasp_center_local(hand)[None])[0]
     verts = F.load_obj_verts(mesh_path)
-    rest_q = _flat_rest_quat(verts)
-    v_rot = F.rot_apply(np.broadcast_to(rest_q, (len(verts), 4)), verts)
-    obj_z = table_height + obj_gap - v_rot[:, 2].min()                        # 物体底贴桌
+    if rest_override is not None:
+        # 权威静置姿态 (resting_pose.json, 稳定支撑约束推断): 竖直 quat + 贴桌 z.
+        # 跟踪坏帧 clip (screw 27) 的 _flat_rest_quat 会按最大支撑面选到横躺, 不可信.
+        rest_q = np.asarray(rest_override[0], np.float64)
+        obj_z = float(rest_override[1])
+    else:
+        rest_q = _flat_rest_quat(verts)
+        v_rot = F.rot_apply(np.broadcast_to(rest_q, (len(verts), 4)), verts)
+        obj_z = table_height + obj_gap - v_rot[:, 2].min()                    # 物体底贴桌
     # 抓取目标点 = affordance 加权重心(=环), 无 affordance 退化到质心. 变换到 rest 朝向:
     a_obj = _affordance_target(affordance_npz) if affordance_npz else verts.mean(0)
     a_off = F.rot_apply(rest_q[None], a_obj[None])[0]                         # 相对物体原点的世界偏移
 
-    if anchor_mode == "camera":
-        # 相机锚定: 相机/手/物体 **xy 刚体同步平移**, 三者相对关系保留重建原样.
+    if True:   # 相机锚定 (唯一摆放模式)
+        # 约定第①②步: 相机/手 **xy 刚体同步平移**, 相对关系保留重建原样.
         # 平移量由"重建相机(人头) xy -> 机器人 ZED 光心 xy"定死.
-        # 物体留在 align_replay 给的位置 (首帧 xy 在原点), 只把姿态换成平放 rest.
-        sxy = PC.camera_anchor_shift(mesh_path, PC.ZED_NOMINAL[:2], raw["obj_pose"][0, :2])
-        if sxy is None:
-            print("[replay_grasp][WARN] world_fused.npz 缺 c2w, 无法相机锚定 -> 退回 palm 锚定")
-            anchor_mode = "palm"
-        else:
-            obj_pos = np.array([sxy[0], sxy[1], obj_z])
+        # c2w 来源: 老 clip 的 world_fused.npz 在 mesh 旁; CAD 替身 clip (screw 27)
+        # 的 mesh 在资产库, c2w 在 ReconstructOutput 的 take 目录里 —— 逐个找.
+        _cam_src = None
+        for _d in (_o.path.dirname(mesh_path), _o.path.dirname(npz_path),
+                   _o.path.dirname(npz_path).replace("RetargetOutput",
+                                                     "ReconstructOutput")):
+            if _o.path.exists(_o.path.join(_d, "world_fused.npz")):
+                _cam_src = _o.path.join(_d, "_probe.obj")
+                break
+        sxy = (PC.camera_anchor_shift(_cam_src, PC.ZED_NOMINAL[:2],
+                                      raw["obj_pose"][0, :2])
+               if _cam_src is not None else None)
+        assert sxy is not None, \
+            f"{npz_path}: 找不到含 c2w 的 world_fused.npz, 无法相机锚定 (palm 旧锚已删)"
+        if True:
             r.track_wrist[:, :2] += sxy.astype(np.float32)
             r.mano_joints[..., :2] += sxy.astype(np.float32)
             # z: **全程**最小抬升, 让每一帧张开的手最低点都离桌面 clearance.
@@ -218,6 +247,14 @@ def load_replay_grasp(npz_path, mesh_path, usd_path="", clip_id="", hand="right"
             r.track_wrist[:, 2] += np.float32(dz)
             r.mano_joints[..., 2] += np.float32(dz)
             shift = np.array([sxy[0], sxy[1], dz])
+
+            # ---- 物体摆放 (约定第③步, 2026-08-07 用户裁定): 物体听手的 ----
+            # 交互开始帧 (gs) 手的抓取锚点 (五胶垫合拢质心) 定 XY —— 抓取目标区
+            # (affordance/质心) 的 xy 对准它; Z 稳定贴桌. 依据: 重建物体 track
+            # 噪声大且交互期被手遮挡不可信, 手部轨迹是可信通道 (手↔物 10cm+ 系统
+            # 差由此消除, 不再依赖训练期对齐势桥接).
+            _palm_a = palm[:2] + sxy
+            obj_pos = np.array([_palm_a[0] - a_off[0], _palm_a[1] - a_off[1], obj_z])
 
             # ---- PreGrasp 对齐 ----
             # 相机锚定忠实保留了重建的手物相对关系, 而重建里**手根本没碰到物体**
@@ -257,23 +294,7 @@ def load_replay_grasp(npz_path, mesh_path, usd_path="", clip_id="", hand="right"
                     print(f"[replay_grasp][WARN] 对齐后有 {_nb} 帧手低于桌面 —— "
                           f"接近段会撞桌, 要么减小 hover 前的 clearance 要么改锚点")
 
-    if anchor_mode == "palm":
-        # 旧摆放 (保留以复现历史 run): 物体原点 xy 使 affordance 区 xy == 掌心 xy.
-        # ⚠ 这一步**破坏相机锚定** —— align_replay 刚把物体首帧放到原点、手物相对关系
-        #   保留重建原样, 这里又把物体搬到掌心正下方. 实测后果 (Grasp0~9 全部):
-        #   物体落到机器人左侧 y=+0.141 而交互手是右手, 每条 clip 都成了跨中线 25cm 的
-        #   跨身抓取; 到交互手 37.0cm (相机锚定后 18.0cm).
-        obj_pos = np.array([palm[0] - a_off[0], palm[1] - a_off[1], obj_z])
-        afford_world = obj_pos + a_off                                        # affordance 区世界位
-        # 掌心对准 affordance 区, 再整手上抬: 复位时张开的手不戳进物体(否则 PhysX
-        # 退穿透把物体弹飞 50m/s -> NaN). 合拢时手指仍能下探到物体.
-        lo_open = hand_lowest_world(wp, wq, hand)        # 张开的手最低点 (世界 z)
-        need = (table_height + clearance) - lo_open      # 还差多少才够高
-        lift = max(float(need), 0.0) if hover_gap is None else float(hover_gap)
-        shift = afford_world - palm + np.array([0.0, 0.0, lift])
-        r.track_wrist[:, :3] += shift.astype(np.float32)
-        r.mano_joints += shift.astype(np.float32)
-    # ref builder 施加的总平移. camera 模式下 env 还会补一次**活测残差** (见
+    # ref builder 施加的总平移. env 还会补一次**活测残差** (见
     # dexmate_env._apply_camera_anchor): ZED_NOMINAL 是常数, 权威是训练 env 的实测值.
     r.builder_wrist_shift = shift.astype(np.float32).copy()
     # 抓取窗内冻结腕在 PreGrasp 位 (只合手指). 人手参考在抓取后会"拿起物体移走",
@@ -333,9 +354,9 @@ def load_replay_grasp(npz_path, mesh_path, usd_path="", clip_id="", hand="right"
         [[obj_pos[0], obj_pos[1], obj_z + 0.10], rest_q]).astype(np.float32)   # 抬 10cm
     if verbose:
         tgt = "affordance区" if affordance_npz else "质心"
-        how = ("相机锚定 (手物相对关系保留重建原样)" if anchor_mode == "camera"
-               else f"掌心对准{tgt} (旧锚, 会破坏相机对齐)")
         print(f"[replay_grasp] L={L} PreGrasp帧 gs={gs}(src {gs_src}) 合拢至 ge={ge} "
-              f"| {how} 物体原点 xy=({obj_pos[0]:.3f},{obj_pos[1]:.3f}) z={obj_z:.3f} "
+              f"| 相机锚定 + 物体听手 ({tgt}对准交互帧抓取锚点"
+              f"{', 静置姿态=resting_pose 权威' if rest_override is not None else ''}) "
+              f"物体原点 xy=({obj_pos[0]:.3f},{obj_pos[1]:.3f}) z={obj_z:.3f} "
               f"| 腕 path 平移 xy={np.linalg.norm(shift[:2])*100:.1f}cm z={shift[2]*100:+.2f}cm")
     return du

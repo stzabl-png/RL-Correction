@@ -3,15 +3,15 @@
  "buckets": {
   "cylinder|粗|空心": {
    "30_Palmar": {
-    "n": 3,
-    "cov_sum": 1.012,
-    "cov_max": 0.413,
+    "n": 5,
+    "cov_sum": 1.87,
+    "cov_max": 0.429,
     "n_rej": 0
    },
    "3_Medium_Wrap": {
-    "n": 3,
-    "cov_sum": 1.019,
-    "cov_max": 0.428,
+    "n": 5,
+    "cov_sum": 2.121,
+    "cov_max": 0.551,
     "n_rej": 0
    },
    "fingertip_middle": {
@@ -33,15 +33,15 @@
     "n_rej": 0
    },
    "1_Large_Diameter": {
-    "n": 2,
-    "cov_sum": 0.536,
-    "cov_max": 0.273,
+    "n": 3,
+    "cov_sum": 0.9650000000000001,
+    "cov_max": 0.429,
     "n_rej": 0
    },
    "18_Extensior_Type": {
-    "n": 5,
-    "cov_sum": 1.7577,
-    "cov_max": 0.399,
+    "n": 7,
+    "cov_sum": 2.7597,
+    "cov_max": 0.501,
     "n_rej": 0
    },
    "31_Ring": {
@@ -97,12 +97,24 @@
     "cov_sum": 0.0,
     "cov_max": 0.0,
     "n_rej": 0
+   },
+   "7_Prismatic_3_Finger": {
+    "n": 1,
+    "cov_sum": 0.0,
+    "cov_max": 0.0,
+    "n_rej": 0
+   },
+   "29_Stick": {
+    "n": 1,
+    "cov_sum": 0.0,
+    "cov_max": 0.0,
+    "n_rej": 0
    }
   },
   "cylinder|中|实心": {
    "1_Large_Diameter": {
-    "n": 6,
-    "cov_sum": 3.987,
+    "n": 7,
+    "cov_sum": 4.796,
     "cov_max": 0.959,
     "n_rej": 0
    },
@@ -113,9 +125,9 @@
     "n_rej": 0
    },
    "10_Power_Disk": {
-    "n": 5,
-    "cov_sum": 3.56,
-    "cov_max": 0.89,
+    "n": 6,
+    "cov_sum": 4.474,
+    "cov_max": 0.914,
     "n_rej": 0
    },
    "11_Power_Sphere": {
@@ -125,15 +137,21 @@
     "n_rej": 0
    },
    "12_Precision_Disk": {
-    "n": 2,
-    "cov_sum": 0.773,
-    "cov_max": 0.773,
+    "n": 3,
+    "cov_sum": 1.595,
+    "cov_max": 0.822,
     "n_rej": 0
    },
    "mug": {
+    "n": 2,
+    "cov_sum": 1.6520000000000001,
+    "cov_max": 0.847,
+    "n_rej": 0
+   },
+   "19_Distal": {
     "n": 1,
-    "cov_sum": 0.805,
-    "cov_max": 0.805,
+    "cov_sum": 0.8,
+    "cov_max": 0.8,
     "n_rej": 0
    }
   }

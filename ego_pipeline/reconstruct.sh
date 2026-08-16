@@ -164,7 +164,31 @@ else
     [[ -s "$LIST" ]] || { echo "[reconstruct] X 清单里没有可重建的视频(全部被透明门过滤或标注失败)" >&2; exit 1; }
   fi
   echo "[reconstruct] 本地模式(--skip-label);自动标注已就位或请先 ./label.sh / --web"
-  exec conda run --no-capture-output -n base python "$RECON/run_batch_queue.py" \
+  # ★ 原来是 exec ——改成普通调用, 因为后面还要跑闭环精修(见下)。批量队列的返回码照样透传。
+  QRC=0
+  conda run --no-capture-output -n base python "$RECON/run_batch_queue.py" \
     --dataset "$DATASET" --dataset-root "$ROOT" \
-    --video-list "$LIST" --skip-label --gpu-ids "$GPUS" ${PASS[@]+"${PASS[@]}"}
+    --video-list "$LIST" --skip-label --gpu-ids "$GPUS" ${PASS[@]+"${PASS[@]}"} || QRC=$?
+
+  # ★ 闭环精修重建帧/注册帧(默认开; 要关: NO_FRAMESCAN=1)。
+  #   只对"正常链跑完仍不合格"的物体动手, 已合格的直接跳过, 所以对好数据近乎零成本。
+  #   依据与判据见 bin/framescan.py 头注(判优只认被证伪帧数 —— 唯一同配置重跑稳定的量)。
+  if [[ -z "${NO_FRAMESCAN:-}" && $QRC -eq 0 ]]; then
+    FSLIST="$(mktemp)"
+    while IFS= read -r vp; do
+      [[ -n "$vp" ]] || continue
+      # video_id 口径与 run_batch_queue 一致: 相对 ROOT 的路径去后缀, 分隔符换 __
+      rel="${vp#"$ROOT"/}"; rel="${rel%.*}"
+      echo "${rel//\//__}" >> "$FSLIST"
+    done < "$LIST"
+    if [[ -s "$FSLIST" ]]; then
+      echo "[reconstruct] 闭环精修 $(wc -l < "$FSLIST") 条(NO_FRAMESCAN=1 可关)"
+      conda run --no-capture-output -n hawor python "$HERE/bin/framescan.py" \
+        --dataset "$DATASET" --video-list "$FSLIST" --video-root "$ROOT" \
+        --gpu "${GPUS%%,*}" ${FRAMESCAN_ARGS:-} || \
+        echo "[reconstruct] ! framescan 未完成, 保留正常链结果" >&2
+    fi
+    rm -f "$FSLIST"
+  fi
+  exit $QRC
 fi

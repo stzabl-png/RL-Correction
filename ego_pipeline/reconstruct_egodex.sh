@@ -142,6 +142,24 @@ except Exception: print('1.0')")
       --step-arg="sam3d_scale:--depth-scale=$DS" \
       --step-arg="fp_pose:--depth-scale=$DS" "${PASS[@]+"${PASS[@]}"}"
 
+  # 7.5) ★ 闭环精修重建帧/注册帧(默认开; 要关: NO_FRAMESCAN=1)
+  #   选帧判据预测不了重建质量 —— 唯一可靠的办法是把候选真跑一遍看结果。
+  #   32 条 pour 实测: 能用的物体 16/49 → 31/49, 能用的 take 6/32 → 16/32。
+  #   级联(先重建帧后注册帧)而非网格; 判优只认"被证伪帧数"(唯一同配置重跑稳定的量)。
+  #   完整依据见 bin/framescan.py 头注。约 +4 分钟/条(已合格的物体直接跳过)。
+  if [ -z "${NO_FRAMESCAN:-}" ]; then
+    FS_GPU="${GPUS%%,*}"
+    "$HAWOR_PYTHON" "$HERE/bin/framescan.py" --dataset "$DATASET" --video-id "$VID" \
+        --video "$MP4" --gpu "$FS_GPU" ${FRAMESCAN_ARGS:-} || \
+        echo "[egodex] ! framescan 未完成($VID), 保留正常链结果" >&2
+    # 精修改了物体位姿 -> 接触区间必须跟着重算, 否则留下的是旧位姿下的接触
+    if [ -z "${NO_CONTACT:-}" ]; then
+      "$HERE/reconstruct.sh" "$MP4" --dataset "$DATASET" --root "$WORK" \
+          --steps=contact --keep-interim --gpu-ids "$GPUS" \
+          "${PASS[@]+"${PASS[@]}"}" || true
+    fi
+  fi
+
   # 8) ★ 数据来源说明: 这条数据里哪些是重建出来的、哪些是数据集直接给的
   FIN="$RECON_FINAL_ROOT/$DATASET/$TASK/$IDX"
   OUT="$FIN/world_fused.npz"

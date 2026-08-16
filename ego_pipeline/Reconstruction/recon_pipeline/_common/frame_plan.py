@@ -16,10 +16,16 @@ schema:
  "objects": {
    "object_0": {
      "fp_register_frame": 13,  "fp_source": "interaction_onset(3)+10",
-     "sam3d_frame": null,      "sam3d_source": "reserved(dubang 选帧器待接; null=用 prompt 帧)"
+     "sam3d_frame": 21,        "sam3d_source": "select_frame_v21+ranked_top1",
+     "sam3d_candidates": [21, 20, 133],   // 闭环精修(bin/framescan.py)按序试的候选
+     "fp_candidates": [13, 10]            // 同上, 注册帧候选; 缺省只有现行值
    }
  }
 }
+
+★ sam3d_candidates / fp_candidates (2026-08-15 加): 给 `bin/framescan.py` 闭环精修用。
+  不填时 framescan 只认 sam3d_frame 一个值(等于不精修)。**消费 sam3d_frame 的
+  sam3d / sam3d_scale 不看这两个字段**, 加它们不影响既有行为。
 """
 from __future__ import annotations
 

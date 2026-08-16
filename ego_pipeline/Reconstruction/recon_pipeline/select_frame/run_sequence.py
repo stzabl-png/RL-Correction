@@ -7,8 +7,32 @@
 
 实现 = agent/v17a-scale-develop 验证过的三层选帧器(核心在 selector_core.py):
   0. track 过滤(手物连接/位移/帧数)  1. 几何粗筛  2. SAM2 像素级遮挡精排
-  3. Qwen 终审(VLM 不可达自动退回几何 top-1, 不会让管线崩)
+  3. 定稿
 验证: ketchup f591 / 扫把 f295 / microwave f618(凹槽 track 被判 spurious)。
+
+============ ★ 2026-08-15: 定稿默认从 arbitrate 改成 ranked, 并输出候选表 ============
+
+32 条 pour / 49 个物体的闭环实测(每个候选真跑一遍 sam3d→fp_pose→confidence, 按
+**被证伪帧数**判优 —— 该量是同配置重跑唯一稳定的指标, 见 bin/framescan.py 头注):
+
+    赢家出现在 ranked 第 1 名 62% / 前 3 名 93% / 第 4 名 7% / 第 5 名 0%
+
+**几何排序本身是准的**, 坏在拿 NMS/Qwen 去**覆写定稿**:
+  * **NMS 抽稀**把"相邻帧可互相顶替"当前提 —— pour/17 杯子的正确答案 f21 因为紧挨着
+    f20 被删掉, 而这两帧一个 0 帧被证伪、一个 40 帧被证伪。
+  * **Qwen 覆写**拿"遮挡少"当主信号 —— pour/17 瓶子的正确答案 f135 被它主动否掉,
+    理由"手部遮挡瓶身"。实测两处断崖都是**遮挡更少的那帧反而输**(2/2 逆向)。
+
+⇒ `--select-mode ranked`(默认): 定稿直接取 ranked[0], 不再让这两道覆写。
+   `--select-mode arbitrate`: 杜邦原路线, 保留可回退(`SELECT_FRAME_MODE=arbitrate`)。
+
+★★ 但 NMS **降级为候选**后仍然有用, 不能整个丢掉(2026-08-15 下午实测反例):
+   ranked 前几名**天然挤在一起**(相邻帧得分接近) —— take 25 的 ranked[:3]=[12,10,11]
+   三个候选被证伪 80/83/70, 整簇都坏; take 8 救命的 f40 排 ranked 第 34 名, 前 5 够不着,
+   **却在 NMS 候选里**(NMS 候选 [64,112,132,154,40,17] 在时间上分散)。
+   只用 ranked[:5] 闭环 31/49 合格, 补上分散候选后 33/49。
+⇒ `sam3d_candidates` = ranked 前 N + NMS 候选 + **上一轮用过的帧**(去重保序, 上限 6),
+   定稿帧永远排第一。两种定稿模式都写这份表。取 candidates_nms 零成本(不必调 VLM)。
 
 输入:
   * sam2_object step 目录: label_prompt.json / frame_plan.json / video_segmentation/masks
@@ -44,6 +68,7 @@ from _common.frame_plan import load_frame_plan, write_frame_plan  # noqa: E402
 from _common.paths import interim_step_dir, is_step_complete, write_step_completion  # noqa: E402
 
 STEP = "select_frame"
+MAX_CANDS = int(os.getenv("SELECT_FRAME_MAX_CANDS", "6"))   # ranked前N + NMS + 上轮帧, 去重后上限
 REPO_ROOT = RECON_ROOT.parent.parent.parent  # ego_pipeline/Reconstruction/recon_pipeline -> 仓库根
 V17A_ROOT = REPO_ROOT / "experimental" / "hoi_detr_v17a"
 
@@ -150,6 +175,16 @@ def main(argv: list[str] | None = None) -> int:
                     help="v17A 产物目录(含 hoi_detr_probe/ 与 video_mask_sequence), 默认自动探测")
     ap.add_argument("--no-vlm", action="store_true", help="跳过 Qwen 终审, 用几何 top-1")
     ap.add_argument("--top", type=int, default=6)
+    # ★ 2026-08-15 默认改为 ranked: 32 条 pour / 49 个物体闭环实测,
+    #   赢家在 ranked 第 1 名 62%、前 3 名 93%、第 4 名 7%、第 5 名 0%。
+    #   而 NMS 抽稀 + Qwen 覆写两道**净损害**(实证见下方 _pick_ranked 注释)。
+    #   arbitrate = 杜邦原路线(NMS + Qwen 终审), 保留可回退。
+    ap.add_argument("--select-mode", choices=("ranked", "arbitrate"),
+                    default=os.getenv("SELECT_FRAME_MODE", "ranked"),
+                    help="ranked=直接用几何排序前一名(默认); arbitrate=NMS+Qwen 终审(旧)")
+    ap.add_argument("--n-candidates", type=int,
+                    default=int(os.getenv("SELECT_FRAME_NCAND", "3")),
+                    help="写入 frame_plan.sam3d_candidates 的候选个数(给 framescan 闭环精修用)")
     args, _extra = ap.parse_known_args(argv)
 
     step_dir = interim_step_dir(args.dataset, args.video_id, STEP)
@@ -201,13 +236,38 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[select_frame] {oid}: accepted={rep['n_accepted']} stage1={rep['n_stage1']}"
                   f" geometric_top1=f{rep['chosen_frame']} ({rep['hand_mode']})", flush=True)
 
-    # ── 第 3 层: Qwen 终审 + 主体仲裁 ──
+    # ── 第 3 层: 定稿 ──
     qwen_call = None
-    if not args.no_vlm:
-        qwen_call, why = sc.make_qwen_caller(V17A_ROOT)
-        if qwen_call is None:
-            print(f"[select_frame] VLM 不可用({why}) -> geometric_fallback", flush=True)
-    final = sc.arbitrate(reports, track_stats, manifest, cap, step_dir / "qwen_audit", qwen_call)
+    def _cands(rep):
+        """候选 = ranked 前 N + NMS 候选(去重保序)。
+        ★ 两者互补, 缺一不可(2026-08-15 实测):
+          * ranked 前几名**天然挤在一起**(相邻帧得分接近), 整簇都坏时全军覆没 ——
+            take 25 的 ranked[:3]=[12,10,11] 三个候选被证伪 80/83/70, 无一可用。
+          * NMS 的价值不是"定稿"而是"给时间上分散的候选" —— take 8 救命的 f40 排
+            ranked 第 34 名(前 5 根本够不着), 却在 NMS 候选里。
+        只用 ranked[:5] 闭环 31/49 个物体合格; 补上这批分散候选后 33/49。
+        `candidates_nms` 本来就在 report 里, 取它零成本(不必调 VLM)。"""
+        out = list((rep.get("ranked") or [])[:max(args.n_candidates, 1)])
+        for c in (rep.get("candidates_nms") or []):
+            if c not in out:
+                out.append(c)
+        return out
+
+    if args.select_mode == "ranked":
+        final = {oid: {"final_frame": (rep.get("ranked") or [None])[0],
+                       "source": "ranked_top1", "candidates": _cands(rep)}
+                 for oid, rep in reports.items()}
+        print("[select_frame] 定稿模式=ranked(几何排序直取); NMS 候选降级为备选候选, 不再覆写定稿",
+              flush=True)
+    else:
+        if not args.no_vlm:
+            qwen_call, why = sc.make_qwen_caller(V17A_ROOT)
+            if qwen_call is None:
+                print(f"[select_frame] VLM 不可用({why}) -> geometric_fallback", flush=True)
+        final = sc.arbitrate(reports, track_stats, manifest, cap, step_dir / "qwen_audit", qwen_call)
+        for oid, rep in reports.items():          # 候选表两种模式一致, 与定稿方式无关
+            e = final.setdefault(oid, {})
+            e["candidates"] = _cands(rep)
     for oid, tf in track_stats.items():
         if tf.get("verdict", "keep") != "keep" and oid not in final:
             final[oid] = {"final_frame": None, "source": tf["verdict"],
@@ -234,11 +294,30 @@ def main(argv: list[str] | None = None) -> int:
                     why = f"chosen_f{cand}_mask_empty_in_sam2_object"
             else:
                 why = e.get("source", "no_final_frame")
+        # ★ 候选表: 给 bin/framescan.py 闭环精修按序试。只留 sam2 mask 非空的,
+        #   并把定稿帧顶到第一位 —— 精修的第一格就是正常链已经跑过的那格, 不重复算。
+        cands = []
+        if voi and voi in final:
+            for c in (final[voi].get("candidates") or []):
+                c = int(c)
+                m = _sam2_mask(obj_dir, c, pid)
+                if m is not None and m.any():
+                    cands.append(c)
+        prev = entry.get("sam3d_frame")           # 上一轮(可能是旧链/VLM)用过的帧
+        if prev is not None and int(prev) not in cands:
+            m = _sam2_mask(obj_dir, int(prev), pid)
+            if m is not None and m.any():
+                cands.append(int(prev))
+        if chosen is not None:
+            cands = [chosen] + [c for c in cands if c != chosen]
         entry["sam3d_frame"] = chosen
         entry["sam3d_source"] = why + (f" (v17a={voi})" if voi else "")
+        entry["sam3d_candidates"] = cands[:MAX_CANDS]
         plan_objects[pid] = entry
-        written[pid] = {"sam3d_frame": chosen, "why": why, "v17a_track": voi}
-        print(f"[select_frame] frame_plan {pid}: sam3d_frame={chosen} ({why})", flush=True)
+        written[pid] = {"sam3d_frame": chosen, "why": why, "v17a_track": voi,
+                        "sam3d_candidates": entry["sam3d_candidates"]}
+        print(f"[select_frame] frame_plan {pid}: sam3d_frame={chosen} ({why}) "
+              f"候选={entry['sam3d_candidates']}", flush=True)
     write_frame_plan(obj_dir, plan_objects)
 
     # ── 产物: report + 最终帧可视化 ──

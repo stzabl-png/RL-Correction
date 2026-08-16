@@ -107,9 +107,28 @@ def build_mano(side: str, device):
     import warnings
     warnings.filterwarnings("ignore")
     import smplx
+    import torch
     m = smplx.MANOLayer(model_path=str(MANO_DIR[side]), gender="neutral",
                         num_hand_joints=15, create_body_pose=False,
                         is_rhand=(side == "right"))
+    # ★★ MANO_LEFT 的已知 bug (smplx issue #48): 左手模型 shapedirs 的 **x 分量符号是反的**。
+    #   下游 `hawor.utils.process.run_mano_left` 默认 `fix_shapedirs=True`, 会做这一行修正;
+    #   本拟合器从前不修 —— 于是拟合出的 betas 是"在**未修**模型下正确"的, 喂给下游的
+    #   **已修**模型就反向解释, 左手整体缩水。
+    #
+    #   实测 (2026-08-15, screw_unscrew_bottle_cap/0):
+    #     ARKit 真值      左 89.82 / 右 89.84 cm  -> 1.000  (同一个人, 本就该对称)
+    #     修之前的产物    左 71.6  / 右 85.7      -> 0.835  (左手比真值小 20%)
+    #     两实现对拍      右手任何 betas 下比值恒定; 左手 betas 非零即偏离, 且
+    #                     下游(-β) ≈ 常数 × 拟合(+β)  <- 反向解释的可测等式
+    #
+    #   ⚠ 为什么不是"把 betas 取反": 该 bug 只反了 shape 位移的 x 分量, 不是整个 betas
+    #     向量取反, 没有任何 betas 变换能等价补偿。**必须在模型层修**, 与下游对齐。
+    #   ⚠ 为什么 pour/17 一直没暴露: 那条被试的手接近 MANO 平均手, 拟合出的
+    #     betas ≈ 0.08, 对零向量做符号翻转没有任何影响 —— 纯属运气, 不是链路正确。
+    if side == "left":
+        with torch.no_grad():
+            m.shapedirs[:, 0, :] *= -1
     return m.to(device).eval()
 
 

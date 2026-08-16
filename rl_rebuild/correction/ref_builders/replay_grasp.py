@@ -163,7 +163,8 @@ def load_replay_grasp(npz_path, mesh_path, usd_path="", clip_id="", hand="right"
                       target_hz=20.0, palm_offset=None, close_steps=None, hover_gap=None,
                       close_scale=None, table_height=0.85, obj_gap=0.002, affordance_npz=None,
                       clearance=None, freeze_wrist=True, rest_override=None, pregrasp_align=None,
-                      semantics: ObjectSemantics | None = None, verbose=False):
+                      semantics: ObjectSemantics | None = None, scene_layout_json=None,
+                      verbose=False):
     # 抓取几何旋钮 — 支持环境变量覆盖, 便于不改代码扫参 (GRASP_HOVER / GRASP_PALM_OFF / ...)
     import os as _o
     palm_offset = float(_o.environ.get("GRASP_PALM_OFF", 0.09)) if palm_offset is None else palm_offset
@@ -187,6 +188,32 @@ def load_replay_grasp(npz_path, mesh_path, usd_path="", clip_id="", hand="right"
     ph = raw[f"phase_{hand}"].astype(int)
     contact = np.flatnonzero(ph == 1)
     gs_src = int(contact[0]) if len(contact) else int(0.3 * len(ph))
+    # ★ 优先用**物体运动起始**当 PreGrasp 帧, 而不是接触标注的起点(2026-08-16)。
+    #
+    # 为什么:"开始接触"与"抓稳"是两个不同的事件, 而接触标注**普遍标得早**。
+    # pour/17 实测:标注起点 f8 时**指尖离瓶还有 7.8cm**, 真正抓上是 f19(差 11 帧);
+    # 杯更极端 —— 标注 f0(手一开始就搁在杯边), 运动起始 f34(差 34 帧)。
+    # 用标注起点当 gs 的后果:参考在手还差 7.8cm 时就切进抓握段, **手指在空气里合拢**,
+    # 然后握着拳头往前挪 —— 首批两条 run 接触率 ≈0 的直接成因之一。
+    #
+    # ⚠ 不写死"+10 帧":那个偏移**逐条数据差别极大**(瓶 11 / 杯 34)。
+    # 运动起始由 `scene_layout` 用通用判据算出(物体位移 >0.8cm/3帧 且持续 3 帧),
+    # 已与物体高度曲线对拍验证过, 逐 clip 存在 `scene_layout.json` 的 `onset_frame`。
+    # 上游的接触标注**没有错**(它标的就是接触起点, keyframes/接触相位奖励都要用它),
+    # 错的是拿它当"抓握形成" —— 选哪个是消费方的责任。
+    _onset = None
+    _lay = scene_layout_json or _o.environ.get("RL_SCENE_LAYOUT_JSON") or ""
+    if _lay and _o.path.isfile(_lay):
+        import json as _json
+        _objs = _json.load(open(_lay)).get("objects", {})
+        for _oid, _v in _objs.items():
+            if _v.get("anchor_hand") == hand and _v.get("onset_frame") is not None:
+                if _onset is None or int(_v["onset_frame"]) < _onset:
+                    _onset = int(_v["onset_frame"])
+    if _onset is not None and _onset > gs_src:
+        print(f"[replay_grasp] gs 改用**物体运动起始** f{_onset} (接触标注起点 f{gs_src}, "
+              f"晚 {_onset - gs_src} 帧) —— 标注早于真正抓稳, 见本函数注释")
+        gs_src = _onset
 
     # ---- 复用 load_replay: 得到重采样后的可信腕 path / mano / mesh 落桌 ----
     du = load(npz_path, mesh_path, usd_path=usd_path, clip_id=clip_id, hand=hand,

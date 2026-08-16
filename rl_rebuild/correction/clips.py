@@ -704,6 +704,7 @@ def load_data_unit(cfg) -> DataUnit:
                                  clearance=getattr(cfg, "clearance", None),
                                  freeze_wrist=getattr(cfg, "freeze_wrist", True),
                                  pregrasp_align=getattr(cfg, "pregrasp_align", None),
+                                 scene_layout_json=e.get("scene_layout_json"),
                                  clip_id=cfg.clip_name, target_hz=cfg.target_hz,
                                  table_height=cfg.table_top_z, affordance_npz=e.get("affordance"),
                                  # 手离物体的悬停高度: DexMate 需要比飞手大得多 (飞手能把手

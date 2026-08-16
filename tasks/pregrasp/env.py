@@ -290,6 +290,8 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         self._diag_contacts = torch.zeros(N, device=dev)   # 盘面: 累计接触指数
         self._diag_actnorm = torch.zeros(N, device=dev)    # 盘面: 累计动作范数
         self._diag_n = torch.zeros(N, device=dev)          # 盘面: 步数
+        self._diag_fgate = torch.zeros(N, device=dev)      # 盘面: 手指门开度累计
+        self._diag_fgate_n = torch.zeros(N, device=dev)
         self.verify_k = torch.zeros(N, dtype=torch.long, device=dev)    # 验证段步数
         self.verify_ok_run = torch.zeros(N, dtype=torch.long, device=dev)
         self.got_candidate = torch.zeros(N, dtype=torch.bool, device=dev)
@@ -947,6 +949,17 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         # place: 搬运段手指冻结在抓握深度 (握稳搬运), 放置段脚本化松手 (下方覆盖).
         in_place = self.task_phase == Phase.PLACE
         hand_gate = gate * (~(in_app | in_carry | in_place)).float()
+        # ★ 距离门控 (2026-08-16 用户裁定): 手指自由度随"离物体多近"渐进放开。
+        #   相位门信任标注, 而 pour/17 的接触标注在指尖还差 7.8cm 时就触发 ——
+        #   结果是在空气里握拳。距离门只信当下量到的几何, 标注错了也拦得住。
+        #   它同时门住**参考合拢斜坡**(ref)与**策略动作**, 因为两者都乘 hand_gate。
+        if getattr(cfg, "finger_gate_on", False):
+            _d = self._pad_dists().min(dim=1).values * 100.0          # cm, link 原点口径
+            _far, _near = cfg.finger_gate_far_cm, cfg.finger_gate_near_cm
+            _dg = ((_far - _d) / max(_far - _near, 1e-6)).clamp(0.0, 1.0)
+            hand_gate = hand_gate * _dg
+            self._diag_fgate += _dg                                   # 盘面: 平均开度
+            self._diag_fgate_n += 1
         ref = cfg.closure_ref_rate * (self.closure < cfg.c_grasp).float()
         # joints 模式: a_c 取消, 合拢模板只按**参考速率**推进(策略走 22 关节残差)
         _ac = torch.zeros_like(ref) if self._joint_hand else a[:, 7] * cfg.closure_rate_max
@@ -1651,6 +1664,8 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         _n = self._diag_n[env_ids].clamp(min=1)
         log["diag/n_contacts"] = (self._diag_contacts[env_ids] / _n).mean().item()
         log["diag/action_norm"] = (self._diag_actnorm[env_ids] / _n).mean().item()
+        _fn = self._diag_fgate_n[env_ids].clamp(min=1)
+        log["diag/finger_gate"] = (self._diag_fgate[env_ids] / _fn).mean().item()
         gc = self.got_candidate[env_ids]
         log["grasp/candidate_rate"] = gc.float().mean().item()      # 形成候选(≥N垫+向心+保持)
         if bool(gc.any()):
@@ -1741,9 +1756,24 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         start_grasp = torch.ones(n, dtype=torch.bool, device=dev)
         if cfg.approach:
             start_grasp = torch.rand(n, device=dev) < cfg.direct_grasp_prob
-            hi = max(int(cfg.approach_t0_max * self.gs), 1)
+            # ★ 2026-08-16: t0 的采样区间从"[0, ratio×gs)"改成**相对真接近段**。
+            #
+            # 旧写法在"站姿前缀长、真接近段短"的数据上会整个落空:
+            #   pour17 瓶 gs=71, 其中前缀占 0~59, 真人接近只有 60~70(11 帧);
+            #   而 [0, 0.774×71) = [0, 54) —— **100% 落在合成的站姿插值里**,
+            #   那是一条关节空间直线, 最容易的一段;**最后 3cm 的对准一次都没从那儿起步过**。
+            #   对照 J22(gs=92, 真接近 60~91): [0, 71) 只覆盖真接近段的前 1/3。
+            # 新写法:t0 ~ U(lo, gs), lo 由 ratio 在**真接近段内**插值 ——
+            #   ratio=1 → lo=前缀末(整段真接近都可能当起点);ratio=0 → lo=gs(退化成从 gs 起步)。
+            #   退火把 ratio→0 时, 起点收敛到 gs 附近而不是收敛到 0 —— 注意这与旧语义相反:
+            #   旧的退火是"越来越从头做", 新的是"越来越靠近抓握点"。**从头做由
+            #   direct_grasp_prob→0 与 stance 前缀保证**, 不该由 t0 承担。
+            _K = int(getattr(cfg, "stance_prefix_frames", 0) or 0)
+            _r = float(getattr(cfg, "approach_t0_max", 0.8))
+            _lo = int(round(_K + (1.0 - _r) * max(self.gs - _K, 0)))
+            _lo = int(min(max(_lo, 0), max(self.gs - 1, 0)))
             t0 = torch.where(start_grasp, t0,
-                             torch.randint(0, hi, (n,), device=dev))
+                             torch.randint(_lo, max(self.gs, _lo + 1), (n,), device=dev))
             c0 = torch.where(start_grasp, c0, torch.zeros_like(c0))   # 接近段手张开
         tmpl0 = self.q_open + c0.unsqueeze(1) * (self.q_close - self.q_open)
         if self.arm_start_pool is None:
@@ -1808,6 +1838,8 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         self._diag_contacts[env_ids] = 0.0
         self._diag_actnorm[env_ids] = 0.0
         self._diag_n[env_ids] = 0.0
+        self._diag_fgate[env_ids] = 0.0
+        self._diag_fgate_n[env_ids] = 0.0
         self.pad_touched[env_ids] = False
         self.any_contact[env_ids] = False
         self.tilt_final_deg[env_ids] = self.tilt_max_deg[env_ids]

@@ -111,7 +111,30 @@ def video_yaw_deg(clip_cfg, canon_rot):
 
 
 def object_placement(clip_cfg, canon_rot, table_top_z):
-    """物体在 env 世界系的摆放 (xy 相机锚定, z 贴桌). 纯离线, 与 env 实测吻合 <0.05mm."""
+    """物体在 env 世界系的摆放。**直接取 ref_builder 的结果**, 不再自己算。
+
+    ⚠ 2026-08-15/16 两次踩到:本函数原来自己按"纯相机锚定"算 xy, 而 env 走的是
+    `place_mode="ref_builder"` 的**物体听手**(物体 XY = 抓取锚帧的合拢中心)。
+    两者对 pour17 差 **5.2cm** —— 于是 Gate 1 的可达带、Gate 1c 的接近方位角
+    全都算在一个**错的物体位置**上(结论碰巧没变, 但推理链是断的)。
+    docstring 原写"与 env 实测吻合 <0.05mm", 那只对**纯相机锚定**的老 clip 成立。
+
+    ⚠ 而且这个位置**会随 gs 变**:物体听手锚在 gs 帧, 2026-08-16 把 gs 从"接触标注起点"
+    改成"物体运动起始"后, pour17 瓶的摆放移动了 **9.1cm**。所以任何 yaw 结论都必须
+    在**当前的 gs 口径**下重算, 不能沿用。
+    """
+    from rl_rebuild.correction.ref_builders.replay_grasp import load_replay_grasp
+    import numpy as _np
+    _du = load_replay_grasp(
+        clip_cfg["npz"], clip_cfg["mesh"], hand=clip_cfg.get("robot_hand", clip_cfg.get("hand", "right")),
+        affordance_npz=clip_cfg.get("affordance"), semantics=clip_cfg.get("semantics"),
+        scene_layout_json=clip_cfg.get("scene_layout_json"),
+        table_height=table_top_z, verbose=False)
+    return _np.asarray(_du.object_init_pose[:3], float)
+
+
+def _object_placement_camera_anchor(clip_cfg, canon_rot, table_top_z):
+    """旧实现(纯相机锚定), 仅为对拍保留。**不要用它做判读** —— 见上面的坑。"""
     from rl_rebuild.correction import frames as F
     from rl_rebuild.correction import place_camera as PC
     raw = np.load(clip_cfg["npz"], allow_pickle=True)

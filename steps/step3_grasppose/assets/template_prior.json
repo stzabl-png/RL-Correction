@@ -39,8 +39,8 @@
     "n_rej": 0
    },
    "18_Extensior_Type": {
-    "n": 2,
-    "cov_sum": 0.6167,
+    "n": 4,
+    "cov_sum": 1.3587,
     "cov_max": 0.371,
     "n_rej": 0
    },
@@ -95,8 +95,8 @@
   },
   "cylinder|中|实心": {
    "1_Large_Diameter": {
-    "n": 3,
-    "cov_sum": 1.716,
+    "n": 5,
+    "cov_sum": 3.23,
     "cov_max": 0.959,
     "n_rej": 0
    },
@@ -107,8 +107,8 @@
     "n_rej": 0
    },
    "10_Power_Disk": {
-    "n": 2,
-    "cov_sum": 0.89,
+    "n": 4,
+    "cov_sum": 2.67,
     "cov_max": 0.89,
     "n_rej": 0
    },

@@ -32,8 +32,12 @@ from tasks.pregrasp.env import GraspTaskEnv  # noqa: E402
 cfg = GraspTaskCfg()
 clips.configure_cfg(cfg, args.clip)
 # ⚠ approach_only 必须在 apply_grasp_prior **之前** 设 —— 动作空间(7)和观测维度都靠它
-cfg.approach_only = True
-cfg.action_space = 7
+import os as _os
+if _os.environ.get("SMOKE_FULL") == "1":      # 完整任务(接近+抓握): 13 维, 不砍
+    pass
+else:
+    cfg.approach_only = True
+    cfg.action_space = 7
 apply_grasp_prior(cfg, args.grasp_prior, args.prior_yaw, approach=True)
 cfg.retract_start = True
 cfg.scene.num_envs = args.num_envs
@@ -80,8 +84,12 @@ def check(tag, ratio, sp, expect):
 print("\n[判据活性] 逐条确认 approach_only 的判据接上了:")
 print(f"  approach_only={cfg.approach_only} retract_start={cfg.retract_start} "
       f"arm_table_shell={cfg.arm_table_shell}")
-print(f"  **动作空间 {cfg.action_space} 维(只有臂)** | 观测 {cfg.observation_space} 维 "
-      f"(去掉了 closure/每指残差/动作缓冲那 12 个空转通道)")
+if cfg.approach_only:
+    print(f"  **动作空间 {cfg.action_space} 维(只有臂)** | 观测 {cfg.observation_space} 维 "
+          f"(去掉了 closure/每指残差/动作缓冲那 12 个空转通道)")
+else:
+    print(f"  **动作空间 {cfg.action_space} 维(臂+手)** | 观测 {cfg.observation_space} 维 "
+          f"| 完整任务: 接近 + 抓握 + 微抬升验证")
 print(f"  回合预算 {cfg.approach_only_steps} 步 -> episode_length_s="
       f"{cfg.episode_length_s:.2f}s (env 内 ep_total={E.ep_total})")
 print(f"  到位判据 eps_pos={cfg.eps_pos*100:.1f}cm eps_rot="

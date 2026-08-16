@@ -44,6 +44,9 @@ parser.add_argument("--ref_look", type=int, default=None,
                     help="参考前瞻帧数 (1=原行为 7 维; 5=借鉴 ConTrack, 35 维, 几何间隔 1/2/4/8/16)")
 parser.add_argument("--approach", action="store_true",
                     help="开接近段 (pick_lift 完整任务). 不给 = 只训抓取 (旧任务)")
+parser.add_argument("--retract", action="store_true",
+                    help="**完整任务(接近+抓握)**用退避式起点族取代沿人手轨迹采 t0。"
+                         "与 --approach_only 的区别: 这个仍然要抓要抬, 判据是抓稳+微抬升。")
 parser.add_argument("--approach_only", action="store_true",
                     help="**只学接近**: 站姿->GraspPose, 不抓不抬不合拢 "
                          "(docs/APPROACH_DESIGN.md). 自动开退避起点族 + 外壳口径臂罚。")
@@ -494,6 +497,15 @@ if _prior:
     apply_grasp_prior(env_cfg, _prior, args.prior_yaw, approach=args.approach)
 elif args.approach:
     raise SystemExit("--approach 必须配 prior (对齐势的终点来自 GraspPose)")
+if args.retract and not args.approach_only:
+    # 完整任务 + 退避起点族: 仍然要抓要抬, 只是起点换成"从 GraspPose 沿 radial 退 d"。
+    # 动作空间保持 13 (抓握需要手指通道), 判据保持抓稳+微抬升。
+    if not args.approach:
+        raise SystemExit("--retract 必须同时给 --approach")
+    env_cfg.retract_start = True
+    env_cfg.retract_ratio = 0.0        # 训练从最简单端起 (与 approach_only 同一套语义)
+    env_cfg.stance_prob = 0.0
+    print("[retract] 完整任务(接近+抓握)改用退避式起点族; 动作空间保持 13 维")
 if args.approach_only:
     if not args.approach:
         raise SystemExit("--approach_only 必须同时给 --approach (要接近段的相位机)")

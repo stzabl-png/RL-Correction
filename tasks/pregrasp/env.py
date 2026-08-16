@@ -441,12 +441,20 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         # 笨拙课程标量 (训练入口每迭代按 sr_ema 更新; 评测/冒烟脚本应显式置 1.0)
         self.gentle = float(cfg.gentle_init)
         self.ep_total = (cfg.settle_steps + int(sum(cfg.phase_timeout)) + 8)
-        if getattr(cfg, "approach_only", False):
+        if getattr(cfg, "retract_start", False):
             # ⚠ ep_total 不来自 episode_length_s, 来自相位超时之和 —— 只改
             #   episode_length_s 是**无效的**(冒烟活性检查抓到: 预算 250 但 ep_total=153)。
-            #   接近任务只有一个相位, 直接按用户定的步数钉死, 并同步放开 PREGRASP 超时。
-            self.ep_total = int(cfg.approach_only_steps)
-            self.phase_timeout_t[Phase.PREGRASP] = int(cfg.approach_only_steps)
+            #   退避起点族的接近距离由 D=1.5×d_g 定, 与人手轨迹的 gs 无关 ⟹ 接近段预算
+            #   统一按 approach_only_steps(250) 给, 免得沿用 gs 时长度对不上。
+            _ap = int(cfg.approach_only_steps)
+            self.phase_timeout_t[Phase.PREGRASP] = _ap
+            if getattr(cfg, "approach_only", False):
+                self.ep_total = _ap            # 只学接近: 到位即终止, 没有后续相位
+            else:
+                # 完整任务: 接近 + 抓握 + 微抬升验证
+                self.ep_total = (cfg.settle_steps + _ap
+                                 + int(cfg.phase_timeout[Phase.GRASP])
+                                 + int(cfg.phase_timeout[Phase.LIFT]) + 8)
         print(f"[pregrasp] v2 稳定抓握+微抬升验证: 起点=PreGrasp(帧{self.grasp_start}) | "
               f"合拢参考 {cfg.closure_ref_rate}/步 | 候选 ≥{cfg.success_min_pads}垫 "
               f"向心≥{cfg.grasp_centrip_thresh} 保持{cfg.candidate_hold_steps}步 | "

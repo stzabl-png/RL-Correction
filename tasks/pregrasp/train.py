@@ -114,6 +114,7 @@ app = AppLauncher(args).app
 
 import contextlib  # noqa: E402
 import json  # noqa: E402
+import numpy as np  # noqa: E402
 import torch  # noqa: E402
 import yaml  # noqa: E402
 from datetime import datetime  # noqa: E402
@@ -268,11 +269,35 @@ class MilestonePPO(PPO):
             g = min(self._ar_slow / max(raw.cfg.curr_arrive_target, 1e-6), 1.0)
             c = raw.cfg.curr_rate
             ep_f, er_f = raw._eps_final
-            # 目标值 = 起点 --g--> 终点; 实际值只能朝目标**单调收紧**, 每 epoch 限速
-            raw.cfg.eps_pos = max(raw.cfg.eps_pos0 + (ep_f - raw.cfg.eps_pos0) * g,
-                                  raw.cfg.eps_pos - c * raw.cfg.eps_pos0)
-            raw.cfg.eps_rot = max(raw.cfg.eps_rot0 + (er_f - raw.cfg.eps_rot0) * g,
-                                  raw.cfg.eps_rot - c * raw.cfg.eps_rot0)
+            # ---- 回退闸 (2026-08-16 用户裁定) ----
+            # 原实现: 收紧受每 epoch 限速, **放松却是瞬时的** —— `max(目标, 当前−限速)`
+            #   里 g 一掉目标就变松, max 直接取松的那个。而 g 由 arrive_rate 驱动,
+            #   arrive_rate 本身在剧烈抖动(实测 0.07~0.58), 等于让噪声在开车:
+            #   成功率掉 -> 公差放松 -> 策略学会"贴着桌子勉强够角度"的糙解 -> 精度上不去
+            #   -> 成功率再掉。实测 eps_rot 在 5.6~10.5° 之间来回甩, 从不收敛。
+            # 用户裁定: **允许退, 但要真学坏了才退** —— 不是一有波动就退。
+            #   判据: 慢 EMA 连续 curr_retreat_epochs 次低于历史最好的 curr_retreat_frac。
+            _best = max(getattr(self, "_ar_best", 0.0), self._ar_slow)
+            self._ar_best = _best
+            _bad = self._ar_slow < _best * raw.cfg.curr_retreat_frac
+            self._ar_bad = (getattr(self, "_ar_bad", 0) + 1) if _bad else 0
+            _allow_loosen = self._ar_bad >= raw.cfg.curr_retreat_epochs
+            if _allow_loosen:
+                self._ar_bad = 0          # 退一档就重新计数, 免得连着退
+            _tp = max(raw.cfg.eps_pos0 + (ep_f - raw.cfg.eps_pos0) * g,
+                      raw.cfg.eps_pos - c * raw.cfg.eps_pos0)
+            _tr = max(raw.cfg.eps_rot0 + (er_f - raw.cfg.eps_rot0) * g,
+                      raw.cfg.eps_rot - c * raw.cfg.eps_rot0)
+            if not _allow_loosen:         # 平时是棘轮: 只许收紧, 不许比现在更松
+                _tp = min(_tp, raw.cfg.eps_pos)
+                _tr = min(_tr, raw.cfg.eps_rot)
+            elif _tp > raw.cfg.eps_pos or _tr > raw.cfg.eps_rot:
+                print(f"[curr] 公差回退 @ {self.agent_steps/1e6:.2f}M: "
+                      f"arrive 慢EMA {self._ar_slow:.3f} < 历史最好 {_best:.3f} × "
+                      f"{raw.cfg.curr_retreat_frac} 连续 {raw.cfg.curr_retreat_epochs} 次 | "
+                      f"eps {raw.cfg.eps_pos*100:.2f}->{_tp*100:.2f}cm "
+                      f"{np.degrees(raw.cfg.eps_rot):.1f}->{np.degrees(_tr):.1f}°")
+            raw.cfg.eps_pos, raw.cfg.eps_rot = _tp, _tr
             bud = raw.cfg.approach_extra0 + \
                 (raw.cfg.approach_extra_steps - raw.cfg.approach_extra0) * g
             raw.phase_timeout_t[0] = raw.gs + int(max(bud, raw.cfg.approach_extra_steps))
@@ -305,13 +330,13 @@ class MilestonePPO(PPO):
         # (学会从站姿这个更远、姿态也不同的起点出发)。
         if raw is not None and getattr(raw.cfg, "retract_start", False):
             g = min(self._sr_slow / 0.3, 1.0)
-            raw.cfg.retract_ratio = max(raw.cfg.retract_ratio, min(1.0, 2.0 * g))
-            raw.cfg.stance_prob = max(raw.cfg.stance_prob,
-                                      min(1.0, max(0.0, 2.0 * g - 1.0)))
+            # 起点已改为在**整条参考路径**上均匀抽, 所以只剩 retract_ratio 一条:
+            #   0 = 全在终点(最易)  ->  1 = 铺满整条路(含站姿, 最难)
+            # stance_prob 只保留"评测钉死站姿"这一个用途(=1.0), 训练期恒 0。
+            raw.cfg.retract_ratio = max(raw.cfg.retract_ratio, min(1.0, g))
             self.writer.add_scalar("curr/retract_ratio", raw.cfg.retract_ratio,
                                    self.agent_steps)
-            self.writer.add_scalar("curr/stance_prob", raw.cfg.stance_prob,
-                                   self.agent_steps)
+
         # 接触分数图: 每 epoch 折扣一次 + 定期落盘 (常驻, 见 cfg.score_map)
         if raw is not None and getattr(raw, "score_on", False):
             raw.decay_score()

@@ -296,6 +296,12 @@ class GraspTaskCfg(DexmateCorrectionEnvCfg):
     eps_rot0 = 0.262             # 15°
     w_imit_ramp = 0.0            # 模仿罚的训练期系数 0→1 (乘在 w_imit0 上)
     curr_arrive_target = 0.5     # arrive_rate 到这个值时三条课程退火到位
+    # ---- 公差回退闸 (2026-08-16 用户裁定: "真学坏了才退, 不是一有波动就退") ----
+    # 原实现放松是**瞬时**的(收紧才限速), 而驱动量 arrive_rate 剧烈抖动(实测 0.07~0.58),
+    # 于是噪声在开车: 成功率掉 -> 公差放松 -> 学到"贴桌勉强够角度"的糙解 -> 精度上不去
+    # -> 再掉。实测 eps_rot 在 5.6~10.5° 之间甩, 从不收敛。
+    curr_retreat_frac = 0.7      # 慢 EMA 掉到历史最好的这个比例以下才算"退化"
+    curr_retreat_epochs = 10     # 连续这么多 epoch 都退化才准放松 (≈32万步)
     curr_rate = 0.005            # 每 epoch 最大变化量 (限速)
     r_arrive = 3.0               # **到位里程碑**: 切进抓取相位时一次性发
                                  #   势函数(密集,不可刷) + 到位奖(稀疏,一次性) = "持续接近给奖励"的安全实现
@@ -315,7 +321,12 @@ class GraspTaskCfg(DexmateCorrectionEnvCfg):
     w_align = 6.0                # 对齐势差分权重, **必须恒定** (随相位变会破坏 telescoping)
     cap_align = 0.02             # m/步
     lam_rot = 0.174              # m/rad, **P0.0 实测** (5° ≡ 1.52cm), 是纯运动学力臂的 2 倍
+    # 2026-08-16: 接近任务里 imit 的参考换成 **retract_path**(站姿→q(D)→…→GraspPose,
+    # 退避族倒放, 构造上无碰撞且 IK 全通)。它不再是"像不像人手", 而是"偏离这条可行路多少"。
+    # 权重按 approach_only 降档(见 w_imit0_approach): 当**提示**不当枷锁 —— 策略仍可偏离,
+    # 只是要付点代价; 不然就退化成纯轨迹跟踪, 物体一抖就废。
     w_imit0 = 20.0               # 分/(m·步), 作用在**本步残差用量**上
+    w_imit0_approach = 6.0       # approach_only 用这个 (≈ align 权重的 1/1, 量级同阶)
     cap_imit = 0.02              # m/步
     imit_decay_p = 2.0           # w_imit(φ) = w_imit0·(1-φ)^p
     # -- 起步分布 (课程; 训练入口按 sr_ema 更新, 与 gentle 同一个钩子) --
@@ -353,7 +364,11 @@ class GraspTaskCfg(DexmateCorrectionEnvCfg):
     approach_only = os.environ.get("RL_APPROACH_ONLY", "0") == "1"
     # 到位判据 = 腕位置差 < eps_pos 且 朝向差 < eps_rot 且保持 switch_hold 步
     # (复用现有相位切换那套阈值: eps_pos0=3cm / eps_rot0=15° / switch_hold=2)
-    r_reach = 40.0               # 到位终端奖励 (与原 r_success 同量级)
+    # 2026-08-16 用户裁定 40 -> 100。当时的比例是 终端40 : 稠密累计≈2.7 ≈ 15:1
+    # (align 的 ep_rew 0.030/步 × 回合均长 90 步)。提到 100 = 37:1。
+    # ⚠ 我的判断是这**不是**当前的杠杆(失败模式是超时=走不到, 不是"到了但奖励不够"),
+    #   但代价为零, 且与"退避路径当参考"一起改会混judging —— 判读时记得它俩同时变了。
+    r_reach = 100.0              # 到位终端奖励
     # 回合预算: 用户定 250 步 @20Hz = 12.5s。理论下限来自标定的每步末端位移上界
     #   arm_residual_max(末端 95 分位 2cm) × arm_step_scale(0.25) = **5mm/步**
     #   ⟹ 站姿->GraspPose 30.1cm(Grasp3) 需 ≥60 步; 41.4cm(瓶) 需 ≥83 步。

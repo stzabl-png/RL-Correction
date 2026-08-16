@@ -48,8 +48,38 @@ from tasks.pregrasp.cfg import GraspTaskCfg, Phase
 FINGERS = ("thumb", "index", "middle", "ring", "pinky")   # 与 fingertip_bodies 同序
 
 
+def _slerp_R(R0, R1, t):
+    """两个旋转矩阵之间的最短弧插值 (轴角形式, 不引依赖)。"""
+    import numpy as _n
+    dR = R0.T @ R1
+    c = (_n.trace(dR) - 1.0) / 2.0
+    th = float(_n.arccos(_n.clip(c, -1.0, 1.0)))
+    if th < 1e-8:
+        return R1.copy()
+    w = _n.array([dR[2, 1] - dR[1, 2], dR[0, 2] - dR[2, 0], dR[1, 0] - dR[0, 1]]) \
+        / (2.0 * _n.sin(th))
+    a = th * t
+    K = _n.array([[0, -w[2], w[1]], [w[2], 0, -w[0]], [-w[1], w[0], 0]])
+    return R0 @ (_n.eye(3) + _n.sin(a) * K + (1 - _n.cos(a)) * K @ K)
+
+
 class GraspTaskEnv(DexmateCorrectionEnv):
     cfg: GraspTaskCfg
+    # Approach-only 要关掉的奖励项 (用户 2026-08-16 逐条裁定, 见 _get_rewards 注释)
+    #   imit  —— 与 align 对冲(本任务不跟人手轨迹, 没有要模仿的参考)
+    #   fail  —— 物体掉落/甩飞判据, 接近段不碰物体所以用不上
+    #   其余  —— 抓取段专用, 接近段全部恒 0 (从抓取任务继承的壳)
+    # ⚠ `cone` 不在这里: 它由 cfg.cone_trust 控制且默认 False, 本来就没生效。
+    # ⚠ `self_gap` **不关**: 恒 0 无代价, 双手任务(臂↔另一臂)会真的用上。
+    #   ⚠ `imit` 2026-08-16 **重新启用**: 用户指出退避族自带一条**保证可行**的回程
+    #      (退避过程倒放), 可以当参考。之前关掉它的理由是"没有可信参考要跟" ——
+    #      那个理由在参考换成 retract_path 之后就不成立了。权重给小(当提示不当枷锁)。
+    APPROACH_OFF = (
+        "fail",
+        "pad_approach", "pad_touch", "cent_income", "quality_prog", "hold",
+        "over_force", "obj_move", "obj_rot", "tilt", "push", "finger_cross",
+        "carry",
+    )
     # 手指距离门控的自标定基准。类属性 = 只在 clip 没有 GraspPose 时兜底;
     # 有 prior 时由 __init__ 里的 `_load_grasp_prior()` 覆盖成实例属性。
     # (放这里而不是 __init__ 里, 是为了不可能再把算好的值覆盖回 None —— 踩过这个坑)
@@ -995,6 +1025,47 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         self.retract_u = u
         self.retract_d = to(ds)
         self.retract_q = to(qs.astype(np.float32))              # (M,7)
+        # ---- 退避参考路径 (2026-08-16 用户裁定: 用退避路径当参考) ----
+        # 为什么必须做: 前馈是 `ff = q_ref[t] − q_ref[t-1]`, 一直在播**人手轨迹**的关节
+        # 增量。退避分支只换了起点没换 ref_t ⟹ 手从 q(d) 起步、参考时钟停在人手轨迹的
+        # **随机帧**上, 前馈放的是与当前位置不相干的增量, 策略得用残差去抵消它。
+        # (实测征状: term/timeout≈1 走不到、成功率在 0.07~0.58 之间甩。)
+        #
+        # 修法: 参考路径改成"站姿 → q(D) → … → q(0)=GraspPose", 于是
+        #   · 前馈真的指向 GraspPose
+        #   · imit 罚的是"偏离这条**保证可行**的路的用量"(退避族倒放即可行解)
+        #   · 评测(全站姿起步)也有完整参考, 不再是训练/评测两套
+        _K = int(getattr(cfg, "stance_prefix_frames", 0) or 0) or 60
+        _stance = self.hand.data.default_joint_pos[0, self.arm_jids].cpu().numpy()
+        _rev = qs[::-1].copy()                       # q(D) … q(0), 终点 = GraspPose
+        # 前缀段: **手腕在空间里走直线**, 逐点 IK。
+        # ⚠ 不能用关节空间插值 —— 关节角走直线时手在空间里画弧, 而弧可能比两个端点
+        #   都低。实测(站姿 15.5cm → 终点 3.3cm)中段掉到 **0.42cm**。
+        #   直线的好处是有几何保证: 两端点都在桌面以上 ⟹ 连线段必全程在桌面以上(凸性)。
+        #   (保证的是**腕点**; 肘/上臂仍要靠下面的外壳校验兜底。)
+        _p0, _R0 = ik.fk(_stance.astype(np.float64))
+        _p1, _R1 = ik.fk(_rev[0].astype(np.float64))
+        _pre, _qw2, _nbad2 = [], _stance.astype(np.float64), 0
+        for _i in range(_K):
+            _t = _i / float(_K)                       # [0,1), 终点由 _rev[0] 接上
+            _ts = _t * _t * (3.0 - 2.0 * _t)          # smoothstep: 速度剖面软启停
+            _sol = ik.solve(_p0 + _ts * (_p1 - _p0), _R0 if _ts < 1e-9 else
+                            _slerp_R(_R0, _R1, _ts), q0=_qw2, iters=200)
+            if _sol["ok"]:
+                _qw2 = _sol["q"]
+            else:
+                _nbad2 += 1
+            _pre.append(_qw2.copy())
+        _pre = np.stack(_pre)
+        _pc = [self._shell_clearance_np(ik, q) for q in _pre] if self.shell_pts is not None \
+            else [float("nan")]
+        print(f"[retract] 前缀段(腕走直线) {_K} 帧: IK 失败 {_nbad2}/{_K} | "
+              f"臂外壳离桌 {np.nanmin(_pc)*100:.2f}~{np.nanmax(_pc)*100:.2f}cm "
+              f"{'⚠ 低于余量' if np.nanmin(_pc) < cfg.arm_shell_margin else '✅'}")
+        self.retract_path = to(np.concatenate([_pre, _rev], 0).astype(np.float32))
+        self.retract_K = _K                          # 前缀长度; 族内第 k 档 -> path 下标 K+(M-1-k)
+        print(f"[retract] 参考路径已建: 站姿前缀 {_K} 帧 + 退避 {M} 档 = "
+              f"{self.retract_path.shape[0]} 帧, 终点 = GraspPose")
         print(f"[retract] 起点族已建: d_g={d_g*100:.1f}cm D={D*100:.1f}cm "
               f"({cfg.retract_dmax_k}×d_g) × {M} 级 | λ={lam:.2f} "
               f"仰角 {np.degrees(np.arcsin(u[2])):+.1f}°")
@@ -1097,10 +1168,19 @@ class GraspTaskEnv(DexmateCorrectionEnv):
             # 零动作 ⟹ 逐帧复现人手的速度剖面 —— 这条性质是 repo 两次成功的共同依赖
             # (dexmate_env.py:384-392 的注释: 只累积不给前馈 ⟹ 手臂冻在起点).
             # place: 前馈播到 _ff_end=re, 搬运段零动作 = 复现人手的搬运动作.
-            t = self.ref_t.clamp(max=self._ff_end)
-            q_base = self.q_ref[t]
-            ff = (q_base - self.ref_q_prev) * (in_ctrl & (self.ref_t < self._ff_end)
-                                               ).float().unsqueeze(1)
+            if getattr(self, "retract_path", None) is not None:
+                # 退避参考: 前馈来自"站姿→q(D)→…→q(0)=GraspPose"这条**保证可行**的路,
+                # 而不是人手轨迹 (见 _build_retract_family 里的说明)。
+                _L = self.retract_path.shape[0]
+                t = self.ref_t.clamp(max=_L - 1)
+                q_base = self.retract_path[t]
+                ff = (q_base - self.ref_q_prev) * (in_ctrl & (self.ref_t < _L - 1)
+                                                   ).float().unsqueeze(1)
+            else:
+                t = self.ref_t.clamp(max=self._ff_end)
+                q_base = self.q_ref[t]
+                ff = (q_base - self.ref_q_prev) * (in_ctrl & (self.ref_t < self._ff_end)
+                                                   ).float().unsqueeze(1)
             self.ref_q_prev = q_base
             # 远松近紧: 手要自己走完那 ~16cm, 但接触前必须回到毫米级 (只在接近段)
             d_pos = (self._anchor_w() - self._target_w()).norm(dim=1)
@@ -1649,7 +1729,9 @@ class GraspTaskEnv(DexmateCorrectionEnv):
             #    量纲: **末端米**, 不是关节弧度 —— 直接量"实际走的 − 参考走的".
             # w_imit_ramp 是**训练期**系数 (0→1, 由 arrive_rate 驱动); (1−φ)^p 是**回合内**形状.
             # 两条轴分开: 先让它到得了(ramp≈0), 再要求像人(ramp→1).
-            w_imit = (cfg.w_imit0 * cfg.w_imit_ramp
+            _w0 = (cfg.w_imit0_approach if getattr(cfg, "approach_only", False)
+                   else cfg.w_imit0)
+            w_imit = (_w0 * cfg.w_imit_ramp
                       * (1.0 - self._phi()).clamp(min=0.0) ** cfg.imit_decay_p)
             org = self.scene.env_origins
             w_now = self.wrist_pos_w - org
@@ -1763,6 +1845,21 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         terms["torque"] = -cfg.w_torque * self.arm_torque_norm.square().mean(dim=1)
         terms["time"] = torch.full_like(af, -cfg.w_time)
 
+        # ---- Approach-only 的奖励最小集 (2026-08-16 用户逐条裁定) ----
+        # 实测依据: 接近任务下 24 个奖励项里 **13 个恒 0**(全是从抓取任务继承的壳),
+        # 而 `imit` 是**活的且与主项对冲** —— 它罚"每步残差用量", 前提是有条可信参考
+        # 要跟; 但本任务的设计前提就是**不跟人手轨迹**(改用退避族+势函数)。
+        # 于是它变成纯粹压制动作幅度, 和 `align`(要求主动走向目标)直接打架,
+        # 量级还相当(实测 imit −0.014 vs align +0.030)。
+        # 用户裁定: imit 关 / 抓取段项全关 / fail 关; self_gap 留(恒 0 无代价, 双手要用)。
+        if getattr(cfg, "approach_only", False):
+            for _k in self.APPROACH_OFF:
+                terms.pop(_k, None)
+            if not getattr(self, "_rew_printed", False):
+                self._rew_printed = True
+                print(f"[reward] Approach-only 生效项: "
+                      f"{sorted(k for k, v in terms.items())}")
+                print(f"[reward] 已关闭: {sorted(self.APPROACH_OFF)}")
         total = (sum(terms.values()) * af).nan_to_num(0.0)   # 最后一道 NaN 闸
         self.prev_pad_d = torch.where(active.unsqueeze(1), s["pad_d_shape"], self.prev_pad_d)
         self.prev_quality = torch.where(active, s["quality"], self.prev_quality)
@@ -2024,25 +2121,36 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         use_retract = getattr(cfg, "retract_start", False) and \
             getattr(self, "retract_q", None) is not None
         if use_retract:
-            _M = self.retract_q.shape[0]
-            _hi = max(float(cfg.retract_ratio), 0.0) * (_M - 1)
-            k = (torch.rand(n, device=dev) * _hi).round().long().clamp(0, _M - 1)
-            q_ret = self.retract_q[k]                                  # (n,7)
-            from_stance = torch.rand(n, device=dev) < float(cfg.stance_prob)
-            q_stance_arm = self.hand.data.default_joint_pos[env_ids][:, self.arm_jids]
-            q_ret = torch.where(from_stance.unsqueeze(1), q_stance_arm, q_ret)
+            # ★ 起点在**整条参考路径**上均匀抽 (2026-08-16 用户裁定)。
+            #   之前是 {站姿} ∪ {退避族 24 档}, 中间那 59 帧前缀**一个起点都不落**,
+            #   课程难度是断的: 要么"就在物体旁边", 要么"从最远的站姿从头做"。
+            #   而评测(全站姿起步)恰恰必须穿过那 59 帧 —— 训练分布里的空白。
+            #   现在 j0 ~ U(0, ratio×(L-1)): ratio=0 全在终点(最易), =1 铺满整条路(最难),
+            #   站姿那一档自然就是 j0=0, 不再需要单独的 stance_prob 旋钮。
+            _L = self.retract_path.shape[0]
+            if float(getattr(cfg, "stance_prob", 0.0)) >= 1.0:
+                # ★ 正式口径(评测): **全部从站姿出发**, 钉死 j0=0。
+                #   不能靠"均匀抽恰好抽到 0"的概率 —— 评测必须是确定的分布。
+                t0 = torch.zeros(n, dtype=torch.long, device=dev)
+            else:
+                _lo = (1.0 - max(float(cfg.retract_ratio), 0.0)) * (_L - 1)
+                j0 = (_lo + torch.rand(n, device=dev) * (_L - 1 - _lo)).round().long()
+                t0 = j0.clamp(0, _L - 1)
+            q_ret = self.retract_path[t0]                              # (n,7)
             start_grasp = torch.zeros(n, dtype=torch.bool, device=dev)  # 全走接近相位
             c0 = torch.zeros_like(c0)                                   # 接近段手张开
-            self.retract_d0[env_ids] = torch.where(
-                from_stance, torch.full_like(self.retract_d[k], float("nan")),
-                self.retract_d[k])                                      # 盘面: 本回合起点 d
+            # 盘面: 本回合起点离终点还有几帧 (越大越难)
+            self.retract_d0[env_ids] = (_L - 1 - t0).float()
         tmpl0 = self.q_open + c0.unsqueeze(1) * (self.q_close - self.q_open)
         if self.arm_start_pool is None:
             q_arm = self.q_pregrasp.expand(n, 7).clone()
         else:                       # 从起始位形池随机抽 (见 __init__ 里 arm_start_pool 注释)
             k = torch.randint(len(self.arm_start_pool), (n,), device=dev)
             q_arm = self.arm_start_pool[k]
-        if cfg.approach:
+        if cfg.approach and not use_retract:
+            # ⚠ 只在**非退避**模式下用 t0 索引 q_ref —— 退避模式的 t0 是 **retract_path**
+            #   的下标(0~K+M-1), 而 q_ref 是人手轨迹(长度 L)。两者长度不同,
+            #   拿前者去索引后者会 CUDA 越界(冒烟当场崩, device-side assert)。
             q_arm = torch.where(start_grasp.unsqueeze(1), q_arm, self.q_ref[t0])
         if use_retract:
             q_arm = q_ret                     # 退避族/站姿 覆盖上面的参考起点
@@ -2070,7 +2178,11 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         self.started_grasp[env_ids] = start_grasp
         self.arrived[env_ids] = start_grasp   # 抓取起步 = 天然已到位
         self.arrive_step[env_ids] = 0
-        self.ref_q_prev[env_ids] = self.q_ref[t0]
+        # ⚠ 前馈是差分 (q_base − ref_q_prev), 所以复位时 ref_q_prev 必须落在**同一条**
+        #   参考路径的 t0 上 —— 落错路径的话第一步前馈是个跳变。
+        self.ref_q_prev[env_ids] = (self.retract_path[t0]
+                                    if getattr(self, "retract_path", None) is not None
+                                    else self.q_ref[t0])
         self.switch_run[env_ids] = 0
         self.prev_phi[env_ids] = 0.0
         self.prev_wrist_pos[env_ids] = 0.0

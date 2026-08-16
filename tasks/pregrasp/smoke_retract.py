@@ -51,7 +51,6 @@ def check(tag, ratio, sp, expect):
     cfg.retract_ratio, cfg.stance_prob = ratio, sp
     E.reset()
     d0 = E.retract_d0.clone()          # ⚠ 先存: 下面 step 里若有回合结束会被重写
-    n_st = int(torch.isnan(d0).sum())
     # ⚠ 必须**走一步 env.step**: `_sig`(含 arm_gap) 是在奖励计算里填的, reset 之后是空的。
     #   第一版我写成 `if "arm_gap" in E._sig` —— 它恒为假, 于是"外壳为正"这个判据
     #   **一次都没执行**, 却照样打印了"✅通过"。和 _fgate_dg 那次同一个病:
@@ -62,11 +61,9 @@ def check(tag, ratio, sp, expect):
     assert "arm_gap" in E._sig, "step 之后 _sig 仍没有 arm_gap —— 判据接错了"
     gap = E._sig["arm_gap"] * 100.0
     pd = E._pad_dist_normal()[0].min(dim=1).values * 100.0
-    dd = d0[~torch.isnan(d0)] * 100.0
     print(f"\n[{tag}] retract_ratio={ratio} stance_prob={sp}   ({expect})")
-    print(f"  起点: 站姿 {n_st}/{E.num_envs} | 退避 d = "
-          + (f"{dd.min():.1f}~{dd.max():.1f}cm (均值 {dd.mean():.1f})"
-             if len(dd) else "(无)"))
+    print(f"  起点: 离终点 {d0.min():.0f}~{d0.max():.0f} 帧 (均值 {d0.mean():.0f}) "
+          f"| 路径共 {E.retract_path.shape[0]} 帧")
     print(f"  起点合法性(物理稳态, 外壳口径): 臂外壳离桌 "
           f"{gap.min():.2f}~{gap.max():.2f}cm "
           f"{'⛔ 有负值!' if float(gap.min()) < 0 else '✅ 全正'}")
@@ -96,10 +93,10 @@ print(f"  到位判据 eps_pos={cfg.eps_pos*100:.1f}cm eps_rot="
       f"{__import__('numpy').degrees(cfg.eps_rot):.1f}° 保持 {cfg.switch_hold} 步")
 print(f"  硬终止 手->物体 < {cfg.approach_hit_obj_m*100:.1f}cm | 臂外壳离桌 < 0")
 
-check("A 最简单", 0.0, 0.0, "全部就在 GraspPose 上")
-check("B 半程", 0.5, 0.0, "退避 d 落在前半段")
-check("C 全退避", 1.0, 0.0, "退避 d 铺满 [0,D]")
-check("D 正式口径", 1.0, 1.0, "全部从对称站姿起步")
+check("A 最简单", 0.0, 0.0, "全部在路径终点(GraspPose)")   # 顺带打印生效的奖励项
+check("B 半程", 0.5, 0.0, "起点铺在路径后半段")
+check("C 全路径", 1.0, 0.0, "起点铺满整条路径(含站姿前缀段)")
+check("D 正式口径", 1.0, 1.0, "全部从站姿出发(评测钉死 j0=0)")
 
 print("\n" + "=" * 70)
 if fails:

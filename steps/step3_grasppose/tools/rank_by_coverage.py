@@ -130,9 +130,16 @@ def main():
     rows = []
     n_rej_cav = [0]; n_rej_clr = [0]
     for exp in sorted(glob.glob(a.glob)):
+        # ★模板名有两个来源, 缺一不可:
+        #   扫描阶段  每个模板一个实验目录 output/scan_<模板>_<手>/
+        #   精生成阶段 全部模板汇总进一个目录, 模板名在**文件名前缀** <模板>__<i>_<j>_grasp.npy
+        # 只认前者会让精生成的结果全部退化成目录名 —— 控制台看不出来(它打的是文件名),
+        # 但 --json 里的 tmpl 字段会整列变成垃圾, 先验回写也就跟着记错模板。
         m = re.search(r"scan_(.+?)_sharpa_wave", os.path.basename(exp))
-        tmpl = m.group(1) if m else os.path.basename(exp)
+        exp_tmpl = m.group(1) if m else None
         for f in sorted(glob.glob(f"{exp}/grasp_data/**/*_grasp.npy", recursive=True)):
+            b = os.path.basename(f)
+            tmpl = exp_tmpl or (b.split("__")[0] if "__" in b else os.path.basename(exp))
             d = np.load(f, allow_pickle=True).item()
             q = np.asarray(d["grasp_qpos"], float).reshape(-1)
             Rm = R.from_quat(np.roll(q[3:7], -1)).as_matrix()

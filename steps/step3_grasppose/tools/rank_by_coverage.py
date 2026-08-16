@@ -63,6 +63,15 @@ def main():
                          "那个手臂姿态不代表桌面抓取(按它排序会把最贴桌的候选排第一)。")
     ap.add_argument("--hgt-tol", type=float, default=25.0,
                     help="高度匹配的容差(%%物高): 偏离 tol 以上得 0 分")
+    ap.add_argument("--w-elev", type=float, default=0.3,
+                    help="小臂仰角接近水平的权重。★ 挡'从上方搭在物体口沿'那类假抓取的唯一有效量 —— "
+                         "它们指尖勾住外壁、手腕近乎竖直, 而覆盖率/离桌/高度三项都拦不住: "
+                         "pour/17 杯子实测 30_Palmar 一批 +69° 的钩沿姿势总分 0.533, 压过了"
+                         "四指环握杯身的 18_Extensior_Type__2_3(−7°, 0.509)。"
+                         "仰角在数据上是双峰的: 正常环握 −26°~+20°, 钩沿 +68°~+77°, 分得很开。"
+                         "★做成**打分**而不是硬闸: 有些物体本来就该 top-down 抓, 硬闸会把它们全毙掉。")
+    ap.add_argument("--elev-free", type=float, default=30.0, help="仰角在此以内不扣分(度)")
+    ap.add_argument("--elev-span", type=float, default=45.0, help="超出 elev-free 多少度扣到 0 分")
     ap.add_argument("--per-tmpl", action="store_true", help="按模板汇总(选模板用)")
     ap.add_argument("--top", type=int, default=15)
     ap.add_argument("--copy-top-to", default=None)
@@ -213,12 +222,14 @@ def main():
 
     use_clr = table_z is not None
     use_hgt = ref_eff is not None and table_z is not None
-    wsum = a.w_cov + (a.w_clr if use_clr else 0) + (a.w_hgt if use_hgt else 0)
+    wsum = a.w_cov + (a.w_clr if use_clr else 0) + (a.w_hgt if use_hgt else 0) + a.w_elev
     for r in rows:
         s_clr = min(max(r["clr"], 0.0) / 0.05, 1.0) if use_clr else 0.0
         s_hgt = max(0.0, 1 - abs(r["ch_pct"] - ref_eff) / a.hgt_tol) if use_hgt else 0.0
+        s_elev = 1 - min(max(abs(r["elev"]) - a.elev_free, 0.0) / a.elev_span, 1.0)
         r["score"] = (a.w_cov * r["cov"] + (a.w_clr * s_clr if use_clr else 0)
-                      + (a.w_hgt * s_hgt if use_hgt else 0)) / max(wsum, 1e-9)
+                      + (a.w_hgt * s_hgt if use_hgt else 0)
+                      + a.w_elev * s_elev) / max(wsum, 1e-9)
 
     print(f"热点 {len(hot)} 个, 覆盖半径 {a.r*100:.0f}cm, 虎口闸 >= {a.min_thumb_z}"
           + (f", 腔内闸 <= {a.max_cavity:.0%} (拒绝 {n_rej_cav[0]})" if hull_pl is not None else "")

@@ -35,6 +35,9 @@ p.add_argument("--report", default="", help="把结果写成 json")
 p.add_argument("--loop", type=int, default=0, help="GUI: 循环回放几遍(0=一遍后停住)")
 p.add_argument("--realtime", action="store_true", help="GUI: 按控制频率实时播放")
 p.add_argument("--prior", default="", help="GraspPose prior npz(挂上后按 apply_grasp_prior 三件套配置)")
+p.add_argument("--prior_yaw", type=float, default=-1.0,
+               help="钉死物体 yaw(度), 与训练口径一致; <0 自搜。不给的话回放看到的摆放"
+                    "与训练不是同一个, 判读会跑偏")
 p.add_argument("--eye", default="1.30,-0.75,1.45")
 p.add_argument("--lookat", default="0.40,0.00,0.92")
 AppLauncher.add_app_launcher_args(p)
@@ -59,7 +62,7 @@ cfg.scene.num_envs = 1
 cfg.rsi_prob = 0.0
 if args.prior:
     from tasks.pregrasp.cfg import apply_grasp_prior  # noqa: E402
-    apply_grasp_prior(cfg, args.prior)
+    apply_grasp_prior(cfg, args.prior, yaw_deg=(args.prior_yaw if args.prior_yaw >= 0 else None))
     print(f"[replay] 挂 GraspPose prior: {args.prior} (pregrasp_align 已关)")
 GUI = not args.headless
 if GUI:
@@ -144,10 +147,23 @@ def probe(t=None):
     return f.cpu().numpy(), obj_z, err, palm_d
 
 
+# ⚠ 静置前必须先把臂**瞬移**到参考第 0 帧, 不能只发目标位。
+#   env.reset() 把臂放在**预抓位**(物体旁边几厘米), 而参考第 0 帧在远处;
+#   若直接 drive(q_arm_ref[0]), PD 会把整条臂从物体边上猛拽回起点 ——
+#   **一整条胳膊横扫过物体, 把它打飞**。2026-08-16 用户在 GUI 里看到的正是这个,
+#   而它**纯属本工具的假象**:训练侧 reset 是 write_joint_state 瞬移, 不会扫。
+#   (实测:同一场景零动作静置 40 步, 物体 z 稳在 93.68cm 纹丝不动。)
+_q0 = env.hand.data.joint_pos.clone()
+_q0[:, env.arm_jids] = q_arm_ref[0]
+_q0[:, env.hand_jids] = fin_src[0]
+env.hand.write_joint_state_to_sim(_q0, torch.zeros_like(_q0))
+env.hand.set_joint_position_target(_q0)
+env.hand.write_data_to_sim()
 for _ in range(args.settle):
     drive(q_arm_ref[0], fin_src[0], render=GUI)
 f0, z0, d0, p0 = probe(0)
-print(f"[replay] 静置后: 物体高 {z0*100:.2f}cm  腕跟踪误差 {d0*100:.1f}cm")
+print(f"[replay] 静置后: 物体高 {z0*100:.2f}cm  腕跟踪误差 {d0*100:.1f}cm "
+      f"(臂已瞬移到参考第 0 帧, 不走扫掠)")
 
 log = []
 for t in range(L):

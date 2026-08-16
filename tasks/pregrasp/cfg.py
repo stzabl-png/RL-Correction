@@ -102,7 +102,12 @@ class GraspTaskCfg(DexmateCorrectionEnvCfg):
     # 29 = [Δq_arm(7), Δq_hand(22)]     (joints 模式, 见 hand_action_mode)
     #   ⚠ 单臂口径。双臂同训时每臂 29 ⇒ 58, 但**双臂 env 尚未实现**
     #     (本 env 只控 cfg.hand_side 一只臂, 另一只臂仅作碰撞障碍参与间隙罚)。
-    action_space = 29 if os.environ.get("RL_HAND_JOINTS") == "1" else 13
+    # ★ Approach-only = **7 维(只有臂)**。接近段 `hand_gate=0` 把 a[7] 和 a[8:13] 整段
+    #   乘零(手指全程张开是这个任务的定义), 留着就是 6 个**空转维度**: 白吃探索噪声、
+    #   占策略容量、还会被动作平滑罚扫到。这个任务的意义就是"判据干净、失败原因唯一",
+    #   留死维度与它矛盾。(2026-08-16 用户裁定)
+    action_space = (7 if os.environ.get("RL_APPROACH_ONLY") == "1"
+                    else (29 if os.environ.get("RL_HAND_JOINTS") == "1" else 13))
     # 观测 (布局见 env._get_observations, 改布局必须同步 —— _check_obs_dim 会当场报错)
     #
     # 🔴 2026-08-02 重构: actor / critic 按"部署时拿不拿得到"划分 (data engine 的前提是
@@ -558,6 +563,10 @@ def _obs_base(cfg) -> int:
             = 逐关节累积残差 22 + 逐关节参考跟踪误差 22
     改 obs 布局必须同步改这里 —— `env._check_obs_dim` 会当场报错。
     """
+    if getattr(cfg, "approach_only", False):
+        # 7 维臂动作: 相对 closure 模式去掉 12 维 —— closure 标量 1 + 每指残差 5
+        # + 动作缓冲 13->7 (6)。这三样都是被 hand_gate 乘零的通道, 留着是死信息。
+        return 144 - 12
     return 144 + (55 if getattr(cfg, "hand_action_mode", "closure") == "joints" else 0)
 
 

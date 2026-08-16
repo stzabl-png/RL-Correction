@@ -486,13 +486,17 @@ _prior = args.prior_npz or (os.path.join(_HERE, "priors", f"{args.clip}.npz")
 if _prior:
     assert os.path.exists(_prior), f"缺 prior 文件 {_prior} (先跑 make_prior.py / screen_prior.py)"
     # 一次做齐三件事: 挂 prior / 关 pregrasp_align(D7) / 钉 yaw(D1). 见 cfg.apply_grasp_prior
+    if args.approach_only:
+        # ⚠ 必须在 apply_grasp_prior **之前** —— 动作空间(7)与观测维度都依赖它,
+        #   apply_grasp_prior 里就会按 _obs_base(cfg) 把 observation_space 算死。
+        env_cfg.approach_only = True
+        env_cfg.action_space = 7
     apply_grasp_prior(env_cfg, _prior, args.prior_yaw, approach=args.approach)
 elif args.approach:
     raise SystemExit("--approach 必须配 prior (对齐势的终点来自 GraspPose)")
 if args.approach_only:
     if not args.approach:
         raise SystemExit("--approach_only 必须同时给 --approach (要接近段的相位机)")
-    env_cfg.approach_only = True
     env_cfg.retract_start = True
     # ★ **训练**的课程初值 = 最简单端。cfg 里的默认 1.0/1.0 是**评测口径**
     #   (全部从站姿起步), 训练必须从 0 起, 由 sr_slow 逐步拉满。
@@ -500,6 +504,13 @@ if args.approach_only:
     #   (2026-08-16 就是混了这个, 评测被改成"空降到终点", DESIGN_LOOP §2.24)。
     env_cfg.retract_ratio = 0.0
     env_cfg.stance_prob = 0.0
+    # auto_stop 的定期评测必须跑得完一整回合, 否则成功率分母不是 num_envs
+    # (train.py 有断言拦这个)。回合预算提到 250 后, 默认的 160 步不够 —— 自动跟上,
+    # 免得每条命令都要手动记着加 --eval_steps。
+    if args.eval_steps <= env_cfg.approach_only_steps:
+        args.eval_steps = int(env_cfg.approach_only_steps * 1.2)
+        print(f"[approach_only] --eval_steps 自动提到 {args.eval_steps} "
+              f"(回合上限 {env_cfg.approach_only_steps})")
     print(f"[approach_only] 只学接近: 站姿->GraspPose | 预算 "
           f"{env_cfg.approach_only_steps} 步 | 到位判据 "
           f"{env_cfg.eps_pos0*100:.0f}cm/{env_cfg.eps_rot0*57.3:.0f}° 保持 "

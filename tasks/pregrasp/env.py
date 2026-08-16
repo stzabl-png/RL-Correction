@@ -1142,7 +1142,10 @@ class GraspTaskEnv(DexmateCorrectionEnv):
             self._diag_fgate_n += 1
         ref = cfg.closure_ref_rate * (self.closure < cfg.c_grasp).float()
         # joints 模式: a_c 取消, 合拢模板只按**参考速率**推进(策略走 22 关节残差)
-        _ac = torch.zeros_like(ref) if self._joint_hand else a[:, 7] * cfg.closure_rate_max
+        # 7 维臂动作(approach_only)/joints 模式: 都没有 a[:,7] 这一维
+        _arm_only = a.shape[1] <= 7
+        _ac = (torch.zeros_like(ref) if (self._joint_hand or _arm_only)
+               else a[:, 7] * cfg.closure_rate_max)
         self.closure = (self.closure + hand_gate * (ref + _ac)
                         ).clamp(cfg.closure_min, cfg.closure_max)
         if cfg.place_task:
@@ -1151,7 +1154,7 @@ class GraspTaskEnv(DexmateCorrectionEnv):
                 in_place, (self.closure - cfg.place_release_rate).clamp(min=0.0),
                 self.closure)
         # 每指残差: 指 i 的模板深度 = clip(c + δ_i)
-        if not self._joint_hand:            # joints 模式: a_δ 取消
+        if not (self._joint_hand or _arm_only):   # joints/臂-only 模式: a_δ 取消
             self.fin_delta = (self.fin_delta
                               + a[:, 8:13] * cfg.delta_rate_max * hand_gate.unsqueeze(1)
                               ).clamp(-cfg.delta_max, cfg.delta_max)
@@ -1816,12 +1819,15 @@ class GraspTaskEnv(DexmateCorrectionEnv):
             wrist_quat,                                                 # 4
             self.wrist_linvel_w,                                        # 3
             self.wrist_angvel_w * vs,                                   # 3
-            (self.closure / cfg.closure_max).unsqueeze(1),              # 1  内部
-            # closure 模式 5 维(每指残差); joints 模式 44 维(逐关节累积残差 22
-            # + 逐关节参考跟踪误差 22 —— 策略要跟 22 个关节的参考, 必须看得见自己差多少)
-            *([self.fin_res / self.finger_dev_max,
-               (self.finger_q - self.finger_tgt) / self.finger_dev_max]
-              if self._joint_hand else [self.fin_delta / cfg.delta_max]),
+            # approach_only(7 维臂动作): 手指全程张开, closure 与每指残差恒为 0
+            # ⟹ **零信息量**, 整段去掉 (obs 基数 144-12, 见 cfg._obs_base)
+            *([] if getattr(cfg, "approach_only", False) else [
+                (self.closure / cfg.closure_max).unsqueeze(1),          # 1  内部
+                # closure 模式 5 维(每指残差); joints 模式 44 维(逐关节累积残差 22
+                # + 逐关节参考跟踪误差 22 —— 要跟 22 个关节的参考就得看见自己差多少)
+                *([self.fin_res / self.finger_dev_max,
+                   (self.finger_q - self.finger_tgt) / self.finger_dev_max]
+                  if self._joint_hand else [self.fin_delta / cfg.delta_max])]),
             self.q_pregrasp - arm_q,                                    # 7  prior
             phase_oh,                                                   # 6  内部时钟
             phase_prog,                                                 # 1  (接近段 = φ)

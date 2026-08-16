@@ -18,15 +18,29 @@
   area_ratio = |proj| / |mask|                     尺度线索(网格 scale 错会系统性偏离)
   d_centroid = 质心像素距离
 
-⚠ 两个已知的解读边界:
-  1. 内参是 `dataset_constant`(fx=fy=741.44, 主点恰在图像正中, 无畸变模型), 不是逐视频标定。
-     这给投影设了误差地板 —— 先在无遮挡帧上量出地板, 再谈阈值。
+⚠ 解读边界:
+  1. **多物体 take 必须给 `--object`。** 投影侧是单物体(一份网格 + 一条位姿), 不给的话
+     mask 侧会合并全部物体, `explained` 被另一个物体整体拉低 —— 那是口径错配, 不是位姿误差。
+     实测 pour/17(杯+瓶): 合并 mask **0.479 / 质心距 177px**(看着像位姿烂透了),
+     `--object object_0` **0.950 / 质心距 8px**。同一份位姿, 差别全在口径。
+     ★ 2026-08-15 我本人就是这么误判的, 还据此对外说"绝对值不可信"。
   2. 轮廓对"绕自身对称轴的自转"是盲的。水瓶近似旋转对称, 本工具**无法**校验/修正
      拧盖角度。它能查的是平移、倾角和尺度。
+  3. **跨重建版本比位姿时不要比四元数。** 若两版各自重建了网格, 物体系(网格规范系)不同,
+     同一物理朝向会对应相差上百度的四元数 —— 实测 pour/17 两版四元数差 161.7°, 而摆进
+     世界后点云中位差仅 **0.7mm**、本工具两版 explained 0.950 vs 0.9xx 无差异。
+     要比就摆进世界比几何, 或用本工具比像素。
+
+★ 内参: 从 `world_fused.npz` 的 `K` 逐视频读取(EgoDex pour/17 实测 fx=fy=736.63)。
+  (旧注释曾写"内参是 dataset_constant fx=741.44 给投影设了误差地板" —— 那是本工具早期
+   用在 HOI4D 上时的情况, **代码早已按视频读 K**, 该说法 2026-08-15 已订正。
+   教训: 文档与实现会不同步, 判断"当前行为"要看代码。)
 
 用法:
-  python steps/step2_reconstruction/pose_projection_check.py \
-      --scene /path/to/27_scene --video /path/to/27.mp4
+  # 单物体
+  python confidence/pose_projection_check.py --scene <take> --video <mp4> --out <dir>
+  # ★ 多物体: 必须指定
+  ... --object object_1
   # 换成 v17A 的独立 mask 做交叉验证:
   ... --mask-source v17a --v17a-take /path/to/VideoPrior/takes/screw_unscrew_bottle_cap/27
 """
@@ -103,13 +117,22 @@ def metrics(mask: np.ndarray, proj: np.ndarray, hands: np.ndarray | None) -> dic
 
 
 # ------------------------------------------------------------------ mask 源
-def scene_object_mask(scene: Path, i: int):
+def scene_object_mask(scene: Path, i: int, object_id: str | None = None):
+    """object_id=None 时**合并全部物体**的 mask; 给了就只取那一个。
+
+    ⚠ 多物体 take 上必须给 object_id ——本工具的投影侧是**单物体**(一份网格 + 一条位姿),
+      mask 侧若合并了两个物体, `explained = |mask ∩ proj| / |mask|` 会被另一个物体
+      整体拉低, 而这与位姿好坏无关。
+      实测 pour/17(杯+瓶): 合并 mask -> explained 0.479 / 质心距 177px(看着像位姿很烂),
+      只取 object_0 -> **explained 0.950 / 质心距 8px**。同一份位姿, 差别全是口径。
+    """
     d = scene / "masks" / "objects" / "frames" / f"frame_{i:06d}_masks"
     if not d.is_dir():
         return None
+    paths = ([d / f"{object_id}.png"] if object_id else sorted(d.glob("object_*.png")))
     acc = None
-    for p in sorted(d.glob("object_*.png")):
-        a = cv2.imread(str(p), cv2.IMREAD_GRAYSCALE)
+    for p in paths:
+        a = cv2.imread(str(p), cv2.IMREAD_GRAYSCALE) if p.is_file() else None
         if a is None:
             continue
         b = a > 127
@@ -190,6 +213,9 @@ def main(argv=None):
                     help="world_fused.npz (默认 <scene>/world_fused.npz)")
     ap.add_argument("--mesh", type=Path, default=None)
     ap.add_argument("--mask-source", choices=("scene", "v17a"), default="scene")
+    ap.add_argument("--object", default=None,
+                    help="物体 id(如 object_1)。多物体 take **必须给** —— 不给会合并所有"
+                         "物体的 mask 去比单物体投影, explained 被另一个物体拉低(实测 0.95->0.48)")
     ap.add_argument("--v17a-take", type=Path, default=None)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--scale", type=float, default=0.5)
@@ -204,7 +230,16 @@ def main(argv=None):
     fi = np.asarray(z["object_frame_indices"]).astype(int)
     idx_of = {int(f): k for k, f in enumerate(fi)}
 
-    mesh_p = a.mesh or (a.scene / "objects" / "object_0" / "object_mesh_scaled_final.obj")
+    # ★ 逐物体: 网格 / 位姿 / mask 三者必须同指一个物体, 否则量的是口径错配不是位姿误差
+    oid = a.object or "object_0"
+    if a.object and "object_ob_in_cam_all" in z.files:
+        ids = [str(x) for x in z["object_ids"]] if "object_ids" in z.files else []
+        if a.object in ids:
+            T_all = np.asarray(z["object_ob_in_cam_all"], float)[ids.index(a.object)]
+            print(f"[proj] 逐物体: {a.object} (取 object_ob_in_cam_all[{ids.index(a.object)}])")
+        else:
+            print(f"[proj] ⚠ world_fused 里没有 {a.object}, 现有 {ids}; 退回单物体位姿")
+    mesh_p = a.mesh or (a.scene / "objects" / oid / "object_mesh_scaled_final.obj")
     mesh = trimesh.load(str(mesh_p), force="mesh")
     V = np.asarray(mesh.vertices, float)
     F = np.asarray(mesh.faces, int)
@@ -234,7 +269,7 @@ def main(argv=None):
     per = []
     for i in range(n):
         k = idx_of.get(i)
-        mask = (scene_object_mask(a.scene, i) if a.mask_source == "scene"
+        mask = (scene_object_mask(a.scene, i, a.object) if a.mask_source == "scene"
                 else v17a_object_mask(frames_by_idx, i))
         rec = {"frame": i, "t": round(i / fps, 3)}
         if k is None or mask is None or not mask.any():
@@ -262,7 +297,7 @@ def main(argv=None):
             break
         small = cv2.resize(frame, (W, H), interpolation=cv2.INTER_AREA)
         k = idx_of.get(i)
-        mask = (scene_object_mask(a.scene, i) if a.mask_source == "scene"
+        mask = (scene_object_mask(a.scene, i, a.object) if a.mask_source == "scene"
                 else v17a_object_mask(frames_by_idx, i))
         r = per[i]
         if k is not None and mask is not None and mask.any():
@@ -314,7 +349,7 @@ def main(argv=None):
                 "max": round(float(v.max()), 4)}
 
     summary = {
-        "scene": str(a.scene), "mask_source": a.mask_source,
+        "scene": str(a.scene), "mask_source": a.mask_source, "object": a.object,
         "intrinsics_source": isrc,
         "K_fx": float(K[0, 0]), "num_frames": n, "frames_with_metric": len(val),
         "clean_from": a.clean_from,

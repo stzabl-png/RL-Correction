@@ -290,6 +290,7 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         self._diag_contacts = torch.zeros(N, device=dev)   # 盘面: 累计接触指数
         self._diag_actnorm = torch.zeros(N, device=dev)    # 盘面: 累计动作范数
         self._diag_n = torch.zeros(N, device=dev)          # 盘面: 步数
+        self._fgate_dg = None    # GraspPose 处的腕-物体距离(门控的自标定基准)
         self._diag_fgate = torch.zeros(N, device=dev)      # 盘面: 手指门开度累计
         self._diag_fgate_n = torch.zeros(N, device=dev)
         self.verify_k = torch.zeros(N, dtype=torch.long, device=dev)    # 验证段步数
@@ -704,6 +705,14 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         # 抓握位姿的**世界位姿** —— 接近段的对齐势函数要用它当终点 (物体复位在 obj_init_*,
         # 训练期只有 ±3~15mm 抖动, 所以这里当常量存; 抖动由势函数自己吸收).
         self._grasp_pos_w = to(gp)                          # (3,)
+        # 门控自标定基准: GraspPose 处的**腕到物体**距离。手指门按它的倍数开合,
+        # 于是换物体/换 clip 不用手调厘米数(小物体自动收紧, 大物体自动放宽)。
+        import numpy as _np2
+        self._fgate_dg = float(_np2.linalg.norm(
+            _np2.asarray(gp, float) - _np2.asarray(self.obj_init_pos.cpu().numpy(), float)))
+        print(f"[finger_gate] 自标定基准 d_g={self._fgate_dg*100:.1f}cm (GraspPose 处腕-物体距离) "
+              f"| 放开 <{self._fgate_dg*self.cfg.finger_gate_near_k*100:.1f}cm "
+              f"| 冻结 >{self._fgate_dg*self.cfg.finger_gate_far_k*100:.1f}cm")
         self._grasp_quat_w = to(gq)                         # (4,) wxyz
         self.q_pregrasp = to(rp["q"])                       # ① 臂复位/参考位
         # ⚠ npy 的 22 维是 GENERIC_JOINT_ORDER 序, 必须换到 USD 关节序再进模板
@@ -953,9 +962,12 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         #   相位门信任标注, 而 pour/17 的接触标注在指尖还差 7.8cm 时就触发 ——
         #   结果是在空气里握拳。距离门只信当下量到的几何, 标注错了也拦得住。
         #   它同时门住**参考合拢斜坡**(ref)与**策略动作**, 因为两者都乘 hand_gate。
-        if getattr(cfg, "finger_gate_on", False):
-            _d = self._pad_dists().min(dim=1).values * 100.0          # cm, link 原点口径
-            _far, _near = cfg.finger_gate_far_cm, cfg.finger_gate_near_cm
+        if getattr(cfg, "finger_gate_on", False) and getattr(self, "_fgate_dg", None):
+            # ⚠ 用**腕到物体**的距离, 不是指垫到物体 —— 后者与手指开合互为因果, 会死锁
+            #   (见 cfg.finger_gate_near_k 的注释与 Grasp3_CTRL 的实测)。
+            _d = (self.wrist_pos_w - self.object.data.root_pos_w).norm(dim=1)
+            _near = self._fgate_dg * cfg.finger_gate_near_k
+            _far = self._fgate_dg * cfg.finger_gate_far_k
             _dg = ((_far - _d) / max(_far - _near, 1e-6)).clamp(0.0, 1.0)
             hand_gate = hand_gate * _dg
             self._diag_fgate += _dg                                   # 盘面: 平均开度
@@ -1362,7 +1374,9 @@ class GraspTaskEnv(DexmateCorrectionEnv):
                                        torch.zeros_like(self.arm_err_ctr))
         stuck = self.arm_err_ctr >= cfg.term_arm_steps
 
-        terminated = fell | thrown | pushed | stuck | table_crash | success
+        # push_terminate=False: 保留 pushed 的**惩罚**(见 terms["fail"]), 但不终止回合
+        _pt = pushed if getattr(cfg, "push_terminate", True) else torch.zeros_like(pushed)
+        terminated = fell | thrown | _pt | stuck | table_crash | success
         to_t = self.phase_timeout_t[ph]
         timeout = active & (to_t > 0) & (self.phase_step >= to_t)
         truncated = timeout | (self.episode_length_buf >= self.ep_total - 1)

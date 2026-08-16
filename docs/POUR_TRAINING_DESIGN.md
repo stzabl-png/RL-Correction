@@ -841,9 +841,34 @@ poseqa/rts/rts_<take>_<obj>.npz     sigma_pos_reported_m      实测 0.0226~0.04
 按契约那 14 帧应给**死区 reward(σ 球内不罚)**, 不能强 tracking。
 ⟹ S3 的"到达并保持演示相对构型"必须按这个分档写, 否则是在追一个不可信的目标。
 
-**③ ⚠ σ_rot 不可用**: 两个物体都恒为 **6.00°**(区间 [6.00, 6.00]) —— 那是 `rts_smoother`
-的**上限截断**, 不是真实逐帧旋转不确定度。**旋转通道没有逐帧信号**, 只有 take 级
-`rotation_usable`。又一个"名字对、内容不对"的坑。
+**③ ⚠ σ_rot / conf_rot 作废(2026-08-15 夜二次更正 —— 我第一版的解释也是错的)**
+
+我先写的是"6.00° 是 `rts_smoother` 的**上限**截断"。**错。** 重建侧查到成因:
+```
+rts_smoother.py:284  sig_r_rep = max(滤波σ_rot, degrees(sigma_rot(conf_rot))/2)
+                     sigma_rot: conf 100 -> 2° ; conf 0 -> 12°
+audit 里 conf_rot 逐帧**全是 0.0**  ⇒  下限 = 12/2 = 6.00°  ⇒  142/142 被钉在**下限**
+```
+是**下限**, 而且是被一个**坏输入**顶上去的。
+
+**根因: 全局 `pose_audit.json` 被一次"没跑 CoTracker"的运行静默覆盖。**
+| 文件 | 时间 | conf_rot |
+|---|---|---|
+| `confidence_complete.json` | 08-14 17:58 | **68.5 / 52.5**(带 CT 的好记录) |
+| `pose_audit.json` | 08-15 00:24 | **0.0 / 0.0**(6.5 小时后被重写) |
+
+全局 40 条记录里 37 条 conf_rot 非零, **pour/17 的两条正是 3 个例外**。
+audit 是**全局单文件**且在链里跑两遍(先无 CT 预打分 → 跑 CT → 带 `--ct-dir` 终打分);
+任何人事后单独跑一次 `pose_audit.py --scene X` **不带 `--ct-dir`**, 就会把那条
+**覆盖成无 CT 版本**, 而 `confidence_complete.json` 早已写完 —— **下游一点都察觉不到**。
+
+⟹ **conf_rot / σ_rot 一律不用**(那不是"旋转不可观测", 是记录被降级)。
+⟹ **σ_pos / conf_pos 有效**(audit 的 conf_pos 中位 81.0/84.0 与 manifest 的 80.0/84.0 一致,
+位置那条链没被破坏), 所以上面 ①② 两条结论**全部成立, 不用改**。
+⟹ 旋转通道仍只有 take 级 `rotation_usable`(pour/17 两个物体都是 true)。
+⟹ S3 若要用瓶倾角(它是倒水的核心自由度), 需请重建侧重跑 cc+audit+rts 恢复(约 3 分钟)。
+
+**这类坑比"名字骗人"更隐蔽:同一个字段在两个阶段有两种含义, 而后写的赢。**
 
 **④ 已落地的防护**: `load_replay.per_frame_reliability(npz, key)` ——
 **任何全片只有一个取值的可靠性字段一律当"无数据"返回 None**, 并打印警告。

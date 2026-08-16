@@ -99,7 +99,30 @@ if args.second_prior and getattr(E, "aux", None) is not None:
     _T[:3, :3] = quat_to_R(E.hand.data.body_quat_w[0, _ac].cpu().numpy().astype(np.float64))
     _T[:3, 3] = (E.hand.data.body_pos_w[0, _ac] - W).cpu().numpy().astype(np.float64)
     _ik2 = ArmIK(_side2, anchor_link="arm_center", anchor_T=_T)
-    _g2 = np.asarray(np.load(args.second_prior)["grasp"], np.float64)
+    _z2 = np.load(args.second_prior)
+    _g2 = np.asarray(_z2["grasp"], np.float64).copy()
+    # ★ 垫↔接触零位校准(与主手同一套): Dexonomy 接触标注在指尖极点、我们力垫在指腹,
+    #   系统差 ~1.4cm。不补的话手会多陷进物体里 —— 用户在 GUI 里看到的左手穿模就是这个。
+    from rl_rebuild.correction.ref_builders.replay_grasp import _urdf as _u2f
+    from tasks.pregrasp.env import FINGERS as _FG
+    from rl_rebuild.correction.ref_builders.replay_grasp import GENERIC_JOINT_ORDER as _GJO
+    _uu = _u2f()
+    _qd2 = {n.replace("right_", f"{_side2}_"): float(v) for n, v in zip(_GJO, _g2[7:29])}
+    _Th2 = np.eye(4)
+    _Th2[:3, :3] = quat_to_R(_g2[3:7])
+    _Th2[:3, 3] = _g2[:3]
+    _pads2 = np.stack([_uu.link_pose(f"{_side2}_{f}_elastomer", _qd2, _Th2,
+                                     f"{_side2}_hand_C_MC")[:3, 3] for f in _FG])
+    _cts2 = np.asarray(_z2["contact_pos"], np.float64)
+    _d22 = np.linalg.norm(_pads2[:, None, :] - _cts2[None], axis=-1)
+    _own2 = _d22.argmin(axis=0)
+    _act2 = np.array([bool(((_own2 == i) & (_d22[i] < 0.05)).any()) for i in range(5)])
+    _sh2 = (_cts2[_d22.argmin(axis=1)][_act2] - _pads2[_act2]).mean(axis=0)
+    if np.linalg.norm(_sh2) > 0.008:
+        _g2[:3] += _sh2
+        print(f"[view_prior] 第二只手 垫↔接触零位校准: 腕位平移 "
+              f"{np.round(_sh2*100,2).tolist()}cm (|Δ|={np.linalg.norm(_sh2)*100:.2f}cm) "
+              f"| 参与指 {int(_act2.sum())}/5")
     _ap = (E.aux.data.root_pos_w[0] - W).cpu().numpy().astype(np.float64)
     _aq = E.aux.data.root_quat_w[0].cpu().numpy().astype(np.float64)
 

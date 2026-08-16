@@ -77,8 +77,30 @@ def main():
         import trimesh
 
         def planes(m):
+            """凸体 -> 半空间 (法向, 偏移, AABB)。
+
+            ★AABB 必须一起带出来。重建网格的数值噪声让 trimesh 的凸包碎成海量小面:
+              pour/17 杯子实测凸包 **23692 个面**(去重后仍有 23347 个 —— 它们确实是
+              不同的平面, 不是重复), 18 块凸分解合计 27150 面。而半空间测试要算
+              全部手点 × 全部面: 15883 × 23692 = 3.76 亿次乘加/候选, 348 个候选
+              合计 1310 亿次 —— 实测评分一步跑了 17 分钟还没出结果。
+              用 AABB 先筛掉盒外的点是**精确的**(盒外必在凸体外), 语义一字不改,
+              而手上绝大多数点本来就离物体很远。
+            """
             n = np.asarray(m.face_normals, float)
-            return n, (n * np.asarray(m.triangles, float).mean(1)).sum(1)
+            d = (n * np.asarray(m.triangles, float).mean(1)).sum(1)
+            v = np.asarray(m.vertices, float)
+            return n, d, (v.min(0), v.max(0))
+
+        def inside(P, pl, margin=0.0):
+            """P 中哪些点在凸体内(margin>0 时: 离每个面都超过 margin)。AABB 预筛后精确判。"""
+            n, d, (lo, hi) = pl
+            out = np.zeros(len(P), bool)
+            near = ((P >= lo - margin) & (P <= hi + margin)).all(1)
+            if near.any():
+                out[near] = (P[near] @ n.T - d).max(1) < -margin if margin else \
+                            (P[near] @ n.T - d).max(1) < 0
+            return out
         om = trimesh.load(a.mesh, force="mesh", process=False)
         table_z = float(np.asarray(om.vertices)[:, 2].min())   # 规范系里桌面=物体最低点
         obj_top = float(np.asarray(om.vertices)[:, 2].max())
@@ -125,14 +147,14 @@ def main():
             P0 = P                                        # 未剔腔的全量点, 用于离桌判定
             cav_frac = 0.0
             if hull_pl is not None:
-                n, dd_ = hull_pl
-                inh = (P @ n.T - dd_).max(1) < 0          # 在凸包内(精确)
+                inh = inside(P, hull_pl)                  # 在凸包内(AABB 预筛 + 精确判)
                 cav = inh.copy()
                 if inh.any():
+                    # 凸块测试只跑 inh 那几个点(好抓取通常是 0 个), 不必再优化
                     # ⚠ 必须留余量: 凸分解块之间有离散化缝隙, 贴着物体表面的点会掉进缝里
                     #   被误判成"腔内"。自检(拿物体自己的顶点测)误判率 1.0%, 而阈值正好 1%,
                     #   于是紧贴杯壁的好抓取被误拒。要求"离所有凸块都超过 margin"才算腔内。
-                    for n2, d2 in piece_pl:
+                    for n2, d2, _bb in piece_pl:
                         cav[inh] &= (P[inh] @ n2.T - d2).max(1) >= a.cavity_margin
                     cav_frac = float(cav.mean())
                     if cav_frac > a.max_cavity:

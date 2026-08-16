@@ -516,13 +516,7 @@ if args.approach_only:
     #   (2026-08-16 就是混了这个, 评测被改成"空降到终点", DESIGN_LOOP §2.24)。
     env_cfg.retract_ratio = 0.0
     env_cfg.stance_prob = 0.0
-    # auto_stop 的定期评测必须跑得完一整回合, 否则成功率分母不是 num_envs
-    # (train.py 有断言拦这个)。回合预算提到 250 后, 默认的 160 步不够 —— 自动跟上,
-    # 免得每条命令都要手动记着加 --eval_steps。
-    if args.eval_steps <= env_cfg.approach_only_steps:
-        args.eval_steps = int(env_cfg.approach_only_steps * 1.2)
-        print(f"[approach_only] --eval_steps 自动提到 {args.eval_steps} "
-              f"(回合上限 {env_cfg.approach_only_steps})")
+    # (--eval_steps 的自动跟随统一放到 env 构造之后, 按真正的 ep_total 算)
     print(f"[approach_only] 只学接近: 站姿->GraspPose | 预算 "
           f"{env_cfg.approach_only_steps} 步 | 到位判据 "
           f"{env_cfg.eps_pos0*100:.0f}cm/{env_cfg.eps_rot0*57.3:.0f}° 保持 "
@@ -601,6 +595,14 @@ if args.grasp_first or args.start_jitter:
           f"≤{_np.degrees(env_cfg.eps_rot0):.0f}°, 含 64 精确起点; IK 命中 "
           f"{len(_qs)-64}/{_tries}) | 毕业线 {args.gf_target}")
 agent._auto_stop = args.auto_stop
+# ★ eval_steps 必须 > 实际回合上限, 否则会有 env 跑不完一回合 ⟹ 成功率分母不是
+#   num_envs(下面有断言拦)。**按 env 真正算出来的 ep_total 跟随**, 不要按 cfg 常量猜 ——
+#   2026-08-16 我先按 approach_only_steps(250) 猜, 提到 300; 完整任务的 ep_total 是
+#   403, 于是同一道断言又崩一次。ep_total 只有 env 构造完才知道, 所以修正放在这里。
+if getattr(env_cfg, "retract_start", False) and args.eval_steps <= env_raw.ep_total:
+    args.eval_steps = int(env_raw.ep_total * 1.2)
+    print(f"[retract] --eval_steps 自动提到 {args.eval_steps} "
+          f"(env 实际回合上限 ep_total={env_raw.ep_total})")
 agent._eval_every, agent._eval_steps = args.eval_every, args.eval_steps
 agent._stopper = StopDecider(target_sr=args.stop_target_sr, target_hits=args.stop_target_hits,
                              patience=args.stop_patience, delta=args.stop_delta,

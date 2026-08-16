@@ -272,6 +272,18 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         # ---- 任务状态 ----
         self.closure = torch.zeros(N, device=dev)                       # 合拢 c
         self.fin_delta = torch.zeros(N, 5, device=dev)                  # 每指残差 δ
+        # ---- joints 模式: 逐关节手指残差 (2026-08-15) ----
+        # 界按 calib_finger_residual 标定(逐关节, 与臂同口径), 换到 USD 关节序。
+        _fr = np.asarray(cfg.finger_residual_max, dtype=np.float64)[self._generic_perm]
+        self.finger_res_scale = to(_fr * cfg.finger_step_scale)         # (22,) 每步增量
+        self.finger_dev_max = to(_fr * cfg.finger_dev_scale)            # (22,) 累积上限
+        self.fin_res = torch.zeros(N, 22, device=dev)                   # 累积逐关节残差
+        self._joint_hand = (cfg.hand_action_mode == "joints")
+        if self._joint_hand:
+            print(f"[action] 手部 = **22 关节全放开** (a=29 维): 每步界 中位 "
+                  f"{np.degrees(np.median(_fr * cfg.finger_step_scale)):.2f}°/关节, "
+                  f"累积上限 中位 {np.degrees(np.median(_fr * cfg.finger_dev_scale)):.2f}° "
+                  f"| a_c/a_δ 已取消")
         self.task_phase = torch.full((N,), Phase.GRASP, dtype=torch.long, device=dev)
         self.phase_step = torch.zeros(N, dtype=torch.long, device=dev)
         self.cand_run = torch.zeros(N, dtype=torch.long, device=dev)    # 候选判据连续计数
@@ -933,8 +945,9 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         in_place = self.task_phase == Phase.PLACE
         hand_gate = gate * (~(in_app | in_carry | in_place)).float()
         ref = cfg.closure_ref_rate * (self.closure < cfg.c_grasp).float()
-        self.closure = (self.closure
-                        + hand_gate * (ref + a[:, 7] * cfg.closure_rate_max)
+        # joints 模式: a_c 取消, 合拢模板只按**参考速率**推进(策略走 22 关节残差)
+        _ac = torch.zeros_like(ref) if self._joint_hand else a[:, 7] * cfg.closure_rate_max
+        self.closure = (self.closure + hand_gate * (ref + _ac)
                         ).clamp(cfg.closure_min, cfg.closure_max)
         if cfg.place_task:
             # 脚本化松手斜坡 (与微抬升同哲学: 廉价可靠的物理裁判, 不学释放时序)
@@ -942,9 +955,10 @@ class GraspTaskEnv(DexmateCorrectionEnv):
                 in_place, (self.closure - cfg.place_release_rate).clamp(min=0.0),
                 self.closure)
         # 每指残差: 指 i 的模板深度 = clip(c + δ_i)
-        self.fin_delta = (self.fin_delta
-                          + a[:, 8:13] * cfg.delta_rate_max * hand_gate.unsqueeze(1)
-                          ).clamp(-cfg.delta_max, cfg.delta_max)
+        if not self._joint_hand:            # joints 模式: a_δ 取消
+            self.fin_delta = (self.fin_delta
+                              + a[:, 8:13] * cfg.delta_rate_max * hand_gate.unsqueeze(1)
+                              ).clamp(-cfg.delta_max, cfg.delta_max)
         c_i = (self.closure.unsqueeze(1) + self.fin_delta
                ).clamp(cfg.closure_min, cfg.closure_max)                # (N,5)
         if self.n_active < 5:
@@ -954,8 +968,14 @@ class GraspTaskEnv(DexmateCorrectionEnv):
                               c_i, torch.ones_like(c_i))
         cj = c_i[:, self.fmap]                                          # (N,22)
         self.finger_tgt_prev = self.finger_tgt.clone()
-        self.finger_tgt = (self.q_open + cj * (self.q_close - self.q_open)
-                           ).clamp(self.dof_lower, self.dof_upper)
+        _tmpl = self.q_open + cj * (self.q_close - self.q_open)         # 合拢模板
+        if self._joint_hand:
+            # 逐关节残差叠在模板之上。门控与合拢同一个(接近/搬运/放置段手指冻结)。
+            self.fin_res = (self.fin_res
+                            + a[:, 7:29] * self.finger_res_scale * hand_gate.unsqueeze(1)
+                            ).clamp(-self.finger_dev_max, self.finger_dev_max)
+            _tmpl = _tmpl + self.fin_res
+        self.finger_tgt = _tmpl.clamp(self.dof_lower, self.dof_upper)
         self._substep = 0
         # _apply_action 继承 DexMate 的子步插值下发, 零改动
 
@@ -1553,7 +1573,11 @@ class GraspTaskEnv(DexmateCorrectionEnv):
             self.wrist_linvel_w,                                        # 3
             self.wrist_angvel_w * vs,                                   # 3
             (self.closure / cfg.closure_max).unsqueeze(1),              # 1  内部
-            self.fin_delta / cfg.delta_max,                             # 5  内部
+            # closure 模式 5 维(每指残差); joints 模式 44 维(逐关节累积残差 22
+            # + 逐关节参考跟踪误差 22 —— 策略要跟 22 个关节的参考, 必须看得见自己差多少)
+            *([self.fin_res / self.finger_dev_max,
+               (self.finger_q - self.finger_tgt) / self.finger_dev_max]
+              if self._joint_hand else [self.fin_delta / cfg.delta_max]),
             self.q_pregrasp - arm_q,                                    # 7  prior
             phase_oh,                                                   # 6  内部时钟
             phase_prog,                                                 # 1  (接近段 = φ)
@@ -1726,6 +1750,7 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         self.freeze_ctr[env_ids] = cfg.settle_steps
         self.closure[env_ids] = c0
         self.fin_delta[env_ids] = 0.0
+        self.fin_res[env_ids] = 0.0
         self.task_phase[env_ids] = torch.where(
             start_grasp, torch.full_like(t0, Phase.GRASP),
             torch.full_like(t0, Phase.PREGRASP))

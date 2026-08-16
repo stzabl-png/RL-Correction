@@ -27,6 +27,8 @@
 """
 from __future__ import annotations
 
+import os
+
 from isaaclab.utils import configclass
 
 from rl_rebuild.correction.env.dexmate_env_cfg import DexmateCorrectionEnvCfg
@@ -42,6 +44,26 @@ class Phase:
     RETURN = 5
     N = 6
     NAMES = ("pregrasp", "grasp", "verify", "transport", "place", "return")
+
+
+
+def _load_finger_residual():
+    """逐关节手指残差界 (rad, GENERIC_JOINT_ORDER 序), 由 calib_finger_residual.py 标定。
+
+    标定口径与臂完全相同(ε=2cm 指垫位移的 95 分位), 所以 ×step_scale 之后
+    臂和手指都是每步 5mm 的笛卡尔尺度。缺文件时回退到**最紧的那一档**给所有关节。
+    """
+    import json as _json
+    import os as _os
+    p = _os.path.join(_os.path.dirname(__file__), "finger_residual_bound.json")
+    try:
+        with open(p) as f:
+            return list(_json.load(f)["bound_rad"])
+    except Exception:
+        print(f"[cfg] ⚠ 找不到 {p}, 手指残差界回退到均一 4.30°(最紧档) "
+              f"—— 先跑 tasks.pregrasp.calib_finger_residual")
+        return [0.0751] * 22
+
 
 
 @configclass
@@ -76,7 +98,11 @@ class GraspTaskCfg(DexmateCorrectionEnvCfg):
     #   a = [ Δq_arm(7),  a_c(1),  a_δ(5) ]
     # 合拢: c += closure_ref_rate + a_c·closure_rate_max  (a_c=-1 停, 0 匀速, +1 加速)
     # 每指: δ_i += a_δ·delta_rate_max, 指 i 的合拢深度 = clip(c+δ_i)  (调指尖落点)
-    action_space = 13
+    # 13 = [Δq_arm(7), a_c(1), a_δ(5)] (closure 模式)
+    # 29 = [Δq_arm(7), Δq_hand(22)]     (joints 模式, 见 hand_action_mode)
+    #   ⚠ 单臂口径。双臂同训时每臂 29 ⇒ 58, 但**双臂 env 尚未实现**
+    #     (本 env 只控 cfg.hand_side 一只臂, 另一只臂仅作碰撞障碍参与间隙罚)。
+    action_space = 29 if os.environ.get("RL_HAND_JOINTS") == "1" else 13
     # 观测 (布局见 env._get_observations, 改布局必须同步 —— _check_obs_dim 会当场报错)
     #
     # 🔴 2026-08-02 重构: actor / critic 按"部署时拿不拿得到"划分 (data engine 的前提是
@@ -99,6 +125,11 @@ class GraspTaskCfg(DexmateCorrectionEnvCfg):
     # 替换而非单纯删除: 原来的 5 个力**模长** + cent(用真值法向) 换成 5 个力**向量**(腕系)
     # —— 真实力传感器给得出, 且信息量比标量 cent 更大.
     # ⚠ 实际值由 apply_grasp_prior() 按下面两个开关算, 这里只是不带任何扩展时的基数.
+    # 151 = closure 模式(a=13, ref_look=1)的观测维; joints 模式(a=29)实测 **206**:
+    #   动作通道 13->29 (+16) + 手指内部状态 5->44 (+39)
+    #     其中 44 = 逐关节累积残差 22 + 逐关节参考跟踪误差 22
+    #     (要跟 22 个关节的参考, 就得让策略看见自己每个关节差多少)
+    #   实际值以 `_obs_base()` + 前瞻/接触指集为准, 这里只是 closure 的基数。
     observation_space = 151
     # ---- 参考前瞻 (2026-08-02, 借鉴 ConTrack) ----------------------------
     # ConTrack 的 400 维 obs 里最大的一块是"当前+未来 5 帧完整参考状态"(270 维, 占 67%),
@@ -128,6 +159,32 @@ class GraspTaskCfg(DexmateCorrectionEnvCfg):
     closure_max = 1.25           # >1 = 比 nominal grasp 更紧 (薄物体需要)
     delta_rate_max = 0.03        # 每指残差每步增量上限
     delta_max = 0.30             # 每指残差累积上限 (指 i 深度 = clip(c+δ_i, 0, closure_max))
+
+    # ================= 手部动作空间 (2026-08-15, 用户裁定"手完全放开") =================
+    # "closure" (默认, 旧行为不变): a = [Δq_arm(7), a_c(1), a_δ(5)] = 13
+    #     手指被压缩成"一个合拢旋钮 + 5 个微调" —— 沿 q_open->q_close **一条射线**走。
+    # "joints": a = [Δq_arm(7), Δq_hand(22)] = 29
+    #     逐关节残差叠在合拢模板之上。合拢模板仍按**参考速率**自行推进(参考照样会合拢),
+    #     策略对手指的一切意图都走那 22 个关节。
+    #
+    # 为什么必须换(实测, 见 POUR_TRAINING_DESIGN §15):
+    #   pour17 瓶: GraspPose 处五垫离瓶面 3.9~9.9mm; 把合拢旋钮**拧到上限 c=1.25**,
+    #   四指扎进 3.4~9.5mm 而**拇指只从 9.9mm 走到 3.8mm, 始终碰不到**。
+    #   原因是几何的: 拇指要够到瓶子必须**离开那条射线**, 而合拢参数化不允许。
+    #   放开 22 关节后, 两只手都能让五垫同时贴上(瓶 −0.1~−0.7mm / 杯 −0.7~−1.0mm),
+    #   所需关节改动中位仅 8.6°/2.3° —— GraspPose 本身是好的, 差的就是这点自由度。
+    #
+    # ⚠ a_c / a_δ 在 joints 模式下**取消**, 不做保留: 留着就与 22 个关节残差重复控制
+    #   同一件事, 冗余动作维度会伤训练。"压得更紧"没有丢 —— 那现在是给屈曲关节加正残差,
+    #   而且是逐关节的。
+    # 逃生阀 RL_HAND_JOINTS=1 打开 22 关节模式(与仓内 RL_* 消融开关同风格)
+    hand_action_mode = "joints" if os.environ.get("RL_HAND_JOINTS") == "1" else "closure"
+    finger_residual_max = _load_finger_residual()   # 22, 逐关节标定
+    # 每步增量 = 标定界 × 它 (与臂的 arm_step_scale 同一个系数, 两者由构造可比)
+    finger_step_scale = 0.25
+    # 累积上限 = 标定界 × 它. 4 ⇒ 约 4 步走满, 指垫最多偏离模板 2cm
+    # (臂那边 arm_dev_max/arm_residual_max = 0.05/0.0154 ≈ 3.25, 同量级)
+    finger_dev_scale = 4.0
 
     # 臂: 每步界 = 标定 arm_residual_max × step_scale (末端 ~2cm × 0.25 ≈ 5mm/步);
     # 累积相对 q_pregrasp 钳 ±arm_dev_max. 抓取微调尺度, 不是搬运尺度 (v2 修订 5).
@@ -287,6 +344,27 @@ class GraspTaskCfg(DexmateCorrectionEnvCfg):
     verify_min_rise = 0.005      # m, 物体至少升这么多 = 跟上了
     verify_fail_rise = 0.003     # m, 斜坡到顶+3步物体仍低于它 = 没抓住, 终止
     verify_min_pads = 3          # 验证期间至少保持的有效接触数
+    # ---- 微拧验证 (2026-08-05, screw 27 盖任务): 盖被解析螺旋**单向投影**钉在瓶身上,
+    # 抬不动 —— 微抬升对它结构性不可行 (G3_8_5 教训: 判据可达性要建 env 时核验).
+    # 换成同哲学的物理裁判: 硬编码腕绕盖轴旋转斜坡, 盖的 screw_angle 跟进 = 真捏住了
+    # (握持传扭矩, 与下游拧开任务同一物理量). clip 注册表 verify_mode 字段选择.
+    verify_mode = "lift"         # "lift" 微抬升 (默认) / "twist" 微拧
+    affordance_npz = ""          # 视频接触带 (物体局部系点集): 只换 pad_approach 塑形
+                                 # 的距离目标, 候选门/cent/验证等物理裁判一律不碰
+    pad_contact_calib = True     # 垫↔接触零位校准 (均值平移); 对拇指-四指开口
+                                 # 不对称的候选可能帮倒忙 (35_8 实测), 可关
+    # ---- 姿态保持 (2026-08-06, 用户要求"保持物体原姿态略微提起"; s21 实测
+    #      每回合倾到 17~19° 触发升级) ----
+    # 倾角 = 物体当前局部 z 轴 vs 初始局部 z 轴夹角 (对绕轴 yaw 自旋不敏感,
+    # 拧盖任务的盖必须能转 yaw). 开关默认关 —— 已盖章旧任务口径不动.
+    upright_hold = False
+    w_tilt = 1.0                 # 罚量级: 18° 倾斜整回合 ≈ -20 (与候选/成功奖同量级)
+    tilt_deadband_deg = 3.0      # 死区: 毫米级接触抖动不罚
+    tilt_norm_deg = 15.0         # 归一: (tilt-死区)/norm, 钳 [0,2]
+    tilt_succ_max_deg = 5.0      # 判据: 候选/验证瞬时倾角须 < 此值
+    verify_twist_deg = 25.0      # 腕绕物体轴总旋转量 (斜坡终点)
+    verify_min_twist_deg = 10.0  # screw_angle 至少跟进这么多 = 扭矩传过去了
+    verify_fail_twist_deg = 3.0  # 斜坡到顶+3步仍低于它 = 没捏住, 退回重试
     # v2.3: 验证失败**不终止**, 退回 GRASP 重试 (小额罚). 失败若终止, "触发候选"就
     # 等于自断收入现金流 (验证期 99% 失败时), 实测策略学会故意压在候选线以下刷收入
     # 到超时 —— 候选率 66%→23% 崩落. 重试把候选的下行风险归零, 且成功样本翻倍.
@@ -336,6 +414,14 @@ class GraspTaskCfg(DexmateCorrectionEnvCfg):
     # 臂↔躯干 12.25cm, 阈值 3cm / 8cm 都在其下, 不会去罚参考轨迹自己.
     w_arm_table = 20.0           # 臂连杆撞桌 (与手的 w_table 同量级)
     arm_table_margin = 0.03      # m, 臂连杆**原点**离桌面的余量 (原点在连杆内部, 比手大)
+    # ---- 外壳口径臂罚 (2026-08-05, screw 27 起; 用户要求真机带壳不碰桌) ----
+    # 原点+3cm 罩不住真机外壳: l5/l6 截面半径 4~6.7cm, 原点合法时外壳仍可探到桌下.
+    # 开关开启后, 臂罚/诊断改用预采样的连杆**外壳表面点** (tasks/pregrasp/
+    # arm_shell_points.npz, 每节 48~96 点) 的最低 z, 余量 1cm 即是真实余量;
+    # prior 加载器的 yaw 搜索也会加外壳余量评分, 且锚定位姿外壳穿桌直接 assert.
+    # 默认关 —— 已盖章的旧任务 (Grasp3 冠军等) 保持原口径不动.
+    arm_table_shell = False
+    arm_shell_margin = 0.01      # m, 外壳离桌真实余量
     w_self = 5.0                 # 臂↔躯干/头/另一条臂 的间隙罚 (单步最多 -1.0)
     self_margin = 0.08           # m, 连杆原点两两距离的下限
     self_pen_cap = 0.2           # 单步上界 (台账铁律: 每个铰链都要有上界)
@@ -372,6 +458,18 @@ class GraspTaskCfg(DexmateCorrectionEnvCfg):
     max_phase = Phase.LIFT       # 走完验证段 = 完整任务
 
 
+def _obs_base(cfg) -> int:
+    """不含参考前瞻/参考接触指集的观测基数。
+
+    closure 模式 144; joints 模式 +55:
+      · 动作通道 13 -> 29                       (+16)
+      · 手指内部状态 5(每指残差) -> 44           (+39)
+            = 逐关节累积残差 22 + 逐关节参考跟踪误差 22
+    改 obs 布局必须同步改这里 —— `env._check_obs_dim` 会当场报错。
+    """
+    return 144 + (55 if getattr(cfg, "hand_action_mode", "closure") == "joints" else 0)
+
+
 def apply_grasp_prior(cfg, npz_path, yaw_deg=None, approach=None):
     """所有入口统一走这里挂 prior —— 三件事必须一起做, 漏一件就是静默错误.
 
@@ -389,6 +487,6 @@ def apply_grasp_prior(cfg, npz_path, yaw_deg=None, approach=None):
         cfg.approach = bool(approach)
     # obs 维度由开关算出来 (参考通道常开, 不随 approach 变):
     #   144 基数 + 7×参考前瞻帧数 + 5×参考接触标签
-    cfg.observation_space = (144 + 7 * int(cfg.ref_look_frames)
+    cfg.observation_space = (_obs_base(cfg) + 7 * int(cfg.ref_look_frames)
                              + (5 if cfg.ref_contact_obs else 0))
     return cfg

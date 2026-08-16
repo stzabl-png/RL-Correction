@@ -12,6 +12,7 @@
 
 import os
 import time
+import numpy as np
 import torch
 
 from rl_rebuild.algo.ppo.experience import ExperienceBuffer
@@ -171,6 +172,11 @@ class PPO(object):
         self.writer.add_scalar('info/last_lr', self.last_lr, self.agent_steps)
         self.writer.add_scalar('info/e_clip', self.e_clip, self.agent_steps)
         self.writer.add_scalar('info/kl', torch.mean(torch.stack(kls)).item(), self.agent_steps)
+        if getattr(self, '_clip_fracs', None):
+            # PPO 里被裁掉的样本占比: 太低(<2%)=步长白给, 太高(>30%)=更新一直在撞天花板
+            self.writer.add_scalar('info/clip_frac',
+                                   float(np.mean(self._clip_fracs)), self.agent_steps)
+            self._clip_fracs = []
 
         for k, v in self.extra_info.items():
             self.writer.add_scalar(f'{k}', v, self.agent_steps)
@@ -335,6 +341,11 @@ class PPO(object):
                 ratio = torch.exp(old_action_log_probs - action_log_probs)
                 surr1 = advantage * ratio
                 surr2 = advantage * torch.clamp(ratio, 1.0 - self.e_clip, 1.0 + self.e_clip)
+                with torch.no_grad():   # 盘面: 被裁样本占比(不参与反传)
+                    if not hasattr(self, '_clip_fracs'):
+                        self._clip_fracs = []
+                    self._clip_fracs.append(
+                        ((ratio - 1.0).abs() > self.e_clip).float().mean().item())
                 a_loss = torch.max(-surr1, -surr2)
                 # critic loss
                 value_pred_clipped = value_preds + (values - value_preds).clamp(-self.e_clip, self.e_clip)

@@ -287,6 +287,9 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         self.task_phase = torch.full((N,), Phase.GRASP, dtype=torch.long, device=dev)
         self.phase_step = torch.zeros(N, dtype=torch.long, device=dev)
         self.cand_run = torch.zeros(N, dtype=torch.long, device=dev)    # 候选判据连续计数
+        self._diag_contacts = torch.zeros(N, device=dev)   # 盘面: 累计接触指数
+        self._diag_actnorm = torch.zeros(N, device=dev)    # 盘面: 累计动作范数
+        self._diag_n = torch.zeros(N, device=dev)          # 盘面: 步数
         self.verify_k = torch.zeros(N, dtype=torch.long, device=dev)    # 验证段步数
         self.verify_ok_run = torch.zeros(N, dtype=torch.long, device=dev)
         self.got_candidate = torch.zeros(N, dtype=torch.bool, device=dev)
@@ -1497,6 +1500,10 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         # -- 正则 (速度先去 NaN 再钳: 物理尖峰的平方会淹没任务信号, 见台账) --
         terms["act_rate"] = -cfg.w_act_rate * \
             (self.actions_buf - self.prev_actions).square().mean(dim=1)
+        # 盘面用(不进奖励, 只累计给 TB): 指尖接触根数 + 残差动作范数
+        self._diag_contacts += self._tip_contacts().sum(dim=1)
+        self._diag_actnorm += self.actions_buf.norm(dim=1)
+        self._diag_n += 1
         qd_arm = self.arm_qd.nan_to_num(0.0)
         qd_fin = self.finger_qd.nan_to_num(0.0)
         qd = torch.cat([qd_arm / cfg.qd_soft_arm, qd_fin / cfg.qd_soft_fin], dim=1)
@@ -1638,6 +1645,17 @@ class GraspTaskEnv(DexmateCorrectionEnv):
             log["diag/arm_table_gap_cm"] = self._sig["arm_gap"][env_ids].min().item() * 100
             log["diag/self_gap_cm"] = self._sig["self_gap"][env_ids].min().item() * 100
             log["diag/obj_tilt_max_deg"] = self.tilt_max_deg[env_ids].mean().item()
+        # ---- 用户点名的四个盘面指标 (2026-08-15) ----
+        #   grasp/  抓取本身好不好(与"整条任务成没成"分开看)
+        #   drop_rate = **形成过候选却没走完** —— 抓到了又丢的比例, 抓取不稳的直接证据
+        _n = self._diag_n[env_ids].clamp(min=1)
+        log["diag/n_contacts"] = (self._diag_contacts[env_ids] / _n).mean().item()
+        log["diag/action_norm"] = (self._diag_actnorm[env_ids] / _n).mean().item()
+        gc = self.got_candidate[env_ids]
+        log["grasp/candidate_rate"] = gc.float().mean().item()      # 形成候选(≥N垫+向心+保持)
+        if bool(gc.any()):
+            log["grasp/drop_rate"] = (~self.succeeded[env_ids][gc]).float().mean().item()
+        log["grasp/success_rate"] = self.succeeded[env_ids].float().mean().item()
         if self.cfg.approach:
             # 按起步分支分桶 —— 单 run 内分辨"接近坏了"还是"抓取坏了" (DESIGN_LOOP A7)
             sg = self.started_grasp[env_ids]
@@ -1787,6 +1805,9 @@ class GraspTaskEnv(DexmateCorrectionEnv):
             self.settle_ctr[env_ids] = 0
             self.carry_prev_d[env_ids] = 0.0
         self.succeeded[env_ids] = False
+        self._diag_contacts[env_ids] = 0.0
+        self._diag_actnorm[env_ids] = 0.0
+        self._diag_n[env_ids] = 0.0
         self.pad_touched[env_ids] = False
         self.any_contact[env_ids] = False
         self.tilt_final_deg[env_ids] = self.tilt_max_deg[env_ids]

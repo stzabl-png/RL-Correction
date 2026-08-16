@@ -144,6 +144,24 @@ if args.second_prior and getattr(E, "aux", None) is not None:
     _err, _q2arm, _q2obj, _yaw2 = _best
     print(f"[view_prior] 第二只手({_side2}) aux 自搜 yaw={_yaw2:.0f}° -> IK 位置误差 "
           f"{_err*100:.2f}cm {'✅' if _err < 0.02 else '⛔ >2cm, 该候选够不着'}")
+    # ★ 穿模自检(数字化, 不靠肉眼看 GUI): 五个胶垫到 aux 网格表面的**带符号**距离。
+    #   负 = 陷进物体里。之前"左手穿模"只能靠看, 一个换序 bug 看了两轮才定位。
+    try:
+        import trimesh as _tm
+        _Th2b = np.eye(4)
+        _Th2b[:3, :3], _Th2b[:3, 3] = quat_to_R(_g2[3:7]), _g2[:3]   # 校准后的腕位
+        _pads_o = np.stack([_uu.link_pose(f"{_side2}_{f}_elastomer", _qd2, _Th2b,
+                                          f"{_side2}_hand_C_MC")[:3, 3] for f in _FG])
+        _m2 = _tm.load(clips.clip_entry(args.clip)["secondary"]["mesh"],
+                       process=False, force="mesh")
+        _sd = _tm.proximity.signed_distance(_m2, _pads_o)   # >0 在内部
+        print(f"[view_prior] 第二只手 五垫到 aux 表面带符号距离 mm: "
+              f"{[round(float(-v)*1000, 1) for v in _sd]}  (负=穿模)")
+        _pen = float(max(_sd)) * 1000
+        print(f"[view_prior]   最深穿透 {_pen:.1f}mm "
+              f"{'✅ 正常(摆放不走去穿透)' if _pen < 8 else '⛔ 过深, 该候选/摆放有问题'}")
+    except Exception as _e:                                  # 缺 trimesh 或网格读不了
+        print(f"[view_prior] 第二只手穿模自检跳过: {_e}")
     if _q2arm is not None:
         E.aux.write_root_pose_to_sim(torch.cat([
             torch.tensor(_ap, dtype=torch.float32, device=E.device) + W,
@@ -151,8 +169,16 @@ if args.second_prior and getattr(E, "aux", None) is not None:
         E.aux.write_root_velocity_to_sim(torch.zeros(1, 6, device=E.device))
         q2 = E.hand.data.joint_pos.clone()
         q2[:, _aids2] = torch.tensor(_q2arm, dtype=q2.dtype, device=E.device)
-        _n = min(len(_hids2), 22)
-        q2[:, _hids2[:_n]] = torch.tensor(_g2[7:7+_n], dtype=q2.dtype, device=E.device)
+        # ★ 必须换序: prior 的 22 维是 GENERIC_JOINT_ORDER 序, sim 关节是 USD 序。
+        #   主手走 env 的 `self._generic_perm`(env.py:105); 第二只手当初漏了这一步,
+        #   于是手型全串位 —— 用户在 GUI 里看到的"左手穿模且完全不像 GraspPose"就是它。
+        #   同一个坑 2026-07-30 已经踩过一次(env.py:692 注释: B 组整条 run 作废)。
+        _gn2 = [n.replace("right_", f"{_side2}_") for n in _GJO]
+        _hn2 = [_jn[i] for i in _hids2]
+        assert sorted(_hn2) == sorted(_gn2), \
+            f"第二只手关节名对不上 GENERIC_JOINT_ORDER: 缺 {set(_gn2) - set(_hn2)}"
+        _perm2 = [_gn2.index(n) for n in _hn2]              # GENERIC 序 -> USD 序
+        q2[:, _hids2] = torch.tensor(_g2[7:29][_perm2], dtype=q2.dtype, device=E.device)
         E.hand.write_joint_state_to_sim(q2, torch.zeros_like(q2))
         E.hand.set_joint_position_target(q2)
         E.hand.write_data_to_sim()

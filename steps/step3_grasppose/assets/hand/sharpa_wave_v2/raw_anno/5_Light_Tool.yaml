@@ -1,0 +1,17 @@
+# 由 Shadow 模板 `5_Light_Tool` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [0.5090, 0.2450, -0.1281, 0.3491, 0.0321, 0.0711, -0.0041, 1.3786, 1.0777, 0.0567, 0.0422, 1.4331, 1.0542, 0.0957, 0.0684, 1.3468, 1.0797, 0.0327, 0.1908, 0.0984, 1.2879, 1.0356]
+
+contact:
+  right_index_DP: 0
+  right_index_MP: 0
+  right_index_PP: 0
+  right_middle_DP: 1
+  right_middle_MP: 0
+  right_middle_PP: 0
+  right_pinky_DP: 1
+  right_pinky_MP: 0
+  right_pinky_PP: 0
+  right_ring_DP: 0
+  right_ring_MP: 0
+  right_ring_PP: 0
+  right_thumb_DP: 1

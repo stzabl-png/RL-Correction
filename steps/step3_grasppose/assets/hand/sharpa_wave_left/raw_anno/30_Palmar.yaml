@@ -1,0 +1,21 @@
+# 由右手模板 `30_Palmar.yaml` 镜像而来 (tools/retarget_shadow_templates.py mirror)
+# 左右手精确镜像: qpos 原样, 仅 body 名换前缀; 勿翻转任何关节符号。
+# 由 Shadow 模板 `30_Palmar` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [0.8735, 0.3250, -0.0673, 0.0513, 0.0156, 0.4655, 0.0486, 0.0000, 0.0000, 0.5664, 0.0589, 0.0000, 0.0000, 0.6128, 0.0812, 0.0000, 0.0000, 0.0671, 0.6224, 0.1388, 0.0000, 0.0000]
+
+contact:
+  left_hand_C_MC: 2
+  left_index_DP: 0
+  left_index_MP: 0
+  left_index_PP: 0
+  left_middle_DP: 0
+  left_middle_MP: 0
+  left_middle_PP: 0
+  left_pinky_DP: 1
+  left_pinky_MP: 0
+  left_pinky_PP: 0
+  left_ring_DP: 0
+  left_ring_MP: 0
+  left_ring_PP: 0
+  left_thumb_DP: 1
+  left_thumb_PP: 1

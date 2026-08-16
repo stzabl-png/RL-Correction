@@ -1,0 +1,11 @@
+# 由右手模板 `21_Tripod_Variation.yaml` 镜像而来 (tools/retarget_shadow_templates.py mirror)
+# 左右手精确镜像: qpos 原样, 仅 body 名换前缀; 勿翻转任何关节符号。
+# 由 Shadow 模板 `21_Tripod_Variation` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [1.0620, 0.3355, 0.3226, 0.3491, 0.5466, -0.1745, 0.2814, 1.0573, 0.6635, 0.0555, 0.2415, 1.0978, 0.6172, 0.3524, 0.1774, 0.9247, 0.5939, 0.2005, 0.8453, 0.2776, 1.4403, 1.1438]
+
+contact:
+  left_hand_C_MC: 2
+  left_index_DP: 0
+  left_middle_DP: 1
+  left_ring_DP: 0
+  left_thumb_DP: 1

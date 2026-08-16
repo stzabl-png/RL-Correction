@@ -1,0 +1,19 @@
+# 由右手模板 `29_Stick.yaml` 镜像而来 (tools/retarget_shadow_templates.py mirror)
+# 左右手精确镜像: qpos 原样, 仅 body 名换前缀; 勿翻转任何关节符号。
+# 由 Shadow 模板 `29_Stick` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [0.6733, 0.3491, 0.0484, 0.3491, 0.0277, -0.1745, -0.1933, 0.1907, 1.3963, 0.2721, 0.0344, 1.3022, 0.7157, 0.5168, -0.0215, 0.9953, 0.6885, 0.1325, 0.6772, 0.0732, 0.7547, 0.7552]
+
+contact:
+  left_hand_C_MC: 0
+  left_index_PP: 1
+  left_middle_DP: 1
+  left_middle_MP: 0
+  left_middle_PP: 0
+  left_pinky_DP: 1
+  left_pinky_MC: 2
+  left_pinky_MP: 0
+  left_pinky_PP: 0
+  left_ring_DP: 0
+  left_ring_MP: 0
+  left_ring_PP: 0
+  left_thumb_DP: 1

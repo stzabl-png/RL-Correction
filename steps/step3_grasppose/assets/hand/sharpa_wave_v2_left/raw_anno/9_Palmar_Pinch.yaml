@@ -1,0 +1,8 @@
+# 由右手模板 `9_Palmar_Pinch.yaml` 镜像而来 (tools/retarget_shadow_templates.py mirror)
+# 左右手精确镜像: qpos 原样, 仅 body 名换前缀; 勿翻转任何关节符号。
+# 由 Shadow 模板 `9_Palmar_Pinch` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [1.3923, 0.2039, -0.4012, -0.0812, 0.0000, 0.8043, -0.0128, 0.4474, 0.2943, -0.0413, -0.0301, 0.6781, 0.6133, -0.0215, -0.0206, 0.7213, 0.6905, 0.0120, 0.1499, -0.0249, 0.6723, 0.5595]
+
+contact:
+  left_index_DP: 0
+  left_thumb_DP: 0

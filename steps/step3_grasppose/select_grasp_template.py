@@ -236,19 +236,25 @@ def rank(table: dict, vlm: dict, geo: dict | None, v2: dict | None = None,
             palm_override = True
 
     palm = bool(vlm["palm_contact"])
+    depth = vlm["contact_depth"]
     if size_note and "捏取族上限" in size_note:
-        palm = None                            # 放开掌部约束, 让环握族进来
-    cands = _filter(table, target, tol, palm, vlm["contact_depth"], vlm)
+        # 尺寸闸已判定"改按环握族出候选", 就必须**同时**放开 palm 和 depth。
+        # ★只放开 palm 是自相矛盾的: 环握模板 depth 全是 "full", 而 VLM 判 precision 时
+        #   depth="fingertip" 只兼容 {tip, pad} —— 刚放进来的环握族又被 depth 闸原样砍掉。
+        #   实测 pour/17 杯子因此丢掉 12 个模板, 含最好用的 1_Large_Diameter。
+        palm = None
+        depth = "none"                         # none = {tip, pad, full}, 交给下游几何裁决
+    cands = _filter(table, target, tol, palm, depth, vlm)
     if size is not None:                       # 硬过滤: 跨距装不下的模板直接剔除
         cands = [c for c in cands
                  if TEMPLATE_SPAN_MM.get(c["template"], 0) >= size["diameter_mm"] * 0.55]
     degraded = []
     if not cands:                                    # 兜底: 逐级降级, 全程记账
         degraded.append(f"tol {tol}->{tol + 1}")
-        cands = _filter(table, target, tol + 1, palm, vlm["contact_depth"], vlm)
+        cands = _filter(table, target, tol + 1, palm, depth, vlm)
     if not cands:
         degraded.append("放开掌部约束")
-        cands = _filter(table, target, tol + 1, None, vlm["contact_depth"], vlm)
+        cands = _filter(table, target, tol + 1, None, depth, vlm)
     if degraded:
         conf = "low"
     return {"confidence": conf, "regime": regime,

@@ -1,0 +1,123 @@
+{
+ "schema": "template_prior_v2",
+ "buckets": {
+  "cylinder|粗|空心": {
+   "30_Palmar": {
+    "n": 1,
+    "cov_sum": 0.326,
+    "cov_max": 0.326,
+    "n_rej": 0
+   },
+   "3_Medium_Wrap": {
+    "n": 1,
+    "cov_sum": 0.318,
+    "cov_max": 0.318,
+    "n_rej": 0
+   },
+   "fingertip_middle": {
+    "n": 1,
+    "cov_sum": 0.055,
+    "cov_max": 0.055,
+    "n_rej": 0
+   },
+   "12_Precision_Disk": {
+    "n": 1,
+    "cov_sum": 0.046,
+    "cov_max": 0.046,
+    "n_rej": 0
+   },
+   "fingertip_large": {
+    "n": 1,
+    "cov_sum": 0.03,
+    "cov_max": 0.03,
+    "n_rej": 0
+   },
+   "1_Large_Diameter": {
+    "n": 1,
+    "cov_sum": 0.263,
+    "cov_max": 0.263,
+    "n_rej": 0
+   },
+   "18_Extensior_Type": {
+    "n": 1,
+    "cov_sum": 0.2457,
+    "cov_max": 0.2457,
+    "n_rej": 0
+   },
+   "31_Ring": {
+    "n": 2,
+    "cov_sum": 0.046,
+    "cov_max": 0.046,
+    "n_rej": 0
+   },
+   "10_Power_Disk": {
+    "n": 2,
+    "cov_sum": 0.0,
+    "cov_max": 0.0,
+    "n_rej": 0
+   },
+   "26_Sphere_4_Finger": {
+    "n": 1,
+    "cov_sum": 0.0,
+    "cov_max": 0.0,
+    "n_rej": 0
+   },
+   "13_Precision_Sphere": {
+    "n": 2,
+    "cov_sum": 0.0,
+    "cov_max": 0.0,
+    "n_rej": 0
+   },
+   "28_Sphere_3_Finger": {
+    "n": 2,
+    "cov_sum": 0.0,
+    "cov_max": 0.0,
+    "n_rej": 0
+   },
+   "6_Prismatic_4_Finger": {
+    "n": 1,
+    "cov_sum": 0.0,
+    "cov_max": 0.0,
+    "n_rej": 0
+   },
+   "11_Power_Sphere": {
+    "n": 1,
+    "cov_sum": 0.033,
+    "cov_max": 0.033,
+    "n_rej": 0
+   }
+  },
+  "cylinder|中|实心": {
+   "1_Large_Diameter": {
+    "n": 3,
+    "cov_sum": 1.716,
+    "cov_max": 0.959,
+    "n_rej": 0
+   },
+   "fingertip_mid": {
+    "n": 1,
+    "cov_sum": 0.0,
+    "cov_max": 0.0,
+    "n_rej": 0
+   },
+   "10_Power_Disk": {
+    "n": 2,
+    "cov_sum": 0.89,
+    "cov_max": 0.89,
+    "n_rej": 0
+   },
+   "11_Power_Sphere": {
+    "n": 1,
+    "cov_sum": 0.0,
+    "cov_max": 0.0,
+    "n_rej": 0
+   },
+   "12_Precision_Disk": {
+    "n": 1,
+    "cov_sum": 0.0,
+    "cov_max": 0.0,
+    "n_rej": 0
+   }
+  }
+ }
+}

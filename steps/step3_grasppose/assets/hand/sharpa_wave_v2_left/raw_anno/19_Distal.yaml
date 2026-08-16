@@ -1,0 +1,14 @@
+# 由右手模板 `19_Distal.yaml` 镜像而来 (tools/retarget_shadow_templates.py mirror)
+# 左右手精确镜像: qpos 原样, 仅 body 名换前缀; 勿翻转任何关节符号。
+# 由 Shadow 模板 `19_Distal` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [1.7212, 0.3361, 0.1513, -0.0358, 0.3996, -0.1745, -0.3491, 0.0000, 1.3963, 0.2660, 0.2962, 1.3709, 0.9261, 0.3558, 0.3049, 1.4613, 0.9507, 0.0000, 0.3305, 0.3325, 1.5439, 0.9379]
+
+contact:
+  left_index_MP: 0
+  left_middle_DP: 1
+  left_middle_PP: 0
+  left_pinky_DP: 1
+  left_pinky_PP: 0
+  left_ring_DP: 0
+  left_ring_PP: 0
+  left_thumb_PP: 1

@@ -54,3 +54,11 @@ media/
 
 # ---- 本机 Claude Code 配置 ----
 .claude/settings.local.json
+
+# ── steps/step3_grasppose (Dexonomy 抓取合成) ──────────────────────────────
+# 物体资产 11G(DGN_5k 库 + 运行时生成的 processed_data/scene_cfg): 走 STEP3_OBJ_ROOT,
+# 由 steps/step3_grasppose/setup_workdir.sh 建软链, 不入库
+steps/step3_grasppose/assets/object
+steps/step3_grasppose/output/
+steps/step3_grasppose/*.log
+steps/step3_grasppose/dexonomy.egg-info/

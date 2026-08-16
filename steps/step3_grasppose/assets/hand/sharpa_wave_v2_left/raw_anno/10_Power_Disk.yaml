@@ -1,0 +1,17 @@
+# 由右手模板 `10_Power_Disk.yaml` 镜像而来 (tools/retarget_shadow_templates.py mirror)
+# 左右手精确镜像: qpos 原样, 仅 body 名换前缀; 勿翻转任何关节符号。
+# 由 Shadow 模板 `10_Power_Disk` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [1.1431, 0.0879, 0.3582, -0.0317, 0.8666, 0.1125, -0.3070, 1.2470, 0.7362, 0.0105, -0.2048, 1.2811, 0.7082, 0.1044, -0.0916, 1.1259, 0.7306, 0.2618, 0.3466, 0.0891, 0.9644, 0.7055]
+
+contact:
+  left_hand_C_MC: 2
+  left_index_DP: 0
+  left_index_MP: 1
+  left_middle_DP: 1
+  left_middle_MP: 1
+  left_pinky_DP: 1
+  left_pinky_MP: 0
+  left_ring_DP: 0
+  left_ring_MP: 0
+  left_thumb_DP: 1
+  left_thumb_PP: 0

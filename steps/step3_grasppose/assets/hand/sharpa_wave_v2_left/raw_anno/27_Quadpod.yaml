@@ -1,0 +1,10 @@
+# 由右手模板 `27_Quadpod.yaml` 镜像而来 (tools/retarget_shadow_templates.py mirror)
+# 左右手精确镜像: qpos 原样, 仅 body 名换前缀; 勿翻转任何关节符号。
+# 由 Shadow 模板 `27_Quadpod` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [1.0100, 0.1341, 0.1155, -0.0096, 0.2903, -0.0443, -0.3491, 0.9874, 0.3530, -0.0741, -0.2266, 1.0087, 0.2632, 0.4213, -0.1625, 0.6467, 0.2796, 0.2618, 0.7972, -0.1472, 1.0787, 0.9707]
+
+contact:
+  left_index_DP: 0
+  left_middle_DP: 1
+  left_ring_DP: 0
+  left_thumb_DP: 1

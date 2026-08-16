@@ -1,0 +1,17 @@
+# 由右手模板 `22_Parallel_Extension.yaml` 镜像而来 (tools/retarget_shadow_templates.py mirror)
+# 左右手精确镜像: qpos 原样, 仅 body 名换前缀; 勿翻转任何关节符号。
+# 由 Shadow 模板 `22_Parallel_Extension` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [0.9078, 0.3491, 0.0323, -0.0009, 0.0914, -0.1745, -0.3491, 0.9754, 0.0023, -0.0840, -0.3491, 0.9769, 0.0000, 0.1411, -0.2873, 0.6085, 0.0818, 0.0000, 0.4169, -0.2394, 0.1108, 0.1038]
+
+contact:
+  left_hand_C_MC: 2
+  left_index_DP: 0
+  left_index_MP: 1
+  left_middle_DP: 1
+  left_middle_MP: 1
+  left_pinky_DP: 0
+  left_pinky_MP: 0
+  left_ring_DP: 1
+  left_ring_MP: 0
+  left_thumb_DP: 1
+  left_thumb_PP: 1

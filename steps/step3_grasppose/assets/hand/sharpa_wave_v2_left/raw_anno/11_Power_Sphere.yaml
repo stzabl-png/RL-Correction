@@ -1,0 +1,16 @@
+# 由右手模板 `11_Power_Sphere.yaml` 镜像而来 (tools/retarget_shadow_templates.py mirror)
+# 左右手精确镜像: qpos 原样, 仅 body 名换前缀; 勿翻转任何关节符号。
+# 由 Shadow 模板 `11_Power_Sphere` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [1.0044, 0.1678, 0.0746, -0.0145, 0.2428, 0.1376, -0.3491, 0.9991, 0.3663, -0.0069, -0.2829, 1.0603, 0.3096, 0.1529, -0.1645, 0.8237, 0.3167, 0.2256, 0.4954, -0.0260, 0.4816, 0.3275]
+
+contact:
+  left_index_DP: 0
+  left_index_MP: 1
+  left_middle_DP: 1
+  left_middle_MP: 1
+  left_pinky_DP: 0
+  left_pinky_MP: 0
+  left_ring_DP: 1
+  left_ring_MP: 0
+  left_thumb_DP: 1
+  left_thumb_PP: 1

@@ -1,0 +1,6 @@
+# SharpaWave 左手。资产由 tools/sharpa_wave/build_assets.py --side left 生成,
+# 与右手是**精确镜像**(同一组关节角下 link 位置差 <0.002mm), 所以右手模板的
+# qpos 可原样复用, 只需把 contact 里的 right_ 换成 left_。
+xml_path: ${asset_root}/hand/sharpa_wave_left/left.xml
+color: [0.639, 0.113, 0.566, 1.0]
+arm_hand:

@@ -1,0 +1,11 @@
+# 由右手模板 `13_Precision_Sphere.yaml` 镜像而来 (tools/retarget_shadow_templates.py mirror)
+# 左右手精确镜像: qpos 原样, 仅 body 名换前缀; 勿翻转任何关节符号。
+# 由 Shadow 模板 `13_Precision_Sphere` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [1.0333, 0.1737, 0.0511, -0.0703, 0.2143, -0.0048, -0.3135, 0.9865, 0.2685, -0.1745, -0.2264, 1.0803, 0.2740, 0.0054, -0.1452, 0.8804, 0.1839, 0.1702, 0.3521, -0.1131, 0.4892, 0.3575]
+
+contact:
+  left_index_DP: 0
+  left_middle_DP: 1
+  left_pinky_DP: 1
+  left_ring_DP: 0
+  left_thumb_DP: 1

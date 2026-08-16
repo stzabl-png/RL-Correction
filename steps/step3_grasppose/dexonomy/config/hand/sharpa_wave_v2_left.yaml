@@ -1,0 +1,3 @@
+xml_path: ${asset_root}/hand/sharpa_wave_v2_left/left.xml
+color: [0.113, 0.639, 0.566, 1.0]
+arm_hand:

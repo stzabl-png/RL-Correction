@@ -1,0 +1,9 @@
+# 由 Shadow 模板 `13_Precision_Sphere` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [1.0333, 0.1737, 0.0511, -0.0703, 0.2143, -0.0048, -0.3135, 0.9865, 0.2685, -0.1745, -0.2264, 1.0803, 0.2740, 0.0054, -0.1452, 0.8804, 0.1839, 0.1702, 0.3521, -0.1131, 0.4892, 0.3575]
+
+contact:
+  right_index_DP: 0
+  right_middle_DP: 1
+  right_pinky_DP: 1
+  right_ring_DP: 0
+  right_thumb_DP: 1

@@ -1,0 +1,7 @@
+body_group:
+- [right_index_DP, right_index_MP, right_index_PP]
+- [right_middle_DP, right_middle_MP, right_middle_PP]
+- [right_ring_DP, right_ring_MP, right_ring_PP]
+- [right_pinky_DP, right_pinky_MP, right_pinky_PP]
+- [right_thumb_DP, right_thumb_PP, right_thumb_MC]
+- [right_hand_C_MC, right_pinky_MC]

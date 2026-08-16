@@ -1,0 +1,17 @@
+# 由 Shadow 模板 `29_Stick` 自动重定向而来 (tools/retarget_shadow_templates.py)
+qpos: [0.6733, 0.3491, 0.0484, 0.3491, 0.0277, -0.1745, -0.1933, 0.1907, 1.3963, 0.2721, 0.0344, 1.3022, 0.7157, 0.5168, -0.0215, 0.9953, 0.6885, 0.1325, 0.6772, 0.0732, 0.7547, 0.7552]
+
+contact:
+  right_hand_C_MC: 0
+  right_index_PP: 1
+  right_middle_DP: 1
+  right_middle_MP: 0
+  right_middle_PP: 0
+  right_pinky_DP: 1
+  right_pinky_MC: 2
+  right_pinky_MP: 0
+  right_pinky_PP: 0
+  right_ring_DP: 0
+  right_ring_MP: 0
+  right_ring_PP: 0
+  right_thumb_DP: 1

@@ -320,6 +320,45 @@ class GraspTaskCfg(DexmateCorrectionEnvCfg):
     direct_grasp_prob = 0.5
     approach_t0_max = 0.8
 
+    # ---- 退避式起点族 (2026-08-16, 见 docs/APPROACH_DESIGN.md §2) ----
+    # 用"从 GraspPose 沿 radial 轴往后退"生成起点, 取代"沿人手轨迹采 t0"。
+    # 实测依据: 人手轨迹终点离 GraspPose 差 6~10cm/25~43°(够不到 3cm/15° 的切换判据),
+    # 中段还倒退 8cm, 且臂外壳刮桌 −1.76cm; 而退避族 IK 全通、间隙单调、任务永远可解。
+    retract_start = os.environ.get("RL_RETRACT_START", "0") == "1"
+    retract_dmax_k = 1.5         # D = 这个倍数 × d_g(手座->物体中心距离); 自标定不写死厘米
+    retract_levels = 24          # 起点族离散级数
+    retract_lambda_max = 2.0     # 准入门抬升上限: û = normalize(r̂ + λ·ẑ), λ 从 0 逐级试
+    retract_drop_tol = 0.005     # m, 允许的逐级外壳下降容差 (>这个就算"退避时朝桌面去")
+
+    # ★★ 课程语义 —— 写死在这里, 别再犯 approach_t0_max 那个错 ★★
+    #   `approach_t0_max` 的 0 表示"从头做"(最难), 而下面两个的 0 表示"最简单"。
+    #   两套方向相反, 混起来就是 2026-08-16 那次: 评测口径被改成"直接空降到抓握帧",
+    #   冠军存档评出 0.00%(DESIGN_LOOP §2.24)。所以:
+    #     retract_ratio = 0   -> 全部从 d=0 (就在 GraspPose) 起步  = 最简单
+    #     retract_ratio = 1   -> d ~ U(0, D) 全程                  = 最难
+    #     stance_prob   = 0   -> 不从站姿起步
+    #     stance_prob   = 1   -> **全部从对称站姿起步 = 正式任务口径**
+    #   ⟹ **评测把 stance_prob 设成 1.0**(而不是把某个 ratio 设成 0), 语义唯一, 无端点陷阱。
+    retract_ratio = 1.0
+    stance_prob = 1.0
+
+    # ---- Approach-only 任务 (2026-08-16 用户裁定) ----
+    # **只学接近**: 站姿 -> GraspPose 的腕位姿。不抓、不抬、不合拢手指。
+    # 判据干净、失败原因唯一, 是"抓稳/抬升/搬运"的地基。
+    approach_only = os.environ.get("RL_APPROACH_ONLY", "0") == "1"
+    # 到位判据 = 腕位置差 < eps_pos 且 朝向差 < eps_rot 且保持 switch_hold 步
+    # (复用现有相位切换那套阈值: eps_pos0=3cm / eps_rot0=15° / switch_hold=2)
+    r_reach = 40.0               # 到位终端奖励 (与原 r_success 同量级)
+    # 回合预算: 用户定 250 步 @20Hz = 12.5s。理论下限来自标定的每步末端位移上界
+    #   arm_residual_max(末端 95 分位 2cm) × arm_step_scale(0.25) = **5mm/步**
+    #   ⟹ 站姿->GraspPose 30.1cm(Grasp3) 需 ≥60 步; 41.4cm(瓶) 需 ≥83 步。
+    #   250 步 = 下限的 3~4 倍, 给转向/减速对准/修正留余量。
+    approach_only_steps = 250
+    # ★ 硬底线(用户定): 这两件**直接终止**回合, 不只是罚
+    #   ① 臂外壳穿桌   ② 接近段手碰到物体 (还没到该碰的时候)
+    approach_hit_obj_m = 0.005   # m, 手部连杆到物体表面 < 这个 = 碰上了
+    r_hit = -10.0                # 撞桌/撞物体的终止罚
+
     # ================= 接触分数图 (P1a, 常驻) =================
     # 只在 verify 斜坡到顶那一刻取快照 (微抬升是物理干预 = 廉价因果筛子),
     # 按该垫的力占比加权. 存 (s,n) 两个计数, 读数 (s+1)/(n+2); n<n_min 记 unknown.
@@ -386,6 +425,11 @@ class GraspTaskCfg(DexmateCorrectionEnvCfg):
     affordance_npz = ""          # 视频接触带 (物体局部系点集): 只换 pad_approach 塑形
                                  # 的距离目标, 候选门/cent/验证等物理裁判一律不碰
     pad_contact_calib = True     # 垫↔接触零位校准 (均值平移); 对拇指-四指开口
+    # 放行上限: 参与指 ≤ 这个数才应用均值平移。均值平移只对**捏取**成立
+    # (两垫 FK 偏差同向); 包络抓各指朝向不同, 均值无物理意义, 平移会一侧压进
+    # 物体、另一侧推更远。2026-08-16 实测 Grasp3(五指): 开=3.00 垫 / 关=4.75 垫,
+    # 判据要 ≥4 ⟹ 开着这条 clip 永远出不了候选 (详见 DESIGN_LOOP §2.24)。
+    pad_calib_max_fingers = 2
                                  # 不对称的候选可能帮倒忙 (35_8 实测), 可关
     # ---- 姿态保持 (2026-08-06, 用户要求"保持物体原姿态略微提起"; s21 实测
     #      每回合倾到 17~19° 触发升级) ----
@@ -455,7 +499,12 @@ class GraspTaskCfg(DexmateCorrectionEnvCfg):
     # prior 加载器的 yaw 搜索也会加外壳余量评分, 且锚定位姿外壳穿桌直接 assert.
     # 默认关 —— 已盖章的旧任务 (Grasp3 冠军等) 保持原口径不动.
     arm_table_shell = False
-    arm_shell_margin = 0.01      # m, 外壳离桌真实余量
+    # 2026-08-16 用户裁定 1.0 -> 0.8cm: Grasp3 的 8_5 候选在 GraspPose 处物理稳态
+    # 外壳离桌 **0.89cm**(离线 IK 估计 1.3cm), 略低于原 1cm 余量但**为正、未穿桌**。
+    # 这个低点在**终点姿态**上, 是该抓法固有的 —— 换退避轴/换路径都改不掉, 零空间抬肘
+    # 也已经试过抬不动。硬终止判的是"外壳离桌 < 0"(真撞), margin 只决定罚函数的起罚点,
+    # 所以 0.89cm 处仍会吃到一点罚, 反而会推着策略把肘抬高。
+    arm_shell_margin = 0.008     # m, 外壳离桌真实余量
     w_self = 5.0                 # 臂↔躯干/头/另一条臂 的间隙罚 (单步最多 -1.0)
     self_margin = 0.08           # m, 连杆原点两两距离的下限
     self_pen_cap = 0.2           # 单步上界 (台账铁律: 每个铰链都要有上界)

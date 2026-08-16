@@ -30,6 +30,11 @@ parser.add_argument("--orient_blend", action="store_true",
                     help="必须与训练时相同 (改 obs 的参考通道, 两种口径评测都要带)")
 parser.add_argument("--place", action="store_true",
                     help="必须与训练时相同 (成功判据=放置达标)")
+parser.add_argument("--one_episode", action="store_true",
+                    help="每个 env 只记**第一个**完成回合 (n 精确 = num_envs). 默认口径是在 "
+                         "--steps 步窗内数所有完成回合, 成功回合更短 -> 同样时间跑得更多 -> "
+                         "窗口边界系统性**高估**. 默认关: 已盖章结果 (冠军 99.99%) 用的是旧口径, "
+                         "换算口径会失去可比性; 需要无偏数或与训练期自动评测对表时开.")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 
@@ -97,9 +102,12 @@ def run_block(tag, c0_max, steps):
     start_xy = raw.obj_start_pos[:, :2].clone()
     obj_nom = raw.obj_init_pos[:2].clone()
     off_succ, off_fail = [], []
+    tilt_succ, tilt_fail = [], []
+    yaw_all = []
     ep_start_t = torch.zeros(N, device=dev)
     pads_hist = torch.zeros(5, device=dev)
     pad_steps = 0
+    done_once = torch.zeros(N, dtype=torch.bool, device=dev)
     with torch.no_grad():
         for t in range(steps):
             _inp = {"obs": agent.running_mean_std(obs_dict["obs"]),
@@ -113,6 +121,10 @@ def run_block(tag, c0_max, steps):
             pad_steps += N
             verify_fails += int(s["verify_fail"].sum())
             d = done.bool() if torch.is_tensor(done) else torch.tensor(done, device=dev).bool()
+            if args.one_episode:      # 只留每个 env 的首个回合, 去掉长度偏置
+                fresh = d & ~done_once
+                done_once |= d
+                d = fresh
             if d.any():
                 idx = torch.nonzero(d, as_tuple=False).squeeze(-1)
                 episodes += len(idx)
@@ -121,13 +133,24 @@ def run_block(tag, c0_max, steps):
                 off = (start_xy[idx] - obj_nom).norm(dim=1) * 1000.0   # mm
                 off_succ += off[ns].tolist()
                 off_fail += off[~ns].tolist()
+                if hasattr(raw, "tilt_final_deg"):  # 姿态保持普查 (2026-08-06)
+                    # ⚠ 必须读 *_final (reset 前快照); 读 tilt_max_deg 拿到的是
+                    # 复位后的 0 (当天踩坑, 得出过 <0.05° 的错误结论)
+                    tl = raw.tilt_final_deg[idx]
+                    tilt_succ += tl[ns].tolist()
+                    tilt_fail += tl[~ns].tolist()
+                    yaw_all.extend(raw.yaw_final_deg[idx].tolist())
                 ep_len_succ += (t - ep_start_t[idx[ns]]).tolist()
                 for k in FAIL_KEYS:
                     fails[k] += int((s[k][idx] & ~ns).sum())
                 ep_start_t[idx] = t
                 start_xy[idx] = raw.obj_start_pos[idx, :2]   # reset 后的新回合起点
+            if args.one_episode and bool(done_once.all()):
+                print(f"  [one_episode] {N} 个 env 全部跑完首回合 @ 第 {t+1} 步")
+                break
     sr = succ / max(episodes, 1)
-    print(f"\n{'='*66}\n[{tag}]  成功率 = {sr*100:.2f}%   ({succ}/{episodes} 回合)")
+    print(f"\n{'='*66}\n[{tag}]  成功率 = {sr*100:.2f}%   ({succ}/{episodes} 回合"
+          f"{', 一env一回合口径' if args.one_episode else ''})")
     print(f"  成功回合中位长度: {np.median(ep_len_succ):.0f} 步"
           if ep_len_succ else "  (无成功回合)")
     tot_f = max(episodes - succ, 1)
@@ -141,6 +164,18 @@ def run_block(tag, c0_max, steps):
         print(f"  物体抖动偏移 |xy| : 成功回合均值 {np.mean(off_succ):.2f}mm vs "
               f"失败回合均值 {np.mean(off_fail):.2f}mm"
               f"   (差异大 → 失败集中在抖动边角)")
+    if tilt_succ:
+        a = np.asarray(tilt_succ)
+        print(f"  物体最大倾角(成功回合): 中位 {np.median(a):.1f}° "
+              f"P90 {np.percentile(a, 90):.1f}° max {a.max():.1f}° "
+              f"| >10° 占 {np.mean(a > 10) * 100:.0f}% >15° 占 {np.mean(a > 15) * 100:.0f}%")
+    if tilt_fail:
+        a = np.asarray(tilt_fail)
+        print(f"  物体最大倾角(失败回合): 中位 {np.median(a):.1f}° max {a.max():.1f}°")
+    if yaw_all:
+        a = np.asarray(yaw_all)
+        print(f"  物体最大 yaw 自旋: 中位 {np.median(a):.1f}° P90 {np.percentile(a, 90):.1f}° "
+              f"max {a.max():.1f}°")
     return sr
 
 

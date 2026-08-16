@@ -171,6 +171,13 @@ def _replay_grasp(part, name, aff_obj, mass_kg=0.1, friction=0.5):
 for _i in range(20):
     CLIPS[f"Grasp{_i}"] = _replay_grasp("part2", f"basic_pick_place/{_i}", f"obj_{_i:02d}")
 del _i
+# 垫↔接触零位校准: **Grasp3 实测必须关**。2026-08-16 用 diag_fgate 做零动作合拢 A/B
+# (8 env, 候选判据要 ≥4 垫): 开 = 3.00 个指垫接触(永远出不了候选) / 关 = **4.75**。
+# 开着它时 Grasp3_CTRL2(冠军 clip + 冠军配方)跑 16.4M 步确定性成功率恒 0;
+# 关掉后 Grasp3_CTRL3 在 9.8 万步到 1%、29.5 万步到 10%(冠军存档 6.5万/22.9万)。
+# ⚠ 这个开关**没有通用规则, 只能逐 clip 实测** —— Pour17_* 恰恰相反(开 3.38 / 关 0.00)。
+# 详见 DESIGN_LOOP §2.24; 新 clip 上线前先跑 diag_fgate 的 A/B。
+CLIPS["Grasp3"]["pad_contact_calib"] = False
 
 
 # =============================================================================
@@ -360,6 +367,15 @@ def _pour17(primary: str):
         verify_mode="lift",                  # S1/S2 = 接近+抓稳+微抬升
         arm_table_shell=True,
         upright_hold=True,
+        # 垫↔接触零位校准: **本 clip 实测必须开**。2026-08-16 用 diag_fgate 做零动作
+        # 合拢 A/B(瓶, 8 env): 开 = 3.38 个指垫接触 / 关 = **0.00** —— 关掉时合拢到底
+        # 指垫离物体表面还有 1.5~3.5cm, 一个都碰不到。
+        # ⚠ 这个开关**没有通用规则, 只能逐 clip 实测**(冠军 clip Grasp3 恰恰相反:
+        #   开 3.00 / 关 4.75, 所以那边关)。新 clip 上线前先跑:
+        #   $PY -m tasks.pregrasp.diag_fgate --headless --clip <名> --grasp_prior <npz> \
+        #       --prior_yaw <角> --stance_prefix 60 [--no_calib]
+        #   比较两次的 pads_now 平台值, 胜出的写进这里。详见 DESIGN_LOOP §2.24。
+        pad_contact_calib=True,
     )
 
 

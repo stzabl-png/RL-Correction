@@ -23,6 +23,8 @@ p.add_argument("--approach", action="store_true", help="开接近段")
 p.add_argument("--ref_look", type=int, default=None, help="参考前瞻帧数")
 p.add_argument("--no_eps_curr", action="store_true")
 p.add_argument("--num_envs", type=int, default=4)
+p.add_argument("--hand_side", choices=["right", "left"], default="right",
+               help="交互手 (左手调试用; 抓姿/轨迹按右手生成的 clip 会有几何镜像误差, 扫雷为主)")
 AppLauncher.add_app_launcher_args(p)
 args = p.parse_args()
 
@@ -38,6 +40,7 @@ from tasks.pregrasp.cfg import GraspTaskCfg, Phase, apply_grasp_prior  # noqa: E
 from tasks.pregrasp.env import GraspTaskEnv  # noqa: E402
 
 cfg = GraspTaskCfg()
+cfg.hand_side = args.hand_side
 clips.configure_cfg(cfg, args.clip)
 if args.ref_look is not None:
     cfg.ref_look_frames = args.ref_look
@@ -75,7 +78,10 @@ def run(tag, steps, act_fn):
                   f"F={[round(float(v),2) for v in s['mag'][0]]}N "
                   f"cent={s['cent'][0]:+.2f} Q={s['quality'][0]:+.2f} "
                   f"rise={s['rise'][0]*1000:+.1f}mm "
-                  f"table={s['table_pen'][0]*1e4:.1f} cross={s['cross_pen'][0]*100:.2f} "
+                  + (f"screw={np.degrees(float(env.screw_angle[0])):+.1f}° "
+                     f"eng={int(env.screw_engaged[0])} "
+                     if getattr(env, 'screw_spec', None) is not None else "")
+                  + f"table={s['table_pen'][0]*1e4:.1f} cross={s['cross_pen'][0]*100:.2f} "
                   f"rew={rew[0]:+.3f} term={int(term.sum())} trunc={int(trunc.sum())}"
                   + (f" | φ={env._phi()[0]:.2f} d_pos={s['d_pos'][0]*100:5.2f}cm "
                      f"d_rot={float(np.degrees(s['d_rot'][0].item())):5.1f}° "

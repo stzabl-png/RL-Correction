@@ -56,6 +56,24 @@ class GraspTaskEnv(DexmateCorrectionEnv):
     _fgate_dg = None
 
     def __init__(self, cfg: GraspTaskCfg, render_mode: str | None = None, **kwargs):
+        # ---- 接近任务强制外壳口径 (2026-08-16, docs/APPROACH_DESIGN.md §4) ----
+        # `arm_table_shell` 默认关是**有意的**(已盖章的旧任务保持原口径), 这里不动默认值,
+        # 只在退避式接近任务里强制打开 —— 因为人手轨迹上**右臂外壳穿桌 −1.76cm 而手部
+        # 连杆一直 ≥2cm**, 原点口径**根本看不见臂在刮桌**(l5/l6 截面半径 4~6.7cm)。
+        # 底线是"抓稳之前不许撞桌", 用看不见撞击的口径去判就是自欺。
+        if getattr(cfg, "approach_only", False):
+            # 回合预算 250 步 @20Hz = 12.5s (用户定)。理论下限来自标定的每步末端位移
+            # 上界 5mm(= arm_residual_max 的 2cm × arm_step_scale 0.25):
+            # 站姿->GraspPose 30.1cm(Grasp3) 需 ≥60 步 / 41.4cm(瓶) 需 ≥83 步。
+            # episode_length_s 必须跟着放大, 否则 12.0s 会先把瓶子那条截断。
+            cfg.episode_length_s = max(cfg.episode_length_s,
+                                       cfg.approach_only_steps * cfg.decimation
+                                       * cfg.sim.dt * 1.05)
+            cfg.retract_start = True          # 接近任务默认用退避起点族
+        if getattr(cfg, "retract_start", False) and not getattr(cfg, "arm_table_shell", False):
+            cfg.arm_table_shell = True
+            print("[approach] retract_start=1 -> 强制打开 arm_table_shell "
+                  "(臂罚/诊断改用连杆外壳采样点; 原点口径看不见上臂刮桌)")
         # ---- 双物体螺旋装配 (screw 27): clip 带 secondary 时自动激活 ----
         from tasks.pregrasp import screw_assembly as SA
         self._SA = SA
@@ -299,6 +317,7 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         #   一行"默认值 None", 结果把算好的 15.1cm 抹成 None, `getattr(..., None)` 恒假 ⟹
         #   **手指距离门控从上线起一次都没执行过**(TB 里 diag/finger_gate 恒 0 就是这个,
         #   不是"门关死", 是"整段代码没跑")。默认值改成在类层面声明, 不覆盖实例值。
+        self.retract_d0 = torch.full((N,), float('nan'), device=dev)  # 盘面: 本回合起点 d
         self._diag_fgate = torch.zeros(N, device=dev)      # 盘面: 手指门开度累计
         self._diag_fgate_n = torch.zeros(N, device=dev)
         self.verify_k = torch.zeros(N, dtype=torch.long, device=dev)    # 验证段步数
@@ -422,6 +441,12 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         # 笨拙课程标量 (训练入口每迭代按 sr_ema 更新; 评测/冒烟脚本应显式置 1.0)
         self.gentle = float(cfg.gentle_init)
         self.ep_total = (cfg.settle_steps + int(sum(cfg.phase_timeout)) + 8)
+        if getattr(cfg, "approach_only", False):
+            # ⚠ ep_total 不来自 episode_length_s, 来自相位超时之和 —— 只改
+            #   episode_length_s 是**无效的**(冒烟活性检查抓到: 预算 250 但 ep_total=153)。
+            #   接近任务只有一个相位, 直接按用户定的步数钉死, 并同步放开 PREGRASP 超时。
+            self.ep_total = int(cfg.approach_only_steps)
+            self.phase_timeout_t[Phase.PREGRASP] = int(cfg.approach_only_steps)
         print(f"[pregrasp] v2 稳定抓握+微抬升验证: 起点=PreGrasp(帧{self.grasp_start}) | "
               f"合拢参考 {cfg.closure_ref_rate}/步 | 候选 ≥{cfg.success_min_pads}垫 "
               f"向心≥{cfg.grasp_centrip_thresh} 保持{cfg.candidate_hold_steps}步 | "
@@ -502,16 +527,29 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         #   2026-08-16 实测(Grasp3 五指, 零动作合拢到底): 校准开 → 指垫接触 3.00,
         #   校准关 → 4.75; 候选判据要 ≥4 ⟹ **开着校准这条 clip 永远出不了候选**
         #   (CTRL2 跑 16.4M 步 0% 就是这个)。
-        #   ⚠ 别用"平移后垫↔接触残差变小"当放行判据 —— 实测它会放行:
-        #   Grasp3 最差指残差 2.67 -> 1.70cm(确实变小), 但合拢后接触垫数仍只有 2.75。
-        #   因为残差是在**手指张开的模板位姿**上量的, 合拢本来就会把垫带进去,
-        #   用腕位再补一次 = 重复补偿。**"张开时的距离"不是"合拢后碰几个垫"的代理量。**
-        #   放行判据只能按物理来: 均值平移只在**捏取**(参与指 ≤2, 两垫偏差同向)成立,
-        #   包络抓交给合拢斜坡。这正是它当初被引入时验证过的那个场景(左手 Tip_Pinch
-        #   "结构性够不着", 台账 2026-07-31)。
         _dist0 = np.linalg.norm(_near[_act] - _pads[_act], axis=1)
         _dist1 = np.linalg.norm(_near[_act] - (_pads[_act] + _shift), axis=1)
-        _helps = int(_act.sum()) <= 2
+        _objp = (self.obj_points.cpu().numpy().astype(np.float64)
+                 if getattr(self, "obj_points", None) is not None else None)
+        if _objp is not None:
+            _s0 = np.linalg.norm(_pads[_act][:, None, :] - _objp[None], axis=-1).min(axis=1)
+            _s1 = np.linalg.norm((_pads[_act] + _shift)[:, None, :] - _objp[None],
+                                 axis=-1).min(axis=1)
+            _TH = float(getattr(cfg, "pad_calib_reach_cm", 1.5)) / 100.0
+            print(f"[prior] 零位校准参考数 (静态 FK: 垫->物体表面, 阈值 {_TH*100:.1f}cm): "
+                  f"不校准 {[f'{v*100:.1f}' for v in _s0]}cm ({int((_s0 < _TH).sum())} 垫); "
+                  f"校准后 {[f'{v*100:.1f}' for v in _s1]}cm ({int((_s1 < _TH).sum())} 垫)"
+                  f"  ⚠仅供参考, 不作判据 (见下)")
+        # ★ 开不开校准 = **按 clip 实测记死**(clips 注册表的 `pad_contact_calib`),
+        #   代码不猜。我连续三次用错代理量, 每次都自洽、每次都和物理相反:
+        #     ① "平移后垫↔接触残差变小" —— 张开位姿上的账, 与合拢后碰几个垫无关
+        #     ② "参与指 ≤2 才应用"      —— Grasp3 对(关=4.75垫/开=3.00), 瓶子错(关=0.00/开=3.38)
+        #     ③ "静态 FK 算合拢后够不够得到" —— 方向仍相反: 它说 Grasp3 该开校准,
+        #        实测该关。因为模板 c=1 的关节位形**不是**真正的合拢终点 ——
+        #        `close_anchor` 让 PD 顶到"壁内"目标, 比 Dexonomy 抓姿更深。
+        #   定法: 用 `tasks/pregrasp/diag_fgate.py` 跑 A/B(零动作合拢, 看 pads_now),
+        #   把胜出的那个写进 clips 注册表。新 clip 上线前必须做这一步。
+        _helps = True
         if getattr(cfg, "pad_contact_calib", True) and np.linalg.norm(_shift) > 0.008:
             if _helps:
                 zg[:3] += _shift
@@ -522,11 +560,7 @@ class GraspTaskEnv(DexmateCorrectionEnv):
                       f"Dexonomy 接触标注的系统差, 校准后最差指残差 "
                       f"{_dist0.max()*100:.2f} -> {_dist1.max()*100:.2f}cm")
             else:
-                print(f"[prior] 垫↔接触零位校准**已跳过**: 参与指 {int(_act.sum())} 根 "
-                      f"= 包络抓, 均值平移不适用(各指朝向不同, 均值无物理意义)。"
-                      f" 平移 |Δ|={np.linalg.norm(_shift)*100:.2f}cm 虽能把最差指残差 "
-                      f"{_dist0.max()*100:.2f}->{_dist1.max()*100:.2f}cm, 但那是张开位姿上的账;"
-                      f" 实测(2026-08-16 Grasp3 零动作合拢)接触垫数 3.00 vs 关掉 4.75, 判据要 ≥4。")
+                pass
         print(f"[prior] 模板参与指 {self.n_active}/5: "
               f"{[f for f, a in zip(FINGERS, _act) if a]} "
               f"(逐指最近接触点 {[f'{d*100:.1f}' for d in _cd]}cm) | "
@@ -549,6 +583,25 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         oq = self.obj_init_quat.cpu().numpy().astype(np.float64)
         op = self.obj_init_pos.cpu().numpy().astype(np.float64)
         _entry = clips.clip_entry(cfg.clip_name)
+        # ★ 摆放三步的**顺序**(2026-08-16 用户裁定): ①定姿态(canon_rot ∘ 钉死 yaw)
+        #   -> ②用**①旋转之后**的 affordance 偏移做物体听手定 XY -> ③该姿态下最低点贴桌。
+        #   这里先把 ref builder 用过的姿态存下来, 等最终姿态定了(yaw 也转完)再回来
+        #   按 ② 重解 XY。为什么必须重解:
+        #     物体听手的不变量是 `物体原点 + a_off = 交互帧手锚点`, 而 a_off 依赖姿态。
+        #     builder 用 rest_q 算 a_off 定了 XY, 随后这里把姿态换成 canon_rot∘yaw
+        #     (瓶实测差 113.6°, 杯 149.7°) —— **原点没动, 目标区却转跑了**:
+        #     瓶错位 3.83cm / 杯 1.46cm。这正好把"物体听手"要消除的手↔物系统差
+        #     又装回去一部分(该机制原本是为消除 10cm+ 的系统差引入的)。
+        from rl_rebuild.correction import frames as _F0
+        _rest_q0 = oq.copy()                       # builder 摆放时用的姿态
+        try:
+            from rl_rebuild.correction.ref_builders.replay_grasp import (
+                _affordance_target as _aff_t)
+            _a_obj = (_aff_t(_entry["affordance"]) if _entry.get("affordance")
+                      else _F0.load_obj_verts(self.du.mesh_path).mean(0))
+        except Exception as _e:                    # 缺 affordance 就退化到质心 (与 builder 同)
+            print(f"[prior] ⚠ 取 affordance 目标失败({_e}), 物体听手改用质心")
+            _a_obj = _F0.load_obj_verts(self.du.mesh_path).mean(0)
         # ---- 物体姿态对齐 Dexonomy 规范姿态 ----
         # 抓姿是在"物体按规范姿态平放桌面"时生成的; 而 ref builder 用"最大支撑面朝下"
         # 独立决定姿态, 对非对称物体可能选到**另一个面** (Grasp3 实测两者差 179.9°,
@@ -697,6 +750,22 @@ class GraspTaskEnv(DexmateCorrectionEnv):
             self.obj_init_quat = to(oq)          # 物体复位姿态跟着转
             print(f"[prior] 物体 yaw 旋转 {np.degrees(best_yaw):.0f}° 使抓姿朝向机械臂"
                   f" (绕竖轴旋转, 物体仍平放于桌面)")
+        # ---- ② 姿态定案后, 按最终姿态重解物体听手的 XY (见上面 ★) ----
+        #   不变量: 物体原点 + a_off(姿态) = 交互帧手锚点。手锚点不动, 于是
+        #     op_new[:2] = op_old[:2] + a_off(rest_q0)[:2] - a_off(oq_final)[:2]
+        #   这样 afford_world = op + a_off 仍落在手锚点上 ⟹ builder 里 pregrasp_align
+        #   的悬停点不受影响, 不用回头改参考轨迹。
+        _off0 = quat_to_R(_rest_q0) @ _a_obj
+        _off1 = quat_to_R(oq) @ _a_obj
+        _dxy = _off0[:2] - _off1[:2]
+        if float(np.linalg.norm(_dxy)) > 1e-4:
+            op = op.copy()
+            op[:2] += _dxy
+            self.obj_init_pos = to(op)
+            print(f"[prior] 物体听手 XY 按最终姿态重解: 平移 "
+                  f"{np.round(_dxy * 100, 2).tolist()}cm "
+                  f"(|Δ|={np.linalg.norm(_dxy) * 100:.2f}cm) —— 姿态从 builder 的 rest_q "
+                  f"换成 canon_rot∘yaw 后, 抓取目标区绕原点转跑了这么多")
         # 抓握位姿 IK (在选定 yaw 下精解)
         gp, gq = to_env(zg)
         rg = ik.solve(gp, quat_to_R(gq), q0=qwarm)
@@ -855,6 +924,72 @@ class GraspTaskEnv(DexmateCorrectionEnv):
             if min(_cg, _cp) < 0.0:
                 print(f"[prior]   ⚠ 指令位形外壳估计为负 —— 以运行时 "
                       f"diag/arm_table_gap_cm 为准, 冒烟/训练时必须核验其为正")
+        if getattr(cfg, "retract_start", False):
+            self._build_retract_family(ik, gp, gq, op, to)
+
+    def _build_retract_family(self, ik, gp, gq, op, to):
+        """退避式起点族: q(d) = IK(gp + d·û, R_g), d ∈ [0, D]。见 docs/APPROACH_DESIGN.md §2。
+
+        û = normalize(手座抓握位 − 物体中心) 再按 λ 抬升。不变量: 沿 û 退避时到物体的
+        距离**严格增加** ⟹ 退得越远越安全是构造保证, 不靠 RL 学, 且把退避过程倒放
+        就是可行解 ⟹ **任务永远可解**。
+
+        ⚠ 判据不许用代理量(仰角>0 之类) —— 2026-08-16 在零位校准上被代理量连骗三次
+          (DESIGN_LOOP §2.24)。这里直接判它要保证的两件事: 外壳离桌单调不降、手→物体
+          单调不增反(即距离单调增)。不满足就抬 λ 重试, 抬到上限仍不满足 ⟹ 报错换候选。
+        """
+        cfg = self.cfg
+        r = np.asarray(gp, np.float64) - np.asarray(op, np.float64)
+        d_g = float(np.linalg.norm(r))
+        r_hat = r / max(d_g, 1e-9)
+        D = float(cfg.retract_dmax_k) * d_g
+        M = int(cfg.retract_levels)
+        from rl_rebuild.correction.kinematics import quat_to_R
+        Rg = quat_to_R(np.asarray(gq, np.float64))
+        ds = np.linspace(0.0, D, M)
+
+        def _try(lam):
+            u = r_hat + lam * np.array([0.0, 0.0, 1.0])
+            u = u / np.linalg.norm(u)
+            qs, clr, ok_all = [], [], True
+            qw = np.asarray(self._prior_q_grasp.cpu().numpy(), np.float64)
+            for d in ds:
+                sol = ik.solve(np.asarray(gp, np.float64) + d * u, Rg, q0=qw, iters=200)
+                if sol["ok"]:
+                    qw = sol["q"]
+                else:
+                    ok_all = False
+                qs.append(qw.copy())
+                clr.append(self._shell_clearance_np(ik, qw)
+                           if self.shell_pts is not None else np.nan)
+            return u, np.stack(qs), np.asarray(clr), ok_all
+
+        lam, chosen = 0.0, None
+        for lam in np.arange(0.0, float(cfg.retract_lambda_max) + 1e-9, 0.25):
+            u, qs, clr, ok_all = _try(float(lam))
+            # 判据①: IK 全程可达。判据②: 外壳离桌全程 ≥ margin 且不出现明显下降。
+            drop = (float(np.min(np.diff(clr))) if np.isfinite(clr).all() and len(clr) > 1
+                    else 0.0)
+            lo = float(np.nanmin(clr)) if np.isfinite(clr).any() else np.inf
+            good = ok_all and (not np.isfinite(clr).any()
+                               or (lo >= cfg.arm_shell_margin and drop >= -cfg.retract_drop_tol))
+            print(f"[retract] λ={lam:.2f} 仰角 {np.degrees(np.arcsin(u[2])):+5.1f}° | "
+                  f"IK {'全通' if ok_all else '**有失败**'} | 外壳离桌 "
+                  f"{lo * 100:.1f}~{np.nanmax(clr) * 100:.1f}cm | 逐级最大下降 "
+                  f"{-drop * 100:.2f}cm  -> {'✅采用' if good else '不合格'}")
+            if good:
+                chosen = (float(lam), u, qs, clr)
+                break
+        assert chosen is not None, (
+            f"退避族在 λ≤{cfg.retract_lambda_max} 内都不满足准入判据 —— 这个 GraspPose "
+            f"候选不适合接近段(手座可能在物体中心下方, 退避会往桌里钻)。换候选, 别调判据。")
+        lam, u, qs, clr = chosen
+        self.retract_u = u
+        self.retract_d = to(ds)
+        self.retract_q = to(qs.astype(np.float32))              # (M,7)
+        print(f"[retract] 起点族已建: d_g={d_g*100:.1f}cm D={D*100:.1f}cm "
+              f"({cfg.retract_dmax_k}×d_g) × {M} 级 | λ={lam:.2f} "
+              f"仰角 {np.degrees(np.arcsin(u[2])):+.1f}°")
 
     def _nullspace_shell_lift(self, ik, q0, gp, gq, iters=40):
         """零空间抬肘 (2026-08-06, 用户要求真机带壳不碰桌).
@@ -1272,6 +1407,12 @@ class GraspTaskEnv(DexmateCorrectionEnv):
                                           torch.zeros_like(self.switch_run))
             to_grasp = in_app & (self.switch_run >= cfg.switch_hold)
             newly_arrive = to_grasp & ~self.arrived
+            if getattr(cfg, "approach_only", False):
+                # Approach-only: 到位就是**成功并终止**, 不切进 GRASP 相位。
+                # (用户 2026-08-16 定: 判据 = 腕位置差<3cm 且 朝向差<15° 且保持 2 步;
+                #  手指全程张开 —— 合拢是下一阶段的事, 接近途中合拢会握着拳头撞物体。)
+                self.arrived |= to_grasp
+                to_grasp = torch.zeros_like(to_grasp)
             if to_grasp.any():
                 # 偏差带改以"到达位形"为中心, 否则切换会把目标拽回 prior 位形
                 self._set_arm_center(to_grasp, self.q_cmd)
@@ -1366,6 +1507,11 @@ class GraspTaskEnv(DexmateCorrectionEnv):
             self.settle_ctr = torch.where(_ok_p, self.settle_ctr + 1,
                                           torch.zeros_like(self.settle_ctr))
             success = self.settle_ctr >= cfg.place_settle_steps
+        if getattr(cfg, "approach_only", False):
+            # Approach-only: 成功 = 到位 (self.arrived 在上面的相位段里被置位)。
+            # ⚠ 必须在这里覆盖 —— newly_success / self.succeeded 紧接着就用它,
+            #   放到下面 terminated 那行再改就晚了 (第一版写错在那儿)。
+            success = self.arrived.clone()
         newly_success = success & ~self.succeeded
         self.succeeded |= success
         # 验证失败: ① 斜坡到顶+3 步物体没跟上来 (rise<3mm); ② **尝试预算耗尽**
@@ -1409,7 +1555,27 @@ class GraspTaskEnv(DexmateCorrectionEnv):
 
         # push_terminate=False: 保留 pushed 的**惩罚**(见 terms["fail"]), 但不终止回合
         _pt = pushed if getattr(cfg, "push_terminate", True) else torch.zeros_like(pushed)
-        terminated = fell | thrown | _pt | stuck | table_crash | success
+        if getattr(cfg, "approach_only", False):
+            # ★ 硬底线(用户 2026-08-16 定): 这两件**直接终止**, 不只是罚
+            #   ① 臂外壳穿桌 —— 必须外壳口径。人手轨迹上右臂外壳穿桌 −1.76cm 时
+            #      手部连杆还有 ≥2cm, 原点口径**根本看不见**(l5/l6 截面半径 4~6.7cm)。
+            #   ② 接近段手碰到物体 —— 还没到该碰的时候。
+            # ⚠ 用**本函数里的局部** arm_gap: `self._sig` 是在 _get_dones **末尾**
+            #   才组装的, 在这里读它第一步就 KeyError(冒烟当场抓到)。
+            shell_hit = active & (arm_gap < 0.0)
+            _hp = self.hand.data.body_pos_w[:, self.table_bids]
+            _M = self.obj_points.shape[0]
+            _ow = quat_apply(
+                self.object.data.root_quat_w[:, None, :].expand(-1, _M, -1).reshape(-1, 4),
+                self.obj_points[None].expand(self.num_envs, -1, -1).reshape(-1, 3)
+            ).view(self.num_envs, _M, 3) + self.object.data.root_pos_w[:, None, :]
+            obj_hit = active & (torch.cdist(_hp, _ow).amin(dim=(1, 2))
+                                < cfg.approach_hit_obj_m)
+            self._approach_hit = shell_hit | obj_hit
+        else:
+            self._approach_hit = torch.zeros_like(active)
+        terminated = fell | thrown | _pt | stuck | table_crash | success \
+            | self._approach_hit
         to_t = self.phase_timeout_t[ph]
         timeout = active & (to_t > 0) & (self.phase_step >= to_t)
         truncated = timeout | (self.episode_length_buf >= self.ep_total - 1)
@@ -1551,8 +1717,19 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         # -- 里程碑 --
         if cfg.approach:
             terms["arrive"] = cfg.r_arrive * s["newly_arrive"].float()
-        terms["milestone"] = (cfg.r_candidate * s["newly_cand"].float()
-                              + cfg.r_success * s["newly_success"].float())
+        if getattr(cfg, "approach_only", False):
+            # Approach-only 的四层奖励 (用户 2026-08-16 定):
+            #   主项 = align 势差分 (上面已加, w_align·Δφ) —— **必须是势函数**:
+            #     telescoping 使累积奖励只取决于起终点, 中间怎么走不影响总量 ⟹
+            #     ① 不改变最优策略(Ng 的 shaping 定理) ② 不能靠"在物体旁来回蹭"刷分。
+            #     直接给"越近奖励越高"会让最优解变成"贴着不走了"。
+            #   终端 = 到位一次性 r_reach, 然后终止
+            #   底线 = 撞桌/碰物体 直接终止 + r_hit
+            terms["milestone"] = cfg.r_reach * s["newly_success"].float()
+            terms["hit"] = cfg.r_hit * self._approach_hit.float()
+        else:
+            terms["milestone"] = (cfg.r_candidate * s["newly_cand"].float()
+                                  + cfg.r_success * s["newly_success"].float())
         # -- 失败罚 (verify_fail 不终止, 只小额罚 + 退回 GRASP 重试) --
         terms["fail"] = (cfg.r_drop * (s["fell"] | s["thrown"] | s["table_crash"]).float()
                          + cfg.r_pushed_away * s["pushed"].float()
@@ -1826,6 +2003,25 @@ class GraspTaskEnv(DexmateCorrectionEnv):
             t0 = torch.where(start_grasp, t0,
                              torch.randint(0, hi, (n,), device=dev))
             c0 = torch.where(start_grasp, c0, torch.zeros_like(c0))   # 接近段手张开
+        # ---- 退避式起点族 (取代沿人手轨迹采 t0; 见 docs/APPROACH_DESIGN.md §2) ----
+        # ★ 语义(cfg 里写死了, 这里再说一遍): stance_prob=1 就是**正式任务口径**
+        #   (全部从对称站姿起步); retract_ratio=0 最简单(全在 GraspPose 上)。
+        #   两个都是"越大越难", 与 approach_t0_max 方向相反 —— 别混。
+        use_retract = getattr(cfg, "retract_start", False) and \
+            getattr(self, "retract_q", None) is not None
+        if use_retract:
+            _M = self.retract_q.shape[0]
+            _hi = max(float(cfg.retract_ratio), 0.0) * (_M - 1)
+            k = (torch.rand(n, device=dev) * _hi).round().long().clamp(0, _M - 1)
+            q_ret = self.retract_q[k]                                  # (n,7)
+            from_stance = torch.rand(n, device=dev) < float(cfg.stance_prob)
+            q_stance_arm = self.hand.data.default_joint_pos[env_ids][:, self.arm_jids]
+            q_ret = torch.where(from_stance.unsqueeze(1), q_stance_arm, q_ret)
+            start_grasp = torch.zeros(n, dtype=torch.bool, device=dev)  # 全走接近相位
+            c0 = torch.zeros_like(c0)                                   # 接近段手张开
+            self.retract_d0[env_ids] = torch.where(
+                from_stance, torch.full_like(self.retract_d[k], float("nan")),
+                self.retract_d[k])                                      # 盘面: 本回合起点 d
         tmpl0 = self.q_open + c0.unsqueeze(1) * (self.q_close - self.q_open)
         if self.arm_start_pool is None:
             q_arm = self.q_pregrasp.expand(n, 7).clone()
@@ -1834,6 +2030,8 @@ class GraspTaskEnv(DexmateCorrectionEnv):
             q_arm = self.arm_start_pool[k]
         if cfg.approach:
             q_arm = torch.where(start_grasp.unsqueeze(1), q_arm, self.q_ref[t0])
+        if use_retract:
+            q_arm = q_ret                     # 退避族/站姿 覆盖上面的参考起点
         q = self.hand.data.default_joint_pos[env_ids].clone()
         q[:, self.arm_jids] = q_arm
         q[:, self.hand_jids] = tmpl0

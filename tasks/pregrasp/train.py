@@ -44,6 +44,9 @@ parser.add_argument("--ref_look", type=int, default=None,
                     help="参考前瞻帧数 (1=原行为 7 维; 5=借鉴 ConTrack, 35 维, 几何间隔 1/2/4/8/16)")
 parser.add_argument("--approach", action="store_true",
                     help="开接近段 (pick_lift 完整任务). 不给 = 只训抓取 (旧任务)")
+parser.add_argument("--approach_only", action="store_true",
+                    help="**只学接近**: 站姿->GraspPose, 不抓不抬不合拢 "
+                         "(docs/APPROACH_DESIGN.md). 自动开退避起点族 + 外壳口径臂罚。")
 parser.add_argument("--obj_jitter", type=float, default=None,
                     help="覆盖物体 xy 抖动 (m); 课程 3mm->6->10->15, 每档一条 run")
 parser.add_argument("--ar_ema", type=float, default=0.995,
@@ -71,6 +74,26 @@ parser.add_argument("--minibatch", type=int, default=None, help="覆盖 minibatc
 parser.add_argument("--lr", type=float, default=None, help="覆盖 learning_rate (√k 缩放)")
 parser.add_argument("--entropy_coef", type=float, default=None, help="覆盖 entropy_coef (大batch保探索)")
 parser.add_argument("--adam_betas", type=str, default=None, help="覆盖 Adam betas, 逗号分隔 如 0.5,0.9")
+# ---- 自动停止 (2026-08-09): 周期性进程内确定性评测 + 收敛/平台期判停 ----
+parser.add_argument("--auto_stop", choices=("off", "dry", "on"), default="off",
+                    help="off=完全不跑(默认, 行为不变) | dry=评测+记录但**不停** (先用它验证判据) "
+                         "| on=达标或平台期就结束训练")
+parser.add_argument("--eval_every", type=int, default=100,
+                    help="每多少 epoch 插一次确定性评测 (100 epoch≈3.3M 步≈27min, "
+                         "单次评测 ~82s = 5%% overhead)")
+parser.add_argument("--eval_steps", type=int, default=160,
+                    help="评测控制步数; 必须 > 回合上限 (153) 才能保证每个 env 走完一回合")
+parser.add_argument("--stop_target_sr", type=float, default=0.99,
+                    help="早退线: 确定性成功率达到它 (且连续 --stop_target_hits 次) 就停")
+parser.add_argument("--stop_target_hits", type=int, default=2,
+                    help="达标要连续几次评测 (2 次 = 稳住 ~55min, 滤掉蜜月尖峰)")
+parser.add_argument("--stop_patience", type=int, default=5,
+                    help="主判据: 最佳成功率连续这么多次评测没涨够 --stop_delta 就停")
+parser.add_argument("--stop_delta", type=float, default=0.01,
+                    help="算'涨了'的最小增量 (1pt ≈ 3×SE@n=1024, 小于它当噪声)")
+parser.add_argument("--stop_min_steps", type=float, default=20e6,
+                    help="这么多步之前一律不停 (只记账). 难物体的爬坡期可以很长, "
+                         "别让平台期判据在前期把它掐死")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 
@@ -86,6 +109,7 @@ _slot = isaac_slot("train")
 
 app = AppLauncher(args).app
 
+import contextlib  # noqa: E402
 import json  # noqa: E402
 import torch  # noqa: E402
 import yaml  # noqa: E402
@@ -96,12 +120,84 @@ from rl_rebuild.wrapper.config_wrapper import ConfigWrapper  # noqa: E402
 from rl_rebuild.wrapper.sharpa_wave_env_wrapper import GymStyleEnvWrapper  # noqa: E402
 from rl_rebuild.correction import clips  # noqa: E402
 
+from tasks.pregrasp.auto_stop import StopDecider  # noqa: E402
 from tasks.pregrasp.cfg import GraspTaskCfg, apply_grasp_prior  # noqa: E402
 from tasks.pregrasp.env import GraspTaskEnv  # noqa: E402
 
 
+def _scalar_snapshot(cfg):
+    """cfg 上所有标量字段的浅快照 (给 eval_distribution 的还原自检用)."""
+    out = {}
+    for k in dir(cfg):
+        if k.startswith("_"):
+            continue
+        try:
+            v = getattr(cfg, k)
+        except Exception:
+            continue
+        if isinstance(v, (int, float, bool, str)):
+            out[k] = v
+    return out
+
+
+@contextlib.contextmanager
+def eval_distribution(raw):
+    """把 env 临时切到 `tasks/pregrasp/eval.py` 的**口径A** (正式对外口径), 退出原样还原.
+
+    ⚠ 用 contextmanager 而不是手写成对赋值: 漏还原任何一项都是**静默失效** ——
+    不报错, 但之后的训练跑在被偷偷改过的分布上, 几小时后看曲线才发现 (§6.5 同款)。
+
+    与训练分布的差别 (这就是 CLAUDE.md 说"训练期 TB 会低估"的全部来源):
+      closure_init_max 0.9→0   手从完全张开起步, 不给合拢脚手架
+      direct_grasp_prob →0     全部回合从接近段起步 (课程只退火到 0.1, 永远差这一截)
+      approach_t0_max   →0     从 q_ref[0] 出发, 无起点随机化
+      eps_pos/eps_rot   →final 切换阈值用最终的紧公差
+      arm_start_pool    →None  eval.py 不建抖动池, 起点是精确 pregrasp
+      gentle            →1.0   全价惩罚 (只影响奖励读数, 不影响成功判据)
+    """
+    cfg = raw.cfg
+    _KEYS = ("closure_init_max", "direct_grasp_prob", "approach_t0_max",
+             "eps_pos", "eps_rot", "retract_ratio", "stance_prob")
+    saved = {k: getattr(cfg, k) for k in _KEYS if hasattr(cfg, k)}
+    saved_gentle, saved_pool = float(raw.gentle), raw.arm_start_pool
+    saved_to0 = int(raw.phase_timeout_t[0])
+    # 全量标量快照: 上面那份 _KEYS 只还原"我知道自己改了的", 这份负责抓"改了但忘了列"
+    # —— 后者是静默失效, 不 assert 的话要等几小时后看曲线才发现
+    audit = _scalar_snapshot(cfg)
+    try:
+        cfg.closure_init_max = 0.0
+        raw.gentle = 1.0
+        raw.arm_start_pool = None
+        if getattr(cfg, "approach", False):
+            cfg.direct_grasp_prob = 0.0
+            cfg.approach_t0_max = 0.0
+            if hasattr(raw, "_eps_final"):
+                cfg.eps_pos, cfg.eps_rot = raw._eps_final
+            raw.phase_timeout_t[0] = raw.gs + int(cfg.approach_extra_steps)
+        if getattr(cfg, "retract_start", False):
+            # ★ 退避式接近的正式口径 = **全部从对称站姿起步**。
+            #   注意方向: 这里设成 **1.0**(最难), 而不是像 approach_t0_max 那样设成 0。
+            #   两套课程方向相反, 混了就是把评测变成"空降到终点"(DESIGN_LOOP §2.24)。
+            cfg.stance_prob = 1.0
+            cfg.retract_ratio = 1.0
+        if getattr(cfg, "approach_only", False):
+            raw.phase_timeout_t[0] = int(cfg.approach_only_steps)
+        yield
+    finally:
+        for k, v in saved.items():
+            setattr(cfg, k, v)
+        raw.gentle, raw.arm_start_pool = saved_gentle, saved_pool
+        raw.phase_timeout_t[0] = saved_to0
+        drift = {k: (v, audit[k]) for k, v in _scalar_snapshot(cfg).items()
+                 if k in audit and v != audit[k]}
+        assert not drift, (
+            f"评测后 cfg 没还原干净 (评测值, 原值): {drift} —— "
+            f"eval_distribution 改了这些字段但没列进 _KEYS, 训练分布已被污染")
+
+
 class MilestonePPO(PPO):
-    """PPO + 首达各成功率档位的步数记录 (sample-efficiency 指标).
+    """PPO + 首达各成功率档位的步数记录 (sample-efficiency 指标)
+    + 周期性确定性评测/自动停止 (--auto_stop).
     与旧 CorrectionPPO 的区别: 没有任何 reward/RSI 退火钩子."""
 
     MILESTONES = (0.01, 0.10, 0.25, 0.50, 0.80, 0.90)
@@ -112,6 +208,13 @@ class MilestonePPO(PPO):
         self._ms_hit: dict = {}
         self._sr_ema = 0.0
         self._sr_slow = 0.0     # 慢速 EMA (4 倍慢): 只有**巩固**的成功率才推高价格
+        # ---- 自动停止 (train.py 尾部按 CLI 覆盖; 判据在 auto_stop.StopDecider) ----
+        self._auto_stop = "off"
+        self._eval_every, self._eval_steps = 100, 160
+        self._stopper = StopDecider()
+        self._last_curr_sig = None
+        self._eval_hist: list = []
+        self._stop_path = os.path.join(self.output_dir, "auto_stop.json")
 
     def write_stats(self, a_losses, c_losses, b_losses, entropies, kls):
         super().write_stats(a_losses, c_losses, b_losses, entropies, kls)
@@ -189,6 +292,23 @@ class MilestonePPO(PPO):
                                    self.agent_steps)
             self.writer.add_scalar("curr/approach_t0_max", raw.cfg.approach_t0_max,
                                    self.agent_steps)
+        # ---- 退避式接近的课程 (2026-08-16, docs/APPROACH_DESIGN.md §2) ----
+        # ★ 方向与上面那两条**相反**, 别混:
+        #     approach_t0_max: 1 -> 0  (0 = 从头做 = 最难)
+        #     retract_ratio  : 0 -> 1  (1 = d 铺满 [0,D] = 最难)
+        #     stance_prob    : 0 -> 1  (1 = 全从站姿 = 正式任务口径)
+        #   2026-08-16 就是把这两套方向搞混, 让评测变成"空降到抓握帧"(DESIGN_LOOP §2.24)。
+        # 两段式: 先把 retract_ratio 拉满(学会各种距离的接近), 再把 stance_prob 拉满
+        # (学会从站姿这个更远、姿态也不同的起点出发)。
+        if raw is not None and getattr(raw.cfg, "retract_start", False):
+            g = min(self._sr_slow / 0.3, 1.0)
+            raw.cfg.retract_ratio = max(raw.cfg.retract_ratio, min(1.0, 2.0 * g))
+            raw.cfg.stance_prob = max(raw.cfg.stance_prob,
+                                      min(1.0, max(0.0, 2.0 * g - 1.0)))
+            self.writer.add_scalar("curr/retract_ratio", raw.cfg.retract_ratio,
+                                   self.agent_steps)
+            self.writer.add_scalar("curr/stance_prob", raw.cfg.stance_prob,
+                                   self.agent_steps)
         # 接触分数图: 每 epoch 折扣一次 + 定期落盘 (常驻, 见 cfg.score_map)
         if raw is not None and getattr(raw, "score_on", False):
             raw.decay_score()
@@ -207,6 +327,128 @@ class MilestonePPO(PPO):
                 with open(self._ms_path, "w") as f:
                     json.dump(self._ms_hit, f, indent=1)
                 print(f"[milestone] success_rate_ema >= {key} @ {self.agent_steps} steps")
+
+    # ================= 自动停止 =================
+    def _curriculum_done(self, raw) -> bool:
+        """课程是否已全部退火到位.
+
+        判停前**必须**过这一关: 三条课程都在把任务变难 (gentle 涨价 / 阈值收紧 /
+        起点脚手架撤除), 退火期成功率平甚至跌是设计内现象, 此时判平台期必误杀。
+        """
+        c = raw.cfg
+        if getattr(self, "_grasp_first", False) and not getattr(self, "_gate_open", False):
+            return False                      # 阶段A 还没毕业
+        if raw.gentle < 0.995:                # 笨拙课程 (两种任务都有)
+            return False
+        if not getattr(c, "approach", False):
+            return True                       # grasp-only: 只有笨拙课程
+        if c.direct_grasp_prob > 0.1 + 1e-6 or getattr(c, "approach_t0_max", 0.0) > 1e-6:
+            return False
+        if hasattr(raw, "_eps_final"):        # 单调收紧, 落点是精确的 final 值
+            if c.eps_pos > raw._eps_final[0] * 1.01 or c.eps_rot > raw._eps_final[1] * 1.01:
+                return False
+        if not getattr(self, "_no_imit", False) and getattr(c, "w_imit_ramp", 1.0) < 0.999:
+            return False
+        return True
+
+    def _curriculum_signature(self, raw):
+        """所有课程变量的快照. 两次评测之间**完全没变** = 课程停摆.
+
+        为什么需要它: 每条课程的驱动量都是成功率 (gentle←sr_slow, eps←ar_slow,
+        dgp←sr_slow), 成功率卡在低位时课程**也一起冻住**, `_curriculum_done`
+        永远为假 —— 于是最该早停的绝望 run (sr 卡 2%) 反而永远停不下来。
+        课程没在推进时"任务变难"这个理由不成立, 平坦就是真的没学到, 允许判平台期。
+        (solved 分支不放行: 课程没退火完的高成功率是在更容易的任务上刷的.)
+        """
+        c = raw.cfg
+        return (round(float(raw.gentle), 4),
+                round(float(getattr(c, "direct_grasp_prob", 0.0)), 4),
+                round(float(getattr(c, "approach_t0_max", 0.0)), 4),
+                round(float(getattr(c, "eps_pos", 0.0)), 6),
+                round(float(getattr(c, "eps_rot", 0.0)), 6),
+                round(float(getattr(c, "w_imit_ramp", 0.0)), 4),
+                bool(getattr(self, "_gate_open", False)))
+
+    @torch.no_grad()
+    def deterministic_eval(self, steps: int):
+        """进程内确定性评测 (只跑 mu, 无 sigma 采样), 口径 = eval.py 口径A.
+
+        **每个 env 只记第一个完成回合** -> n = num_envs 个独立样本。不这么做的话
+        (像 eval.py 现在那样在固定步窗里数所有完成回合) 会系统性**高估**: 成功回合
+        短 (提前 terminated), 同样时间里能多跑几个, 窗口边界偏向成功。
+        """
+        raw = self._raw_env
+        n, dev = raw.num_envs, raw.device
+        self.set_eval()          # 同时把 running_mean_std 切 eval -> 评测数据不污染归一化统计量
+        with eval_distribution(raw):
+            obs = self.env.reset()
+            done_once = torch.zeros(n, dtype=torch.bool, device=dev)
+            succ = torch.zeros(n, dtype=torch.bool, device=dev)
+            used = steps
+            for t in range(steps):
+                inp = {"obs": self.running_mean_std(obs["obs"]),
+                       "priv_info": obs["priv_info"]}
+                if self.use_pc:
+                    inp["pointcloud"] = obs["pointcloud"]
+                act = torch.clamp(self.model.act_inference(inp), -1.0, 1.0)
+                obs, _r, done, _info = self.env.step(act)
+                d = done.bool()
+                succ |= d & ~done_once & raw._sig["newly_success"]
+                done_once |= d
+                if bool(done_once.all()):
+                    used = t + 1
+                    break
+        # ⚠ 训练侧 obs 必须重取: 上面 reset 打断了 1024 个在跑的回合, self.obs 已失效
+        self.obs = self.env.reset()
+        self.set_train()
+        return float(succ.float().mean()), int(done_once.sum()), used
+
+    def maybe_eval_and_stop(self):
+        """epoch 边界钩子 (ckpt 刚落盘的干净点). 由 train.py 与 gpu_guard 让出点串联."""
+        if self._auto_stop == "off" or self.epoch_num % self._eval_every:
+            return
+        raw = self._raw_env
+        curr_ok = self._curriculum_done(raw)
+        sig = self._curriculum_signature(raw)
+        stalled = (sig == self._last_curr_sig)      # 首次评测 _last=None -> False
+        self._last_curr_sig = sig
+        sr, n_done, used = self.deterministic_eval(self._eval_steps)
+        self.writer.add_scalar("eval/success_rate", sr, self.agent_steps)
+        self.writer.add_scalar("eval/curriculum_done", float(curr_ok), self.agent_steps)
+        self.writer.add_scalar("eval/curriculum_stalled", float(stalled), self.agent_steps)
+        self._eval_hist.append(dict(agent_steps=int(self.agent_steps), epoch=int(self.epoch_num),
+                                    sr=round(sr, 4), curriculum_done=bool(curr_ok),
+                                    curriculum_stalled=bool(stalled)))
+        if n_done < raw.num_envs:
+            print(f"[eval] ⚠ 只有 {n_done}/{raw.num_envs} 个 env 在 {used} 步内跑完一回合 —— "
+                  f"--eval_steps 需要 > 回合上限", flush=True)
+
+        st = self._stopper
+        was_best = sr > st.best_sr
+        reason = st.update(sr, curr_ok, stalled, self.agent_steps)
+        if was_best:
+            # ⚠ 与基类的 best.pth 不同: 那个按 mean_rewards 存, 多项奖励里回报高 ≠ 成功率高
+            self.save(os.path.join(self.nn_dir, "eval_best"))
+
+        # flush: Isaac 的 C 层和 Python 共用 fd 但缓冲策略不同, 不 flush 的话这几行会被
+        # 吞掉 (冒烟实测 49 条进度只落盘 5 条). 判停结论也落 auto_stop.json + TB, 双保险.
+        print(f"[eval] ep{self.epoch_num} {self.agent_steps/1e6:.1f}M | 确定性成功率 "
+              f"{sr*100:6.2f}% (n={n_done}) | 最佳 {st.best_sr*100:.2f}% | "
+              f"课程{'已到位' if curr_ok else ('停摆' if stalled else '推进中')} | "
+              f"达标{st.hits} 平台{st.stale}", flush=True)
+        with open(self._stop_path, "w") as f:
+            json.dump(dict(mode=self._auto_stop, best_sr=st.best_sr,
+                           fired=st.fired, history=self._eval_hist), f, indent=1)
+        if reason:
+            print(f"[auto_stop] 触发 @ {self.agent_steps/1e6:.2f}M 步 ({self.epoch_num} epoch): {reason}",
+                  flush=True)
+            if self._auto_stop == "on":
+                # 不动基类循环结构: 把上限拉到当前步数, while 条件下一轮自然为假
+                self.max_agent_steps = self.agent_steps
+                print("[auto_stop] 结束训练 (最佳权重在 stage1_nn/eval_best.pth)", flush=True)
+            else:
+                print("[auto_stop] dry-run: **只报告不停止**, 继续训练以便对照判据是否过早/过晚",
+                      flush=True)
 
 
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -247,6 +489,21 @@ if _prior:
     apply_grasp_prior(env_cfg, _prior, args.prior_yaw, approach=args.approach)
 elif args.approach:
     raise SystemExit("--approach 必须配 prior (对齐势的终点来自 GraspPose)")
+if args.approach_only:
+    if not args.approach:
+        raise SystemExit("--approach_only 必须同时给 --approach (要接近段的相位机)")
+    env_cfg.approach_only = True
+    env_cfg.retract_start = True
+    # ★ **训练**的课程初值 = 最简单端。cfg 里的默认 1.0/1.0 是**评测口径**
+    #   (全部从站姿起步), 训练必须从 0 起, 由 sr_slow 逐步拉满。
+    #   两个旋钮都是"越大越难" —— 与 approach_t0_max 方向相反, 别混
+    #   (2026-08-16 就是混了这个, 评测被改成"空降到终点", DESIGN_LOOP §2.24)。
+    env_cfg.retract_ratio = 0.0
+    env_cfg.stance_prob = 0.0
+    print(f"[approach_only] 只学接近: 站姿->GraspPose | 预算 "
+          f"{env_cfg.approach_only_steps} 步 | 到位判据 "
+          f"{env_cfg.eps_pos0*100:.0f}cm/{env_cfg.eps_rot0*57.3:.0f}° 保持 "
+          f"{env_cfg.switch_hold} 步 | 硬终止: 臂外壳穿桌 / 手碰物体")
 env_cfg.scene.num_envs = args.num_envs
 env_cfg.seed = args.seed
 agent_cfg["seed"] = args.seed
@@ -320,8 +577,24 @@ if args.grasp_first or args.start_jitter:
     print(f"[grasp_first] 起点抖动池 {len(_qs)} 位形 (≤{env_cfg.eps_pos0*100:.0f}cm/"
           f"≤{_np.degrees(env_cfg.eps_rot0):.0f}°, 含 64 精确起点; IK 命中 "
           f"{len(_qs)-64}/{_tries}) | 毕业线 {args.gf_target}")
+agent._auto_stop = args.auto_stop
+agent._eval_every, agent._eval_steps = args.eval_every, args.eval_steps
+agent._stopper = StopDecider(target_sr=args.stop_target_sr, target_hits=args.stop_target_hits,
+                             patience=args.stop_patience, delta=args.stop_delta,
+                             min_steps=int(args.stop_min_steps))
+if args.auto_stop != "off":
+    assert args.eval_steps > env_raw.ep_total, \
+        (f"--eval_steps {args.eval_steps} ≤ 回合上限 {env_raw.ep_total} —— "
+         f"会有 env 跑不完一回合, 成功率分母不是 num_envs")
+    print(f"[auto_stop] {args.auto_stop} | 每 {args.eval_every} epoch 评测 "
+          f"({args.num_envs} env × ≤{args.eval_steps} 步) | 达标线 {args.stop_target_sr:.0%}"
+          f"×{args.stop_target_hits} | 平台期 {args.stop_patience} 次未涨 {args.stop_delta:.0%}"
+          f" | {args.stop_min_steps/1e6:.0f}M 步前不停")
+
 # 录像让出点: epoch 边界检查暂停请求, 避免两个 Isaac 同时满载触发电源 OCP
-agent.epoch_hook = _slot.yield_if_paused
+# ⚠ 串联而非覆盖 —— 直接赋值会把 gpu_guard 的让出点顶掉 (录像再也拿不到卡)
+_yield_slot = _slot.yield_if_paused
+agent.epoch_hook = lambda: (_yield_slot(), agent.maybe_eval_and_stop())
 
 if args.resume and agent_cfg["load_path"] not in (None, "None"):
     print(f"[train] resume from {agent_cfg['load_path']}")

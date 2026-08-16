@@ -17,6 +17,8 @@ parser.add_argument("--grasp_prior", type=str, required=True)
 parser.add_argument("--prior_yaw", type=float, default=-1.0)
 parser.add_argument("--stance_prefix", type=int, default=0)
 parser.add_argument("--num_envs", type=int, default=8)
+parser.add_argument("--force_calib", action="store_true",
+                    help="强制应用零位校准 (绕过 参与指<=2 的放行判据), 用于 A/B")
 parser.add_argument("--no_calib", action="store_true",
                     help="关掉垫↔接触零位校准 (A/B: 它到底是帮忙还是帮倒忙)")
 AppLauncher.add_app_launcher_args(parser)
@@ -41,7 +43,10 @@ env_cfg.scene.num_envs = args.num_envs
 env_cfg.direct_grasp_prob = 1.0      # 全部从 prior 抓握位起步 = 门控本该完全打开的情形
 env_cfg.closure_init_max = 0.0
 if args.no_calib:
-    env_cfg.pad_contact_calib = False   # A/B: 关掉 2.2cm 零位校准
+    env_cfg.pad_contact_calib = False   # A/B: 关掉零位校准
+if args.force_calib:                    # A/B: 强制开 (绕过包络抓的放行判据)
+    env_cfg.pad_calib_max_fingers = 5
+    print("[A/B] 强制应用零位校准 (pad_calib_max_fingers=5, 绕过放行判据)")
 raw = GraspTaskEnv(env_cfg)
 raw.reset()
 
@@ -89,5 +94,20 @@ for t in range(1, 121):
     print(f"{t:>4} {raw.closure.mean():>8.3f} "
           f"{(float(pads.float().mean()) if pads is not None else float('nan')):>9.2f} "
           f"{g.mean():>6.3f} {dz.mean():>11.2f}")
-print("\n(n_contacts/pads 长期 0 = prior 在当前场景够不到物体 -> 场景改动把任务改坏了)")
+print("\n(pads 长期 0 = prior 在当前场景抓不住)")
+
+# ---- 归因: 0 个指垫是"够不着"还是"用错部位碰上了" ----------------------
+# pad_d = 每个指垫(elastomer link 原点)到物体表面的最近距离。
+#   全部 >1cm  -> 够不着 (手合拢到底仍离物体远)
+#   有的 ~0 但 pads_on=0 -> 碰上了但判据不认 (接触力阈值/法向条件没过)
+#   物体被顶动而 pad_d 大 -> 用**非指垫部位**(指节/掌)碰的
+_pd, _pn, _ = raw._pad_dist_normal()
+print("\n[归因] 逐指 指垫->物体表面 最近距离 (cm, 合拢到底时):")
+_names = ["thumb", "index", "middle", "ring", "pinky"]
+for _i, _nm in enumerate(_names):
+    print(f"    {_nm:<7s} {(_pd[:, _i] * 100).mean():>7.2f} cm"
+          f"   (最近的 env {(_pd[:, _i] * 100).min():.2f})")
+print(f"    -> 五指均值 {(_pd * 100).mean():.2f} cm; "
+      f"物体位移 dz={dz.mean():.2f}mm")
+print("    判读: 距离大而物体被顶动 = 用非指垫部位碰的; 距离小而 pads=0 = 判据没认。")
 app.close()

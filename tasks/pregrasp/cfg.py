@@ -180,7 +180,8 @@ class GraspTaskCfg(DexmateCorrectionEnvCfg):
     #   实测参照: GraspPose 处该值 11~20mm; 标注触发点 f8 处约 10cm。
     finger_gate_far_cm = 10.0     # 远于它 = 手指完全冻结
     finger_gate_near_cm = 3.0     # 近于它 = 完全放开
-    finger_gate_on = True         # 关掉 = 退回旧的纯相位门(对照实验用)
+    # 逃生阀 RL_FINGER_GATE=0 关掉 = 退回旧的纯相位门(消融对照用)
+    finger_gate_on = os.environ.get("RL_FINGER_GATE", "1") != "0"
 
     # ================= 手部动作空间 (2026-08-15, 用户裁定"手完全放开") =================
     # "closure" (默认, 旧行为不变): a = [Δq_arm(7), a_c(1), a_δ(5)] = 13

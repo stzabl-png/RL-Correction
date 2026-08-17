@@ -93,10 +93,12 @@ print(f"  到位判据 eps_pos={cfg.eps_pos*100:.1f}cm eps_rot="
       f"{__import__('numpy').degrees(cfg.eps_rot):.1f}° 保持 {cfg.switch_hold} 步")
 print(f"  硬终止 手->物体 < {cfg.approach_hit_obj_m*100:.1f}cm | 臂外壳离桌 < 0")
 
-check("A 最简单", 0.0, 0.0, "全部在路径终点(GraspPose)")   # 顺带打印生效的奖励项
-check("B 半程", 0.5, 0.0, "起点铺在路径后半段")
-check("C 全路径", 1.0, 0.0, "起点铺满整条路径(含站姿前缀段)")
-check("D 正式口径", 1.0, 1.0, "全部从站姿出发(评测钉死 j0=0)")
+# 两段式课程: ① ratio 0→1 放宽下界  ② stance_prob(far_bias) 0→1 压低上界
+check("A ratio=0", 0.0, 0.0, "全部在路径终点(最易)")   # 顺带打印生效的奖励项
+check("B ratio=0.5", 0.5, 0.0, "下界放到半程")
+check("C ratio=1", 1.0, 0.0, "铺满整条路径")
+check("D bias=0.5", 1.0, 0.5, "上界压到半程 -> 重心移向远端")
+check("E bias=1 正式口径", 1.0, 1.0, "全部从站姿出发 = 评测分布")
 
 print("\n" + "=" * 70)
 if fails:

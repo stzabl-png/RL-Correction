@@ -984,7 +984,15 @@ class GraspTaskEnv(DexmateCorrectionEnv):
         M = int(cfg.retract_levels)
         from rl_rebuild.correction.kinematics import quat_to_R
         Rg = quat_to_R(np.asarray(gq, np.float64))
-        ds = np.linspace(0.0, D, M)
+        # ★ 档位间距: **近处密、远处疏**(2026-08-16 实测定位)。
+        # 等距切分时每档 D/(M-1) = 24.6/23 ≈ **1.07cm**, 而到位判据的位置窗口只有
+        # 1.04cm ⟹ 前馈播到最后一步直接**跨过**窗口而不是落进去。实测: 确定性策略
+        # 在离目标最近那一刻 实际 1.62cm / 命令 1.75cm / **腕速 18.84cm/s**
+        # (参考段自身速度 21.4cm/s, 对得上) —— 是"高速掠过"不是"停在门口",
+        # 位置达标率 0.0% 就是这么来的(判据体检 §2.25)。
+        # 幂次分布让最后几档的步长落到毫米级, 腕速自然降到判据的 5cm/s 以内。
+        _u = np.linspace(0.0, 1.0, M) ** float(cfg.retract_spacing_p)
+        ds = D * _u
 
         def _try(lam):
             u = r_hat + lam * np.array([0.0, 0.0, 1.0])
@@ -2133,8 +2141,16 @@ class GraspTaskEnv(DexmateCorrectionEnv):
                 #   不能靠"均匀抽恰好抽到 0"的概率 —— 评测必须是确定的分布。
                 t0 = torch.zeros(n, dtype=torch.long, device=dev)
             else:
-                _lo = (1.0 - max(float(cfg.retract_ratio), 0.0)) * (_L - 1)
-                j0 = (_lo + torch.rand(n, device=dev) * (_L - 1 - _lo)).round().long()
+                # 两段式课程 (2026-08-16 用户裁定: "一开始多在近处, 能力上来了加大远端概率,
+                # 直到完全退火")。路径下标: j0=L-1 是终点(最易), j0=0 是站姿(最难)。
+                #   ① retract_ratio 0→1 放宽**下界**: 从"只在终点"扩到"铺满整条路"
+                #   ② stance_prob   0→1 压低**上界**: 从"铺满"收到"全部在最远端"
+                # ⚠ 第②段是我 2026-08-16 合并课程时**删掉的**(原 stance_prob), 结果
+                #   拉满后永远是均匀分布, 最远那一档只占 1/84 —— 而评测 100% 考最远档。
+                #   TB 0.37~0.55(均匀平均) vs 评测 0.00%(全最远) 就是这么来的。
+                _hi = (1.0 - min(max(float(cfg.stance_prob), 0.0), 1.0)) * (_L - 1)
+                _lo = min((1.0 - max(float(cfg.retract_ratio), 0.0)) * (_L - 1), _hi)
+                j0 = (_lo + torch.rand(n, device=dev) * (_hi - _lo)).round().long()
                 t0 = j0.clamp(0, _L - 1)
             q_ret = self.retract_path[t0]                              # (n,7)
             start_grasp = torch.zeros(n, dtype=torch.bool, device=dev)  # 全走接近相位

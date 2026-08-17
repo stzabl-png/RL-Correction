@@ -330,10 +330,16 @@ class MilestonePPO(PPO):
         # (学会从站姿这个更远、姿态也不同的起点出发)。
         if raw is not None and getattr(raw.cfg, "retract_start", False):
             g = min(self._sr_slow / 0.3, 1.0)
-            # 起点已改为在**整条参考路径**上均匀抽, 所以只剩 retract_ratio 一条:
-            #   0 = 全在终点(最易)  ->  1 = 铺满整条路(含站姿, 最难)
-            # stance_prob 只保留"评测钉死站姿"这一个用途(=1.0), 训练期恒 0。
-            raw.cfg.retract_ratio = max(raw.cfg.retract_ratio, min(1.0, g))
+            # 两段式 (2026-08-16 用户裁定, 恢复我误删的第②段):
+            #   ① g∈[0,0.5]: retract_ratio 0→1  放宽下界, 从"只在终点"扩到"铺满整条路"
+            #   ② g∈[0.5,1]: stance_prob  0→1  压低上界, 从"铺满"收到"全部最远端"
+            #   bias=1 时训练分布 **完全等于** 评测分布(全部从站姿出发)。
+            # ⚠ 只有第②段能让"最远那一档"从 1/84 变成 100% —— 少了它, 拉满后仍是均匀,
+            #   而评测 100% 考最远档, 于是 TB 高、评测 0(2026-08-16 实测 0.37~0.55 vs 0%)。
+            raw.cfg.retract_ratio = max(raw.cfg.retract_ratio, min(1.0, 2.0 * g))
+            raw.cfg.stance_prob = max(raw.cfg.stance_prob,
+                                      min(1.0, max(0.0, 2.0 * g - 1.0)))
+            self.writer.add_scalar("curr/far_bias", raw.cfg.stance_prob, self.agent_steps)
             self.writer.add_scalar("curr/retract_ratio", raw.cfg.retract_ratio,
                                    self.agent_steps)
 

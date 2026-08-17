@@ -342,7 +342,12 @@ class GraspTaskCfg(DexmateCorrectionEnvCfg):
     # 中段还倒退 8cm, 且臂外壳刮桌 −1.76cm; 而退避族 IK 全通、间隙单调、任务永远可解。
     retract_start = os.environ.get("RL_RETRACT_START", "0") == "1"
     retract_dmax_k = 1.5         # D = 这个倍数 × d_g(手座->物体中心距离); 自标定不写死厘米
-    retract_levels = 24          # 起点族离散级数
+    retract_levels = 32          # 起点族离散级数
+    # 档位间距的幂次: d_k = D·(k/(M-1))^p。p=1 等距(原行为), p>1 近处密。
+    # 为什么必须 >1: 等距时每档 1.07cm 而到位窗口 1.04cm, 前馈最后一步**跨过**窗口
+    # (实测掠过速度 18.84cm/s vs 判据 5cm/s)。p=2、M=32 时最后一档步长 ≈1.5mm,
+    # 折合 3cm/s, 落在判据内。
+    retract_spacing_p = 2.0
     retract_lambda_max = 2.0     # 准入门抬升上限: û = normalize(r̂ + λ·ẑ), λ 从 0 逐级试
     retract_drop_tol = 0.005     # m, 允许的逐级外壳下降容差 (>这个就算"退避时朝桌面去")
 

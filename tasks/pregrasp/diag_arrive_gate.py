@@ -86,7 +86,12 @@ v_at_pr = torch.full((N,), float("nan"), device=dev)
 
 from rl_rebuild.correction.kinematics import ArmIK as _AIK
 _IK = _AIK(cfg.hand_side, anchor_link="arm_center", anchor_T=raw._anchor_T)
-tail_cmd, tail_act, tail_res, tail_a = [], [], [], []
+_gp_np = raw._grasp_pos_w.cpu().numpy().astype(np.float64)
+snap_dp = torch.full((N,), 1e9, device=dev)     # 迄今最近的位置差
+snap_cmd = torch.full((N,), float("nan"), device=dev)   # 那一刻的命令离目标
+snap_res = torch.zeros(N, device=dev)
+snap_act = torch.zeros(N, device=dev)
+snap_v = torch.zeros(N, device=dev)
 obs = env.reset()
 with torch.no_grad():
     for st in range(args.steps):
@@ -106,20 +111,20 @@ with torch.no_grad():
         n_all += (pr & ok_v).float()
         v_at_pr = torch.where(pr & torch.isnan(v_at_pr), v, v_at_pr)
         best_run = torch.maximum(best_run, raw.switch_run.float())
-        # ---- 为什么停在门口: 命令值 vs 实际值 vs 目标 ----
-        # A 命令已到目标、实际差 1.6cm  -> 运动中的跟踪误差
-        # B 命令本身就差 1.6cm          -> 策略没在往前推(奖励结构问题)
-        if st >= args.steps - 6:                     # 只统计回合末尾几步
-            # 命令位形的末端位置: 用 ArmIK 的 FK (逐 env 太慢, 只取前 32 个样本)
-            _qc = raw.arm_tgt[:32].cpu().numpy().astype(np.float64)
-            _fk = np.stack([_IK.fk(q)[0] for q in _qc])
-            _gp = raw._grasp_pos_w.cpu().numpy().astype(np.float64)
-            _cmd_d = torch.tensor(np.linalg.norm(_fk - _gp[None], axis=1),
-                                  dtype=torch.float32, device=dev)
-            tail_cmd.append(_cmd_d)
-            tail_act.append(dp[:32])
-            tail_res.append(raw.res_step_cm[:32])
-            tail_a.append(raw.actions_buf[:32, :7].abs().mean(dim=1))
+        # ---- 为什么停在门口: 在**离目标最近那一刻**取样 ----
+        # ⚠ 不能按"固定第 N 步"取 —— 回合上限 250 步而我跑 260 步, 末尾 6 步测到的是
+        #   **刚复位的新回合**(实测 29.3cm = 站姿距离), 完全无意义。踩过一次。
+        _better = dp < snap_dp
+        if bool(_better.any()):
+            _qc = raw.arm_tgt.cpu().numpy().astype(np.float64)
+            _idx = torch.nonzero(_better, as_tuple=False).squeeze(-1)
+            for _i in _idx[:64].tolist():          # 逐个 FK 很慢, 每步最多更新 64 个
+                _fkp = _IK.fk(_qc[_i])[0]
+                snap_cmd[_i] = float(np.linalg.norm(_fkp - _gp_np))
+            snap_res[_better] = raw.res_step_cm[_better]
+            snap_act[_better] = raw.actions_buf[:, :7].abs().mean(dim=1)[_better]
+            snap_v[_better] = v[_better]
+            snap_dp = torch.where(_better, dp, snap_dp)
 
 f = lambda t: (t > 0).float().mean().item() * 100.0
 print(f"\n{'=' * 78}")
@@ -135,19 +140,16 @@ print(f"  ③ 腕速达标过的 env : {f(n_v):5.1f}%")
 print(f"  ①②同时达标过的 env: {f((n_p > 0) & (n_r > 0)):5.1f}%")
 print(f"  ①②③同时达标过    : {f(n_all):5.1f}%")
 print(f"  连续满足最长步数    : max {best_run.max():.0f} 步 (需要 {cfg.switch_hold} 步)")
-if tail_cmd:
-    _c = torch.stack(tail_cmd).mean(0)
-    _a = torch.stack(tail_act).mean(0)
-    _r = torch.stack(tail_res).mean(0)
-    _u = torch.stack(tail_a).mean(0)
+_mc = ~torch.isnan(snap_cmd)
+if bool(_mc.any()):
     print("-" * 78)
-    print("  [为什么停在门口] 回合末尾 6 步的均值:")
-    print(f"    **命令**位形离目标 : {_c.median()*100:6.2f} cm")
-    print(f"    **实际**位形离目标 : {_a.median()*100:6.2f} cm")
-    print(f"    每步残差用量       : {_r.median():6.3f} cm  (上限 0.5cm)")
-    print(f"    策略动作幅度|a|均值 : {_u.median():6.3f}  (满量程 1.0)")
-    print(f"    判读: 命令≈目标而实际差一截 -> 跟踪误差; "
-          f"命令本身就差 -> 策略没在推")
+    print("  [为什么停在门口] 在**离目标最近那一刻**取样:")
+    print(f"    实际离目标 : {snap_dp[_mc].median()*100:6.2f} cm")
+    print(f"    **命令**离目标 : {snap_cmd[_mc].median()*100:6.2f} cm   "
+          f"← 与实际接近 ⟹ 不是跟踪误差; 明显更小 ⟹ 跟踪不上")
+    print(f"    该刻残差用量 : {snap_res[_mc].median():6.3f} cm")
+    print(f"    该刻动作幅度 : {snap_act[_mc].median():6.3f}  (满量程 1.0)")
+    print(f"    该刻腕速     : {snap_v[_mc].median()*100:6.2f} cm/s")
 _m = ~torch.isnan(v_at_pr)
 if bool(_m.any()):
     print(f"  ①②达标那一刻的腕速 : 中位 {v_at_pr[_m].median()*100:.1f}cm/s "

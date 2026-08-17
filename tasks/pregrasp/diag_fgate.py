@@ -96,6 +96,36 @@ for t in range(1, 121):
           f"{g.mean():>6.3f} {dz.mean():>11.2f}")
 print("\n(pads 长期 0 = prior 在当前场景抓不住)")
 
+# ---- 指令位形 vs 物理稳态: 到位判据的位置项到底能不能达到 ----
+# 2026-08-16: 确定性策略在所有起点上位置差都停在 1.60~1.62cm(门槛 1.04cm), 而朝向
+# 0.44°、腕速 100% 达标 ⟹ 卡在**精度**且是**系统性**的(256 env 几乎同一个值)。
+# 代码里早有记录:"指令位形 ≠ 物理稳态, 实测 PD 稳态肘角与 IK 解差 8.4°"。
+# 这里把臂直接命令到 GraspPose 的精确 IK 解、让物理稳定, 量 d_pos ——
+# 若它本身就 >1.04cm, 则**任何策略都过不了这个判据**, 与学习无关。
+print("\n[指令 vs 稳态] 把臂命令到 GraspPose 的 IK 解, 静置后量到位误差:")
+q_all = raw.hand.data.joint_pos[0].clone()
+q_all[raw.arm_jids] = raw._prior_q_grasp
+q_all[raw.hand_jids] = raw.q_open
+qa = q_all.unsqueeze(0).expand(raw.num_envs, -1).contiguous()
+raw.hand.write_joint_state_to_sim(qa, torch.zeros_like(qa))
+raw.hand.set_joint_position_target(qa)
+raw.arm_tgt[:] = raw._prior_q_grasp
+raw.q_cmd[:] = raw._prior_q_grasp
+import numpy as _np
+for _k in range(120):
+    raw.hand.set_joint_position_target(qa)
+    raw.hand.write_data_to_sim()
+    raw.sim.step(render=False)
+    raw.scene.update(0.0)
+    if _k in (0, 9, 29, 59, 119):
+        dp, dr, _ = raw._align_err()
+        _qe = (raw.arm_q - raw._prior_q_grasp.unsqueeze(0)).abs().max(dim=1).values
+        print(f"   静置 {_k+1:>3} 步: 位置差 {dp.mean()*100:6.2f}cm  朝向差 "
+              f"{_np.degrees(dr.mean().item()):5.2f}°  最大关节误差 "
+              f"{_np.degrees(_qe.mean().item()):5.2f}°")
+print(f"   判读: 位置差 > {raw.cfg.eps_pos*100:.2f}cm(门槛) ⟹ 该位姿在当前增益下"
+      f"**物理上到不了**, 任何策略都过不了判据。")
+
 # ---- 归因: 0 个指垫是"够不着"还是"用错部位碰上了" ----------------------
 # pad_d = 每个指垫(elastomer link 原点)到物体表面的最近距离。
 #   全部 >1cm  -> 够不着 (手合拢到底仍离物体远)

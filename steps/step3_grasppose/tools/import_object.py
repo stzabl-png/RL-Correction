@@ -26,6 +26,38 @@ import trimesh
 ASSET_ROOT = os.path.join(os.path.dirname(__file__), "..", "assets", "object", "custom")
 
 
+def source_fingerprint(mesh_path):
+    """源 mesh 的来源指纹, 写进 info/simplified.json。
+
+    为什么必须有(2026-08-17): 一个 GraspPose 是在**哪一版重建的哪个 mesh** 上算出来的,
+    此前完全无法从产物里查证。踩到的两件事:
+      * RL 侧问"你的 prior 和轨迹是不是同源", 我只能靠"本机只有一版"倒推 —— 换台机器就答不了
+      * 实测 RL 的 clip 用 datasets/pour17/ 里 **4 万顶点的简化版**, 而 Step3 用 take 里
+        **33 万顶点的原版**(同一物体不同细分, 外形差 0.01cm)。这次没出事, 但没指纹就查不动
+    RL 侧 make_prior.py 会把这几个字段透传进 prior npz, 并在训练启动横幅上与 clip 的
+    轨迹来源对拍 —— "prior 与轨迹同源"从事后倒推变成启动时自动核验。
+
+    ★ `source_sha1` 才是权威, `source_mtime` 只作提示 —— git clone **不保留 mtime**
+      (rl_rebuild/correction/paths.py::is_bundled 那条注释就是踩这个踩出来的)。
+    """
+    import hashlib
+    p = os.path.abspath(mesh_path)
+    h = hashlib.sha1()
+    with open(p, "rb") as f:
+        for blk in iter(lambda: f.read(1 << 20), b""):
+            h.update(blk)
+    # take 目录 = mesh 往上到含 world_fused.npz 的那一层(objects/<oid>/mesh.obj -> take)
+    take = None
+    d = os.path.dirname(p)
+    for _ in range(4):
+        if os.path.isfile(os.path.join(d, "world_fused.npz")):
+            take = d
+            break
+        d = os.path.dirname(d)
+    return {"source_mesh": p, "source_sha1": h.hexdigest(),
+            "source_mtime": os.path.getmtime(p), "source_take": take}
+
+
 def quat_from_z_to(v):
     z = np.array([0.0, 0.0, 1.0])
     d = float(np.dot(z, v))
@@ -170,7 +202,8 @@ def main():
                "density": float(args.mass / max(m.volume, 1e-9)), "mass": args.mass,
                "com_offset": com.tolist(),
                "canonical_from_input_rot_wxyz": np.roll(
-                   Rot.from_matrix(R_c2i.T).as_quat(), 1).tolist()},
+                   Rot.from_matrix(R_c2i.T).as_quat(), 1).tolist(),
+               **source_fingerprint(args.mesh)},
               open(f"{pdir}/info/simplified.json", "w"), indent=1)
 
     # canonical frame is z-up by construction: table plane at the lowest vertex.

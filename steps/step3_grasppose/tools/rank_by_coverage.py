@@ -76,6 +76,22 @@ def main():
     ap.add_argument("--top", type=int, default=15)
     ap.add_argument("--copy-top-to", default=None)
     ap.add_argument("--json", default=None, help="把前 --top 名写成 json(给 run_take.py 汇总)")
+    ap.add_argument("--reach-json", default=None,
+                    help="tools/reach_filter.py 的产物。默认按**软信号**计分(Δψ 越小越好), "
+                         "不淘汰 —— 见 --reach-hard。")
+    ap.add_argument("--w-reach", type=float, default=0.3,
+                    help="可达性权重: Δψ(可达带里离视频 yaw 最近的偏差)越小越好")
+    ap.add_argument("--reach-dpsi-tol", type=float, default=30.0,
+                    help="Δψ 超过它记 0 分")
+    ap.add_argument("--reach-hard", action="store_true",
+                    help="把可达性当**硬闸**(够不到直接出局)。"
+                         "⚠ 2026-08-17 **暂不要开**: RL 侧查出 Gate 1 与 env 解的不是同一个"
+                         "末端坐标系 —— Gate 1 用 `ArmIK(hand)` 的 URDF **名义基座**, 而 env 用 "
+                         "`ArmIK(hand, anchor_link='arm_center', anchor_T=...)`, 后者从活着的 "
+                         "articulation 读**实测**臂基座位姿。`dexmate_env.py:290` 的注释写明为什么"
+                         "不能用名义值: '躯干沉降几度就让整条臂的基座偏掉, q_ref 会是个到不了的目标'。"
+                         "实测已打架: Gate 1 判可达(Δψ 5.5°)的杯候选, env 里 IK 够不着、连摆都摆不上。"
+                         "⇒ 当排序键(软信号)可以, 当判死线不行。等 anchor_T 接进 Gate 1 再开。")
     ap.add_argument("--no-lift-ref", action="store_true",
                     help="不把过低的目标接触高度抬到安全高度(诊断用)。默认**抬** —— 见下方注释")
     a = ap.parse_args()
@@ -220,22 +236,62 @@ def main():
             ref_note = (f" → 抬到 {ref_eff:.0f}% (该高度处手必撞桌: 手在接触点下还挂 "
                         f"{drop*100:.1f}cm, 加 {a.min_clearance*100:.1f}cm 离桌余量)")
 
+    # ── 可达性(可选): Δψ = 可达带里离视频 yaw 最近的偏差
+    def _rkey(p):
+        """匹配键。★不能只用路径: `--copy-top-to` 会把 npy 复制一份并加上 `{模板}__` 前缀,
+        于是同一个候选在 grasp_data/ 里叫 `A__1_8_grasp.npy`、在 top/ 里叫
+        `A__A__1_8_grasp.npy`。这里把重复的前缀折掉, 两边就对得上了。"""
+        b = os.path.basename(p)
+        q = b.split("__")
+        if len(q) >= 3 and q[0] == q[1]:
+            b = "__".join(q[1:])
+        return b
+
+    reach = {}
+    if a.reach_json:
+        import json as _j
+        for x in _j.load(open(a.reach_json))["rows"]:
+            reach[os.path.realpath(x["npy"])] = x
+            reach[_rkey(x["npy"])] = x
+    n_rej_reach = 0
+    if reach and a.reach_hard:
+        keep = []
+        for r in rows:
+            x = reach.get(os.path.realpath(r["f"])) or reach.get(_rkey(r["f"]))
+            if x and x.get("ok"):
+                keep.append(r)
+            else:
+                n_rej_reach += 1        # ★未测过的也出局: 未测 ≠ 可达
+        rows = keep
+        if not rows:
+            raise SystemExit("可达性硬闸把候选全筛光了")
+
     use_clr = table_z is not None
     use_hgt = ref_eff is not None and table_z is not None
-    wsum = a.w_cov + (a.w_clr if use_clr else 0) + (a.w_hgt if use_hgt else 0) + a.w_elev
+    use_rch = bool(reach)
+    wsum = (a.w_cov + (a.w_clr if use_clr else 0) + (a.w_hgt if use_hgt else 0)
+            + a.w_elev + (a.w_reach if use_rch else 0))
     for r in rows:
         s_clr = min(max(r["clr"], 0.0) / 0.05, 1.0) if use_clr else 0.0
         s_hgt = max(0.0, 1 - abs(r["ch_pct"] - ref_eff) / a.hgt_tol) if use_hgt else 0.0
         s_elev = 1 - min(max(abs(r["elev"]) - a.elev_free, 0.0) / a.elev_span, 1.0)
+        x = (reach.get(os.path.realpath(r["f"])) or reach.get(_rkey(r["f"]))) if use_rch else None
+        r["dpsi"] = x.get("dpsi") if x else None
+        r["best_yaw"] = x.get("best_yaw") if x else None
+        s_rch = (max(0.0, 1 - r["dpsi"] / a.reach_dpsi_tol)
+                 if (x and x.get("ok") and r["dpsi"] is not None) else 0.0)
         r["score"] = (a.w_cov * r["cov"] + (a.w_clr * s_clr if use_clr else 0)
                       + (a.w_hgt * s_hgt if use_hgt else 0)
-                      + a.w_elev * s_elev) / max(wsum, 1e-9)
+                      + a.w_elev * s_elev
+                      + (a.w_reach * s_rch if use_rch else 0)) / max(wsum, 1e-9)
 
     print(f"热点 {len(hot)} 个, 覆盖半径 {a.r*100:.0f}cm, 虎口闸 >= {a.min_thumb_z}"
           + (f", 腔内闸 <= {a.max_cavity:.0%} (拒绝 {n_rej_cav[0]})" if hull_pl is not None else "")
           + (f", 离桌 >= {a.min_clearance*100:.1f}cm (拒绝 {n_rej_clr[0]})" if table_z is not None else "")
           + (f", 视频接触带 {a.ref_height:.0f}%±{a.hgt_tol:.0f}{ref_note}"
-             if a.ref_height is not None else ""))
+             if a.ref_height is not None else "")
+          + (f", 可达性{'硬闸(拒绝 ' + str(n_rej_reach) + ')' if a.reach_hard else '软信号'}"
+             f" Δψ≤{a.reach_dpsi_tol:.0f}°" if use_rch else ""))
     if a.per_tmpl:
         agg = {}
         for r in rows:
@@ -251,12 +307,15 @@ def main():
                   f"{r['ch_best']*100:>+13.1f}cm")
     else:
         rows.sort(key=lambda r: -r["score"])
-        print(f"\n{'名次':>4}{'总分':>7}{'覆盖率':>8}{'离桌':>8}{'接触高度':>9}{'小臂仰角':>9}"
-              f"  模板 / 文件")
+        hdr = (f"\n{'名次':>4}{'总分':>7}{'覆盖率':>8}{'离桌':>8}{'接触高度':>9}{'小臂仰角':>9}")
+        print(hdr + (f"{'Δψ':>7}" if use_rch else "") + "  模板 / 文件")
         for i, r in enumerate(rows[:a.top], 1):
+            dps = ("" if not use_rch else
+                   (f"{r['dpsi']:>6.1f}°" if r.get("dpsi") is not None else f"{'-':>7}"))
             print(f"{i:>4}{r['score']:>7.3f}{r['cov']:>8.0%}"
                   f"{(r['clr']*100 if r['clr'] == r['clr'] else float('nan')):>7.1f}cm"
-                  f"{r['ch_pct']:>8.0f}%{r['elev']:>+8.0f}°  {r['tmpl']} / {os.path.basename(r['f'])}")
+                  f"{r['ch_pct']:>8.0f}%{r['elev']:>+8.0f}°" + dps
+                  + f"  {r['tmpl']} / {os.path.basename(r['f'])}")
         if a.copy_top_to:
             import shutil
             os.makedirs(a.copy_top_to, exist_ok=True)
@@ -266,7 +325,7 @@ def main():
             print(f"前 {min(a.top, len(rows))} 名 -> {a.copy_top_to}")
         if a.json:
             import json
-            keep = ("score", "cov", "clr", "ch_pct", "elev", "tmpl")
+            keep = ("score", "cov", "clr", "ch_pct", "elev", "dpsi", "best_yaw", "tmpl")
             json.dump({"ref_height_video": a.ref_height, "ref_height_used": ref_eff,
                        "ref_lifted": bool(ref_note),
                        "rows": [{**{k: (None if r[k] != r[k] else round(float(r[k]), 4))

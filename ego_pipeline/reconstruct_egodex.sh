@@ -137,8 +137,12 @@ except Exception: print('1.0')")
   STEPS="vlm_retrieval,retrieval,sam3d,sam3d_scale,fp_pose,fuse,confidence"
   [ -n "${NO_CONTACT:-}" ] || STEPS="$STEPS,contact"
   # ⚠ --step-arg 用等号写法: reconstruct.sh 的透传对空格写法只传 flag 不传值
+  # ★ --no-auto-label 不可省: 标注在上面第 2 次调用里做完了(且那次才带 AUTO_LABEL_INSTANCE=all)。
+  #   这一次若再标一遍, 用的是默认的"只注册主实例", 会把刚做好的多物体标注**覆盖成单物体**。
+  #   平时不发作是因为标注有缓存; 但只要有人设 AUTO_LABEL_FORCE=1(重跑标注时必须设),
+  #   缓存失效, 这一次就会静默把 2 个物体改回 1 个 —— 2026-08-17 实测踩到, 全程零报错。
   "$HERE/reconstruct.sh" "$MP4" --dataset "$DATASET" --root "$WORK" \
-      --steps="$STEPS" --keep-interim --gpu-ids "$GPUS" \
+      --steps="$STEPS" --keep-interim --no-auto-label --gpu-ids "$GPUS" \
       --step-arg="sam3d_scale:--depth-scale=$DS" \
       --step-arg="fp_pose:--depth-scale=$DS" "${PASS[@]+"${PASS[@]}"}"
 

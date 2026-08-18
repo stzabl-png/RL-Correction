@@ -57,6 +57,36 @@ def _load(p: Path):
     return json.loads(p.read_text()) if p.is_file() else None
 
 
+def _stamp(p: Path) -> dict:
+    """输入产物的身份戳, 写进 grasp_pose_plan.json 的 `inputs`。
+
+    为什么每份输入都要记(2026-08-17, 两次实测教训):
+      * Step2 在 UCB 上重生成了 `hand_without_target`, 本机没同步 —— 我读到的是旧快照,
+        而**两边都不报错**。同样的事在 `confidence_complete.json` 上发生过一次。
+      * 没有身份戳时, "这条 take 真不命中" 和 "我手上这份是旧的" **在产物里长得一模一样**。
+
+    ★ 我自己算 `sha1`, 不只转述文件内嵌的 `provenance` —— 两个理由:
+      1. 不是每份输入都有 provenance(`confidence_complete.json` 目前就没有)
+      2. 内嵌的 `generator_commit` **会说谎**: Step2 实测发现, 用 scp 单独拷文件时它报的是
+         "那台机器的仓停在哪", 不是"实际执行的是哪份代码"。内容哈希骗不了。
+         (Step2 因此也加了 `generator_sha1` = 文件内容哈希, 并约定比对只看它。)
+    """
+    if not p.is_file():
+        return {"path": str(p), "missing": True}
+    import hashlib
+    raw = p.read_bytes()
+    out = {"path": str(p), "sha1": hashlib.sha1(raw).hexdigest()[:12],
+           "mtime": p.stat().st_mtime}
+    try:
+        d = json.loads(raw)
+        for k in ("schema_version", "provenance"):
+            if k in d:
+                out[k] = d[k]
+    except Exception:
+        pass
+    return out
+
+
 def confidence_of(take: Path) -> dict:
     """Step2 的 confidence 裁决。take 里的 confidence_complete.json 是 TAKE_MANIFEST 的
     take 级镜像 —— 用它而不是去够 poseqa_root, 因为那个路径是外机的。"""
@@ -191,6 +221,10 @@ def main():
             "n_objects_in_take": len({g["object_id"] for g in prompt.get("grasps", [])}
                                      | {r.get("object_id") for r in prompt.get("rejected", [])}),
             "hand_without_target": hwt,
+            # 输入链的身份戳: mesh 的 source_sha1(在 info/simplified.json) → 这三份 → 本 plan
+            "inputs": {"grasp_prompt": _stamp(take / "contact" / "grasp_prompt.json"),
+                       "confidence_complete": _stamp(take / "confidence_complete.json"),
+                       "vlm_grasp": _stamp(take / "vlm_grasp.json")},
             "grasps": results, "skipped": skipped}
     if status == "no_grasp_targets":
         plan["why"] = ("Step2 的 grasp_prompt.json 里 grasps[] 为空 —— 这条 take 没有任何"

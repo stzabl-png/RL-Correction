@@ -124,6 +124,39 @@ def build(recon_dir: Path) -> tuple[dict, str]:
                 rejected.append({"object_id": v["object_id"], "hand": v["side"],
                                  "status": v.get("status"), "why": v.get("why")})
 
+    # ★ "有手在动, 但它没有可归属的物体" —— 记录**观测**, 不下结论 (2026-08-17)
+    #
+    # 背景: 拧瓶盖 29 条 take 里 25 条只重建出 1 个物体 —— 盖没被分出来。而且不是分割传播
+    # 时丢的: 查 label prompt, v17A **从一开始就只注册了一个实例**, 管线全程没见过那个盖。
+    # ⇒ 下游的工作清单唯一来源是 grasps[], 没有那个 object_id 就没有那一条。
+    #   **"这个物体压根不存在"是一个缺席, 不是一个拒绝** —— 它不出现在 rejected[] 里,
+    #   不留任何痕迹。GraspPose 侧只会安静地少抓一半, 连被驳回的机会都没有。
+    #
+    # 全库形状(62 条 take): grasps[] 里出现 2 手的 20 条 / 1 手 29 条 / **0 手 13 条**。
+    # 典型: 左手抓到瓶身 object_0, 右手 rejected("没有既稳又贴的帧段") —— 它确实在操作盖,
+    # 但盖不是物体, 所以找不到任何接触可判。
+    #
+    # ★ 字段名描述**观测**而不是推断(GraspPose 2026-08-17 提的, 我认): 叫
+    #   suspected_missing_part 会被当成事实转述, 而 confidence:"heuristic" 会被跳过 ——
+    #   **下游读的是字段名, 不是可信度的值**。所以叫 hand_without_target。
+    # ★ 同时吐出原始分量(n_objects_in_take / rejected_reason), 下游不必继承我的阈值:
+    #   我哪天把判据从"只有 1 个物体"改成"物体数 < 手数", 消费方不用跟着改。
+    # ⚠ 局限: "没有既稳又贴的帧段"也可能就是这只手真的没抓东西(只是扶一下/在画面外)。
+    #   本信号**分不开这两种**。要分开得再算一层"该手贴近物体区域的帧占比", 未做。
+    n_obj = len({g["object_id"] for g in grasps} | {r.get("object_id") for r in rejected if r.get("object_id")})
+    hands_with_target = {g["hand"] for g in grasps}
+    unexplained = [
+        {"hand": r.get("hand"),
+         "n_objects_in_take": n_obj,
+         "n_hands_with_target": len(hands_with_target),
+         "rejected_reason": r.get("why"),
+         "note": "该手无可归属物体。若本 take 是双手任务而只重建出 1 个物体, "
+                 "大概率它在操作一个没被分出来的部件 —— 但也可能这只手真的没抓东西。",
+         "confidence": "heuristic"}
+        for r in rejected
+        if r.get("hand") and r.get("hand") not in hands_with_target and n_obj <= 1
+    ]
+
     doc = {
         "schema_version": "grasp_prompt_v1",
         "take": str(D),
@@ -131,6 +164,7 @@ def build(recon_dir: Path) -> tuple[dict, str]:
         "n_grasps": len(grasps),
         "grasps": grasps,
         "rejected": rejected,
+        "hand_without_target": unexplained,
         "how_contact_was_obtained":
             "单目 egocentric 视频重建 -> 逐帧手(MANO)与物体(6DoF)在世界系对齐 -> "
             "在'手物相对位姿稳定 且 贴合 且 对生'的窗口内, 统计物体表面每个采样点被手"
@@ -186,6 +220,16 @@ def _md(d: dict) -> str:
               f"的背面点; 方位跨度 {t.get('azimuth_span_deg')}° 是**下界**, 真实包裹只多不少",
               f"- 同一段视频里还有 {t['n_alternative_windows']} 个不同的稳定抓握",
               f"- 精确点云: `{g['contact_cloud_ply']}`(可直接拖进 MeshLab)", ""]
+    if d.get("hand_without_target"):
+        L += ["## ⚠ 有手没有可归属的物体", "",
+              "下面这些手被判无接触, **而本 take 只重建出 1 个物体**。若这是双手任务, "
+              "大概率有个部件没被分出来(实测拧瓶盖 29 条里 25 条缺盖, 且是 v17A 从一开始"
+              "就没注册, 不是传播丢的)。**这不是拒绝, 是缺席 —— 它不会出现在下面的被拒列表里。**", "",
+              "⚠ 也可能这只手真的没抓东西(只是扶一下/在画面外)。本信号分不开这两种。", ""]
+        for u in d["hand_without_target"]:
+            L += [f"- **{u['hand']}手** — take 内物体数 {u['n_objects_in_take']}, "
+                  f"有目标的手 {u['n_hands_with_target']} 只, 被拒原因: {u['rejected_reason']}"]
+        L += [""]
     if d["rejected"]:
         L += ["## 被拒的(物体×手)组合", "",
               "这些**试过了但不可用**, 不是没试 —— 别当成缺数据。", ""]

@@ -102,6 +102,81 @@ ROT_REFUTED_MAX = 0.20           # 被 CT 反驳帧占比超此 → 同上 (情�
 SAME_OBJ_RATIO = 1.35            # 拟合后 mesh 各轴尺寸之比小于此 → 视为同一物体
 
 
+def provenance() -> dict:
+    """产物自报出处 —— 让"我手上这份是不是旧的"本地可自答。
+
+    ⚠ **`generator_commit` 会说谎, `generator_sha1` 不会。** 我们经常 scp 单个文件到
+      跑数据的机器上, 那台机器的 checkout 停在旧 commit, 但实际执行的是新代码 ——
+      commit 号报的是"仓停在哪", 不是"跑的是哪份码"。sha1 是内容寻址, 骗不了。
+      **比对时以 sha1 为准。**(2026-08-17 在 grasp_prompt 上第一次跑就撞到。)
+    """
+    import hashlib
+    import os
+    import socket
+    import subprocess
+    from datetime import datetime, timezone
+    here = Path(__file__).resolve()
+    commit = None
+    try:
+        commit = subprocess.run(["git", "-C", str(here.parent), "rev-parse", "--short", "HEAD"],
+                                capture_output=True, text=True, timeout=5).stdout.strip() or None
+    except Exception:
+        pass
+    try:
+        sha1 = hashlib.sha1(here.read_bytes()).hexdigest()[:12]
+    except Exception:
+        sha1 = None
+    return {"generated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+            "generator_sha1": sha1, "generator_commit": commit,
+            "generator_host": socket.gethostname(), "generator_user": os.environ.get("USER")}
+
+
+def sync_artifacts(manifest: dict, recon_root: Path) -> int:
+    """把 manifest 的裁决写回各 take 目录内的 confidence_complete.json。
+
+    ★ 为什么必须做成管线的一部分而不是"记得跑一下"(2026-08-17 连踩两次):
+      下游(Step3 的 confidence 闸)只读 **take 目录内**那份, 不读全局 manifest。
+      只重生成 manifest 而不同步, take 内那份就成了旧快照, **而且两边不一致时零报错**。
+      后果: 可能跑一条已被淘汰的 take, 或跳过一条已变可用的, 或拿不可信的朝向去摆物体。
+
+    ★ 键必须用**完整相对 take 路径**, 且跳过 superseded。用末两段路径当键会让
+      `egodex/test/pour/17` 和 `egodex_auto/pour/17` 撞键 —— 被 superseded 挡掉的旧根
+      记录反而覆盖好记录, 实测把 pour/17 的 conf_rot 从 66.5 写成了 2.0。
+    """
+    man = {}
+    for r in manifest["takes"]:
+        if r["status"] == "superseded":
+            continue
+        man[(r["take"].strip("/"), r["object"])] = r
+    n = 0
+    prov = provenance()
+    for p in Path(recon_root).glob("*/*/*/confidence_complete.json"):
+        rel = "/".join(p.parts[-4:-1])
+        try:
+            d = json.loads(p.read_text())
+        except Exception:
+            continue
+        changed = False
+        for o, v in (d.get("objects") or {}).items():
+            m = man.get((rel, o))
+            if not m:
+                continue
+            for src, dst in (("status", "manifest_status"), ("rotation_usable", "rotation_usable"),
+                             ("rotation_grade", "rotation_grade"),
+                             ("conf_pos_median", "conf_pos_median"),
+                             ("conf_rot_median", "conf_rot_median"),
+                             ("refuted_frames", "refuted_frames"),
+                             ("position_grade", "position_grade")):
+                if src in m and v.get(dst) != m[src]:
+                    v[dst] = m[src]
+                    changed = True
+        if changed:
+            d["synced_from_manifest"] = prov       # 谁、什么时候、哪份码同步的
+            p.write_text(json.dumps(d, ensure_ascii=False, indent=1), encoding="utf-8")
+            n += 1
+    return n
+
+
 def rel_take(rec: dict) -> str:
     t = rec["take"]
     return t.split("/ReconstructOutput/")[-1] if "/ReconstructOutput/" in t else t
@@ -256,6 +331,9 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--audit", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--sync-artifacts", type=Path, default=None, metavar="RECON_ROOT",
+                    help="把裁决写回各 take 内的 confidence_complete.json(下游只读那份)。"
+                         "★不做的话 take 内是旧快照且两边不一致时零报错")
     a = ap.parse_args(argv)
     audit = json.loads(a.audit.read_text())
     recs = [r for r in audit["takes"] if "error" not in r]
@@ -267,6 +345,7 @@ def main(argv=None):
     rows.sort(key=lambda r: (r["status"] != "active", -(r["conf_pos_median"] or 0)))
     n_act = sum(1 for r in rows if r["status"] == "active")
     summ = dict(
+        provenance=provenance(),
         n_takes=len(rows), n_active=n_act, n_audit_errors=skipped,
         n_excluded=sum(1 for r in rows if r["status"] == "excluded"),
         n_deselected=sum(1 for r in rows if r["status"] == "deselected"),
@@ -302,6 +381,10 @@ def main(argv=None):
               f"自由轴{r['rotation_free_axes']}"
               f"{'  [调参take]' if r['tuned'] else ''}  {r['reason']}")
     print(f"[manifest] 写入 {a.out}")
+    if a.sync_artifacts:
+        n = sync_artifacts(summ, a.sync_artifacts)
+        print(f"[manifest] 裁决已同步回 {n} 条 take 的 confidence_complete.json "
+              f"(带 synced_from_manifest 出处)")
     return 0
 
 

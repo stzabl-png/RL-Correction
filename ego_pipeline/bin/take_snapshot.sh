@@ -47,7 +47,16 @@ for k in sorted(set(old) | set(new)):
     elif o and w and (w[0] or 0) + 5 < (o[0] or 0): tag = "  ★分数明显下降"; worse = True
     print("  [snapshot] %-10s crot %s -> %s  证伪 %s -> %s%s" % (
         k, o and o[0], w and w[0], o and o[1], w and w[1], tag))
-print("  [snapshot] 判定: %s" % ("★变差 —— 建议 restore" if worse or n_n < n_o else "没变差"))
+# ★ 物体数变多是**我们要的结果**, 不能因为主物体分数降了就判"建议 restore"。
+# 2026-08-17 实测: screw/13 分出瓶盖后 物体数 1->2(目标达成) 但瓶身 crot 77->46,
+# 工具当时报"建议 restore" —— 那会让人把刚救回来的盖子又删掉。
+# 少物体才是真的坏; 多物体 + 主物体降档是**已知代价**, 交给人判断, 不给 restore 建议。
+if n_n > n_o:
+    print("  [snapshot] 判定: 物体数增加(目标达成); 主物体降档是已知代价 —— **不建议 restore**, 请人工权衡")
+elif n_n < n_o:
+    print("  [snapshot] 判定: ★物体数减少 —— 建议 restore")
+else:
+    print("  [snapshot] 判定: %s" % ("★变差 —— 建议 restore" if worse else "没变差"))
 PYEOF
     ;;
   restore)

@@ -171,13 +171,30 @@ def main():
         skipped.append({"object_id": r.get("object_id"), "hand": r.get("hand"),
                         "why": r.get("why") or r.get("status"), "by": "step2_grasp_prompt"})
 
-    plan = {"schema": SCHEMA, "take": str(take), "status": "ok",
+    # ★ "一个抓取目标都没有" 必须是**显式状态**, 不能只表现为 grasps=[] ——
+    #   否则它和"跑了但全失败"在产物里长得一模一样, 下游分不出该重跑还是该放弃。
+    #   这不是罕见情况: Reconstruction 统计全库 62 条里 **13 条零手、29 条只有一只手**,
+    #   典型成因是**物体没被分出来**(拧瓶盖 29 条里 25 条的盖从未被注册成实例,
+    #   于是那只手在交接件里表现为"没有既稳又贴的帧段", 而不是"缺了个物体")。
+    status = "ok" if results else ("no_grasp_targets" if not want else "filtered_out_by_--only")
+    plan = {"schema": SCHEMA, "take": str(take), "status": status,
             "manifest_status": conf["manifest_status"],
+            "n_objects_in_take": len({g["object_id"] for g in prompt.get("grasps", [])}
+                                     | {r.get("object_id") for r in prompt.get("rejected", [])}),
             "grasps": results, "skipped": skipped}
+    if status == "no_grasp_targets":
+        plan["why"] = ("Step2 的 grasp_prompt.json 里 grasps[] 为空 —— 这条 take 没有任何"
+                       "(物体×手)可抓。常见成因是物体没被重建/分件出来, 而不是抓取生成失败。")
     out = take / "grasp_pose_plan.json"
     if not a.dry_run:
         out.write_text(json.dumps(plan, ensure_ascii=False, indent=1))
+    if status == "no_grasp_targets":
+        print(f"\n⚠ 本 take **没有任何抓取目标**(grasp_prompt 的 grasps[] 为空)。"
+              f"\n  {len(skipped)} 只手被判无接触: "
+              f"{[(s['hand'], s['why']) for s in skipped]}"
+              f"\n  这通常不是抓取生成失败, 而是物体没被分件出来 —— 查 Step2 的实例注册。")
     print(f"\n══ {len(results)} 组已跑, {len(skipped)} 组被 Step2 判无接触"
+          f"   状态 {status}"
           f"\n   → {out}" + ("  (dry-run 未写)" if a.dry_run else ""))
     if a.dry_run:
         print(json.dumps(plan, ensure_ascii=False, indent=1))

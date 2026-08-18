@@ -171,6 +171,15 @@ def main():
         skipped.append({"object_id": r.get("object_id"), "hand": r.get("hand"),
                         "why": r.get("why") or r.get("status"), "by": "step2_grasp_prompt"})
 
+    # ── Step2 的"这只手没有可抓目标"信号(2026-08-17 加)
+    # 名字刻意描述**观测**而非推断: 观测到的是"该手被判无接触 且 本 take 物体数少于手数";
+    # "有个部件没分件出来"是**启发式推断**, 所以 confidence 标 heuristic。
+    # ★不 gate 任何东西, 只记录+告警 —— 它分不开"真没抓东西"和"抓了但物体不存在"。
+    # 全库命中率(Step2 实测): 拧瓶盖 25/29(86%), 倒水 10/33(30%), 合计 48 只手。
+    # 那 86% 与独立数出的"单物体 take 占比"相等, 是这个信号有效的交叉验证。
+    # ⚠ 字段缺失是正常的(旧产物 / 未同步到本机), 不当错误处理。
+    hwt = prompt.get("hand_without_target") or []
+
     # ★ "一个抓取目标都没有" 必须是**显式状态**, 不能只表现为 grasps=[] ——
     #   否则它和"跑了但全失败"在产物里长得一模一样, 下游分不出该重跑还是该放弃。
     #   这不是罕见情况: Reconstruction 统计全库 62 条里 **13 条零手、29 条只有一只手**,
@@ -181,6 +190,7 @@ def main():
             "manifest_status": conf["manifest_status"],
             "n_objects_in_take": len({g["object_id"] for g in prompt.get("grasps", [])}
                                      | {r.get("object_id") for r in prompt.get("rejected", [])}),
+            "hand_without_target": hwt,
             "grasps": results, "skipped": skipped}
     if status == "no_grasp_targets":
         plan["why"] = ("Step2 的 grasp_prompt.json 里 grasps[] 为空 —— 这条 take 没有任何"
@@ -188,6 +198,12 @@ def main():
     out = take / "grasp_pose_plan.json"
     if not a.dry_run:
         out.write_text(json.dumps(plan, ensure_ascii=False, indent=1))
+    if hwt:
+        print(f"\n⚠ Step2 判定有 {len(hwt)} 只手**没有可抓目标**(hand_without_target, 启发式):")
+        for h in hwt:
+            print(f"   {h.get('hand')}手: 本 take 只有 {h.get('n_objects_in_take')} 个物体 / "
+                  f"{h.get('n_hands_with_target')} 只手有目标; 被拒原因 \"{h.get('rejected_reason')}\"")
+        print("   ⇒ 大概率是**物体没被分件出来**(而不是抓取生成失败)。此信号不影响生成与排序。")
     if status == "no_grasp_targets":
         print(f"\n⚠ 本 take **没有任何抓取目标**(grasp_prompt 的 grasps[] 为空)。"
               f"\n  {len(skipped)} 只手被判无接触: "

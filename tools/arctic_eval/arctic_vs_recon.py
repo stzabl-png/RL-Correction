@@ -36,7 +36,26 @@ import numpy as np
 from scipy.optimize import least_squares
 from scipy.spatial.transform import Rotation
 
-ARCTIC = Path("/media/lyh/DATA2/arctic/repo/data/arctic_data/data")
+def _arctic_root() -> Path:
+    """ARCTIC 原始数据根。**环境变量 > 本机默认(存在才用) > 兜底**。
+
+    原来写死成 /media/lyh/DATA2/...(某台机器的盘), 于是这个工具在别的机器上直接跑不了 ——
+    2026-08-17 为了在 UCB 上分析, 只能把重建结果拉回本机跑。写法抄 Step3 的 paths.py。
+    ⚠ 中间那档"本机默认存在才用"对新机器是个陷阱: 如果那台机器恰好也有同名目录, 会被
+      **静默优先使用**, 不报错。建议显式 export ARCTIC_DATA。
+    """
+    import os
+    env = os.environ.get("ARCTIC_DATA")
+    if env:
+        return Path(env)
+    for p in (Path("/media/lyh/DATA2/arctic/repo/data/arctic_data/data"),
+              Path.home() / "arctic/data/arctic_data/data"):
+        if p.is_dir():
+            return p
+    return Path("arctic_data/data")
+
+
+ARCTIC = _arctic_root()
 
 
 def gt_object_world(subject: str, seq: str):

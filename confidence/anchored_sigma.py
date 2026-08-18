@@ -82,7 +82,13 @@ import numpy as np
 #   用对齐后位移拟合会得到虚高的 18mm —— 那建立在"运行时能拿到真值做对齐"这个不成立的前提上。
 K_OBJ, FLOOR_OBJ = 0.876, 1.2      # 物体: 预测误差 40mm (常数基线 66mm), 6/7 subject
 K_HAND, FLOOR_HAND = 0.440, 6.7    # 手:   预测误差 33mm (常数基线 38mm), 6/7 — 收益很小
-CALIB = "arctic15 55 takes / 7 subjects, leave-one-subject-out, runtime caliber 2026-08-12"
+# ★ 标定串必须带**判据版本**。这四个常数是在 2026-08-12 的判据下拟合的; 2026-08-17 把
+#   ct_r_spread 从"三组种子极差"改成"最近两组 + 距离比<=3"(见 pose_audit.effective_spread)
+#   之后, 同样的数据重新拟合会得到**不同的常数** —— 而部署中的这四个不会自动跟着变。
+#   不写版本的话, 以后有人重拟合发现对不上, 只能靠考古。⇒ 重拟合前先确认判据版本是否一致。
+CALIB = ("arctic15 55 takes / 7 subjects, leave-one-subject-out, runtime caliber 2026-08-12; "
+         "★判据版本 = ct_r_spread 三组极差(2026-08-17 前); 现行判据为"
+         "effective_spread 最近两组+距离比<=3, 重拟合会得到不同常数")
 FP_ONSET_OFFSET = 10               # frame_plan 的 fp_register_frame = onset + 10
 
 

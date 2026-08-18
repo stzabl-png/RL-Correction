@@ -107,11 +107,12 @@ cd recon/ego_pipeline
 
 ## 4. 抓取位姿生成（Step3，抓取组维护）
 
-新机器先初始化一次（做两件不可省的事：软链 11G 物体资产、`pip install -e` 装 `dexrun` 命令）：
+新机器先初始化一次（做两件不可省的事：软链物体资产目录、`pip install -e` 装 `dexrun` 命令）：
 
 ```bash
-cd grasppose/steps/step3_grasppose
-./setup_workdir.sh
+# ★ 强烈建议先显式指定物体资产放哪, 理由见下面的坑
+export STEP3_OBJ_ROOT=/你的大盘/step3_object
+cd grasppose/steps/step3_grasppose && ./setup_workdir.sh
 ```
 
 然后：
@@ -121,13 +122,34 @@ python steps/step3_grasppose/run_take.py --take <重建take的绝对路径>
 python steps/step3_grasppose/run_take.py --dataset egodex_auto --task pour --take-id 17
 python steps/step3_grasppose/run_take.py ... --dry-run     # 只打印计划
 python steps/step3_grasppose/run_take.py ... --force       # 重做
+python steps/step3_grasppose/run_take.py ... --only ...    # 只跑指定组合
 ```
+
+**不用先激活 conda**：`run_take.py` 只 import 标准库，系统 `python3` 就能跑；重活在
+`take_grasp_pipeline.sh` 里，那个脚本自己找 dexonomy 环境。
 
 它会自己读 Step2 的产物决定跑什么：`grasp_prompt.json` 给工作清单，
 `confidence_complete.json` 的裁决决定跳过/降级，`vlm_grasp.json` 给形状先验。
 
-> 这一节以 `steps/step3_grasppose/README.md` 为准。上面的参数是我从 `run_take.py` 的
-> argparse 里核出来的（2026-08-17），**如果对不上以他们的仓为准**。
+### ⚠ 两个会让新机器卡住的坑
+
+**① `assets/object` 软链指向一个空目录是正常的。**
+物体数据由 `run_take.py` **逐 take 生成**（约 1~3GB/物体），不需要预先存在。
+看到软链指向空目录**不要以为装错了**，也不要去别处找这些文件。
+
+**② 没设 `STEP3_OBJ_ROOT` 时的默认值对新机器是个陷阱。**
+`paths.py` 的解析顺序是：
+
+```
+环境变量 STEP3_OBJ_ROOT  >  /home/lyh/Project/Dexonomy/assets/object(存在才用)  >  <仓父目录>/_step3_work/object
+```
+
+中间那项是为了在原开发机上复用已生成的资产才留的。**如果你机器上恰好也有
+`~/Project/Dexonomy/assets/object`（比如你 clone 过旧的 Dexonomy），它会被静默优先使用**——
+不报错，只是你以为在用新目录、实际在用旧的。所以上面那句 `export` 建议照做。
+
+> 这一节由抓取组（`Step3_Dexonomy` 分支）复核过（2026-08-17，`--dry-run` 与
+> `setup_workdir.sh` 均实测通过）。**以他们的 `steps/step3_grasppose/README.md` 为准。**
 
 ---
 

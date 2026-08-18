@@ -145,14 +145,21 @@ def gpu_free_mb() -> dict[int, int]:
     return out
 
 
+# ★ 共享机器上必须能显式禁卡。pick_gpu 按"最空显存"挑, 而别人跑训练的卡往往**显存还剩很多、
+#   算力已经满载** —— 挑上去两边一起慢, 而且从 nvidia-smi 的显存列看不出来。
+#   用 FRAMESCAN_FORBID_GPU="2,7" 排除。默认空(只靠显存门槛)。
+FORBID_GPU = {int(x) for x in os.getenv("FRAMESCAN_FORBID_GPU", "").split(",") if x.strip()}
+
+
 def pick_gpu(need_mb: int, prefer: int, exclude=()) -> int:
     """够用就留在 prefer 上(避免无谓迁移); 否则挑当前最空的一张。都不够就还给 prefer。"""
     free = gpu_free_mb()
     if not free:
         return prefer
-    if prefer not in exclude and free.get(prefer, 0) >= need_mb:
+    bad = set(exclude) | FORBID_GPU
+    if prefer not in bad and free.get(prefer, 0) >= need_mb:
         return prefer
-    cand = [g for g, m in free.items() if g not in exclude and m >= need_mb]
+    cand = [g for g, m in free.items() if g not in bad and m >= need_mb]
     if not cand:
         return prefer
     return max(cand, key=lambda g: free[g])
@@ -203,11 +210,31 @@ def run_steps(steps, dataset, video_id, video, gpu, logfh) -> tuple[bool, int]:
     return True, gpu
 
 
+def _n_frames(take: Path) -> int | None:
+    for name in ("world_summary.json", "fuse_summary.json"):
+        p = take / name
+        if not p.is_file():
+            continue
+        try:
+            d = json.loads(p.read_text())
+        except Exception:
+            continue
+        for k in ("num_frames", "n_frames", "frames"):
+            if isinstance(d.get(k), int):
+                return d[k]
+    return None
+
+
 def read_conf(take: Path) -> dict:
     d = json.loads((take / "confidence_complete.json").read_text())
     objs = d.get("objects") or {"object_0": d}
+    n = _n_frames(take)
     return {k: {"conf_pos": v.get("conf_pos_median"), "conf_rot": v.get("conf_rot_median"),
-                "refuted": v.get("refuted_frames"), "status": v.get("manifest_status")}
+                "refuted": v.get("refuted_frames"), "status": v.get("manifest_status"),
+                # ★ 管线自己的裁决(take_manifest 规则), 别在这里再推一遍 —— 曾因自己推
+                #   (要求 证伪==0) 把 screw/10 (crot 52.5/证伪 7, usable=True) 当成没过,
+                #   白搜 20 分钟; 也让 screw/5 (crot 29/证伪 11) 错过压线复测。
+                "usable": v.get("rotation_usable"), "n": n}
             for k, v in objs.items()}
 
 
@@ -219,20 +246,51 @@ def rank_key(r: dict):
             -(r.get("conf_rot") or 0))
 
 
+REFUTED_MAX = 0.20               # = take_manifest.ROT_REFUTED_MAX
+
+
+def refuted_ok(r: dict) -> bool:
+    """证伪帧数是否在下游容许内。拿不到帧数时退回最严的 ==0(宁可多搜, 不虚报合格)。"""
+    rf, n = r.get("refuted"), r.get("n")
+    if rf is None:
+        return False
+    return rf / n <= REFUTED_MAX if n else rf == 0
+
+
 def is_pass(r: dict) -> bool:
-    return bool(r) and r.get("status") == "active" and r.get("refuted") == 0 \
-        and (r.get("conf_rot") or 0) >= ROT_MIN
+    """合格 = 下游 take_manifest 认它可用。产出里没有该字段(老 artifact)才自己推。"""
+    if not r or r.get("status") != "active":
+        return False
+    if r.get("usable") is not None:
+        return bool(r["usable"])
+    return refuted_ok(r) and (r.get("conf_rot") or 0) >= ROT_MIN
 
 
 def is_safe(r: dict) -> bool:
-    """早停: 远离 conf_rot 的噪声带, 判定可靠。"""
-    return bool(r) and r.get("status") == "active" and r.get("refuted") == 0 \
+    """早停: 已达下游标准, 且 conf_rot 远离噪声带 → 判定可靠, 不必再搜。
+
+    ★ 证伪同样用 <=20% 而非 ==0。实证(2026-08-17, screw 9 条): 搜帧能把大额证伪砍掉
+      80~90%(99→11, 74→14), 但对本来就只有个位数证伪的几乎无效(8→7, 3→4)。
+      为把 7 帧压到 0 而多搜 20 分钟, 期望收益约等于零。"""
+    return bool(r) and r.get("status") == "active" and refuted_ok(r) \
         and (r.get("conf_rot") or 0) >= ROT_SAFE
 
 
+ROT_UNDET_LO = ROT_MIN - 10      # 20: 判定不确定带的下沿
+
+
 def is_borderline(r: dict) -> bool:
-    return bool(r) and r.get("status") == "active" and r.get("refuted") == 0 \
-        and ROT_MIN <= (r.get("conf_rot") or 0) < ROT_SAFE
+    """conf_rot 落在"判定不确定带"[20,45) 且零证伪 —— 单次结果说了不算, 要重测取中位。
+
+    ★ 必须**对称**覆盖阈值两侧, 只测上侧就是选择性重测(等于给"侥幸通过"翻案的机会,
+      却不给"侥幸没过"翻案), 系统性高估合格率。
+      conf_rot 同配置重跑实测波动 ±25 分, 而门槛是 30 —— 29.0 与 31.0 之间没有实质差别。
+      2026-08-16 screw/0 object_0 实测 证伪 0 / conf_rot **29.0**, 差 1 分, 正是这种情形。
+
+    ★ 证伪条件用下游口径(<=20%)而不是 ==0: 否则 screw/5 (conf_rot 29.0 / 证伪 11 = 8.9%,
+      唯一不达标项就是 conf_rot) 不算压线, 那次决定成败的复测根本不会跑。"""
+    return bool(r) and r.get("status") == "active" and refuted_ok(r) \
+        and ROT_UNDET_LO <= (r.get("conf_rot") or 0) < ROT_SAFE
 
 
 # ------------------------------------------------------------------ 候选

@@ -150,6 +150,62 @@ def errors(p, R_o, t_o, R_g, t_g):
     return e_pos, e_rot
 
 
+def step_rot_error(p, R_o, t_o, R_g):
+    """**逐帧**旋转误差: 相邻帧之间的朝向增量, 我们 vs 真值。
+
+    为什么需要它: `errors()` 量的是"相对第 0 帧的累计偏差" —— 一旦序列中途翻了面,
+    之后每一帧的误差都巨大, 与那些帧各自的分数无关。**那个量天生是 take 级的**,
+    拿它去验"逐帧判据有没有分辨力"会系统性地判它无效(2026-08-17 实测: take 内
+    逐帧相关中位 -0.051, 方向对的只占 55%, 约等于抛硬币)。
+
+    增量误差没有这个问题: 翻面只污染发生的那一帧, 其余帧照常可比。
+    第 0 帧无前驱, 置 NaN。
+    """
+    _, rot = predict(p, R_o, t_o)
+    do = np.einsum("tij,tkj->tik", rot[1:], rot[:-1])        # 我们的帧间增量
+    dg = np.einsum("tij,tkj->tik", R_g[1:], R_g[:-1])        # 真值的帧间增量
+    d = np.einsum("tij,tjk->tik", do.transpose(0, 2, 1), dg)
+    e = np.degrees(np.linalg.norm(Rotation.from_matrix(d).as_rotvec(), axis=1))
+    return np.concatenate([[np.nan], e])
+
+
+def errors_sym(p, R_o, t_o, R_g, group):
+    """对称感知的旋转误差 + **用了哪个对称元**。
+
+    为什么需要: 位姿在图像上无法区分 (R,t) 与 (R·S, t+R·S_t)。裸测地角会把一次
+    180° 翻面记成 180° 误差, 于是"扁平物体"整条 take 的误差堆在 150~170°, 判据看起来
+    毫无预测力。(2026-08-11 单条实测: 中位 102°→34.9°, 相关 +0.302→-0.543。)
+
+    ★ 群元作用在**物体frame**, 不能直接乘在残差上。我们的朝向变化
+      dR_o = rot[t]·rot[0]ᵀ; 逐帧各自可以选对称元 s_t, 于是
+          admissible dR_o = rot[t] · (s_t·s_0ᵀ) · rot[0]ᵀ = rot[t] · u · rot[0]ᵀ,  u ∈ S
+      误差取这一族的最小角。
+
+    ★ 同时返回每帧选中的元索引(0 = 恒等)。GraspPose 2026-08-17 指出的关键点:
+      只报"最小误差"会把**真实的翻面**静默吸收成"误差小"。一条 take 若持续选用同一个
+      非恒等元, 要么它真对称、要么位姿真翻了, 这两种情况处理方式完全不同。
+
+    ⚠ 群从 ARCTIC **真值网格**测(独立于被评估的重建), 但 11 个物体的翻转残差连续分布在
+      0.7%~3.1%, **没有干净阈值**能判"对称/不对称"。所以这里不做二元判定, 把三条主轴翻转
+      全部当候选 —— 因此 sym 误差是**乐观下界**, 必须与裸误差并列看。
+    """
+    _, rot = predict(p, R_o, t_o)
+    dR_g = np.einsum("tij,jk->tik", R_g, R_g[0].T)
+    best = None
+    pick = None
+    for k, S in enumerate([np.eye(3)] + list(group)):
+        dR = np.einsum("tij,jk,lk->til", rot, S, rot[0])      # rot[t]·S·rot[0]ᵀ
+        d = np.einsum("tij,tjk->tik", dR.transpose(0, 2, 1), dR_g)
+        e = np.degrees(np.linalg.norm(Rotation.from_matrix(d).as_rotvec(), axis=1))
+        if best is None:
+            best, pick = e, np.zeros(len(e), int)
+        else:
+            m = e < best
+            best = np.where(m, e, best)
+            pick = np.where(m, k, pick)
+    return best, pick
+
+
 def bin_report(conf, err, name, unit, edges=(0, 20, 40, 60, 80, 100.001)):
     print(f"\n  {name} 分箱 vs 真实误差({unit})")
     print(f"    {'区间':>10}{'帧数':>7}{'中位':>9}{'p90':>9}{'最大':>9}")
@@ -180,6 +236,9 @@ def main() -> int:
     ap.add_argument("--audit", type=Path, required=True, help="poseqa/pose_audit.json")
     ap.add_argument("--object", default="object_0")
     ap.add_argument("--out", type=Path, default=None)
+    ap.add_argument("--symmetry", type=Path,
+                    default=Path(__file__).with_name("arctic_symmetry.json"),
+                    help="逐物体对称群(由 measure_symmetry.py 从 ARCTIC 真值网格测出)")
     a = ap.parse_args()
 
     meta = json.loads(a.meta.read_text())
@@ -213,6 +272,20 @@ def main() -> int:
           f"p90 {np.percentile(cam_res,90):.1f}mm  ({len(c2w)} 帧, 闭式解)")
     p = fit_mesh_transform(R_o, t_o, R_g, t_g, s, RX, tX)
     e_pos, e_rot = errors(p, R_o, t_o, R_g, t_g)
+    e_rot_step = step_rot_error(p, R_o, t_o, R_g)
+    # 对称感知误差: 群从 ARCTIC 真值网格测(见 tools/arctic_eval/arctic_symmetry.json)
+    sym = json.loads(a.symmetry.read_text()) if a.symmetry and a.symmetry.is_file() else {}
+    obj_key = next((k for k in sym if k in meta["seq"]), None)
+    group = [np.asarray(c["R"], float) for c in sym.get(obj_key, {}).get("candidates", [])]
+    if group:
+        e_rot_sym, sym_pick = errors_sym(p, R_o, t_o, R_g, group)
+        used = np.bincount(sym_pick, minlength=len(group) + 1)
+        print(f"[sym]   对称感知旋转误差 中位 {np.median(e_rot_sym):.2f}° "
+              f"(裸 {np.median(e_rot):.2f}°)  物体={obj_key}  "
+              f"选中元分布 恒等{used[0]}/" + "/".join(f"flip{i+1}:{used[i+1]}" for i in range(len(group))))
+    else:
+        e_rot_sym, sym_pick = e_rot.copy(), np.zeros(len(e_rot), int)
+        print(f"[sym]   X 没有 {meta['seq']} 的对称群, 退回裸误差")
     print(f"\n[world] 拟合尺度 s={s:.3f}  (>1 = 我们估小了, <1 = 估大了; 这是尺度误差本身)")
     print(f"[world] 位置误差 中位 {np.median(e_pos):.1f}mm  p90 {np.percentile(e_pos,90):.1f}mm  "
           f"最大 {e_pos.max():.1f}mm")
@@ -247,11 +320,14 @@ def main() -> int:
     print(f"\n[conf] 有分数且可比对的帧: {int(m.sum())}/{len(f_ours)}")
     bin_report(cp[f_ours][m], e_pos[m], "conf_pos", "mm")
     bin_report(cr[f_ours][m], e_rot[m], "conf_rot", "度")
+    bin_report(cr[f_ours][m], e_rot_sym[m], "conf_rot(对称感知)", "度")
 
     if a.out:
         a.out.parent.mkdir(parents=True, exist_ok=True)
         np.savez(a.out, video_frame=f_ours, arctic_vidx=f_gt,
                  err_pos_mm=e_pos, err_rot_deg=e_rot,
+                 err_rot_deg_sym=e_rot_sym, sym_pick=sym_pick,
+                 err_rot_deg_step=e_rot_step,
                  err_pos_mm_cam=e_pos_c, err_rot_deg_cam=e_rot_c,
                  conf_pos=cp[f_ours], conf_rot=cr[f_ours],
                  fitted_scale=s, articulation_deg=art[f_gt])

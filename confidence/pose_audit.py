@@ -154,6 +154,44 @@ def rotation_observability(V, F, K, n_view=6, ang=30.0, extents=None):
     return out
 
 
+SPREAD_DIST_RATIO = 3.0          # 两组种子的时间距离比超过此 → 不可比, 不据 spread 证伪
+
+
+def effective_spread(rec: dict) -> dict:
+    """就地把 `ct_r_spread` 换成本判据口径。★ 策略放这里(CPU, 6s/take), 不放 cc 生成
+    (GPU, 2min/take) —— 判据迭代成本差两个数量级。
+
+    口径(2026-08-17 离线对拍选出, 见下表): **时间上最近的两组**, 且两组到本帧的距离
+    比 <= 3 才算数; 不可比时**不给 spread 证据**(= 不据此证伪, 交给 tr1)。
+
+    为什么: spread 原为 3 组极差, 实测测的是 CoTracker 的时间漂移而非轨迹自洽性
+    (残差 ≈ 0.00051 × 距离 + 0.035, 离群组 == 时间最远的种子占 97%)。种子放在
+    [0, 中, 末], 任意帧总有一组在 50 帧开外 → 极差结构性越线。**最毒的是种子帧本身:
+    该组残差按构造恒为 0.0000, 拿它去减另一组 57 帧外的漂移(0.13~0.21), 保证被证伪。**
+
+    用与 CT 无关的 `explained`(网格投影 vs mask) 当裁判, 判别力(未证伪中位 − 证伪中位):
+
+    | 口径 | 证伪帧 | 判别力 |
+    |---|---|---|
+    | 三组极差(原) | 806 | +0.026 ← 几乎是随机证伪 |
+    | 最近两组 | 508 | +0.063 |
+    | 最近两组 + 距离比<=2 | 364 | +0.096 |
+    | **最近两组 + 距离比<=3** | **387** | **+0.098** ← 采用(判别力最高且少丢证据) |
+    | 全局漂移斜率校正后比 | 648 | +0.044 |
+
+    老 cc(没有分组原值)原样返回, 不改行为。
+    """
+    g, sf = rec.get("ct_r_by_seed"), rec.get("ct_seed_frames")
+    if not g or not sf or len(g) != len(sf) or len(g) < 2:
+        return rec
+    i = rec["frame"]
+    o = sorted(range(len(g)), key=lambda j: abs(i - sf[j]))
+    d0, d1 = abs(i - sf[o[0]]), abs(i - sf[o[1]])
+    rec["ct_r_spread"] = (abs(g[o[0]] - g[o[1]])
+                          if d1 <= SPREAD_DIST_RATIO * max(d0, 1) else None)
+    return rec
+
+
 def score_frame(dcn, exp, occl, rot_factor, cap_scale, modes, soft, ct=None):
     """逐帧可信度 0~100。分位置/旋转两路 —— 混成一个数会把两者都毁掉。
 
@@ -238,6 +276,7 @@ def audit_take(scene: Path, ss=2, max_frames=400, ct_dir: Path | None = None,
             ccp = Path(ct_dir) / f"cc_{scene.parent.name}_{scene.name}.json"  # 旧命名
         if ccp.is_file():
             for r in json.loads(ccp.read_text()).get("per_frame", []):
+                effective_spread(r)          # ★ spread 的口径在这里定, 不在 cc 里
                 ct_map[r["frame"]] = r
     om = {}
     for i in range(n):

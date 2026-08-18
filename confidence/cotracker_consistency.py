@@ -181,7 +181,7 @@ def run(scene: Path, video: Path, out: Path, audit=None, n_pts=150, obj_idx: int
             #   平移分量 = 误差向量的均值模长   (整体挪 = 位置错)
             #   旋转分量 = 去掉均值后的残差     (点阵形变/旋转 = 旋转错)
             #   苹果位置本来是对的 —— 这样拆才能把"位置分高、旋转分零"归因到位。
-            gts, grs = [], []
+            gts, grs, gsf = [], [], []
             for sf in seeds:
                 gok = okp & (tq == sf)
                 if gok.sum() < 6:
@@ -190,11 +190,33 @@ def run(scene: Path, video: Path, out: Path, audit=None, n_pts=150, obj_idx: int
                 tvec = d.mean(0)
                 gts.append(float(np.linalg.norm(tvec)) / diag)
                 grs.append(float(np.median(np.linalg.norm(d - tvec, axis=1))) / diag)
+                gsf.append(int(sf))
             if gts:
                 rec["ct_t_err"] = round(float(np.median(gts)), 4)
                 rec["ct_r_err"] = round(float(np.median(grs)), 4)
                 if len(grs) >= 2:
-                    rec["ct_r_spread"] = round(float(max(grs) - min(grs)), 4)
+                    # ★★ spread 只在**时间上最近的两组**之间算 (2026-08-17 改)。
+                    #
+                    # 原来是三组极差, 但实测那测的是 CoTracker 的时间漂移, 不是轨迹自洽性:
+                    #   离群组 == 离本帧时间最远的种子   pour/13 97% · pour/28 67% · screw/8 70%
+                    #   时间距离 vs 该组残差             r=+0.87 / +0.79 / +0.64
+                    #   残差随距离单调涨(pour/13)        0~20帧 0.044 → 50~90帧 0.147 → 90+帧 0.193
+                    # 种子放在 [0, 中, 末], 于是任意一帧总有一个种子在 50 帧开外, 那组残差
+                    # 自然到 0.15~0.19 而近的一组接近 0 —— 极差**结构性**越过 0.12 的证伪线,
+                    # 跟重建对不对无关。后果: pour/28 conf_pos 97 / 遮挡 0.03 / ct_r_err 也低,
+                    # 115 帧里仍有 77 帧被判"被证伪", conf_rot 整条 0。
+                    # 判据实际在惩罚"CoTracker 难跟的物体"(纹理少的瓶身), 不是"重建错的物体"。
+                    #
+                    # 取最近两组后, 两组的漂移量可比, 差值才是真的"独立参考帧不认账"。
+                    # ⚠ 代价: 削弱了对"种子帧本身用了坏位姿"的检测(苹果幽灵旋转那类)。
+                    #    兜底靠 tr1(ct_r_err) 与投影自检; 若日后漏杀回潮, 从 ct_r_spread_raw3
+                    #    (下面原样保留)可直接对拍, 无需重跑。
+                    near = sorted(range(len(grs)), key=lambda j: abs(i - gsf[j]))[:2]
+                    v = [grs[j] for j in near]
+                    rec["ct_r_spread"] = round(float(max(v) - min(v)), 4)
+                    rec["ct_r_spread_raw3"] = round(float(max(grs) - min(grs)), 4)
+                    rec["ct_r_by_seed"] = [round(float(g), 4) for g in grs]
+                    rec["ct_seed_frames"] = gsf
             uv2 = np.round(tr[i][okp] / 2).astype(int)
             inb2 = ((uv2[:, 0] >= 0) & (uv2[:, 0] < sil.shape[1])
                     & (uv2[:, 1] >= 0) & (uv2[:, 1] < sil.shape[0]))

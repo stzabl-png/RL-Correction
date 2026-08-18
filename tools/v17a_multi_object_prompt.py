@@ -29,6 +29,7 @@ import numpy as np
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from v17a_to_label_prompt import (SCHEMA, hand_overlap, interior_point,  # noqa: E402
+                                  point_clear_of_hand,
                                   load_manifest, mask_path, rank_frames)
 
 
@@ -39,6 +40,9 @@ def main() -> int:
     ap.add_argument("--step-dir", type=Path, default=None)
     ap.add_argument("--recon-take-dir", type=Path, default=None)
     ap.add_argument("--max-hand-overlap", type=float, default=0.02)
+    ap.add_argument("--min-point-radius", type=float, default=8.0,
+                    help="走'提示点在手外'这条路时, 内点到边界的最小距离(px)。"
+                         "实测被挡的瓶盖内点半径 28~31px, 8 是留足余量的下限")
     ap.add_argument("--min-area", type=int, default=800,
                     help="drop instances whose peak mask is smaller than this; SAM3D "
                          "cannot build anything usable from a few hundred pixels")
@@ -78,9 +82,20 @@ def main() -> int:
                 continue
             m = m > 0
             ov = hand_overlap(m, a.recon_take_dir, r["frame"]) if a.recon_take_dir else float("nan")
-            if np.isnan(ov) or ov <= a.max_hand_overlap:
-                x, y, depth = interior_point(m)
-                pick = dict(r, x=x, y=y, depth=depth, hand=ov)
+            x, y, depth = interior_point(m)
+            # ★ 两条路都收 (2026-08-17):
+            #   ① 老判据: 整块 mask 被手挨着的比例够低 —— 大而暴露的物体走这条
+            #   ② 新判据: **提示点本身**落在手外, 且离边界够远 —— 手里一直握着的小物体
+            #      只能走这条。老判据对小物体物理上不可能满足(拧盖时手一直在盖上,
+            #      实测盖子 55 帧里 0 帧能过 0.02), 于是它从来没被注册过。
+            #   提示点只需要一个点落对地方, 整块被挨着多少并不重要。
+            by_mask = (not np.isnan(ov)) and ov <= a.max_hand_overlap
+            by_point = (a.recon_take_dir is not None
+                        and depth >= a.min_point_radius
+                        and point_clear_of_hand(m, a.recon_take_dir, r["frame"], x, y))
+            if np.isnan(ov) or by_mask or by_point:
+                pick = dict(r, x=x, y=y, depth=depth, hand=ov,
+                            how=("mask" if by_mask else "point" if by_point else "no-hand-mask"))
                 break
         if pick is None:
             skipped.append(f"{oid} (no frame under the hand-overlap bar)")
@@ -95,7 +110,9 @@ def main() -> int:
                       "hand_overlap": None if np.isnan(pick["hand"]) else round(float(pick["hand"]), 4)},
         })
         print(f"[v17a]   object_{n} <- {oid}: frame {pick['frame']}, {pick['area']} px, "
-              f"click ({pick['x']:.0f}, {pick['y']:.0f})")
+              f"click ({pick['x']:.0f}, {pick['y']:.0f})  [判据={pick.get('how')} "
+              f"重叠={pick['hand'] if pick['hand'] == pick['hand'] else 'n/a'} "
+              f"内点半径={pick['depth']:.0f}px]")
     if skipped:
         print(f"[v17a]   skipped: {'; '.join(skipped)}")
     if not objects:

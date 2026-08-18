@@ -135,6 +135,10 @@ except Exception: print('1.0')")
   #   下游以为"这条没有接触", 而不是"这条没跑过接触"。
   #   要关: NO_CONTACT=1 ./reconstruct_egodex.sh ...
   STEPS="vlm_retrieval,retrieval,sam3d,sam3d_scale,fp_pose,fuse,confidence"
+  # vlm_retrieval 需要本机 VLM 服务(127.0.0.1:8807)。服务没起时这一步直接失败, 整条链断。
+  # 它给的是**检索先验**, 与几何重建无关, 事后可单独补跑 ⇒ 服务不可用时允许跳过:
+  #   NO_VLM_RETRIEVAL=1 ./reconstruct_egodex.sh ...
+  [ -z "${NO_VLM_RETRIEVAL:-}" ] || STEPS="${STEPS/vlm_retrieval,/}"
   [ -n "${NO_CONTACT:-}" ] || STEPS="$STEPS,contact"
   # ⚠ --step-arg 用等号写法: reconstruct.sh 的透传对空格写法只传 flag 不传值
   # ★ --no-auto-label 不可省: 标注在上面第 2 次调用里做完了(且那次才带 AUTO_LABEL_INSTANCE=all)。

@@ -51,6 +51,39 @@ def mask_path(base: Path, entry: dict) -> Path | None:
     return None
 
 
+def point_clear_of_hand(mask, take_dir, frame, x, y, dilate=9) -> bool:
+    """提示点本身是否落在手的膨胀邻域**之外**。
+
+    ★ 为什么需要它, 而不是只看 `hand_overlap`(整块 mask 里被手挨着的比例):
+      那个量问的是"这个物体整体上是不是基本没被手碰到", 而提示点只需要**一个**点落在
+      物体上 —— 整块被手挨着多少并不重要, 只要那个点本身不在手上、离边界够远就行。
+
+      而且 hand_overlap 对**小物体天然更严**: 同样的手部接近程度, 占小物体的比例大得多。
+      2026-08-17 实测拧瓶盖: 瓶身(48398px) 重叠中位 0.079 能过 0.02 的闸;
+      盖(5663px) 重叠 min 0.156 / 中位 0.421, **55 帧里 0 帧能过** —— 而"最深内点落在
+      手外"的帧是 **55/55**, 内点半径 31px 很宽裕。拧盖时手一直在盖上, 那条闸对它
+      物理上就不可能满足, 于是盖子从来没被注册过, 整条下游都不知道它存在。
+    """
+    import cv2
+    hm = None
+    for side in ("right", "left"):
+        h = cv2.imread(str(take_dir / f"masks/hands/frames/frame_{frame:06d}_masks/{side}_hand_0.png"),
+                       cv2.IMREAD_UNCHANGED)
+        if h is not None:
+            hm = h if hm is None else np.maximum(hm, h)
+    if hm is None:
+        return True                     # 没有手 mask 就不拦 (与 hand_overlap 返回 nan 时同策)
+    k = np.ones((2 * dilate + 1,) * 2, np.uint8)
+    near = cv2.dilate((hm > 0).astype(np.uint8), k).astype(bool)
+    if near.shape != mask.shape:
+        near = cv2.resize(near.astype(np.uint8), (mask.shape[1], mask.shape[0]),
+                          interpolation=cv2.INTER_NEAREST).astype(bool)
+    yi, xi = int(round(y)), int(round(x))
+    if not (0 <= yi < near.shape[0] and 0 <= xi < near.shape[1]):
+        return False
+    return not bool(near[yi, xi])
+
+
 def interior_point(mask: np.ndarray) -> tuple:
     """Deepest interior pixel -- guaranteed inside, unlike a centroid."""
     import cv2

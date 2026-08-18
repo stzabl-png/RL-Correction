@@ -36,6 +36,50 @@ from pathlib import Path
 import numpy as np
 
 
+def _provenance() -> dict:
+    """产物自报"我是谁生成的" —— 让"我手上这份是不是旧的"变成**本地可自答**。
+
+    为什么需要 (2026-08-17, 同一形状连踩两次):
+      ① manifest 裁决同步回 confidence_complete.json 只在 UCB 跑了, 本机那份仍是旧快照
+      ② hand_without_target 字段全库重生成也只在 UCB 跑了, 本机 5 条全无此字段
+    两次**都不报错**, 都是消费方主动去扫才发现。消费方读到一个没有某字段的文件时,
+    分不开"这条 take 真不命中"和"我手上这份是旧版生成器出的" —— 这两种含义完全相反。
+
+    ⇒ 带上生成时间 + 生成器 commit + 主机名后, 读的瞬间就能判断, 不必等人去扫。
+      这是 synced_from/synced_at 的更一般形式: 不只回答"同步过没有", 而是
+      "这份东西是哪一版代码、什么时候、在哪台机器上出的"。
+
+    ⚠ **`generator_commit` 会说谎, `generator_sha1` 不会。** 加上这个字段后第一次跑就撞上了:
+      UCB 报 commit 0415290, 但那台机器的这个文件是我 scp 过去的、比它的 checkout 新。
+      只要有人 scp/rsync 单个文件(我们经常这么干), commit 号就与实际执行的代码脱节。
+      ⇒ 同时记**本文件内容的 sha1**, 内容寻址, 骗不了。**比对时以 sha1 为准。**
+    """
+    import hashlib
+    import os
+    import socket
+    import subprocess
+    from datetime import datetime, timezone
+    here = Path(__file__).resolve()
+    commit = None
+    try:
+        commit = subprocess.run(
+            ["git", "-C", str(here.parent), "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=5).stdout.strip() or None
+    except Exception:
+        pass
+    try:
+        sha1 = hashlib.sha1(here.read_bytes()).hexdigest()[:12]
+    except Exception:
+        sha1 = None
+    return {
+        "generated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+        "generator_sha1": sha1,          # ★ 以此为准: 内容寻址, scp 也骗不了
+        "generator_commit": commit,      # 仅供参考: 文件被 scp 覆盖时会与实际代码脱节
+        "generator_host": socket.gethostname(),
+        "generator_user": os.environ.get("USER"),
+    }
+
+
 def _describe(V: np.ndarray, w: np.ndarray) -> dict:
     """接触热点在物体自身坐标系里的位置 → 可读的几何描述。"""
     hot = w >= 0.5
@@ -158,7 +202,8 @@ def build(recon_dir: Path) -> tuple[dict, str]:
     ]
 
     doc = {
-        "schema_version": "grasp_prompt_v1",
+        "schema_version": "grasp_prompt_v2",   # v2: 加 hand_without_target + provenance
+        "provenance": _provenance(),
         "take": str(D),
         "consumer": "GraspPose Agent",
         "n_grasps": len(grasps),

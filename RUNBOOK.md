@@ -197,6 +197,52 @@ rotation_free_axes  该轴永久自由                      ★见下
 
 ---
 
+## 5.5 重跑数据前必须知道的三件事
+
+### ⚠ 重跑是赌博，而且赌输了会覆盖原数据
+
+`fp_pose` 是**非确定性**的：同配置重跑，`conf_pos`/`conf_rot` 各能飘 25~36 分
+(实测 screw/13 同配置三次: 46 / 16 / 31)。重建链会**覆盖**产物，闭环搜帧只在本轮
+搜出的配置里择优，**不知道重跑前的旧成绩**。已经因此弄坏过两条
+(screw/4 53.5→38.0、screw/7 30.0→29.0 掉出可用线)，旧产物找不回。
+
+⇒ **跑前存快照，跑后比，变差回滚**：
+
+```bash
+ego_pipeline/bin/take_snapshot.sh save    <take目录>   # 跑之前
+ego_pipeline/bin/take_snapshot.sh diff    <take目录>   # 跑之后(自动判是否变差)
+ego_pipeline/bin/take_snapshot.sh restore <take目录>   # 变差了回滚
+```
+
+约 26MB/条。`diff` 会区分"物体数变多(目标达成，不建议回滚)"和"物体数变少(真的坏了)"。
+
+### ⚠ 重跑标注必须设 `AUTO_LABEL_FORCE=1`，否则整轮白跑
+
+`auto_label_v17a.py` 有两道跳过闸：`label_prompt.json` 已存在就直接返回。
+不设这个变量，跑满 25 分钟出来的结果和上次一模一样，**而且不会有任何提示**。
+
+### 服务没起时可以跳过 VLM 检索
+
+```bash
+NO_VLM_RETRIEVAL=1 ./reconstruct_egodex.sh ...     # 服务不可用时
+NO_FRAMESCAN=1     ./reconstruct_egodex.sh ...     # 跳过闭环精修(留到最后统一做)
+NO_CONTACT=1       ./reconstruct_egodex.sh ...     # 跳过接触提取
+```
+
+`vlm_retrieval` 给的是**检索先验**，与几何重建无关，事后可单独补跑。
+但**透明门也用 VLM**(在 auto_label 里，另一条路)——服务没起时它会 fail-open **全部放行**，
+等于过滤规则没生效。批量跑之前要过滤空透明物体的话，先把服务拉起来。
+
+### 起 VLM 服务
+
+```bash
+~/framescan_ab/start_vlm.sh <GPU号> [端口]     # UCB 上; util 按空闲显存自动反算
+```
+
+需要 **≥30GB 空闲**(权重就要 27.6 GiB)。六个已知启动坑都已在脚本里规避
+(其中两个是 2026-08-17 新踩的: 只用绝对路径调 `vllm` 会找不到同环境的 `ninja`;
+默认 256K 上下文光 KV cache 就要 16 GiB 会直接启动失败)。
+
 ## 6. 已知走不通的路
 
 **换帧重建救不了烂数据。** 试过 10 条，净收益 0；而且**重跑会把本来合格的数据弄坏**

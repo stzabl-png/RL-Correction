@@ -1412,6 +1412,37 @@ if args.load_path is not None:
     agent_cfg["load_path"] = args.load_path
 
 log_dir = os.path.join("logs", args.name, datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+
+# ---- 世界指纹 (2026-08-28, AAG-F 0/64 回放事故后加) ----
+# 站姿 USD = **世界版本**。旧站姿权重在新站姿世界里回放会全员超时, 而
+# **obs 维度一个字节都不变**(348 不变、语义变) ⟹ 维度闸拦不住, 与
+# RL_FC_PLAY_REF 同族。ckpt 本身不带世界信息, 所以把指纹落在 run 目录里,
+# 让"这个 ckpt 出生在哪个世界"随 ckpt 一起存档、事后可对账。
+def _world_fingerprint():
+    import hashlib
+    try:
+        from rl_rebuild.correction.env.dexmate_env_cfg import _DEXMATE_USD as _u
+    except Exception as _e:
+        return {"error": f"{type(_e).__name__}: {_e}"}
+    try:
+        with open(_u, "rb") as _f:
+            _h = hashlib.md5(_f.read()).hexdigest()
+        return {"usd": _u, "md5": _h, "bytes": os.path.getsize(_u),
+                "mtime": datetime.fromtimestamp(os.path.getmtime(_u)).isoformat(timespec="seconds"),
+                "env_override": os.environ.get("DEXMATE_FIXED_USD", "")}
+    except Exception as _e:
+        return {"usd": _u, "error": f"{type(_e).__name__}: {_e}"}
+
+_WORLD = _world_fingerprint()
+print(f"[world] 站姿USD md5={_WORLD.get('md5','?')} "
+      f"mtime={_WORLD.get('mtime','?')} "
+      f"{'(DEXMATE_FIXED_USD 覆写)' if _WORLD.get('env_override') else ''}")
+print("[world] ★ ckpt 只能在同 md5 的世界里回放 —— 换了站姿 USD 维度不变但语义变, "
+      "回放会全员超时且无任何报错")
+os.makedirs(log_dir, exist_ok=True)
+with open(os.path.join(log_dir, "world.json"), "w") as _wf:
+    json.dump(_WORLD, _wf, indent=2, ensure_ascii=False)
+
 print(f"[train] log_dir={log_dir}  clip={args.clip}  envs={args.num_envs}  "
       f"obj_jitter={env_cfg.obj_jitter_xy*1000:.0f}mm  "
       f"minibatch={agent_cfg['algorithm']['minibatch_size']}")

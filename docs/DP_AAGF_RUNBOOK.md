@@ -8,10 +8,20 @@
 ⚠ **绝对不要用 `best.pth`**——那是按训练奖励挑的,极可能是 13.1M 训过头(eval 56%)的权重,
 采集器已内建拒收。
 
+## 第 0 步(硬闸,先于一切):世界指纹对账
+
+维度闸对"世界换版"是瞎的(形状不变语义变)。**md5 不对不许跑**:
+```bash
+md5sum assets/vega_1p_sharpa_fixedtorso.usd
+# 期望: f77f235df53494508fefdf1d1518af32  (旧站姿 = AAG-F 出生世界)
+# 若是: 143385ad217f10f3fe730338d748246d  (新站姿) → 必须 export
+#   DEXMATE_FIXED_USD=$PWD/assets/vega_1p_sharpa_fixedtorso_stance0803.usd
+```
+
 ## 步骤
 
-1. **拉代码**:`git pull`(分支 Step3_Dexonomy)。
-2. **验世界指纹**(关键,pull 可能把你的 USD 换成新站姿):
+1. **拉代码**:`git pull`(分支 Step3_Dexonomy),然后**重做第 0 步**(pull 会换 USD)。
+2. (已并入第 0 步)
    ```bash
    md5sum assets/vega_1p_sharpa_fixedtorso.usd
    # f77f235d... = 旧世界, 直接跳到第3步

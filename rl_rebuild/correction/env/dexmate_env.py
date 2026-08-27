@@ -31,10 +31,15 @@ class DexmateCorrectionEnv(SharpaCorrectionEnv):
     cfg: DexmateCorrectionEnvCfg
 
     # ---- 关节分组 ------------------------------------------------------
-    def _resolve_joint_ids(self):
+    def _resolve_joint_ids(self, force_side: str | None = None):
+        """解析本侧的关节索引。
+
+        `force_side`: 双臂任务用 —— 绕开"交互手跟着数据走"的推断, 直接指定哪一侧。
+        (单臂路径不传, 行为完全不变。)
+        """
         jn = list(self.hand.joint_names)
         # 交互手跟着数据走 (phase_* 判定), 不用 cfg 里写死的 —— 否则左手 clip 会驱动右臂
-        side = clips.interact_hand(self.cfg.clip_name, self.cfg.hand_side)
+        side = force_side or clips.interact_hand(self.cfg.clip_name, self.cfg.hand_side)
         if side != self.cfg.hand_side:
             print(f"[dexmate] clip {self.cfg.clip_name} 的交互手是 {side}, "
                   f"覆盖 cfg.hand_side={self.cfg.hand_side}")

@@ -1,0 +1,36 @@
+{
+  "anchor_T": [
+    [
+      0.7071068286895752,
+      5.3159904922495116e-08,
+      0.7071067094802856,
+      -0.45876115560531616
+    ],
+    [
+      1.5434429201377498e-07,
+      0.9999999999999617,
+      -2.2952379197249684e-07,
+      -1.564621925354004e-07
+    ],
+    [
+      -0.7071067094802856,
+      2.7143573788634967e-07,
+      0.7071068286895752,
+      1.2995951175689697
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "anchor_link": "arm_center",
+  "hand_side": "right",
+  "clip": "Pour17_bottle",
+  "prior": "/home/lyh/Project/RL_Correction/tasks/pregrasp/priors/Pour17_bottle.npz",
+  "prior_yaw_deg": 19.5,
+  "robot_usd": "",
+  "dumped_at": "2026-08-17T00:37:52",
+  "note": "env 实测的臂基座位姿 (body_pos_w/body_quat_w of arm_center)。离线可达性筛选必须用它, 否则与 env 判据不一致 —— 见 dexmate_env.py:290 与本文件 docstring。⚠ 换机器人 USD / 改躯干锁定角度后必须重新 dump。"
+}

@@ -151,7 +151,7 @@ class DexmateCorrectionEnvCfg(SharpaCorrectionEnvCfg):
     dexmate_joints = ({"L_arm_j1": 45.0, "R_arm_j1": -45.0,
                        "L_arm_j4": -90.0, "R_arm_j4": -90.0}
                       if TORSO_FIXED else
-                      {"torso_j1": 45.0, "torso_j2": 90.0, "torso_j3": 0.0,
+                      {"torso_j1": 40.5196, "torso_j2": 73.6595, "torso_j3": 0.3896,
                        "L_arm_j1": 45.0, "R_arm_j1": -45.0,
                        "L_arm_j4": -90.0, "R_arm_j4": -90.0})
     # 增益模式:

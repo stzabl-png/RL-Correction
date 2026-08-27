@@ -276,6 +276,10 @@ def load_replay_grasp(npz_path, mesh_path, usd_path="", clip_id="", hand="right"
             # 差由此消除, 不再依赖训练期对齐势桥接).
             _palm_a = palm[:2] + sxy
             obj_pos = np.array([_palm_a[0] - a_off[0], _palm_a[1] - a_off[1], obj_z])
+            # 2026-08-17 摆放指纹诊断 (远端 15.6cm 分歧, 输入全同输出不同 —— 打中间量):
+            print(f"[fp-dbg] sxy={np.round(sxy, 4)} palm={np.round(palm[:2], 4)} "
+                  f"a_off={np.round(a_off, 4)} dz={dz:.4f} obj_z={obj_z:.4f} "
+                  f"rest_q={np.round(rest_q, 4)}", flush=True)
 
             # ---- PreGrasp 对齐 ----
             # 相机锚定忠实保留了重建的手物相对关系, 而重建里**手根本没碰到物体**

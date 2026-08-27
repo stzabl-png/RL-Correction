@@ -233,6 +233,82 @@ class GraspTaskCfg(DexmateCorrectionEnvCfg):
     # 而零动作在 prior 位姿上本可拿到 4 垫同时接触. 0.12→0.05 (末端约 ±2cm 量级).
     arm_dev_max = 0.05           # rad
 
+    # 方案C (2026-08-23 用户裁定): 臂改 **绝对参考 + 有界累加残差**, 与手指同构。
+    #   理由: cuRobo 参考已是全局可行解, 残差要干的只是"略微避蹭"和"到位后再压紧"
+    #   (95→100 分那一段), 不需要"改走法"的自由度。而差分前馈是个只被关节限位夹的
+    #   积分器, 那点自由度买不到什么, 却是左臂漂到 49cm 外的结构性前提。
+    #   关掉(False) = 原差分行为, 逐位不变, 供 A/B。
+    # ===== 分段探索门控 (2026-08-24 用户编排) =====
+    # 探索进入系统的路径 = sigma × 残差步长(逐关节) × 门控。门控置 0 = 该组该段零探索,
+    # 比 entropy_coef(全局标量, 给不了逐维)干净且是硬的。八段顺序同参考 seg_names:
+    #   stance_to_5cm / hold1 / root_bend / advance / hold2 / close / squeeze / hold3
+    # 用户编排: ①臂动指冻(留探索避障) ②只有拇指动 ③臂动指冻(推进避障) ④⑤全开
+    seg_gate = False
+    # 9 段版 (侧移参考): stance hold1 root_bend advance **insert** hold2 close squeeze hold3
+    #   insert = 新增的"侧向移回 0.5cm", 属阶段③推进 ⟹ 臂有探索、指全冻
+    seg_arm_scale   = (0.3, 0.3, 0.0, 0.3, 0.3, 0.3, 1.0, 1.0, 1.0)
+    seg_thumb_scale = (0.0, 0.0, 0.3, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0)
+    seg_other_scale = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0)
+    # 合拢前"外壳不许碰物体": 手+l7/l8/ee 到物体表面点的最近距离低于该余量就罚
+    # (余量必须从参考自身标定, 否则又在罚参考)
+    # ⑤ squeeze 段抓力奖励 (2026-08-24 用户第⑤条): pad_near(垫→表面势差) +
+    #   grip_pot(quality 势差) 双项, 均 earn-only。squeeze_row0 由段表推导。
+    # FC 逐指目标点取在哪个姿态: False=grasp(原), True=squeeze(参考的真实终态)
+    fc_target_squeeze = False    # (已被 fc_target_ref_end 取代, 保留供对照)
+    # ★ FC 目标点在**参考终态**下测 (臂=retract_path[-1], 指=_fin_ref_path[-1])。
+    #   硬验收: 零动作下 _fc_d ≈ 0。见 2026-08-24 台账。
+    fc_target_ref_end = False
+    fc_settle_steps = 0          # 拍照前让自由物体沉降的帧数
+    fc_post_settle = int(os.environ.get("RL_FC_POST_SETTLE", "0"))
+    fc_play_ref = int(os.environ.get("RL_FC_PLAY_REF", "1"))
+    # 1: 目标点由"逐行播一遍参考"得到, 而非瞬移到末行 (唯一与运行同口径的拍法)
+    # 摆手**之后**再静置的帧数: 消除"瞬移捏紧手"的穿透冲量, 让目标点记录平衡态
+    squeeze_grip_w = 0.0         # >0 启用
+    squeeze_row0 = 0             # squeeze 段起始行 (播放行空间), 由 train.py 推导
+    # ---- 握力信任标量 g (2026-08-25 用户裁定 + 与 RL_Pour 联合设计) ----
+    #   语义: "对这个抓握的信任度" 0→1。**不给任何握力奖励**(用户: "不要给力了,
+    #   就是原本的接触就行") —— 捏紧由参考自身 squeeze + g2 指尖目标点完成。
+    #   g 的唯一职责: 驱动前段密集项衰减 (权重 ×(1−g))。交互段的快档与滑移纯罚
+    #   在 tasks/pour 侧 (RL_Pour 的 v10 配方: 滑移连续梯度 + carry_squeeze 动作通道)。
+    grip_g = False               # 总开关
+    grip_g_up = 1.0 / 200.0      # 快档步进 (交互段, RL_Pour 用); 本侧用 1/4 档
+    grip_g_slow_frac = 0.25      # ④ 捏紧段慢档系数 —— **弱证据**: 没有外力时不滑
+                                 #   本来就不滑, 所以这一档实质是按时间累积, 故只给 1/4
+    grip_g_down_mult = 10.0      # 滑移时的下降倍率 (升慢降快: 信任慢建、一滑就掉)
+    grip_g_slip_cm = 0.5         # 滑移判据: 腕系下物体位置相对"抓形已成"快照的偏移
+    grip_g_decay_terms = ("align", "imit")
+    # ---- 相位奖励日程表 (2026-08-26, 三方定稿的 ①②③ 行) ----
+    #   病理 (RL_Pour E2EL 2M 实测): arrive 门修好后, arrive_rate 0.279→0.045→0.016,
+    #   **策略在学"躲门"** —— 进门即入抓取期, fail/push/obj_disturb/tilt 罚组全开,
+    #   到位的净收益为负 ⟹ 避门=避罚。
+    #   ★ 关键设计: **不能用开关, 必须用渐入**。任何按相位硬切的奖励改变都会在边界
+    #   造一个断崖, 而策略只要发现门那边更差就学着不过门 —— 硬切的阶段表本身就是
+    #   新断崖, 加大 arrive 一次性奖金也只是把坑填浅(且深度会变, 靠调参猜)。
+    #   F 线免疫纯因 approach_only **整体移除**了这一组, 门后没有段。
+    rew_sched = False            # 总开关 (关闭时行为逐字节不变)
+    rew_sched_pre = (            # PREGRASP 段置零的项 = 抓取期的**接触质量**罚
+        "over_force", "obj_move", "obj_rot", "tilt", "push", "finger_cross",
+    )
+    #   ★★ 2026-08-26 判死: 原来这张表里有 "fail" —— **致命终局罚绝不能打折**。
+    #   RL_Pour r5 实测: PREGRASP 段 fail×0 ⟹ 拍桌终止**零成本**, 而活着每步要付
+    #   imit/align 的负期望 ⟹ **最优策略 = 开局自杀缩短回合**
+    #   (term/table_crash 0.000→0.160, d_pos 2.3→19cm, res_used 0.09→0.28cm/步
+    #    = 在主动推离; 而 Mean −12→−0.4 的"改善"全是回合变短的会计幻觉)。
+    #   **规则: 终局/致命罚永不参与奖励日程表 —— 死刑不参与课程。**
+    #   更深一层: 自杀通道能成立的前提是"活着是负期望"。见 preflight ⑦ 的
+    #   "零动作基线合计 > 0" 硬项 —— 那才是根上的闸。
+    rew_sched_ramp = 60          # 进 GRASP 后把上面这组**线性渐入**的步数 (0=硬切)
+    rew_sched_grasp_scale = {    # 进 GRASP 后接近组降权 (定稿③行)
+        "align": 0.3, "imit": 0.0,
+    }
+    #   ★ 只衰减**逐步密集**的接近项。one-shot 项 (arrive/里程碑) 不衰减 ——
+    #   它们本来就只发一次, 衰减它们等于改判据而不是改塑形。
+    #   选 align/imit 的依据: F 线退化验尸里, 任务饱和后仍在涨且与抓握质量对冲的
+    #   正是这两类 (align +33%, 而 pad_hold −53% / succ_hold −68%)。
+    pre_close_shell_cm = 0.0     # >0 启用; 建议值由预检的参考实测给出
+    arm_abs_res = False
+    arm_abs_dev = 0.05           # rad, 绝对模式下臂残差逐关节上限 (默认同 arm_dev_max)
+
     # ================= Dexonomy GraspPose prior (A/B 的 B 组开关) =================
     # 非空 = 载入 make_prior.py 产出的 npz (物体输入系), 三处替换:
     #   ① 臂复位/参考位 q_pregrasp <- Dexonomy pregrasp 的 IK 解 (取代 affordance 悬停)
@@ -302,15 +378,285 @@ class GraspTaskCfg(DexmateCorrectionEnvCfg):
     # -> 再掉。实测 eps_rot 在 5.6~10.5° 之间甩, 从不收敛。
     curr_retreat_frac = 0.7      # 慢 EMA 掉到历史最好的这个比例以下才算"退化"
     curr_retreat_epochs = 10     # 连续这么多 epoch 都退化才准放松 (≈32万步)
+    # 起点课程(ratio/far)每次回退的幅度。实测 far 0.66->1.0 时成功率 0.87->0,
+    # 而棘轮让它退不回去 ⟹ 永远卡在最难档 + 0 成功率。0.15 ≈ 退回上一个能学的难度。
+    curr_start_retreat_step = 0.15
+    # ---- 自生成起点池 (2026-08-16 用户裁定; 取代退避课程) ----
+    # 起点 = 策略自己真到过的状态, 按离目标距离分 7 档存池, 每回合从各档抽。
+    #   "" = 关 | "uniform" = 各档等权 | "mastery" = 权重∝(1-掌握度), 带地板
+    # ---- cuRobo 前馈参考 (2026-08-17 用户裁定: 在最简配方上加两段轨迹指引) ----
+    # npz 含 right_q/left_q (T,7): 先右后左的整条规划(含保持段), 由
+    # view_curobo_plan --save_plan 在**两道验收都过**后导出。
+    curobo_ref_npz = ""
+    curobo_ref_stride = 2        # 324 帧 ÷2 = 162 步, 塞进 250 步的回合预算
+    # 近端冻结前馈: 该侧腕距目标 < 此值(cm)时 ff 置零, 收尾交给纯残差(=Minimal_dyn 已验证模式)。
+    # 动机: cuRobo 左手抓取段贴着杯壁走, ff 每步都把手往杯子里送(L pushed≈1.0),
+    # 残差近场 0.3x 打不过它; 冻结后 ref_q_prev 照常跟踪, 退出冻结区不会跳变。0=关。
+    curobo_ff_freeze_cm = 0.0
+    # 弱回拉锚定强度 (0=关): 每步把 q_cmd 往 retract_path[t] 拉这个比例, 只在冻结区外生效。
+    # 治差分前馈的漂移累积(保持段残差漂移会平移整条后续路径, 见 env.py 注释)。
+    curobo_ff_pull = 0.0
+    # ---- L5: 边靠近边合指 (2026-08-17 用户三裁定, 台账"L5 设计定稿") ----
+    # 开=接近段冻结区内解锁手指通道, 合拢参考追踪 c(d)=c_grasp·clamp((fz−d)/fz,0,1)
+    l5_couple = False
+    l5_couple_w = 2.0            # 软指标罚 |closure − c_ref(d)| 的权重 (刻意小, 裁定②)
+    start_pool = ""
+    start_pool_cap = 256         # 每档环形缓冲容量
+    start_pool_floor = 0.08      # mastery 模式: 每档权重地板 (防灾难性遗忘)
+    start_pool_stance_floor = 0.20   # 站姿档地板更高 —— 它就是评测分布, 不能被饿着
     curr_rate = 0.005            # 每 epoch 最大变化量 (限速)
     r_arrive = 3.0               # **到位里程碑**: 切进抓取相位时一次性发
                                  #   势函数(密集,不可刷) + 到位奖(稀疏,一次性) = "持续接近给奖励"的安全实现
     # -- 残差权限"远松近紧": 手要自己走完那 16cm, 但接触前又必须是毫米级 --
     #    scale = 1 + u·(far-1),  u = clamp((d_pos - near)/(far_d - near), 0, 1)
     #    远端 3× -> 15mm/步 -> 11 步走完 16cm; 最短窗口 (Grasp3) 32 步, 3 倍余量.
+    # 裁定B3 (2026-08-18): PreGrasp = 抓姿整手沿"接触质心→腕"掌背法向外移这么多 cm
+    # (掌心锚点, 两手指尖间隙对称)。改这里即可, env/bimanual/规划目标三处统一消费。
+    pregrasp_palm_cm = 1.0   # 2026-08-18晚 用户裁定: 5→1cm, 腕送到门口, 剩下交给手指RL
+    # PreGrasp29 任务 (2026-08-18 晚): 靶点=PreGrasp + 22指解锁 + 到位前手指软抑制
+    pregrasp29 = False
+    w_fin_quiet = 0.02
+    # Phase2-RL (2026-08-18 晚, 用户裁定): 名义斜坡退役 —— 闩后 PreGrasp→GraspPose
+    # 由 RL 自走, GraspPose 只作指引(离散里程碑+成功奖)。判据/奖励参数:
+    pregrasp_phase2 = False
+    phase2_steps = 50            # (斜坡遗产, 仅供将来消融; RL 版不用)
+    phase2_fin_eps = 0.26        # 成功判据: 22 关节平均偏离抓姿指型 < 15°
+    phase2_hold = 5              # 腕+指同时达标保持步数
+    # m1 里程碑的腕距门 (cm)。**派生量, 不是自由参数** (简化一, 2026-08-18 用户核准):
+    #   m1 门 = pregrasp_palm_cm (预备位→抓姿靶距)
+    #         + eps_pos*100     (到位球半径)
+    #         + eps_pos*100     (到位闩后漂移余量)   → 现值 1+1+1 = 3cm
+    # 语义 = "到位的手一定拿得到的进场券"; 把关交给 m2 与最终判据。
+    # 教训: 里程碑阈值必须罩住上一级判据的驻留区 —— 写成派生式后, 改预备位距离
+    # 或到位公差时它自动跟随, "改了一处忘了另一处"的零余量事故 (2cm 时代) 结构性绝迹。
+    # None = 按上式派生; 显式数值 (或 --m1_cm) 仍可覆盖, 0 = 删除 m1 (简化二)。
+    phase2_m1_cm = None
+    # m2 派生阶梯步长 (裁定C, 2026-08-19): 从各侧起始指型偏差 d0−step 起每 step 一级
+    # 挂一次性小糖 (+bonus/2), 末级=20° 大门 (+bonus)。阶梯本身按 d0 派生, 零魔法数。
+    phase2_ladder_step_deg = 5.0
+    # ================= Carry (Pour P0+P1 MVP, 2026-08-19 用户批准) =================
+    pour_carry = False           # PourCarryEnv 开关 (train --pour_carry)
+    carry_npz = ""               # build_carry_ref 产物 (物体目标序列+双臂路径)
+    carry_slip_pos = 0.04        # slip 判负: 腕系物体相对位姿漂移 (m)
+    carry_slip_rot = 0.5236      # 30° (rad)
+    carry_lost_m = 0.05          # 跟丢判负: 物体离目标 (m)。2026-08-23 用户裁定 20→5cm:
+                                 # 与行进门(carry_adv_pos=5cm)重合 ⟹ 离轨即死, 不再留
+                                 # "停薪拉回"缓冲带; 误伤率待 pour_diag 成功回合峰值分布验证
+    carry_succ_pos = 0.05        # 成功: 末帧物体位置误差 (m)
+    carry_succ_rot = 0.5236      # 成功: 末帧物体姿态误差 (rad)
+    carry_succ_hold = 5          # 成功保持步数
+    carry_w_track = 1.0          # 追踪奖励权重 (每侧)
+    carry_w_slip = 0.05          # slip 罚权重
+    # -------- CARRY3 进度时钟 (2026-08-19 用户批准) --------
+    carry_progress = False       # True = 时钟按进度走 (握稳才启动/跟上才前进/按里程发钱)
+    carry_adv_pos = 0.05         # 行进粗容差 pos (m) = CARRY2 实测健康误差 p95×1.4
+    carry_adv_rot = 0.7854       # 行进粗容差 rot 45° (从属: 必须松于 30° 成功门)
+    carry_start_win = 5          # 启动判据: rel 位姿逐步变化连续 K 步很小
+    carry_start_deadline = 60    # 启动限期 (步): 超时判负 (防赖在起点)
+    carry_ms_tol = 0.025         # 高置信里程碑容差 = 行进容差一半 (派生)
+    # ---- CARRY4 (2026-08-19 用户裁定: 实验A=倾角里程碑, 实验B=低置信小糖宽门) ----
+    carry_tilt_ms_deg = ()       # 扩展A: 瓶体倾角几何里程碑(度), 置信度无关;
+    #                              峰值实测 71° ⟹ 档位必须 <71 (30,60)
+    carry_tilt_ms_bonus = 2.0    # 倾角里程碑一次性大糖 (与高置信里程碑同级)
+    carry_ms_low_idx = ()        # 扩展B: 沙漠低置信帧里程碑 (行号)
+    carry_ms_low_bonus = 0.7     # 低置信=小糖 (~1/3), 门用行进容差(宽) 不卡精度
+    carry_squeeze = False        # 承载段通用公约: q_close ← squeeze 模板 (收紧对抗
+    #                              倾转扭矩, 收紧幅度=策略的合拢通道, RL 自学何时挤)
+    # ---- FC-D (2026-08-20 用户三裁定: Pose0起手学构型/撞桌即Fail/29维全参考) ----
+    fin_ref_track = False        # 指参考四段: open→Pose1(步数斜坡)→hold→阶梯(腕距查表)
+    #                              →合拢(限速时间斜坡); 全挂物理信号, 无新时钟
+    fin_shape_steps = 40         # 构型段步数 (settle 后 open→pregrasp[0])
+    fin_close_steps = 30         # row5→grasp 合拢斜坡步数 (慢合拢的参考侧保险)
+    fin_dyn_near = 0.3           # 指残差近物缩放 (腕距≤3cm; ≥10cm=1.0 线性)
+    fin_dyn_close = 0.2          # 合拢段指残差再压一档 (慢合拢的探索侧保险)
+    w_fin_track = 0.05           # 指偏离参考罚 (取代 fin_quiet 语义)
+    w_shape_ms = 1.0             # 构型完成一次性糖
+    shape_tol_deg = 15.0         # 构型判定: 指距 Pose1 均值角
+    w_pad_first = 0.5            # 逐垫首触一次性 (轻触: 物体速度<0.05 才发)
+    w_pad_hold = 0.02            # 接触垫持续分/步 (到位后、candidate 前, 防挂机窗口)
+    w_cent_shape = 0.05          # 向心塑形/步 (受力方向指向物心)
+    w_stable_ms = 5.0            # 稳抓大糖: 现成 candidate 判据 (≥4垫&向心&保持4步)
+    w_succ_hold = 0.05           # 单侧过验证后保持稳抓的逐步分 (2026-08-20 用户裁定:
+                                 #   succeeded 侧不躺平, 稳稳握住等另一侧; 双侧才终止)
+    w_toppled = 0.0              # 拍倒显式罚 (FC-D RSI-B 线 2026-08-20): approach 模式
+                                 #   fail 整项被 APPROACH_OFF 关闭 ⟹ 推倒只损失机会成本,
+                                 #   candidate 未首发时机会成本≈0 = 推倒很便宜。此为独立
+                                 #   小罚 (量级 < candidate +5), 不解封整个 fail 项
+    table_touch_fail = False     # 真机红线: 手部 body 原点低于桌面+容差 ⟹ 立即终止
+    table_touch_tol = 0.004      # m (原点口径的"接触"容差; 罚带仍在其上引导贴近)
+    # ---- C5/Pour (2026-08-20 用户裁定 B4/B5/B6) ----
+    carry_pad_reward = False     # A2: 垫接触奖励进 carry (甜甜圈判据; 传感器已镜像)
+    carry_w_pad_first = 0.5      # 逐垫首触一次性 (轻触门: 物体速度<0.05)
+    carry_w_pad_hold = 0.02      # 接触垫持续分/步 (启动后生效)
+    friction_curriculum = False  # B4: 指垫摩擦开局加倍, 随稳抓能力退火回 3.0
+    friction_hi = 6.0            # 起始 static=dynamic (合成 6×3=18 或 6×6=36 视对侧)
+    friction_lo = 3.0            # 终点 = SuperGrip 现值 (3×3=9)
+    pour_succ = False            # B6 改判 (2026-08-20): 几何倒水判据 = 全程最大**里程碑**
+                                 #   (非终点); 成功终止 = 走完加权轨迹末帧, C5/Pour 同口径
+                                 #   (轨迹后半段语义 = 倒完水把瓶/杯大致还原放回)
+    pour_succ_tilt_deg = 71.0    # 达演示峰值倾角
+    pour_succ_mouth_r = 0.06     # 瓶口水平投影落杯口半径 (m)
+    pour_succ_hold = 10          # 保持步数
+    pour_w_ms = 10.0             # 倒水里程碑一次性大糖 (>其余里程碑 2.0, <成功大奖 20)
+    # ---- 自由探索倒水段 (2026-08-21 用户裁定: 低置信段不追踪, Task-Specific Success
+    #      Tracker 让 RL 自行探索; 根据=重建帧60~82误差30cm/可见率0.2≈carry行93~127) ----
+    pour_free = False            # PourS 试验旗 (C5S 对照不开)
+    pour_place = False           # v10: 放稳(carry成功)→RELEASE 松手; ★降级回里程碑
+    pour_rel_steps = 60          # 松手斜坡步数 (closure 1→0)
+    pour_rel_w = 10.0            # 「松手进度×物体不动」乘积棘轮 telescoping 总额
+    pour_rel_still_m = 0.02      # 物体"不动"位移半径 (m); 2倍=判负
+    pour_rel_still_deg = 10.0    # 姿态同口径 (度); 2倍=判负
+    pour_rel_hold = 10           # 全开后保持步数 = 成功
+    pour_retreat = False         # E2E 第五段: 松手后臂脚本撤回出生站姿
+    pour_ret_steps = 90          # 撤退斜坡步数 (lerp 冻结位姿→站姿)
+    pour_choreo = False          # 编舞播放器: 纯脚本走完全部契约行, 门警全免 (只看不判)
+    asym_pen_w = 0.0             # 双侧收入不对称罚 (平坦脊→斜坡, r9); 0=关
+    fin_open_from_ref = False    # 每侧 q_open ← 指参考首行 (出生即编舞起始手型)
+    pour_free_lo = 93            # 入段行: 时钟到此冻结, 前馈停走, 行进门/跟丢判挂起
+    pour_free_hi = 140           # 出段行: pour 成功判据达成 → 重拍 rest 锚 → 时钟跳此续追
+    pour_free_budget = 150       # 自由段步数预算: 超时截断 (不判负不发糖, 防赖着刷小钱)
+    pour_free_w_mouth = 5.0      # 瓶口→杯口水平距离势差分权重 (全段累计≈w×0.3m≈1.5, 只赚缩短增量)
+    carry_stable = False         # 甜甜圈稳抓链进 carry (2026-08-20 用户裁定, 补 A2 缺口):
+                                 #   全程向心塑形 + 启动前 candidate 大糖 (判据同 FC-D:
+                                 #   success_min_pads/grasp_centrip_thresh/candidate_hold_steps)
+    carry_w_cent = 0.05          # 向心塑形逐步分 (与 FC-D w_cent_shape 同量级)
+    carry_w_cand = 5.0           # 启动前 candidate 一次性大糖 (与 w_stable_ms 同量级)
+    # ---- Pour 端到端 (2026-08-20 用户裁定, 本机 4080S): 站姿→接近→真抓稳→追踪→倒→还原 ----
+    pour_e2e = False             # 三段拼接正式实现: FC-D 接近/真抓稳机器 + carry 进度时钟,
+                                 #   粘合 = 双侧过微抬升验证才允许进度时钟启动;
+                                 #   参考 = curobo_pour17_e2e.npz (341,7; pose1_1cm+blend10+carry3)
+    carry_ref_off = 0            # carry 帧0 在合并参考里的行号 (e2e.npz 的 seam=121);
+                                 #   进度时钟 ref_t = _c_t + off, 侧信号 t = ref_t - off
+    success_nonterminal = False  # e2e: 真抓稳(verify 过)是**门**不是终点 —— 不终止回合,
+                                 #   成功终止只认 carry 走完末帧 (C5/Pour 同口径)
+    step_reward_log = ""         # 非空=逐步奖惩记录目录 (2026-08-21): 全env各项均值+
+                                 #   前8探针env全明细(项值/相位/ref_t/垫数/d_pos),
+                                 #   4000行(双侧2000步)一片 npz —— 事后逐步回放状态↔奖惩
+    near_exempt_m = 0.03         # 近场碰物豁免圈半径 (腕距): 圈内接触=任务素材不判死。
+                                 #   AAG 放宽到 0.07 (2026-08-21 验尸: 编舞"弯指前进"段
+                                 #   指尖超前腕 ~4cm, 3cm 圈让右手学成"悬停在圈外赚 align
+                                 #   绝不越雷池", d_pos min 恰=0.030 实锤)
+    fin_ref_npz = ""             # AAG (2026-08-21 用户裁定): 指参考改从该 npz 逐行取
+                                 #   ({side}_q29[:,7:29], ref_t 索引) —— "标准成功轨迹当
+                                 #   参考", 取代 fcd 四段查表生成; fcd 其余机制(奖励/闸/
+                                 #   candidate链)原样。臂前馈同文件 {side}_q 走 curobo loader
+    pours_v5 = False             # PourS-v5 (2026-08-21 用户裁定"抓稳优先"): 哲学=全程
+                                 #   手物零相对位移。逐步滑移增量罚(从0起梯度,超线性)+
+                                 #   握紧反射奖(滑移速度×垫压正差分)+持续抓稳项(垫数≥
+                                 #   模板指数×压力量级×向心,启动后全程)+杯直立约束+
+                                 #   左右系统互碰罚+特权滑移块进 actor 观测(+8维/侧)。
+                                 #   配套(train 旗一并设): slip 死线 4cm/30°→8cm/60°,
+                                 #   thrown 25→28cm(参考峰值18cm+10), 摩擦退火弃用,
+                                 #   模板换 thumbfix —— 全部从头训 (obs 维度变了)
+    pours_v6 = False             # PourS-v6 (2026-08-21 深夜用户裁定, 阶段纯净化):
+                                 #   统一哲学 = 物体位姿约束只在**非交互段**(保持稳定);
+                                 #   交互段(抓稳→交互结束)只要求手物零相对移动。
+                                 #   ①toppled 交互中豁免 ②thrown 删除, 换"偏离自身
+                                 #   参考轨迹>30cm 无条件重置" ③cent 只在启动前
+                                 #   ④cup_upright 删除 ⑤cross_pen 全程但改纯碰撞口径
+                                 #   ⑥倒水成功=交互结束=回合成功终止(本版不做撤离)
+                                 #   ⑦成功线=参考瓶倾角平台×0.9(pour17=93°)
+    dev_reset_m = 0.30           # 物体偏离自身参考轨迹超此值 ⟹ 无条件重置 (取代 thrown)
+    pad_first_arrived_only = False   # v3.3: 碰垫糖只在到位后发 (门前蹭垫工资拐走左手)
+    obj_disturb_pre_x = 1.0      # AAG-Local: 到位前物体扰动罚倍率 (8=掌蹭主罚,
+                                 #   修补器证伪离线绕行后改 RL 在线学)
+    fin_prog_gate = False        # 手指行进门: 到位前指参考钳在 fin_hold_row
+    fin_hold_row = 90            # 弯根部末行 (指参考 180 行制, =全行 180)
+    fin_track_contact_fade = False  # 接触后淡出指参考拉力 (罚形状修正: 压在物体上
+                                 #   贴不回参考 ⟹ 罚它抓东西)
+    form_pot_earn_only = False   # 形态势只赚不罚 (参考在动, 跟不上不该扣钱)
+    fin_adv_tol_deg = 12.0       # 抓取相位指参考'跟上才前进'容差
+    fin_end_row = 175            # 指参考推进上限行 (180 行制: squeeze 末=170~175)
+    aag_grasp_row = 0            # >0: 直抓桶(RSI)的指参考起始行 —— 必须是**合拢段
+                                 #   起始**(180行制的120=全行240), 不能沿用 t0=gs
+                                 #   (那是人手轨迹编号, 在编舞里是"手指全伸直")
+    obj_in_actor = False         # 物体特权进 actor (+10/侧): RL=数据生成器新纪律
+    dgp_rsi_hi = 0.0             # >0: RSI 课程起始直抓比例, 随 _fcd_g 退火到
+                                 #   direct_grasp_prob (0=关; 0.8=先学抓再学走)
+    fin_form_pot_w = 0.0         # v3.4: 形态正向势差分权重 (向当前行参考形态推进给
+                                 #   小钱; 罚教躺平, 赚教小心前进; candidate 前生效)
+    pour_tilt_pot_w = 0.0        # >0: 自由段倾角势差分权重 (v6c: 稀疏里程碑糖之间的
+                                 #   连续梯度; telescoping, 只在 pf 窗支付)
+    pour_trend_npz = ""          # v7 趋势钟 (2026-08-22 用户裁定): 自由段 1 维倾角趋势
+                                 #   参考 npz (bottle_deg/cup_deg, recon 剖面滤波重采样)
+                                 #   —— 重建绝对位姿不可靠但倾角趋势可靠, 只借这一维
+    pour_prog_w = 0.0            # v6P: 全局进度势权重 —— φ=已复现行数/总行数 (自由段
+                                 #   用倾角棘轮折算等效行), telescoping, 0→100% 共发 w
+    pour_ff_play = False         # v8: 自由段不冻臂前馈, 时钟改按**倾角剖面**推进
+                                 #   (演示倒水是整臂重构, 残差发明不出来)
+    pour_ff_tol_deg = 20.0       # 自由段行进门: 瓶倾角与参考剖面之差容差
+    pour_prog_align = False      # 窗内进度 = 倾角 × 对齐 (乘积, 与成功判据同构)
+    pour_align_d0 = 0.25         # 对齐进度的起算距离 (m)
+    pour_tilt_prog = False       # v6T: 自由段"进度"改判为倾角创新高 (grip_hold 的
+                                 #   窗内豁免制造了挂机: 握着不动 +79/片 vs 满倾 +5)
+    pour_trend_tol_deg = 12.0    # 趋势行进门容差 (双物体倾角跟踪)
+    pour_trend_w = 0.15          # 趋势钟每步前进微糖 (站着零收入)
+    grip_prog_gate = 0           # >0: grip_hold 进度门 (2026-08-22 用户裁定) —— 近 N 步
+                                 #   c_t 无前进则停发, pf 窗豁免(时钟本就冻结)。
+                                 #   v6 12M 实锤: c_t 钉死行65(瓶离桌起飞点), 每步
+                                 #   抓稳小钱让"停在起飞点挂机"成经济最优
+    slip_step_w = 0.5            # 滑移逐步增量罚权重 (单位: /1cm 或 /5°, 超线性×(1+x),
+                                 #   x 封顶 2 —— 冒烟实锤: w=2 无顶在随机初策略上
+                                 #   -101/回合, 淹掉全部里程碑信号 ⟹ 学"冻住")
+    regrip_w = 1.0               # 握紧反射奖权重 (滑移速度 × 垫压正差分/3N)
+    grip_hold_w = 0.05           # 持续抓稳每步小额 (×压力量级×向心, 启动后)
+    grip_f_ref = 12.0            # N: 垫压总量参考 (thumbfix 实测单垫 5-6N, 4垫≈12-20)
+    grip_f_max = 20.0            # N: 压力上限带, 超出反向罚 (防捏爆换分/穿模假力)
+    cup_upright_w = 0.5          # 杯身直立罚权重 (B侧倾角超免罚角后线性)
+    cup_tilt_free_deg = 15.0     # 杯倾角免罚带 (deg)
+    cross_pen_w = 5.0            # 左右互碰罚权重 (物物/手对侧物/手手, 表面点口径)
+    cross_margin = 0.01          # m: 互碰安全边距 (口对口 2-5cm 不受扰)
+    arm_ff_gate = False          # AAG-v3 (2026-08-21 用户裁定): 接近段臂残差归零=纯前馈
+                                 #   (编舞回放已验证 0.3-0.6cm 落点+零碰物, 臂上探索噪声
+                                 #   只会拍倒物体+错过最后1cm); 到位后 phase_step 线性
+                                 #   ramp 到 arm_ff_post 小带做抓握微调。JSRL 的
+                                 #   "guide 走前半程"特例, h 固定在到位行, 永不前移
+    arm_ff_post = 0.33           # 到位后臂残差相对全带比例 (0.33×±6°≈±2°)
+    arm_ff_ramp = 20             # 到位后 ramp 步数 (残差 pre→post 的过渡)
+    arm_ff_pre_left = -1.0       # 左臂 pre 带宽单独覆盖 (<0=同 arm_ff_pre)。左手消融
+                                 #   (2026-08-22): 杯宽 8.3cm 指尖先顶住, ±1.2° 不够
+                                 #   变换进场几何 —— 左侧放 0.35 给绕障余地
+    fin_near_relax = 0.0         # >0: 腕距目标 < fin_near_m 时 fin_track/fin_quiet
+                                 #   乘此系数 (最后三厘米允许手指为绕障变形 ——
+                                 #   左手 21M 账本: 指形拘束费-26 vs 到位一次性+3,
+                                 #   策略理性躺平在 2.6cm 贴单垫刷 align)
+    fin_near_m = 0.03            # 近场松绑半径 (m)
+    arm_ff_pre = 0.2             # v3.1 (2026-08-22 用户裁定): 到位前臂残差小带
+                                 #   (0.2×≈±1.2°) 而非锁零 —— 两个用途: ①补 ArmIK/
+                                 #   仿真两把尺 ~3cm 终点缺口 (v3 锁零实锤: 腕永停
+                                 #   4-5cm 外, 指对空抓拍倒瓶); ②用户本意: 编舞
+                                 #   "进5cm"段会蹭到物体, RL 微调避蹭
+    cent_signed = False          # 向心塑形带负梯度 (2026-08-20 用户裁定 cent_fix):
+                                 #   奖励 = w×clamp(cent,-0.5,1) —— 压错方向扣分给方向梯度;
+                                 #   地板-0.5 防"弃触避罚"。配套 grasp_centrip_thresh=-1
+                                 #   (candidate 去向心门, 由 --grasp_cent_fix 一旗双设)。
+                                 #   背景: 模板托架力恒非向心 ⟹ 旧 max(cent,0) 恒零=梯度死区,
+                                 #   五线 candidate 全零 8M+ 实锤 (RSI 线 cent_shape 收入 0.0000)
+    pour_w_mouth_low = 0.0       # B5 糖已删 (2026-08-20 用户裁定: 该几何条件对口在轴顶
+    #                              的瓶需倾角>90°, 演示峰值仅71°永远发不出; 倾角糖
+    #                              30/60°+成功大奖71°已教足倾斜。代码保留, 权重置零)
+    carry_w_frame = 0.1          # 每前进一帧的微糖 (×2 物体)
+    ref_start_is_stance = True   # False = 参考首行不是站姿 (carry: 首行=抓姿 IK)
+    # ============ FC 实验: 逐指笛卡尔目标 (2026-08-19 用户批准 A/B) ============
+    fin_cart = False             # m2/成功的指型判据换成"每指指垫到各自 GraspPose 位置"
+    fin_cart_tol = 0.01          # 逐指到位容差 (m); 口径=elastomer link 原点, 目标同口径
+    w_fc_crumb = 1.0             # 逐指一次性面包屑 (+w/指)
+    fin_pot = 0.0                # 势差分引导系数 (A/B 变量: A=0, B>0; 只奖进步防刷分)
+    w_obj_disturb = 0.05         # 罚后果不罚接触: 物体速度罚, **全程在** (用户裁定)
+    phase2_m_bonus = 2.0         # 里程碑一次性奖励 (m1 腕进2cm / m2 指型进20°)
+    # 指残差**累计**上限放开到全行程 (每步增量仍是标定值 ⟹ 合拢天然缓慢 ~几十步);
+    # 旧 4.0(≈指垫2cm)是"模板主驱动"时代的, RL 自走合拢需要全行程
+    phase2_fin_dev_scale = 40.0
     dyn_arm_far = 3.0
-    dyn_d_near = 0.02            # m, 到这么近就收回 1× (毫米级)
+    dyn_d_near = 0.02            # m, 到这么近就收回 dyn_arm_near 倍
     dyn_d_far = 0.15             # m, 到这么远给满 far 倍
+    # ★ 近端尺度 (2026-08-16 实测加的, 原来近端固定 1× = 5mm/步)。
+    # 为什么要它: 把参考路径的档位改成"近密远疏"后, 终点附近前馈每步只有 **0.26mm**,
+    # 而策略残差上限仍是 5mm/步 —— 大了 20 倍 ⟹ 近目标处前馈没力气, 全靠策略,
+    # 而它的分辨率不够细。实测征状: 手到 1.44cm 后**以约 1cm/s 慢慢漂离**
+    # (步90 1.44cm -> 步160 4.93cm), 最近只能到 1.19cm 而门槛 1.04cm。
+    # 0.3× = 1.5mm/步, 与"还差 1.5mm"的精度需求同量级; 同时把漂移速度压到 1.5mm/步。
+    dyn_arm_near = 0.3
     # -- 相位切换 (纯几何 + 滞回; 阈值来自 P0.0 容差曲线的 90% 档) --
     eps_pos = 0.0104             # m
     eps_rot = 0.038              # rad (2.18°)
@@ -374,6 +720,12 @@ class GraspTaskCfg(DexmateCorrectionEnvCfg):
     # ⚠ 我的判断是这**不是**当前的杠杆(失败模式是超时=走不到, 不是"到了但奖励不够"),
     #   但代价为零, 且与"退避路径当参考"一起改会混judging —— 判读时记得它俩同时变了。
     r_reach = 100.0              # 到位终端奖励
+    # ---- 用时塑形 (2026-08-17): 到位奖励按用时衰减, 给"绕路"一个价格 ----
+    #   有效奖励 = r_reach × (1-λ + λ·decay^(用时-ref))
+    #   λ 由训练入口按成功率放行(见 --time_shape); ref=94 步 = 冠军实测水平
+    time_shape_lambda = 0.0      # 0=不打折; 训练钩子按成功率升到 1
+    time_shape_decay = 0.99      # 94步→100分 150步→57分 211步→31分
+    time_shape_ref_steps = 94.0
     # 回合预算: 用户定 250 步 @20Hz = 12.5s。理论下限来自标定的每步末端位移上界
     #   arm_residual_max(末端 95 分位 2cm) × arm_step_scale(0.25) = **5mm/步**
     #   ⟹ 站姿->GraspPose 30.1cm(Grasp3) 需 ≥60 步; 41.4cm(瓶) 需 ≥83 步。
@@ -408,6 +760,7 @@ class GraspTaskCfg(DexmateCorrectionEnvCfg):
     # 附近起步), 配合笨拙课程让"抓住"的收入在第 0 步就可达. 静置段物体钉住,
     # 复位轻穿透由 PD 手指柔顺侧解掉.
     closure_init_max = 0.9
+    closure_init_min = -1.0      # >=0: 起步合拢度固定为该值 (诊断用)
 
     # ================= 接触力语义 (软垫↔物体) =================
     # 传感器给**力向量**; 量级 smoke 实测: 轻触 0.7~0.9N, 蛮力单垫 35N.
@@ -565,6 +918,11 @@ class GraspTaskCfg(DexmateCorrectionEnvCfg):
     push_terminate = os.environ.get("RL_PUSH_TERM", "1") != "0"
     fall_below = 0.03            # m
     max_obj_height = 0.25        # m (物体高于桌面这么多 = 被抛飞; 验证只抬 1cm, 不冲突)
+    # 撞倒判负 (2026-08-18 用户裁定: "瓶子被撞倒 这个应该给直接终止"):
+    # 物体长轴相对初始姿态倾转超过此角 = toppled, 直接终止判负。
+    # 60° 依据: 历史成功抓取的 tilt_max 实测 17~19°, 余量 3 倍; 微抬升/微拧
+    # 验证都不改倾角; 倒水任务的 58° 大倾角属于后续任务, 用它自己的配置覆盖。
+    fail_tilt_deg = 60.0
     lift_height = 0.05           # m; 只用作物体高度观测通道的归一分母
 
     # ================= episode =================
@@ -586,6 +944,11 @@ def _obs_base(cfg) -> int:
     if getattr(cfg, "approach_only", False):
         # 7 维臂动作: 相对 closure 模式去掉 12 维 —— closure 标量 1 + 每指残差 5
         # + 动作缓冲 13->7 (6)。这三样都是被 hand_gate 乘零的通道, 留着是死信息。
+        if (getattr(cfg, "pregrasp29", False)
+                and getattr(cfg, "hand_action_mode", "closure") == "joints"):
+            # PreGrasp29 (2026-08-18晚): approach_only 语义 + 22 指解锁(joints) ——
+            # 多出逐关节累积残差 22 维 (实测运行时 161 vs 旧公式 139, 差值恰 22)
+            return 144 - 12 + 22
         return 144 - 12
     return 144 + (55 if getattr(cfg, "hand_action_mode", "closure") == "joints" else 0)
 

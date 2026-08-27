@@ -27,6 +27,9 @@ p.add_argument("--grasp_prior", required=True)
 p.add_argument("--prior_yaw", type=float, default=-1.0)
 p.add_argument("--num_envs", type=int, default=256)
 p.add_argument("--steps", type=int, default=260)
+p.add_argument("--minimal", action="store_true",
+               help="被测 ckpt 是 --minimal 训的: 场景必须逐项对齐, "
+                    "否则测的不是同一个任务")
 p.add_argument("--start_j0", type=int, default=-1,
                help=">=0: 起点钉在路径这一帧; 默认 -1 = 站姿(j0=0, 正式口径)")
 AppLauncher.add_app_launcher_args(p)
@@ -61,6 +64,18 @@ apply_grasp_prior(cfg, args.grasp_prior, args.prior_yaw, approach=True)
 cfg.retract_start = True
 cfg.stance_prob = 1.0            # 正式口径: 全部从站姿出发
 cfg.retract_ratio = 1.0
+if args.minimal:
+    # 与 train.py 的 --minimal 逐项一致 (顺序也一致: 起点/公差放在最后落定)
+    cfg.minimal_no_ff = True
+    cfg.minimal_fixed_res = True
+    cfg.dyn_arm_near = 1.0
+    cfg.eps_pos, cfg.eps_rot = 0.01, np.radians(15.0)
+    cfg.eps_pos0, cfg.eps_rot0 = cfg.eps_pos, cfg.eps_rot
+    cfg.w_imit0_approach = 0.0
+    cfg.w_imit_ramp = 0.0
+    cfg.stance_prob, cfg.retract_ratio = 1.0, 1.0
+    cfg.direct_grasp_prob = 0.0
+    print(f"[minimal] 诊断场景已对齐: 起点=站姿 无前馈 公差 {cfg.eps_pos*100:.2f}cm")
 cfg.scene.num_envs = args.num_envs
 raw = GraspTaskEnv(cfg)
 raw.gentle = 1.0
@@ -92,6 +107,7 @@ snap_cmd = torch.full((N,), float("nan"), device=dev)   # 那一刻的命令离�
 snap_res = torch.zeros(N, device=dev)
 snap_act = torch.zeros(N, device=dev)
 snap_v = torch.zeros(N, device=dev)
+curve = []
 obs = env.reset()
 with torch.no_grad():
     for st in range(args.steps):
@@ -111,6 +127,11 @@ with torch.no_grad():
         n_all += (pr & ok_v).float()
         v_at_pr = torch.where(pr & torch.isnan(v_at_pr), v, v_at_pr)
         best_run = torch.maximum(best_run, raw.switch_run.float())
+        # 逐步 d_pos 曲线 + 参考时钟走到哪 —— 分开"预算不够"/"前缀浪费"/"和前馈打架"
+        if st % 10 == 0 or st == args.steps - 1:
+            curve.append((st, float(dp.median()) * 100,
+                          float(raw.ref_t.float().median()),
+                          float(v.median()) * 100))
         # ---- 为什么停在门口: 在**离目标最近那一刻**取样 ----
         # ⚠ 不能按"固定第 N 步"取 —— 回合上限 250 步而我跑 260 步, 末尾 6 步测到的是
         #   **刚复位的新回合**(实测 29.3cm = 站姿距离), 完全无意义。踩过一次。
@@ -140,6 +161,14 @@ print(f"  ③ 腕速达标过的 env : {f(n_v):5.1f}%")
 print(f"  ①②同时达标过的 env: {f((n_p > 0) & (n_r > 0)):5.1f}%")
 print(f"  ①②③同时达标过    : {f(n_all):5.1f}%")
 print(f"  连续满足最长步数    : max {best_run.max():.0f} 步 (需要 {cfg.switch_hold} 步)")
+if curve:
+    print("-" * 78)
+    print(f"  [逐步曲线] 参考路径共 {raw.retract_path.shape[0]} 帧 | 起点=站姿(ref_t=0)")
+    print(f"  {'步':>5} {'离目标(cm)':>11} {'参考帧':>8} {'腕速(cm/s)':>11}")
+    for _s, _d, _t, _v in curve[::max(len(curve)//14, 1)]:
+        print(f"  {_s:>5} {_d:>11.2f} {_t:>8.0f} {_v:>11.2f}")
+    print("  判读: 单调降但没到 -> 预算不够; 前 60 步几乎不动 -> 前缀浪费; "
+          "震荡/反弹 -> 和前馈打架")
 _mc = ~torch.isnan(snap_cmd)
 if bool(_mc.any()):
     print("-" * 78)

@@ -77,7 +77,7 @@ def ang_diff(a, b):
 
 
 # ---------------------------------------------------------------- 视频 yaw
-def video_yaw_deg(clip_cfg, canon_rot):
+def video_yaw_deg(npz_path, canon_rot):
     """重建视频里物体静置段的 yaw (度), 以 canon_rot 为基准姿态.
 
     找 θ 使 Rz(θ)·R_canon 最接近视频姿态。返回 (θ, 残差角, 静置段稳定性)。
@@ -85,7 +85,7 @@ def video_yaw_deg(clip_cfg, canon_rot):
     此时 θ 没有意义 (Grasp3 曾出现 179.9° 翻面)。
     """
     from rl_rebuild.correction import frames as F
-    z = np.load(clip_cfg["npz"], allow_pickle=True)
+    z = np.load(npz_path, allow_pickle=True)
     op = z["obj_pose"]
     # 静置段 = 任一只手开始接触之前
     gs = len(op)
@@ -110,7 +110,8 @@ def video_yaw_deg(clip_cfg, canon_rot):
     return theta, resid, stab
 
 
-def object_placement(clip_cfg, canon_rot, table_top_z):
+def object_placement(npz_path, mesh_path, table_top_z, hand="right",
+                     affordance=None, semantics=None, scene_layout_json=None):
     """物体在 env 世界系的摆放。**直接取 ref_builder 的结果**, 不再自己算。
 
     ⚠ 2026-08-15/16 两次踩到:本函数原来自己按"纯相机锚定"算 xy, 而 env 走的是
@@ -126,11 +127,25 @@ def object_placement(clip_cfg, canon_rot, table_top_z):
     from rl_rebuild.correction.ref_builders.replay_grasp import load_replay_grasp
     import numpy as _np
     _du = load_replay_grasp(
-        clip_cfg["npz"], clip_cfg["mesh"], hand=clip_cfg.get("robot_hand", clip_cfg.get("hand", "right")),
-        affordance_npz=clip_cfg.get("affordance"), semantics=clip_cfg.get("semantics"),
-        scene_layout_json=clip_cfg.get("scene_layout_json"),
+        npz_path, mesh_path, hand=hand,
+        affordance_npz=affordance, semantics=semantics,
+        scene_layout_json=scene_layout_json,
         table_height=table_top_z, verbose=False)
     return _np.asarray(_du.object_init_pose[:3], float)
+
+
+def video_yaw_deg_from_clip(clip_cfg, canon_rot):
+    """薄包装: clips.py 注册表 -> 具体量。**数学只在上面那个函数里, 这里不复制。**"""
+    return video_yaw_deg(clip_cfg["npz"], canon_rot)
+
+
+def object_placement_from_clip(clip_cfg, canon_rot, table_top_z):
+    """薄包装, 同上。Step3 等外部调用方可以绕开注册表直接调 `object_placement`。"""
+    return object_placement(
+        clip_cfg["npz"], clip_cfg["mesh"], table_top_z,
+        hand=clip_cfg.get("robot_hand", clip_cfg.get("hand", "right")),
+        affordance=clip_cfg.get("affordance"), semantics=clip_cfg.get("semantics"),
+        scene_layout_json=clip_cfg.get("scene_layout_json"))
 
 
 def _object_placement_camera_anchor(clip_cfg, canon_rot, table_top_z):
@@ -162,7 +177,21 @@ def gate0(clip_cfg, info_json):
 
 
 
-def _ik_err_at(prior_npz, obj_pos, yaw_deg, hand, from_yaw=0.0) -> float:
+def _make_ik(hand, anchor_link=None, anchor_T=None, _warned=[]):
+    """构造 ArmIK。给了 anchor_T 就用**实测基座**(与 env 同口径), 否则退回名义并警告一次。"""
+    from rl_rebuild.correction.kinematics import ArmIK
+    if anchor_T is not None:
+        return ArmIK(hand, anchor_link=(anchor_link or "arm_center"),
+                     anchor_T=np.asarray(anchor_T, np.float64))
+    if not _warned:
+        _warned.append(1)
+        print("  ⚠ 可达性用的是**名义基座**(无 anchor_T) —— 结论只能当排序键, **不能当判死线**。"
+              "实测基座: tasks/pregrasp/priors/anchor_T_<hand>.json (dump_anchor.py 生成)")
+    return ArmIK(hand)
+
+
+def _ik_err_at(prior_npz, obj_pos, yaw_deg, hand, from_yaw=0.0,
+               anchor_link=None, anchor_T=None) -> float:
     """在给定物体 yaw 上解抓姿 IK, 返回位置误差(m)。
 
     ⚠ **必须暖启动**: Gate 1 的可达带扫描是逐 5° 顺序求解、把上一格的解当种子的
@@ -174,7 +203,7 @@ def _ik_err_at(prior_npz, obj_pos, yaw_deg, hand, from_yaw=0.0) -> float:
     z = np.load(prior_npz)
     canon = np.asarray(z["canon_rot"], np.float64)
     grasp = np.asarray(z["grasp"], np.float64)
-    ik = ArmIK(hand)
+    ik = _make_ik(hand, anchor_link, anchor_T)
     q = np.zeros(len(ik.arm_joints))
     q[0] = np.radians(-45.0)
     if len(q) > 3:
@@ -263,20 +292,29 @@ def _parse_band(band: str):
 
 
 # ---------------------------------------------------------------- Gate 1
-def gate1(prior_npz, obj_pos, video_yaw, tol_deg, step=5, hand="right"):
+def gate1(prior_npz, obj_pos, video_yaw, tol_deg, step=5, hand="right",
+          anchor_link=None, anchor_T=None):
     """yaw 扫描: 可达带 Ψ 是否够到视频 yaw.
+
+    ★ `anchor_T` (2026-08-17 加): env 解 IK 用的是**实测的 arm_center 位姿**, 而本函数
+      原来用 `ArmIK(hand)` = **URDF 名义基座**。`dexmate_env.py:290` 的注释:
+        "锚在实测的 arm_center 上, 不用『躯干在配置角度』这个假设 —— 否则躯干沉降几度
+         就让整条臂的基座偏掉, q_ref 会是个到不了的目标。"
+      ⟹ 两边解的不是同一个末端坐标系, 可达性结论必然打架。2026-08-17 实测: 本函数说
+      yaw 175° 可达, env 里 `grasp ok=False` 够不着(杯候选 1_8)。
+      **不传 anchor_T 时结论只能当排序键, 不能当判死线**(会打印警告)。
+      实测值由 `tasks/pregrasp/dump_anchor.py` 导出到 priors/anchor_T_<hand>.json。
 
     ⚠ `hand` 必须跟 clip 的 `robot_hand` 走 —— 之前写死 "right", 拿右臂去筛左手候选
     (pour17 的杯是左手)会给出完全无意义的可达带。2026-08-15 修。
     """
-    from rl_rebuild.correction.kinematics import ArmIK
     z = np.load(prior_npz)
     if "canon_rot" not in z.files:      # 老 prior(Screw27 等)没有这一项, 跳过而不是崩
         return dict(ok=False, n_reach=0, dpsi=None, best_yaw=None, best_err=float("nan"),
                     band="", skipped="无 canon_rot(老 prior)")
     canon = np.asarray(z["canon_rot"], np.float64)
     grasp = np.asarray(z["grasp"], np.float64)
-    ik = ArmIK(hand)
+    ik = _make_ik(hand, anchor_link, anchor_T)
     q = np.zeros(len(ik.arm_joints))
     q[0] = np.radians(-45.0)
     if len(q) > 3:
@@ -319,7 +357,7 @@ TUBE_SLACK = 0.02         # IK 残差 + 控制跟踪滞后
 TUBE_R_CAP = 0.20         # H3 判死线
 
 
-def human_pregrasp_wrist(clip_cfg, clip, table_top_z=0.85):
+def human_pregrasp_wrist(clip_cfg, clip, table_top_z=0.85, hand=None):
     """人手参考轨迹在 **PreGrasp 帧** 的腕位姿 (env 系) + 该帧号.
 
     这是接近段的终点参考; H3 量的就是"它离 GraspPose 有多远".
@@ -328,7 +366,12 @@ def human_pregrasp_wrist(clip_cfg, clip, table_top_z=0.85):
     from rl_rebuild.correction.ref_builders.replay_grasp import load_replay_grasp
     du = load_replay_grasp(
         clip_cfg["npz"], clip_cfg["mesh"], usd_path=clip_cfg.get("usd", ""),
-        clip_id=clip, hand="right", table_height=table_top_z,
+        # ★ 2026-08-17 修: 原来这里**写死 "right"**, 没有 hand 参数。
+        #   于是给**左手** clip 评 H3 时, 人手参考取的是**右手**腕轨迹 —— 左右手近似镜像,
+        #   姿态差直接飙到百来度。实测吻合: 瓶(右手) 24° 合理 / 杯(左手) 165° 离谱,
+        #   出问题的恰好就是那个左右不一致的。现在按 clip 注册表的 hand 取。
+        clip_id=clip, hand=(hand or clip_cfg.get("hand") or "right"),
+        table_height=table_top_z,
         affordance_npz=clip_cfg.get("affordance"), semantics=clip_cfg.get("semantics"),
         # ⚠ 必须 False —— 2026-08-02 D7 之后训练侧已关掉 PreGrasp 对齐, 这里若还开着,
         # 算出来的 G 会比训练时**小一半以上** (Grasp3/8_5: 8.9cm vs 实测 17.8cm),
@@ -541,8 +584,8 @@ def main():
         print("[Gate 0] 跳过 (未给 --info_json)")
 
     canon = np.asarray(np.load(priors[0])["canon_rot"], np.float64)
-    obj_pos = object_placement(clip_cfg, canon, args.table_top_z)
-    vy, resid, stab = video_yaw_deg(clip_cfg, canon)
+    obj_pos = object_placement_from_clip(clip_cfg, canon, args.table_top_z)
+    vy, resid, stab = video_yaw_deg_from_clip(clip_cfg, canon)
     print(f"\n[基准] 物体摆放 xy=({obj_pos[0]:+.4f}, {obj_pos[1]:+.4f}) z={obj_pos[2]:.4f}")
     print(f"       视频 yaw = {vy:.1f}°  (静置段稳定性 {stab:.1f}°, 翻面残差 {resid:.1f}°)")
     if resid > 15:
@@ -550,14 +593,28 @@ def main():
               f"视频 yaw 无意义, Gate 1 结果不可信")
 
     # ---- Gate 1 ----
+    # ★ 实测臂基座: 有就用(与 env 同口径), 没有就退回名义并在下面打警告。
+    #   2026-08-17 起 —— 名义基座会给出 env 够不到的候选(实测: yaw 175° 说可达, env ok=False)。
+    _hand = clip_cfg.get("robot_hand", clip_cfg.get("hand", "right"))
+    _anchor_T, _anchor_link = None, None
+    _apath = os.path.join(os.path.dirname(__file__), "priors", f"anchor_T_{_hand}.json")
+    if os.path.exists(_apath):
+        with open(_apath) as _f:
+            _ar = json.load(_f)
+        _anchor_T, _anchor_link = _ar["anchor_T"], _ar.get("anchor_link", "arm_center")
+        print(f"  [基座] 用**实测** anchor_T ({_hand}) 自 {os.path.basename(_apath)} "
+              f"dump于 {_ar.get('dumped_at','?')} —— 与 env 同口径")
+    else:
+        print(f"  [基座] ⚠ 找不到 {_apath} —— 退回**名义基座**, "
+              f"可达性结论只能当排序键。生成: python -m tasks.pregrasp.dump_anchor")
     print(f"\n[Gate 1] 可达性 (Δψ ≤ {args.tol_deg:.0f}° 才算与视频一致)")
     print(f"  {'候选':>10s} {'可达档':>7s} {'可达带':>22s} {'Δψ':>7s} {'用哪个yaw':>10s} {'IK':>8s}  判定")
     survivors = []
     g1 = {}
     for p in priors:
         tag = os.path.basename(p)[:-4]
-        r = gate1(p, obj_pos, vy, args.tol_deg,
-                  hand=clip_cfg.get("robot_hand", clip_cfg.get("hand", "right")))
+        r = gate1(p, obj_pos, vy, args.tol_deg, hand=_hand,
+                   anchor_link=_anchor_link, anchor_T=_anchor_T)
         g1[tag] = r
         if r.get("skipped"):
             print(f"  {tag:>10s} {'—':>7s} {'—':>22s} {'—':>7s} {'—':>10s} {'—':>8s}  ⏭ {r['skipped']}")
@@ -629,6 +686,8 @@ def main():
     g1b = {}
     if survivors and not args.no_h3:
         wp, wq, gs_f = human_pregrasp_wrist(clip_cfg, args.clip, args.table_top_z)
+        print(f"  [H3] 人手参考取的是 **{clip_cfg.get('hand', 'right')}** 手 "
+              f"(clip 注册表的 hand 字段) —— 左右取错会让姿态差飙到百来度")
         print(f"\n[Gate 1b] H3 人手一致性 (PreGrasp 帧 {gs_f}, 腕位 "
               f"{np.round(wp, 3)}; R_hi ≤ {TUBE_R_CAP*100:.0f}cm 才过)")
         print(f"  {'候选':>10s} {'用的yaw':>8s} {'缺口G':>9s} {'姿态差':>8s} {'派生管壁R_hi':>13s}  判定")

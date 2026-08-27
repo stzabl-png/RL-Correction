@@ -237,7 +237,6 @@ def load_static_reconstruction(
             target_hz=target_hz,
             semantics=semantics,
             verbose=verbose,
-            initial_pose_mode="preserve",
         )
         placement = compute_static_placement(
             replay,

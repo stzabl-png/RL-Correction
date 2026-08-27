@@ -1,0 +1,69 @@
+{
+  "status": "complete",
+  "step": "confidence",
+  "dataset": "egodex_auto",
+  "video_id": "pour__17",
+  "poseqa_root": "/home/yanghong/Reconstruct_and_Retarget/Data/VideoPrior/poseqa",
+  "objects": {
+    "object_0": {
+      "conf_pos_median": 82.0,
+      "conf_rot_median": 70.5,
+      "position_grade": "good",
+      "rotation_usable": true,
+      "refuted_frames": 0,
+      "manifest_status": "active",
+      "rotation_grade": "good"
+    },
+    "object_1": {
+      "conf_pos_median": 84.0,
+      "conf_rot_median": 54.0,
+      "position_grade": "good",
+      "rotation_usable": true,
+      "refuted_frames": 0,
+      "manifest_status": "active",
+      "rotation_grade": "mixed"
+    }
+  },
+  "manifest_status": "active",
+  "summary_object": "object_0",
+  "n_objects": 2,
+  "conf_pos_median": 82.0,
+  "conf_rot_median": 70.5,
+  "position_grade": "good",
+  "rotation_usable": true,
+  "refuted_frames": 0,
+  "synced_from_manifest": {
+    "generated_at": "2026-08-17T20:03:53-07:00",
+    "generator_sha1": "70f28b91bc25",
+    "generator_commit": "0415290",
+    "generator_host": "msclab-AS-4124GS-TNR",
+    "generator_user": "yanghong"
+  },
+  "hands": {
+    "left": {
+      "conf_pos_median": 88.6,
+      "conf_rot_median": 88.6,
+      "conf_fingers_median": [
+        95.8,
+        95.8,
+        99.5,
+        99.8,
+        98.6
+      ],
+      "pred_err_mm_median": 27.2
+    },
+    "right": {
+      "conf_pos_median": 95.5,
+      "conf_rot_median": 94.4,
+      "conf_fingers_median": [
+        99.8,
+        87.6,
+        99.0,
+        100.0,
+        99.2
+      ],
+      "pred_err_mm_median": 22.6
+    }
+  },
+  "hand_conf_version": "hand_conf_v1_arctic55_20260825"
+}

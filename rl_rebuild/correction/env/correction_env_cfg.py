@@ -150,9 +150,9 @@ class SharpaCorrectionEnvCfg(DirectRLEnvCfg):
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, 0.0, 0.97)),  # 占位
     )
-    # ---- 桌子: 静态碰撞体, 桌面 z=0.85 (与数据对齐约定一致) ----
-    table_size = (1.2, 1.2, 0.04)
-    table_top_z = 0.85
+    # ---- 桌子: 静态碰撞体 (2026-08-26 Pour 新场景: 黑色 6ft x 4ft, 桌面 87cm) ----
+    table_size = (1.2192, 1.8288, 0.04)   # 深4ft x 宽6ft: 长边横在机器人面前, 机器人位于长边中点
+    table_top_z = 0.87
     # ---- DexMate(Vega) 视觉参考 ----
     # 只为在 GUI 里核对工作区尺度 (飞手 MVP 的腕位必须落在 Vega 够得到的范围内,
     # 见 docs/DEXMATE_WORKSPACE.md). **不参与控制、不参与训练**: 挂在 /World/Dexmate,
@@ -184,8 +184,10 @@ class SharpaCorrectionEnvCfg(DirectRLEnvCfg):
     # 所以查看器重建后姿态不会丢. 全部可控名见 DEXMATE_JOINTS.md (67 个).
     # 2026-07-25 手调的对称站姿:
     dexmate_joints = {
-        "torso_j1": 45.0,
-        "torso_j2": 90.0,
+        # 2026-08-26 Pour 站姿: 0.7072/1.2856/0.0068 rad
+        "torso_j1": 40.5196,
+        "torso_j2": 73.6595,
+        "torso_j3": 0.3896,
         "L_arm_j1": 45.0,  "R_arm_j1": -45.0,     # 肩 pitch, 左右对称
         "L_arm_j2": 0.0,   "R_arm_j2": 0.0,
         "L_arm_j3": 0.0,   "R_arm_j3": 0.0,
@@ -280,5 +282,5 @@ class SharpaCorrectionEnvCfg(DirectRLEnvCfg):
     # 256 ≈ 1024env 时 4 步左右的回合产出, 够平滑又跟得上.
     diag_window = 256
     # ---- 参考数据 (clips.py 注册表按 clip_name 解析; configure_cfg 会改 object usd 路径) ----
-    clip_name = "clip11"
+    clip_name = "Grasp2"   # 2026-08-11: 旧 clip11(bi_v2ap 源, 无 ref_builder) 已删
     target_hz = 20.0                  # = 1 / (dt*decimation)

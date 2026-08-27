@@ -188,8 +188,16 @@ def setup_scene(env):
         restitution_combine_mode="multiply",
     )
     material.func("/World/Materials/ScrewAux", material)
+    # aux_grip_parity (2026-08-20 用户裁定"左右数值一致"): 副物体材质与主物同策略
+    # (SuperGrip 3.0/multiply), 否则 B 垫×Aux 合成 1.5 ≠ A 垫×主物 9.0。
+    # screw 类任务不受影响 (它们不设此旗)。
+    _aux_mat = ("/World/Materials/SuperGrip"
+                if getattr(env.cfg, "aux_grip_parity", False)
+                else "/World/Materials/ScrewAux")
     for prim_path in sim_utils.find_matching_prim_paths("/World/envs/env_.*/Aux"):
-        sim_utils.bind_physics_material(prim_path, "/World/Materials/ScrewAux")
+        sim_utils.bind_physics_material(prim_path, _aux_mat)
+    if _aux_mat.endswith("SuperGrip"):
+        print("[aux] aux_grip_parity: 副物体绑 SuperGrip (与主物一致, 物↔桌 1.5)")
 
     if env.screw_spec is None:
         print(f"[aux] 自由第二物体就绪: {sec.get('label')} "
@@ -385,3 +393,10 @@ def reset_aux_free(env, env_ids):
     env.aux.write_root_pose_to_sim(torch.cat([aux_p + origins, aux_q], dim=1), env_ids)
     env.aux.write_root_velocity_to_sim(
         torch.zeros(n, 6, dtype=torch.float32, device=dev), env_ids)
+    # 记下 aux 的真实摆放(origin 相对): 双臂 B 侧复位要拿它当 obj_start 基准
+    # (B 侧不重摆场景, 同帧读 data.root_pos_w 有脏读风险, 用这份权威值)
+    if not hasattr(env, "_aux_last_pos"):
+        env._aux_last_pos = torch.zeros(env.num_envs, 3, device=dev)
+        env._aux_last_quat = torch.zeros(env.num_envs, 4, device=dev)
+    env._aux_last_pos[env_ids] = aux_p
+    env._aux_last_quat[env_ids] = aux_q

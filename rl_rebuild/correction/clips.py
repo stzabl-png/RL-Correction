@@ -383,6 +383,75 @@ CLIPS["Pour17_bottle"] = _pour17("bottle")
 CLIPS["Pour17_cup"] = _pour17("cup")
 
 
+# =============================================================================
+#   sweep_2 (扫地, 2026-08-19 深夜首注册): 左手簸箕 / 右手扫帚。
+#   ⚠ 最小可行注册 (GUI/规划先行), 三个临时项待还:
+#     ① 无 affordance (env 全条件分支, 缺省可跑; 接触带在
+#        results/sweep_2_better/contact/region_object_{0,1}.npz, 蒸馏待做)
+#     ② pad_contact_calib=False 未做逐 clip A/B (上线训练前必须跑 diag_fgate)
+#     ③ semantics 质量为估计值 (簸箕/扫帚未称重)
+#   GraspPose = 用户钦点 (Dexonomy 功能池, demo_angle 口径):
+#     簸箕×左 fingertip_small__8_34 (64.2°, 4 接触; ⚠中指力仅 3%, Gate2 边界)
+#     扫帚×右 8_Prismatic_2_Finger__37_16 (30.0°, 5 接触, 力分配 29/28/23/20)
+#   scene_layout 红旗: object_0(簸箕) 稳定姿态吸附判"倒置"(轴夹角 157.6°),
+#   GUI 首验必看摆放。
+# =============================================================================
+
+
+def _sweep2(primary: str):
+    base = os.path.join(_DATASETS, "sweep2")
+    rr = "/home/lyh/Project/Reconstruct_and_Retarget/results/sweep_2_better"
+    dustpan = dict(
+        oid="object_0", hand="left",
+        label="dustpan (15.8x2.9x21.6cm, handle near ground)",
+        mesh=os.path.join(base, "objects", "object_0", "object_mesh_scaled_final.obj"),
+        usd=os.path.join(rr, "retarget", "object_0.usd"),
+        usd_physics=os.path.join(base, "cache", "object_0.usd"),
+        semantics=ObjectSemantics(label="dustpan", mass_kg=0.15, friction=0.6,
+                                  mass_range=(0.08, 0.30)),
+    )
+    broom = dict(
+        oid="object_1", hand="right",
+        label="hand broom (7.8x11.6x29.2cm)",
+        mesh=os.path.join(base, "objects", "object_1", "object_mesh_scaled_final.obj"),
+        usd=os.path.join(rr, "retarget", "object_1.usd"),
+        usd_physics=os.path.join(base, "cache", "object_1.usd"),
+        semantics=ObjectSemantics(label="hand broom", mass_kg=0.25, friction=0.6,
+                                  mass_range=(0.12, 0.45)),
+    )
+    pri, sec = (broom, dustpan) if primary == "broom" else (dustpan, broom)
+    return dict(
+        source="replay_grasp",
+        npz=os.path.join(rr, "retarget", "replay_world.npz"),
+        mesh=pri["mesh"], usd=pri["usd"],
+        place_mode="ref_builder",          # 同 pour17 病历: bimanual_align 是单物体逻辑
+        runtime_object_physics=True,
+        override_cfg_mass=True,
+        flatten_converted_usd=True,
+        hand=pri["hand"], robot_hand=pri["hand"],
+        semantics=pri["semantics"],
+        primary_oid=pri["oid"],
+        secondary=dict(label=sec["label"], mesh=sec["mesh"], usd=sec["usd_physics"],
+                       semantics=sec["semantics"], oid=sec["oid"],
+                       usd_convex_hulls=128, usd_shrink_wrap=True),
+        scene_layout_json=os.path.join(base, "scene_layout.json"),
+        keyframes_json=os.path.join(base, "keyframes.json"),
+        grasp_prior_npz_default=os.path.abspath(os.path.join(
+            os.path.dirname(__file__), "../../tasks/pregrasp/priors",
+            f"Sweep2_{'broom' if primary == 'broom' else 'dustpan'}.npz")),
+        grasp_template=("8_Prismatic_2_Finger" if primary == "broom"
+                        else "fingertip_small"),
+        verify_mode="lift",
+        arm_table_shell=True,
+        upright_hold=True,
+        pad_contact_calib=False,           # ⚠ 未做 A/B, 训练前必测 (见上)
+    )
+
+
+CLIPS["Sweep2_broom"] = _sweep2("broom")
+CLIPS["Sweep2_dustpan"] = _sweep2("dustpan")
+
+
 def clip_entry(name: str) -> dict:
     if name not in CLIPS:
         raise KeyError(f"未知 clip '{name}', 可选: {list(CLIPS)}")

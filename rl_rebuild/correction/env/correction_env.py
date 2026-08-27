@@ -43,7 +43,7 @@ class SharpaCorrectionEnv(DirectRLEnv):
         # DexMate 子类会覆盖成"整机 67 关节里挑出 22 手指 + 7 臂".
         self._resolve_joint_ids()
 
-        # ---- 参考数据 -> device 张量 (clips 注册表分派 bi_v2ap / ocir loader) ----
+        # ---- 参考数据 -> device 张量 (clips 注册表按 source 分派 loader) ----
         du = clips.load_data_unit(cfg)
         self.du = du
         r = du.ref
@@ -350,11 +350,11 @@ class SharpaCorrectionEnv(DirectRLEnv):
     def _setup_scene(self):
         self.hand = Articulation(self.cfg.robot_cfg)
         entry = clips.clip_entry(self.cfg.clip_name)
-        # ocir 源: 首次把 object.obj 转成物理烘焙 USD (缓存); bi_v2ap 源: usd 已就位
+        # ocir 源: 首次把 object.obj 转成物理烘焙 USD (缓存); replay_grasp 源: usd 已就位
         clips.ensure_object_usd(self.cfg.clip_name)
         self.object = RigidObject(self.cfg.object_cfg)
         if entry["runtime_object_physics"]:
-            # bi_v2ap 的 object.usd 是纯视觉网格, 与在线 replay 相同: 运行时贴刚体+碰撞
+            # replay_grasp 的 object.usd 是纯视觉网格, 与在线 replay 相同: 运行时贴刚体+碰撞
             import omni.usd
             from pxr import PhysxSchema, Usd, UsdGeom, UsdPhysics
             stage = omni.usd.get_context().get_stage()
@@ -381,7 +381,7 @@ class SharpaCorrectionEnv(DirectRLEnv):
             collision_props=sim_utils.CollisionPropertiesCfg(),
             physics_material=sim_utils.RigidBodyMaterialCfg(
                 static_friction=0.5, dynamic_friction=0.5),  # 物↔桌=3.0×0.5=1.5 (验证器)
-            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.4, 0.3, 0.2)),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 0.0, 0.0)),
         )
         table_cfg.func("/World/envs/env_.*/Table", table_cfg,
                        translation=(0.0, 0.0, self.cfg.table_top_z - sz / 2))
@@ -456,10 +456,17 @@ class SharpaCorrectionEnv(DirectRLEnv):
         for name in self.cfg.fingertip_bodies:                       # 指尖覆盖回 SuperGrip
             for p in sim_utils.find_matching_prim_paths(f"/World/envs/env_.*/Robot/{name}"):
                 sim_utils.bind_physics_material(p, "/World/Materials/SuperGrip"); n_grip += 1
+        # 双臂 B 侧指垫 (2026-08-20 摩擦孪生案: fingertip_bodies 只含交互侧,
+        # 另一只手的垫从建仓起是 LowGrip 0.2 —— 与 tip_ids 串台同根, 这里补绑)
+        for name in getattr(self.cfg, "extra_supergrip_bodies", []) or []:
+            for p in sim_utils.find_matching_prim_paths(f"/World/envs/env_.*/Robot/{name}"):
+                sim_utils.bind_physics_material(p, "/World/Materials/SuperGrip"); n_grip += 1
         print(f"[setup] 物体材质={object_material}×{n_object} "
               f"指尖SuperGrip×{n_grip} 手身LowGrip×{n_low}")
         self.scene.articulations["robot"] = self.hand
         self.scene.rigid_objects["object"] = self.object
+        # ★ 多物体: 第 2 个起。每个都注册进 scene, 于是 clone_environments 会复制,
+        #   GUI 里也看得到。它们**不参与**接触传感器/奖励 —— 本步只做摆放。
         # 指尖接触传感器 (冠军 env 同款模式)
         self._contact_sensors = []
         for i, scfg in enumerate(self.cfg.contact_sensors):

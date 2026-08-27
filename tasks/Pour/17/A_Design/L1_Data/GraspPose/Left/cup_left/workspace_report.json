@@ -1,0 +1,82 @@
+{
+ "params": {
+  "exp_dir": "output/DELIVER/cup_left",
+  "data": "grasp_data",
+  "side": "auto",
+  "layout": "/home/lyh/Project/RL_Correction/datasets/pour17/scene_layout.json",
+  "object": "object_0",
+  "obj_xy": null,
+  "anchor": "/home/lyh/Project/RL_Correction/tasks/pregrasp/priors/anchor_T_right.json",
+  "robot_xy": null,
+  "robot_facing": null,
+  "table_z": 0.85,
+  "canon2scene_yaw": 0.0,
+  "dead_cross": 0.05,
+  "dead_objside": 0.05,
+  "dead_behind": 0.03,
+  "dead_height": 0.03,
+  "scale": 0.1,
+  "w_cross": 2.0,
+  "w_objside": 1.0,
+  "w_behind": 0.5,
+  "w_height": 0.5,
+  "hard_cross": 0.08,
+  "reach": 0.809,
+  "reach_target": 0.7,
+  "shoulder_lat": 0.169,
+  "shoulder_z": 1.301,
+  "thre_preferred": 0.8,
+  "thre_acceptable": 0.5,
+  "rank_only": true,
+  "viz": null,
+  "viz_radius": 0.25
+ },
+ "geometry": {
+  "obj_xy": [
+   0.5596353877436815,
+   0.02879964468326405
+  ],
+  "robot_xy": [
+   -0.45876115560531616,
+   -1.564621925354004e-07
+  ],
+  "fwd": [
+   0.9996003730623527,
+   0.02826825381245861
+  ],
+  "facing": [
+   0.9999999999999761,
+   2.1827577637710738e-07
+  ],
+  "right": [
+   2.1827577637710738e-07,
+   -0.9999999999999761
+  ],
+  "table_z": 0.85,
+  "plane_z": -0.05615231767296791
+ },
+ "results": [
+  {
+   "side": "left",
+   "score": 0.6537409410544689,
+   "class": "acceptable",
+   "hard": null,
+   "cross": -0.08058460960809044,
+   "objside": -0.05178503075393071,
+   "behind": 0.11500882411893239,
+   "below": -0.02759696553550857,
+   "reach": 0.7939323381045928,
+   "wrist_xy_scene": [
+    0.6732257325303255,
+    0.0805847002312167
+   ],
+   "wrist_z_scene": 0.9337492831051349,
+   "wrist_canon": [
+    0.11359034478664398,
+    0.05178505554795265,
+    0.027596965432167053
+   ],
+   "name": "1_Large_Diameter__1_11_grasp.npy"
+  }
+ ]
+}

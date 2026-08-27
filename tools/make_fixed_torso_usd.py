@@ -35,7 +35,7 @@ DST = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "assets",
                                    "vega_1p_sharpa_fixedtorso.usd"))
 # 关节名 -> 锁定值 (revolute 用度, prismatic 用米). 必须与 cfg.dexmate_joints 的躯干项一致.
 LOCK = {
-    "torso_j1": 45.0, "torso_j2": 90.0, "torso_j3": 0.0,
+    "torso_j1": 40.5196, "torso_j2": 73.6595, "torso_j3": 0.3896,
     "dummy_base_prismatic_x_joint": 0.0, "dummy_base_prismatic_y_joint": 0.0,
     "dummy_base_revolute_z_joint": 0.0,
     "head_j1": 0.0, "head_j2": 0.0, "head_j3": 0.0,

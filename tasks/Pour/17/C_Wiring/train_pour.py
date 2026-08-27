@@ -25,6 +25,8 @@ parser.add_argument("--num_envs", type=int, default=512)
 parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--max_agent_steps", type=int, default=None)
 parser.add_argument("--load_path", default=None)
+parser.add_argument("--no_autorec", action="store_true",
+                    help="关掉自动录像循环(默认训练进程自拉, 代码钉子防漏挂)")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 assert args.headless or os.environ.get("POUR_GUI"), "训练必须 --headless (CLAUDE.md 铁则)"
@@ -60,6 +62,12 @@ class PourPPO(PPO):
         raw = self._raw
         if raw is None:
             return
+        # 进度文件 (录像循环的读数源, 代码钉子)
+        try:
+            with open(os.path.join(self.output_dir, "progress_steps.txt"), "w") as _f:
+                _f.write(str(int(self.agent_steps)))
+        except Exception:
+            pass
         rates = raw.PB.pop_rates()
         for k, v in rates.items():
             self.writer.add_scalar(k, v, self.agent_steps)
@@ -105,6 +113,19 @@ if args.load_path:
     agent.restore_train(args.load_path)
 print(f"[train_pour] N={args.num_envs} obs={PE.OBS_DIM} act={PE.ACT_DIM} "
       f"logs={log_dir}", flush=True)
+# ---- 代码钉子: 训练自拉录像循环 (POUR_*/CUDA 环境自动继承; 父进程死循环自退) ----
+if not args.no_autorec:
+    import subprocess
+    _vdir = os.path.join(log_dir, "videos")
+    os.makedirs(_vdir, exist_ok=True)
+    subprocess.Popen(
+        ["bash", os.path.join(_HERE, "autorecord_pour.sh"),
+         os.path.join(log_dir, "progress_steps.txt"),
+         os.path.join(log_dir, "stage1_nn"), _vdir, args.name,
+         sys.executable, str(os.getpid())],
+        stdout=open(os.path.join(log_dir, "autorec.out"), "a"),
+        stderr=subprocess.STDOUT)
+    print(f"[train_pour] 录像循环已自拉 (每1M步一支 -> {_vdir})", flush=True)
 agent.train()
 try:
     _slot.release()

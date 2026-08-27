@@ -30,7 +30,9 @@ _MAGICSIM_USD = os.path.join(
 # 躯干/底盘/头换成 fixed joint —— 它们在这个任务里全程不动, 与其和求解器较劲
 # (实测驱动顶不住、关节限位也没被强制执行, 每回合前 60 步手臂基座漂 10.55cm),
 # 不如直接从自由度里去掉. 文件不在就回退到原资产.
-_FIXED_USD = os.path.abspath(os.path.join(
+# DEXMATE_FIXED_USD: 显式指定躯干锁死 USD (2026-08-28 增量): 站姿是"世界版本",
+# 旧站姿权重(如 AAG-F, 8/24)必须在旧站姿 USD 里回放 —— 维度不变语义变的一族。
+_FIXED_USD = os.path.abspath(os.environ.get("DEXMATE_FIXED_USD") or os.path.join(
     os.path.dirname(__file__), "../../../assets", "vega_1p_sharpa_fixedtorso.usd"))
 _DEXMATE_USD = _FIXED_USD if os.path.exists(_FIXED_USD) else _MAGICSIM_USD
 if _DEXMATE_USD is _MAGICSIM_USD:

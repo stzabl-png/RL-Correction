@@ -3,6 +3,8 @@
 # 用法: autorecord_pour.sh <progress_or_log> <ckpt_dir> <out_dir> <name> <python> [parent_pid]
 SRC=$1; CKPT=$2; OUT=$3; NAME=$4; PY=$5; PPID_W=${6:-}
 HERE="$(cd "$(dirname "$0")" && pwd)"
+export PYTHONPATH="$(cd "$HERE/../../../.." && pwd)"   # 代码钉子: 不依赖调用方环境
+export SHARPA_WANDB=0
 mkdir -p "$OUT"
 last=0
 while true; do
@@ -20,7 +22,7 @@ while true; do
     SHARPA_WANDB=0 RL_ISAAC_NO_GUARD=1 "$PY" "$HERE/record_pour.py" \
       --checkpoint "$CKPT/last.pth" --out "$OUT/${NAME}_${m}M.mp4" \
       --headless --enable_cameras >> "$OUT/record.log" 2>&1
-    last=$m
+    [ -f "$OUT/${NAME}_${m}M.mp4" ] && last=$m || echo "[autorecord] ${m}M 失败, 5分钟后重试"
   fi
   sleep 300
 done

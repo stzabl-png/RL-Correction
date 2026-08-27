@@ -94,10 +94,9 @@ class PourProgress:
                 >= M2_TILT]
         pour_end = max(ends) if ends else self.N
         et = [(0, {1}, "seam1")]
-        for i in range(1, self.N):
-            if self.tmix[i] == 2 and self.tmix[i - 1] != 2:
-                ms = {1, 2} if i > pour_end else {1}
-                et.append((i, ms, f"green@{i}"))
+        # 绿桶退役 (2026-08-28 拍板, #11 修订): 中途悬空态物理不可实例化
+        # (热身期垫力恒0, 手指够不到面 —— B@1.87M 逐步验尸实证), 出生即送死。
+        _ = pour_end  # 保留推导供将来复用
         et.append((self.N - 1, {1, 2, 3}, "seam2_ret"))
         return et
 
@@ -113,6 +112,11 @@ class PourProgress:
 
     def reset(self):
         self.k = 0                       # 时钟 (交互行内索引), 棘轮
+        # 药A 持握换基 (2026-08-28 拍板): M1 后皮筋 pos 判"相对抓住时刻偏差的增量"
+        # —— 持握固有差(下垂+recon系统差 ~4-5cm)归零, 防"存在税"激励倒挂;
+        # 越滑越远照罚。锚逻辑与 D4 grasp_d0 同族。
+        self.leash_base = {0: np.zeros(3), 1: np.zeros(3)}
+        self._lb_set = False
         self.ms = {1: False, 2: False, 3: False, 4: False}
         self.m2_run = 0
         self.m3_run = 0
@@ -135,12 +139,21 @@ class PourProgress:
         # (实测190步累计-26 > M3+M4的+25)。交接给 M3/M4/D8/D1/D3。
         earning = self.k < self.N - 1
         ok = False
+        # 药A: M1 后首个受管步捕获持握基线 (放音/缝点出生时 act=ref, b=0 无损)
+        if self.ms[1] and not self._lb_set:
+            for _oi, _a in ((0, obj0), (1, obj1)):
+                self.leash_base[_oi] = (np.asarray(_a[:3], np.float64)
+                                        - self.obj[_oi][k][:3])
+            self._lb_set = True
         # ---- 皮筋 (分量化, 逐物体; 仅时钟在走时) ----
         leash = 0.0
         for oi, act in ((0, obj0), (1, obj1)) if earning else ():
             tpos, trot = self.tp[oi][k], self.tr[oi][k]
             ref = self.obj[oi][k]
-            dp = float(np.linalg.norm(np.asarray(act[:3]) - ref[:3]))
+            _dvec = np.asarray(act[:3]) - ref[:3]
+            if self._lb_set:
+                _dvec = _dvec - self.leash_base[oi]
+            dp = float(np.linalg.norm(_dvec))
             lp = LEASH_POS[tpos if tpos is not None else 2]
             if dp > lp:
                 leash -= (dp - lp) / lp                     # 连续渐强

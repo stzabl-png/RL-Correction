@@ -34,7 +34,7 @@ from progress_batch import (  # noqa: E402
 
 MASTER = os.path.abspath(os.path.join(
     _HERE, "..", "A_Design", "L2_Reference", "pour17_reference_v1.npz"))
-OBS_DIM = 495
+OBS_DIM = 503   # v4: +滑移块8(每侧: 滑移量/滑速/垫压和/垫数) 2026-08-28 拍板
 ACT_DIM = 58
 LOOK_KS = (1, 2, 4, 8, 16)          # #12 拍板2: 几何梯前瞻
 DEV_ARM_MACHINE, DEV_ARM_HUMAN = 0.05, 0.08   # #13 拍板2: source 两档累积界
@@ -178,6 +178,9 @@ class PourEnv(GraspTaskEnv):
         self.grasp_d0 = torch.full((N, 2), float("nan"), device=dev)
         self.d6_acc = torch.zeros(N, device=dev)
         self.last_act = torch.zeros(N, ACT_DIM, device=dev)
+        self._prev_d = torch.zeros(N, 2, device=dev)       # 上步手物距 (滑速用)
+        self._prev_pf = torch.zeros(N, 2, device=dev)      # 上步垫压和 (反射用)
+        self._slip_obs = torch.zeros(N, 8, device=dev)     # 滑移块缓存
         self._tick_out = None
         # 身体索引
         bn = list(self.hand.body_names)
@@ -247,7 +250,8 @@ class PourEnv(GraspTaskEnv):
         self.hold_pose = {oi: torch.zeros(N, 7, device=dev) for oi in (0, 1)}
         # TB 计数
         self.racc = {"adv": 0.0, "leash": 0.0, "ms": 0.0, "pen": 0.0,
-                     "pen6": 0.0, "bonus": 0.0, "n": 0}
+                     "pen6": 0.0, "bonus": 0.0, "regrip": 0.0, "slope": 0.0,
+                     "n": 0}
         self.tb = {"term/D1": 0, "term/D2": 0, "term/D3": 0, "term/D4": 0,
                    "term/D5": 0, "term/D7_timeout": 0, "term/D8": 0,
                    "term/M4_success": 0, "d6_pen_sum": 0.0, "ep": 0}
@@ -379,6 +383,30 @@ class PourEnv(GraspTaskEnv):
             ((d_r - self.grasp_d0[:, 0]).abs() > D4_SLIP)
             | ((d_l - self.grasp_d0[:, 1]).abs() > D4_SLIP))
         fail_env |= slip
+        # ---- v5移植 (2026-08-28 拍板): 滑移量/滑速/垫压 → 反射奖+斜坡罚+观测块 ----
+        d_now = torch.stack([d_r, d_l], dim=1)
+        pf_now = torch.stack([f[:, :5].sum(dim=1), f[:, 5:].sum(dim=1)], dim=1)
+        d0 = torch.nan_to_num(self.grasp_d0, nan=0.0)
+        has0 = ~torch.isnan(self.grasp_d0[:, 0])
+        slip_amt = (d_now - d0) * has0.float().unsqueeze(1)          # (N,2) m
+        slip_v = (d_now - self._prev_d).clamp(min=0.0)               # 正向滑速 m/步
+        gate_g = (self.PB.ms1 & has0).float()
+        # ③ 握紧反射: 滑速起 → 垫压正差分给奖 ×min(滑速/1cm,1), regrip_w=1.0
+        dv = (slip_v / 0.01).clamp(max=1.0)
+        dfp = (pf_now - self._prev_pf).clamp(0.0, 3.0)
+        r_reflex = 1.0 * ((dfp / 3.0) * dv).sum(dim=1) * gate_g
+        # ④ 滑移斜坡: 超线性, 满值=0.5×死线罚/侧, D4 悬崖前的梯度
+        pen_slope = -0.5 * ((slip_amt.clamp(min=0.0) / D4_SLIP) ** 2) \
+            .clamp(max=1.0).sum(dim=1) * gate_g * in_ia.float()
+        # ② 滑移观测块 (每侧: 滑移量/5cm, 滑速/1cm, 垫压/f0, 垫数/5)
+        SQF = float(self.cfg.squeeze_f0)
+        npads = torch.stack([(f[:, :5] > PAD_FTH).sum(dim=1),
+                             (f[:, 5:] > PAD_FTH).sum(dim=1)], dim=1).float()
+        self._slip_obs = torch.cat([
+            (slip_amt / 0.05).clamp(-3, 3), (slip_v / 0.01).clamp(0, 3),
+            (pf_now / SQF).clamp(0, 3), npads / 5.0], dim=1)
+        self._prev_d = d_now.detach().clone()
+        self._prev_pf = pf_now.detach().clone()
         # D5 撞桌: 手部体中心低于桌面
         hz = self.hand.data.body_pos_w[:, self.hand_bids, 2]
         fail_env |= (hz < TABLE_Z - 0.005).any(dim=1)
@@ -404,7 +432,8 @@ class PourEnv(GraspTaskEnv):
                            torch.zeros(N, device=dev))
         self.d6_acc += pen6
         self.tb["d6_pen_sum"] += float(-pen6.sum())
-        rew = (out["adv"] + out["leash"] + out["ms"] + pen) * (~holding).float() \
+        rew = (out["adv"] + out["leash"] + out["ms"] + pen
+               + r_reflex + pen_slope) * (~holding).float() \
             + pen6
         bonus = torch.zeros(N, device=dev)
         # 相B赏钱 (#13 拍板3, 轻量同族实现): 垫贴实势 earn-only 棘轮, 合拢→缝2 窗内
@@ -440,6 +469,8 @@ class PourEnv(GraspTaskEnv):
         self.racc["ms"] += float((out["ms"] * nh).sum())
         self.racc["pen"] += float((pen * nh).sum())
         self.racc["pen6"] += float(pen6.sum())
+        self.racc["regrip"] += float((r_reflex * (~holding).float()).sum())
+        self.racc["slope"] += float((pen_slope * (~holding).float()).sum())
         self.racc["bonus"] += float(bonus.sum())
         self.racc["n"] += N
         # TB
@@ -457,7 +488,8 @@ class PourEnv(GraspTaskEnv):
         n = max(self.racc["n"], 1)
         out = {f"ep_rew/{k}": v / n for k, v in self.racc.items() if k != "n"}
         self.racc = {"adv": 0.0, "leash": 0.0, "ms": 0.0, "pen": 0.0,
-                     "pen6": 0.0, "bonus": 0.0, "n": 0}
+                     "pen6": 0.0, "bonus": 0.0, "regrip": 0.0, "slope": 0.0,
+                     "n": 0}
         return out
 
     # ================= 观测 (#12 定稿, 495 维, 变维攒一次) =================
@@ -570,6 +602,7 @@ class PourEnv(GraspTaskEnv):
             regime,                                            # 5  制度量纲
             *blocks, mb_w - mc_w, tiltcos, *devs,              # 38 物体块
             prog,                                              # 7  进度状态
+            self._slip_obs,                                    # 8  滑移块(v4)
         ], dim=1).float().clamp(-float(self.cfg.clip_obs),
                                 float(self.cfg.clip_obs)).nan_to_num(0.0)
         assert obs.shape[1] == OBS_DIM, f"obs {obs.shape[1]} != {OBS_DIM}"
@@ -667,4 +700,7 @@ class PourEnv(GraspTaskEnv):
         self.grasp_d0[env_ids] = float("nan")
         self.d6_acc[env_ids] = 0.0
         self.pad_pot_max[env_ids] = 0.0
+        self._prev_d[env_ids] = 0.0
+        self._prev_pf[env_ids] = 0.0
+        self._slip_obs[env_ids] = 0.0
         self.last_act[env_ids] = 0.0

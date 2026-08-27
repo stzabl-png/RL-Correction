@@ -54,4 +54,28 @@ o1b[3:7] = qmul(qx, o1b[3:7])
 for t in range(20):
     r = P2.step(P2.rest[0], o1b, stance["right"], stance["left"], cand_ok=True)
 assert not P2.ms[3], "真歪 25° 竟然过了 M3 (倾角判据失灵)"
+# 药A 反向验证: M1 后恒偏 4cm 不罚 / 增偏到 7cm 必罚
+P3 = PourProgress(NPZ, mouth_local_bot=pm(1, 0.087), mouth_local_cup=pm(0, 0.066))
+P3.enter(5, {1})
+off = np.array([0.04, 0.0, 0.0])
+rows_all = np.where(np.asarray(z["source"]) == 1)[0]
+obj_t = {oi: np.concatenate([np.asarray(z[f"obj_pos_{oi}"], np.float64)[rows_all],
+                             np.asarray(z[f"obj_quat_{oi}"], np.float64)[rows_all]],
+                            axis=1) for oi in (0, 1)}
+armq_t = {s: np.asarray(z[f"{s}_q"], np.float64)[rows_all] for s in ("right", "left")}
+tot = 0.0
+for t_ in range(20):                      # 恒偏 4cm 跟着参考走
+    kk = min(P3.k, P3.N - 1)
+    o0 = obj_t[0][kk].copy(); o0[:3] += off
+    o1 = obj_t[1][kk].copy(); o1[:3] += off
+    r = P3.step(o0, o1, armq_t["right"][kk], armq_t["left"][kk], cand_ok=True)
+    tot += r["leash"]
+assert abs(tot) < 1e-9, f"恒偏4cm被罚 {tot} (药A失效)"
+o1b = obj_t[1][min(P3.k, P3.N-1)].copy(); o1b[:3] += np.array([0.07, 0, 0]) + off - off
+o1b[:3] = obj_t[1][min(P3.k, P3.N-1)][:3] + np.array([0.11, 0.0, 0.0])  # 基线0.04→现偏0.11, 增量7cm
+r2 = P3.step(obj_t[0][min(P3.k, P3.N-1)], o1b,
+             armq_t["right"][min(P3.k, P3.N-1)], armq_t["left"][min(P3.k, P3.N-1)],
+             cand_ok=True)
+assert r2["leash"] < 0, "增偏7cm未被罚 (纠偏鞭子丢了)"
+print("✅ 药A反向验证: 恒偏4cm零罚 / 增偏7cm有罚")
 print("✅ 合法变体自检: yaw40°放回通过 M3+M4 / 真歪25°被正确拦下")

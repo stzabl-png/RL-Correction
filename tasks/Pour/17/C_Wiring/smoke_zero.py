@@ -31,8 +31,7 @@ cfg = PE.build_cfg(num_envs=4)
 E = PE.PourEnv(cfg)
 # 4 env 定点出生: t0 / seam1 / green@87 / seam2_ret
 labels = [e[4] for e in E.entries]
-want = [0, labels.index("seam1"), labels.index("green@87"),
-        labels.index("seam2_ret")]
+want = (list(range(len(E.entries))) * 4)[:4]  # v4: 绿点退役, 现役全覆盖
 E.force_entry = want
 print(f"[零动作] 进入点: {[labels[i] for i in want]} | 全链 {E.T_ROW} 行 "
       f"IA=[{E.IA0},{E.IA1}] RETREAT0={E.RETREAT0}")

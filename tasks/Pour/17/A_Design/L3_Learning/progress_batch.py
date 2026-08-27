@@ -91,6 +91,9 @@ class PourProgressBatch:
         self.m3_run = torch.zeros_like(self.m2_run)
         self.m4_run = torch.zeros_like(self.m2_run)
         self.m3_snap = {oi: torch.zeros(num_envs, 7, device=device) for oi in (0, 1)}
+        # 药A 持握换基基线 (M1 后捕获)
+        self.lb = {oi: torch.zeros(num_envs, 3, device=device) for oi in (0, 1)}
+        self.lb_set = torch.zeros(num_envs, dtype=torch.bool, device=device)
         # RSI 预置标记: 结账只认挣来的关 (预置计入达成会灌水 sr/gate*, 而 p_t0/相B
         # 两个单旋钮都吃这个数 —— 2026-08-28 训练冒烟实测 gate1 被灌到 1.0)
         self.pre1 = torch.zeros_like(self.ms1)
@@ -111,8 +114,10 @@ class PourProgressBatch:
             self._acc["clock"] += float(self.k[env_ids].float().sum()) \
                 / max(self.N_ROW - 1, 1)
         for t_ in (self.ms1, self.ms2, self.ms3, self.ms4, self.done,
-                   self.pre1, self.pre2, self.pre3):
+                   self.pre1, self.pre2, self.pre3, self.lb_set):
             t_[env_ids] = False
+        for oi in (0, 1):
+            self.lb[oi][env_ids] = 0.0
         for t_ in (self.k, self.m2_run, self.m3_run, self.m4_run):
             t_[env_ids] = 0
 
@@ -145,11 +150,19 @@ class PourProgressBatch:
         tier = self.tmix[k]
         w_obj = self.WO[tier]
         active = ~self.done if run_mask is None else (~self.done) & run_mask
+        # 药A: M1 后首个受管步捕获持握基线
+        cap = self.ms1 & (~self.lb_set) & active
+        if cap.any():
+            for oi, act in ((0, obj0), (1, obj1)):
+                self.lb[oi][cap] = (act[:, :3] - self.ref_obj[oi][k][:, :3])[cap]
+            self.lb_set = self.lb_set | cap
         # ---- 皮筋 ----
         leash = torch.zeros(self.Ne, device=self.dev)
         for oi, act in ((0, obj0), (1, obj1)):
             ref = self.ref_obj[oi][k]
-            dp = (act[:, :3] - ref[:, :3]).norm(dim=1)
+            dvec = act[:, :3] - ref[:, :3] \
+                - self.lb[oi] * self.lb_set.float().unsqueeze(1)
+            dp = dvec.norm(dim=1)
             lp = self.LP[self.tp[oi][k]]
             leash = leash - ((dp - lp).clamp(min=0) / lp)
             trot = self.tr[oi][k]

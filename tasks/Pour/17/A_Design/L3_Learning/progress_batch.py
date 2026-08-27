@@ -192,7 +192,8 @@ class PourProgressBatch:
             ok_hand &= ((act - self.ref_arm[s][k]).abs().max(dim=1).values
                         <= np.radians(20))
         ok = torch.where(tier > 0, ok_obj, ok_hand) & active
-        can = ok & (self.k < self.N_ROW - 1)
+        # 自主抓稳阶段: M1 前时钟不走 (与标量版同拍)
+        can = ok & (self.k < self.N_ROW - 1) & self.ms1
         self.k = self.k + can.long()
         adv = can.float()
         # ---- 里程碑 ----

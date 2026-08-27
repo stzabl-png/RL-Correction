@@ -186,7 +186,9 @@ class PourProgress:
                         > np.radians(20):                    # 关节口径手门(红段)
                     ok = False
             out["gate_by"] = "hand"
-        if earning and ok and self.k < self.N - 1:
+        # 自主抓稳阶段 (2026-08-29 拍板): M1(双手抓稳)前交互时钟不走 ——
+        # 参考停在抓握站位等策略练稳, 不在没抓牢时把物体拖走 (提起墙验尸的结构解)
+        if earning and ok and self.k < self.N - 1 and self.ms[1]:
             self.k += 1
             out["adv"] = 1.0                                # Δclock earn-only
         # ---- 里程碑 (有序强制) ----

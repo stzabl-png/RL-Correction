@@ -12,7 +12,7 @@ export POUR_SQUEEZE_FF=1 POUR_BONUS_NOW=1 POUR_BONUS_DIST=1
 export POUR_VARIANT=$VAR
 PY=$HOME/miniconda3/envs/env_isaaclab/bin/python
 mkdir -p logs
-nohup $PY -u framework/C_Wiring/train_task.py \
+nohup $PY -u steps/step4_rl/framework/C_Wiring/train_task.py \
   --name $NAME --num_envs 512 --seed $SEED --headless \
   > logs/${NAME}.out 2>&1 &
 echo "launched $NAME on GPU$GPU seed$SEED $VAR pid $!"

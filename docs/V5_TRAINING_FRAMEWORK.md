@@ -1,5 +1,7 @@
 # V5 训练框架总览(Noisy-World RL · 通用部分)
 
+> 可实例化框架代码在 `steps/step4_rl/framework/`(Step4 = RL 训练)。
+
 > 2026-08-28 定稿。本文档面向复用者:列出**训练设定、场景设定、以及两种参考驱动体制**。
 > Success Tracker(四 Gate + 认证)是逐任务设计件,不在本文范围——Pour17 的实例见
 > `tasks/Pour/17/A_Design/L3_Learning/progress.py`(标量规格)与 `REWARD_DOC.md`。

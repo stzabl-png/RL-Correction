@@ -2,7 +2,7 @@
 
 > 框架身 = Pour17 v5 **已验收版**(2026-08-28:判据自检家族全绿 + 双变体训练冒烟全绿
 > + 零动作硬闸链)。新任务 = 拷贝本目录 → 填参数 → 按 `CHECKLIST.md` 逐格打勾。
-> 总体设计与两种参考体制见 `docs/V5_TRAINING_FRAMEWORK.md`。
+> 总体设计与两种参考体制见 `../../../docs/V5_TRAINING_FRAMEWORK.md`(仓库根 docs/)。
 
 ## 目录(与 Pour/17 同构)
 

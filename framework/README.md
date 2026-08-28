@@ -12,7 +12,7 @@ your_task/
     DECISIONS.md          ← 全史唯一权威: 每个拍板/标定/事故都落账 (模板已给)
     L2_Reference/         ← reference_v1.npz(人手行版, 流水线产物)
                             reference_v2.npz(build_reference.py 产物)
-    L3_Learning/          ← Success Tracker 判据双版 + 自检家族 + REWARD_DOC
+    L3_Learning/          ← Success Tracker 判据双版 + 自检家族(5件) + REWARD_DOC
   B_SmokeTest/            ← 剂量标定/验收硬闸/认证通过率/IK核查 探针
   C_Wiring/               ← task_config.py(参数单一来源) + env + 训练循环 + 冒烟/评测/录像
 ```
@@ -27,7 +27,7 @@ your_task/
    `probe_ikcheck.py` 验运动学(坏行必须不在关键窗);
 5. **改 Success Tracker**:`progress.py` 里所有 `[TASK]` 块(G3 核心判据整块可换)→
    **双版同步** `progress_batch.py` → 自检家族四件全绿
-   (`selftest_progress / _batch / _rsi / _variants`);
+   (`selftest_progress / _batch / _rsi / _variants / _regime`);
 6. **验收硬闸**:`probe_acceptance.py` 零动作全链——过不了的段要么修参考,要么在
    DECISIONS.md 明确记档"此段留给 RL"并得到裁定;
 7. **训练冒烟**:短发真训练(双变体各一),TB 针全在线 + world.json 指纹正确;

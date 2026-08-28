@@ -1,0 +1,51 @@
+"""IK 行运动学核查: FK(v2臂行) vs 物体轨迹∘抓变换 的腕位姿残差, 逐行双侧。"""
+import argparse, os, sys
+from isaaclab.app import AppLauncher
+p = argparse.ArgumentParser(); AppLauncher.add_app_launcher_args(p)
+args = p.parse_args()
+from rl_rebuild.utils.gpu_guard import isaac_slot
+_slot = isaac_slot("ikchk")
+app = AppLauncher(args).app
+import numpy as np, torch
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "C_Wiring"))
+os.environ["POUR_NO_D6"] = "1"
+os.environ.pop("POUR_SQUEEZE_FF", None)
+import task_config as TC
+import task_env as PE
+from rl_rebuild.correction.kinematics import ArmIK, quat_to_R
+
+cfg = PE.build_cfg(num_envs=1)
+E = PE.PourEnv(cfg)
+E.force_entry = [0]; E.reset()
+ik = {"right": ArmIK("right", anchor_link="arm_center", anchor_T=E._anchor_T),
+      "left": ArmIK("left", anchor_link="arm_center", anchor_T=E._anchor_T)}
+z = np.load(PE.MASTER, allow_pickle=True)
+rows = np.where(np.asarray(z["source"]) == 1)[0]
+arm = {"right": np.asarray(z["right_q"], np.float64)[rows],
+       "left": np.asarray(z["left_q"], np.float64)[rows]}
+ref_obj = {oi: E.PB.ref_obj[oi].cpu().numpy() for oi in (0, 1)}
+side_obj = {"right": 1, "left": 0}
+N = E.PB.N_ROW
+# 抓变换锚: 用行0的 FK 腕与行0物体 (与builder同法: w0 = FK(行0臂))
+w0 = {s: ik[s].fk(arm[s][0]) for s in ("right", "left")}
+bad = {"right": [], "left": []}
+for s in ("right", "left"):
+    oi = side_obj[s]
+    p0, q0_ = ref_obj[oi][0][:3], ref_obj[oi][0][3:7]
+    for k in range(N):
+        pk, qk_ = ref_obj[oi][k][:3], ref_obj[oi][k][3:7]
+        Rk = quat_to_R(qk_) @ quat_to_R(q0_).T
+        tgt_p = Rk @ w0[s][0] + (pk - Rk @ p0)
+        fp, fR = ik[s].fk(arm[s][k])
+        e = float(np.linalg.norm(fp - tgt_p))
+        if e > 0.01:
+            bad[s].append((k, round(e * 100, 2)))
+for s in ("right", "left"):
+    print(f"[ikchk] {s}: >1cm 行数 {len(bad[s])}/{N} | 明细(行,cm): {bad[s][:20]}",
+          flush=True)
+    win = [b for b in bad[s] if 72 <= b[0] <= 128]
+    print(f"[ikchk] {s}: 危机窗(72..128)内坏行: {win}", flush=True)
+print("[ikchk] 完毕", flush=True)
+try: _slot.release()
+except Exception: pass
+app.close(); os._exit(0)

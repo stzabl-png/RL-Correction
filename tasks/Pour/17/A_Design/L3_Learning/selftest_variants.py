@@ -2,14 +2,15 @@
 放音只验证"完美执行能过", 本文件验证"真实执行的合法变体也能过" ——
 首例: 立正但绕竖轴自转 40° 的放回 (yaw 豁免拍板的反向验证, 老全角度口径必挂)。
 判据改动后必重跑。"""
+import os
 import sys
 import numpy as np
 
-sys.path.insert(0, "/home/lyh/Project/RL_Correction/tasks/Pour/17/A_Design/L3_Learning")
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _HERE)
 from progress import PourProgress, _axis_tilt
 
-NPZ = ("/home/lyh/Project/RL_Correction/tasks/Pour/17/A_Design/"
-       "L2_Reference/pour17_reference_v2.npz")
+NPZ = os.path.join(_HERE, "..", "L2_Reference", "pour17_reference_v2.npz")
 z = np.load(NPZ, allow_pickle=True)
 rows = np.where(np.asarray(z["source"]) == 1)[0]
 

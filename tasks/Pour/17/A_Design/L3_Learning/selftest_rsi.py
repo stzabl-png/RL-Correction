@@ -1,13 +1,14 @@
 """RSI 进入点放音自检 (#11 铁则, L5-1 渐进版): 全解锁 entry_table 的每个进入点
 从该行照参考播到底, 必到 G4 且零死线。t0/g1 点位含认证编舞。母带/判据改后必重跑。"""
+import os
 import sys
 import numpy as np
 
-sys.path.insert(0, "/home/lyh/Project/RL_Correction/tasks/Pour/17/A_Design/L3_Learning")
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _HERE)
 from progress import PourProgress, CERT_RAMP, CERT_RET
 
-NPZ = ("/home/lyh/Project/RL_Correction/tasks/Pour/17/A_Design/"
-       "L2_Reference/pour17_reference_v2.npz")
+NPZ = os.path.join(_HERE, "..", "L2_Reference", "pour17_reference_v2.npz")
 z = np.load(NPZ, allow_pickle=True)
 rows = np.where(np.asarray(z["source"]) == 1)[0]
 

@@ -3,15 +3,16 @@
 placed+G4 在归位补测段触发 / 收入=38 / 认证反向(不升=3次全败 g2不立) / D3反向。
 纯 numpy, 无 Isaac。消费 v2 母带。
 """
+import os
 import sys
 import numpy as np
 
-_HERE = __import__("os").path.dirname(__import__("os").path.abspath(__file__))
+_HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 from progress import (PourProgress, _axis_tilt, CERT_RAMP, CERT_HOLD, CERT_RET,
                       CERT_TRIES, G1_HOLD)
 
-NPZ = __import__("os").path.join(_HERE, "..", "L2_Reference", "reference_v2.npz")
+NPZ = os.path.join(_HERE, "..", "L2_Reference", "reference_v2.npz")
 z = np.load(NPZ, allow_pickle=True)
 rows = np.where(np.asarray(z["source"]) == 1)[0]
 

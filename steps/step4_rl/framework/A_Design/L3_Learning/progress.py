@@ -1,10 +1,7 @@
 """Success Tracker 框架件 (身=Pour17 v5 已验收版) —— 四Gate阶段机 + 提升认证测试。
 
-[TASK] 新任务必审块 (顺序):
-  1. G3 判据 (本文件 "G3" 块) —— 换成你的任务核心动作判据;
-  2. placed/G4 判据 (放回/收尾语义是否适用);
-  3. 常数区 [TASK] 行 (容差/hold/死线数值按任务标定);
-  4. 判据改动纪律: 双版同步 (progress_batch.py) + 自检家族重跑。
+[TASK] 新任务必审块: G3 核心判据 / placed+G4 收尾语义 / 常数区 [TASK] 行;
+改判据必须双版同步 (progress_batch.py) + 自检家族五件重跑。
 
 体制沿革: #8 置信门控双参考驱动(绿0.8/0.2 黄0.5/0.5 红0.2/0.8, 皮筋pos3/5/8cm
 rot15/30°/红禁, 时钟门5cm/45° 红档人手关节口径20°) 原样保留;
@@ -35,7 +32,7 @@ RED_GATE_POS = 0.08          # P-OBJ 红档宽物门 (无手接管时的口径)
 MS_REWARD = {1: 5.0, 2: 8.0, 3: 10.0, 4: 15.0}   # G1/G2/G3/G4(=Success终局)
 M2_TILT = np.radians(90)   # [TASK] G3核心判据参数
 M2_HOLD = 25          # G3 hold: 重建实测倒水2.2s(33帧)的~75%, 留余量
-M3_POS, M3_ROT, M3_HOLD = 0.03, np.radians(15), 15   # [TASK] placed 判据
+M3_POS, M3_ROT, M3_HOLD = 0.03, np.radians(15), 15   # placed 判据 (原M3)
 M4_ARM, M4_HOLD = np.radians(10), 15          # G4 双臂贴站姿逐关节<10°, hold15
 M4_DIST_POS, M4_DIST_ROT = 0.05, np.radians(30)   # 撤退期物体相对placed快照扰动上限
 # ---- G1/G2 认证 (L5-1 拍板) ----
@@ -47,10 +44,11 @@ CERT_RISE = 0.005             # 双物 z 升 >=5mm (认证行=+15mm)
 CERT_SLIP = 0.008             # 手物相对位移 <8mm
 CERT_WAIT, CERT_TRIES = 20, 3
 WAGE = 0.05                   # 站位维持费 (G2 前, 双手垫>=3 时逐步)
+WAGE_CAP = 3.0                # L5-8 药④: 每回合工资总额上限 (< G2的+8, 断躺平诱饵)
 # ---- 死线 (#10 全表; D4-D7 属 env 侧接线) ----
 D1_DROP = 0.05          # 物体低于桌面 5cm
 D2_TILT = np.radians(30)  # 绝对倾倒 (placed后撤退段生效; 交互段豁免)
-D3_DEV = 0.35           # [TASK] 离参考上限 (按参考轨迹峰值+余量标定)
+D3_DEV = 0.35           # 离参考 35cm (瓶峰19.3+15余量)
 TABLE_Z = 0.87
 
 
@@ -143,6 +141,7 @@ class PourProgress:
         self.g = {1: False, 2: False, 3: False, 4: False}
         self.placed = False
         self.g1_run = 0
+        self.wage_paid = 0.0
         # 认证机
         self.cert_phase = 0              # 0=idle 1=ramp 2=hold 3=return
         self.cert_t = 0
@@ -172,8 +171,9 @@ class PourProgress:
         out["w_hand"] = 0.0 if self.no_hand_ref else W_HAND[tier]
         earning = self.k < self.N - 1
         ok = False
-        # 药A: G2 后首个受管步捕获持握基线
-        if self.g[2] and not self._lb_set:
+        # 药A: G1(抓形成) 后首个受管步捕获持握基线
+        # L5-8 药⑤: 原挂 G2, 而 G2 不可达 → "握"这个动作被永久课税(实测皮筋独大)
+        if self.g[1] and not self._lb_set:
             for _oi, _a in ((0, obj0), (1, obj1)):
                 self.leash_base[_oi] = (np.asarray(_a[:3], np.float64)
                                         - self.obj[_oi][k][:3])
@@ -223,9 +223,11 @@ class PourProgress:
             if self.g1_run >= G1_HOLD:
                 self.g[1] = True
                 out["ms"] += MS_REWARD[1]
-        # ---- 站位维持费: G2 前, 垫>=3 逐步小额 ----
-        if not self.g[2] and pads3:
-            out["wage"] = WAGE
+        # ---- 站位维持费: G2 前, 垫>=3 逐步小额, 每回合封顶 ----
+        if not self.g[2] and pads3 and self.wage_paid < WAGE_CAP:
+            pay = min(WAGE, WAGE_CAP - self.wage_paid)
+            out["wage"] = pay
+            self.wage_paid += pay
         # ---- G2 认证机 (5mm 提升测试) ----
         if self.cert_wait > 0:
             self.cert_wait -= 1
@@ -263,7 +265,7 @@ class PourProgress:
                     self.g[2] = True
                     out["ms"] += MS_REWARD[2]
         out["cert_phase"], out["cert_t"] = self.cert_phase, self.cert_t
-        # ==== [TASK] G3 任务核心判据 (示例=倒水: 倾角×口口距; 整块可换) ====
+        # ==== [TASK] G3 任务核心判据 (示例=倒水; 整块可换) ====
         if self.g[2] and not self.g[3]:
             tilt = _axis_tilt(np.asarray(obj1[3:7]), self.up_b)
             w, x, y, z_ = np.asarray(obj1[3:7]) / np.linalg.norm(obj1[3:7])

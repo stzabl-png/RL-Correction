@@ -85,4 +85,6 @@ try:
     _slot.release()
 except Exception:
     pass
+sys.stdout.flush()
 app.close()
+os._exit(0)          # 代码钉子: Isaac 关闭会 hang (实测卡死6h47m 堵死录像循环)

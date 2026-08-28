@@ -1,16 +1,17 @@
 """批量版一致性自检 (L5-1): env0-2 完美放音(含认证编舞)须与标量版逐位一致;
 env3 喂静止垃圾: G1可立(垫在)、认证3败、G2不立、时钟停滞、无G3+。
 另验 TB 逐关率记账 (pop_rates: 挣的口径)。纯 CPU torch。消费 v2 母带。"""
+import os
 import sys
 import numpy as np
 import torch
 
-_HERE = __import__("os").path.dirname(__import__("os").path.abspath(__file__))
+_HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 from progress import PourProgress, CERT_RAMP, CERT_RET
 from progress_batch import PourProgressBatch
 
-NPZ = __import__("os").path.join(_HERE, "..", "L2_Reference", "reference_v2.npz")
+NPZ = os.path.join(_HERE, "..", "L2_Reference", "reference_v2.npz")
 z = np.load(NPZ, allow_pickle=True)
 rows = np.where(np.asarray(z["source"]) == 1)[0]
 

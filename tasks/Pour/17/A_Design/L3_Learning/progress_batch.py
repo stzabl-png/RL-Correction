@@ -16,7 +16,7 @@ from progress import (LEASH_POS, LEASH_ROT, GATE_POS, GATE_ROT, RED_GATE_POS,
                       M4_ARM, M4_HOLD, M4_DIST_POS, M4_DIST_ROT, W_OBJ, W_HAND,
                       _tier,
                       G1_HOLD, CERT_RAMP, CERT_HOLD, CERT_RET, CERT_RISE,
-                      CERT_SLIP, CERT_WAIT, CERT_TRIES, WAGE,
+                      CERT_SLIP, CERT_WAIT, CERT_TRIES, WAGE, WAGE_CAP,
                       D1_DROP, D2_TILT, D3_DEV, TABLE_Z)
 
 
@@ -98,6 +98,8 @@ class PourProgressBatch:
         self.g4 = torch.zeros_like(self.g1)
         self.placed = torch.zeros_like(self.g1)
         self.g1_run = torch.zeros(num_envs, dtype=torch.long, device=device)
+        self.wage_paid = torch.zeros(num_envs, device=device)      # 药④ 逐回合工资账
+        self.born_t0 = torch.ones(num_envs, dtype=torch.bool, device=device)
         # 认证机
         self.cert_phase = torch.zeros(num_envs, dtype=torch.long, device=device)
         self.cert_t = torch.zeros_like(self.cert_phase)
@@ -121,7 +123,8 @@ class PourProgressBatch:
         self.done = torch.zeros_like(self.g1)
         # TB 记账
         self._acc = {"ep": 0, "g1": 0, "g2": 0, "g3": 0, "g4": 0,
-                     "clock": 0.0, "catt": 0, "cpass": 0}
+                     "clock": 0.0, "catt": 0, "cpass": 0,
+                     "ep_t0": 0, "g1_t0": 0, "g2_t0": 0, "g3_t0": 0, "g4_t0": 0}
 
     def reset_idx(self, env_ids):
         n = len(env_ids)
@@ -133,6 +136,12 @@ class PourProgressBatch:
             self._acc["g4"] += int(self.g4[env_ids].sum())
             self._acc["clock"] += float(self.k[env_ids].float().sum()) \
                 / max(self.N_ROW - 1, 1)
+            # 药②: t0 出生口径 (预置出生不进分母, 消课程稀释偏差)
+            t0m = self.born_t0[env_ids]
+            self._acc["ep_t0"] += int(t0m.sum())
+            for gk, gt in (("g1_t0", self.g1), ("g2_t0", self.g2),
+                           ("g3_t0", self.g3), ("g4_t0", self.g4)):
+                self._acc[gk] += int((gt[env_ids] & t0m).sum())
         for t_ in (self.g1, self.g2, self.g3, self.g4, self.placed, self.done,
                    self.pre1, self.pre2, self.pre3, self.lb_set,
                    self.cert_pending):
@@ -145,6 +154,8 @@ class PourProgressBatch:
         for t_ in (self.k, self.g1_run, self.m2_run, self.m3_run, self.m4_run,
                    self.cert_phase, self.cert_t, self.cert_try, self.cert_wait):
             t_[env_ids] = 0
+        self.wage_paid[env_ids] = 0.0
+        self.born_t0[env_ids] = True
 
     def enter(self, env_ids, rows, g1, g2, g3, placed):
         """RSI 批量进入: rows/g* 均为对应 env_ids 的张量."""
@@ -157,19 +168,27 @@ class PourProgressBatch:
         self.pre1[env_ids] = g1
         self.pre2[env_ids] = g2
         self.pre3[env_ids] = g3
+        self.born_t0[env_ids] = ~(g1 | g2 | g3 | placed)
         for oi in (0, 1):
             self.m3_snap[oi][env_ids] = self.rest[oi].unsqueeze(0) \
                 .expand(len(env_ids), 7)
 
     def pop_rates(self):
         ep = max(self._acc["ep"], 1)
+        ep0 = max(self._acc["ep_t0"], 1)
         out = {"sr/gate1": self._acc["g1"] / ep, "sr/gate2": self._acc["g2"] / ep,
                "sr/gate3": self._acc["g3"] / ep, "sr/gate4": self._acc["g4"] / ep,
+               "sr_t0/gate1": self._acc["g1_t0"] / ep0,
+               "sr_t0/gate2": self._acc["g2_t0"] / ep0,
+               "sr_t0/gate3": self._acc["g3_t0"] / ep0,
+               "sr_t0/gate4": self._acc["g4_t0"] / ep0,
+               "prog/ep_t0_frac": self._acc["ep_t0"] / ep,
                "prog/clock_frac": self._acc["clock"] / ep,
                "sr/cert_pass": self._acc["cpass"] / max(self._acc["catt"], 1),
                "prog/cert_att": self._acc["catt"] / ep}
         self._acc = {"ep": 0, "g1": 0, "g2": 0, "g3": 0, "g4": 0,
-                     "clock": 0.0, "catt": 0, "cpass": 0}
+                     "clock": 0.0, "catt": 0, "cpass": 0,
+                     "ep_t0": 0, "g1_t0": 0, "g2_t0": 0, "g3_t0": 0, "g4_t0": 0}
         return out
 
     def step(self, obj0, obj1, armq_r, armq_l, pads3, wrist_r, wrist_l,
@@ -181,7 +200,7 @@ class PourProgressBatch:
         w_obj = self.WO[tier]
         active = ~self.done if run_mask is None else (~self.done) & run_mask
         # 药A: G2 后首个受管步捕获持握基线
-        cap = self.g2 & (~self.lb_set) & active
+        cap = self.g1 & (~self.lb_set) & active     # 药⑤: G1 起换基
         if cap.any():
             for oi, act in ((0, obj0), (1, obj1)):
                 self.lb[oi][cap] = (act[:, :3] - self.ref_obj[oi][k][:, :3])[cap]
@@ -235,7 +254,11 @@ class PourProgressBatch:
         self.g1 |= new1
         ms_r += new1.float() * MS_REWARD[1]
         # ---- 站位维持费 ----
-        wage = (WAGE * (pads3 & (~self.g2) & active).float())
+        w_ok = pads3 & (~self.g2) & active & (self.wage_paid < WAGE_CAP)
+        wage = torch.minimum(torch.full_like(self.wage_paid, WAGE),
+                             (WAGE_CAP - self.wage_paid).clamp(min=0.0)) \
+            * w_ok.float()
+        self.wage_paid = self.wage_paid + wage
         # ---- G2 认证机 ----
         self.cert_wait = (self.cert_wait - 1).clamp(min=0)
         start = (self.g1 & (~self.g2) & (self.cert_phase == 0)

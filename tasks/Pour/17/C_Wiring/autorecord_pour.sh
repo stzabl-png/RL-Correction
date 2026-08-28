@@ -19,7 +19,7 @@ while true; do
   fi
   if [ "$m" -gt "$last" ] && [ -f "$CKPT/last.pth" ]; then
     echo "[autorecord] ${NAME} @ ${m}M"
-    SHARPA_WANDB=0 RL_ISAAC_NO_GUARD=1 "$PY" "$HERE/record_pour.py" \
+    SHARPA_WANDB=0 RL_ISAAC_NO_GUARD=1 timeout -k 30 900 "$PY" -u "$HERE/record_pour.py" \
       --checkpoint "$CKPT/last.pth" --out "$OUT/${NAME}_${m}M.mp4" \
       --headless --enable_cameras >> "$OUT/record.log" 2>&1
     [ -f "$OUT/${NAME}_${m}M.mp4" ] && last=$m || echo "[autorecord] ${m}M 失败, 5分钟后重试"

@@ -41,6 +41,7 @@ CERT_RISE = 0.005             # 双物 z 升 >=5mm (认证行=+15mm)
 CERT_SLIP = 0.008             # 手物相对位移 <8mm
 CERT_WAIT, CERT_TRIES = 20, 3
 WAGE = 0.05                   # 站位维持费 (G2 前, 双手垫>=3 时逐步)
+WAGE_CAP = 3.0                # L5-8 药④: 每回合工资总额上限 (< G2的+8, 断躺平诱饵)
 # ---- 死线 (#10 全表; D4-D7 属 env 侧接线) ----
 D1_DROP = 0.05          # 物体低于桌面 5cm
 D2_TILT = np.radians(30)  # 绝对倾倒 (placed后撤退段生效; 交互段豁免)
@@ -137,6 +138,7 @@ class PourProgress:
         self.g = {1: False, 2: False, 3: False, 4: False}
         self.placed = False
         self.g1_run = 0
+        self.wage_paid = 0.0
         # 认证机
         self.cert_phase = 0              # 0=idle 1=ramp 2=hold 3=return
         self.cert_t = 0
@@ -166,8 +168,9 @@ class PourProgress:
         out["w_hand"] = 0.0 if self.no_hand_ref else W_HAND[tier]
         earning = self.k < self.N - 1
         ok = False
-        # 药A: G2 后首个受管步捕获持握基线
-        if self.g[2] and not self._lb_set:
+        # 药A: G1(抓形成) 后首个受管步捕获持握基线
+        # L5-8 药⑤: 原挂 G2, 而 G2 不可达 → "握"这个动作被永久课税(实测皮筋独大)
+        if self.g[1] and not self._lb_set:
             for _oi, _a in ((0, obj0), (1, obj1)):
                 self.leash_base[_oi] = (np.asarray(_a[:3], np.float64)
                                         - self.obj[_oi][k][:3])
@@ -217,9 +220,11 @@ class PourProgress:
             if self.g1_run >= G1_HOLD:
                 self.g[1] = True
                 out["ms"] += MS_REWARD[1]
-        # ---- 站位维持费: G2 前, 垫>=3 逐步小额 ----
-        if not self.g[2] and pads3:
-            out["wage"] = WAGE
+        # ---- 站位维持费: G2 前, 垫>=3 逐步小额, 每回合封顶 ----
+        if not self.g[2] and pads3 and self.wage_paid < WAGE_CAP:
+            pay = min(WAGE, WAGE_CAP - self.wage_paid)
+            out["wage"] = pay
+            self.wage_paid += pay
         # ---- G2 认证机 (5mm 提升测试) ----
         if self.cert_wait > 0:
             self.cert_wait -= 1

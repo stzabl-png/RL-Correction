@@ -1,0 +1,112 @@
+"""最后一版探针录像: βR=2.0/βL=1.0 零动作全程, 1280x720 mp4。"""
+import argparse, os, sys
+from isaaclab.app import AppLauncher
+p = argparse.ArgumentParser(); p.add_argument("--out", required=True)
+AppLauncher.add_app_launcher_args(p)
+args = p.parse_args()
+from rl_rebuild.utils.gpu_guard import isaac_slot
+_slot = isaac_slot("betaL")
+app = AppLauncher(args).app
+import numpy as np, torch
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "C_Wiring"))
+os.environ["POUR_NO_D6"] = "1"
+os.environ.pop("POUR_SQUEEZE_FF", None)
+import pour_env as PE
+RENDER = not args.headless
+
+N = 4
+BR = [2.0] * 4
+BL = [1.0, 1.0, 1.0, 1.0]
+cfg = PE.build_cfg(num_envs=N)
+E = PE.PourEnv(cfg)
+E.force_entry = [0] * N
+E.reset()
+import imageio
+import omni.replicator.core as rep
+import omni.usd
+from pxr import Gf, UsdGeom
+_st = omni.usd.get_context().get_stage()
+_cam = UsdGeom.Camera.Define(_st, "/World/RecCam")
+_cam.CreateFocalLengthAttr().Set(16.0)
+_o0 = E.scene.env_origins[0].cpu().numpy()
+_m = Gf.Matrix4d()
+_m.SetLookAt(Gf.Vec3d(float(_o0[0])+0.85, float(_o0[1])-1.15, 1.60),
+             Gf.Vec3d(float(_o0[0])-0.15, float(_o0[1])+0.10, 0.95), Gf.Vec3d(0, 0, 1))
+UsdGeom.Xformable(_cam).AddTransformOp().Set(_m.GetInverse())
+_rp = rep.create.render_product("/World/RecCam", (1280, 720))
+_annot = rep.AnnotatorRegistry.get_annotator("rgb")
+_annot.attach(_rp)
+frames = []
+def snap():
+    E.sim.render()
+    d = _annot.get_data()
+    if d is not None and getattr(d, "size", 0):
+        frames.append(__import__("numpy").asarray(d)[..., :3].astype("uint8"))
+dev = E.device
+DECI = int(getattr(E.cfg, "decimation", 12))
+sqr = np.asarray(np.load("tasks/pregrasp/priors/Pour17_bottle_thumbfix.npz")["squeeze"],
+                 np.float64).reshape(-1)[7:29]
+sql = np.asarray(np.load("tasks/pregrasp/priors/Pour17_cup_thumbfix.npz")["squeeze"],
+                 np.float64).reshape(-1)[7:29]
+ref = E.ref58.cpu().numpy()
+dsq_r = torch.tensor(sqr - ref[E.IA0, 14:36], dtype=torch.float32, device=dev)
+dsq_l = torch.tensor(sql - ref[E.IA0, 36:58], dtype=torch.float32, device=dev)
+
+def drive(row, sR, sL):
+    tgt = torch.zeros(N, 58, device=dev)
+    r = min(row, E.T_ROW - 1)
+    for i in range(N):
+        tgt[i] = E.ref58[r]
+        tgt[i, 14:36] += sR[i] * dsq_r
+        tgt[i, 36:58] += sL[i] * dsq_l
+    full = E.hand.data.joint_pos.clone()
+    full[:, E.map_ids_t] = tgt
+    E.hand.set_joint_position_target(full)
+    for _ in range(DECI):
+        E.scene.write_data_to_sim(); E.sim.step(render=RENDER)
+        E.scene.update(E.sim.get_physics_dt())
+    snap()
+
+for r in range(0, 166):
+    drive(r, [0.0]*N, [0.0]*N)
+for i2, r in enumerate(range(166, 190)):
+    a = (i2 + 1) / 24.0
+    drive(r, [b*a for b in BR], [b*a for b in BL])
+for _ in range(30):
+    drive(190, BR, BL)
+org = E.scene.env_origins
+dR0 = (E.hand.data.body_pos_w[:, E.wid["R"]] - E.object.data.root_pos_w).norm(dim=1).clone()
+dL0 = (E.hand.data.body_pos_w[:, E.wid["L"]] - E.aux.data.root_pos_w).norm(dim=1).clone()
+f = E._pads_f().norm(dim=-1)
+print("[betaL] 站位垫: " + " ".join(
+    f"βL{BL[i]}:R{int((f[i,:5]>0.5).sum())}/L{int((f[i,5:]>0.5).sum())}" for i in range(N)), flush=True)
+for r in range(190, 325):
+    drive(r, BR, BL)
+    if (r % 20 == 0) or (255 <= r <= 295 and r % 5 == 0):
+        dL = (E.hand.data.body_pos_w[:, E.wid["L"]] - E.aux.data.root_pos_w).norm(dim=1)
+        cz = E.aux.data.root_pos_w[:, 2]
+        ff = E._pads_f().norm(dim=-1)
+        cq = E.aux.data.root_quat_w
+        tl = torch.rad2deg(torch.acos(torch.clamp(1 - 2*(cq[:,1]**2 + cq[:,2]**2), -1, 1)))
+        lwz = E.hand.data.body_pos_w[:, E.wid["L"], 2]
+        print(f"[betaL] 行{r} " + " | ".join(
+            f"e{i}: 杯距Δ={float((dL[i]-dL0[i])*100):+.1f}cm 杯z={float(cz[i]-org[i,2]):.3f} "
+            f"倾={float(tl[i]):.0f}° 腕Lz={float(lwz[i]-org[i,2]):.3f} "
+            f"垫L={int((ff[i,5:]>0.5).sum())}" for i in range(N)), flush=True)
+dL = (E.hand.data.body_pos_w[:, E.wid["L"]] - E.aux.data.root_pos_w).norm(dim=1)
+dR = (E.hand.data.body_pos_w[:, E.wid["R"]] - E.object.data.root_pos_w).norm(dim=1)
+f = E._pads_f().norm(dim=-1)
+for i in range(N):
+    sl = float((dL[i] - dL0[i]) * 100); sr_ = float((dR[i] - dR0[i]) * 100)
+    cz = float(E.aux.data.root_pos_w[i, 2] - org[i, 2])
+    ok = sl < 3 and abs(cz - 0.936 - (E.aux.data.root_pos_w[0,2]*0)) < 0.06
+    print(f"[betaL] βL={BL[i]}: 杯滑移={sl:+.1f}cm 杯z={cz:.3f} 垫L={int((f[i,5:]>0.5).sum())} "
+          f"(瓶滑移={sr_:+.1f}cm) -> {'✅杯保住' if sl < 3 else '❌杯丢'}", flush=True)
+os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+imageio.mimsave(args.out, frames, fps=15)
+print(f"[betaL] 录像 {args.out} | {len(frames)} 帧", flush=True)
+print("[betaL] 完毕", flush=True)
+
+try: _slot.release()
+except Exception: pass
+app.close(); os._exit(0)

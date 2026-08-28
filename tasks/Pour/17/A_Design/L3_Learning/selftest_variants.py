@@ -88,3 +88,34 @@ r2 = P3.step(obj_t[0][min(P3.k, P3.N-1)], o1b,
 assert r2["leash"] < 0, "增偏7cm未被罚 (纠偏鞭子丢了)"
 print("✅ 药A反向验证: 恒偏4cm零罚 / 增偏7cm有罚")
 print("✅ 合法变体自检: yaw40°放回通过 M3+M4 / 真歪25°被正确拦下")
+
+# ---- L5-8 药⑤ 换基时机自检: 必须在 G1 后立刻换基 (原挂 G2 = 握被课税) ----
+P4 = PourProgress(NPZ, mouth_local_bot=pm(1, 0.087), mouth_local_cup=pm(0, 0.066))
+P4.enter(5, {1})                       # 只预置 G1, 不给 G2
+o0 = obj_t[0][5].copy(); o1 = obj_t[1][5].copy()
+o0[:3] += np.array([0.04, 0, 0]); o1[:3] += np.array([0.04, 0, 0])
+tot4 = 0.0
+for _ in range(10):
+    r = P4.step(o0, o1, armq_t["right"][5], armq_t["left"][5], pads3=True,
+                wrist_r=np.asarray(o1[:3]) + np.array([0, 0, 0.10]),
+                wrist_l=np.asarray(o0[:3]) + np.array([0, 0, 0.10]))
+    tot4 += r["leash"]
+assert P4._lb_set, "G1 后未换基 —— 药⑤ 失效(握被永久课税)"
+assert abs(tot4) < 1e-9, f"G1 后恒偏4cm仍被罚 {tot4:.3f} —— 药⑤ 失效"
+print("✅ 药⑤ 换基时机: G1 立刻换基, 持握恒偏零罚")
+
+# ---- L5-8 药④ 工资封顶自检 ----
+from progress import WAGE_CAP, WAGE
+P5 = PourProgress(NPZ, mouth_local_bot=pm(1, 0.087), mouth_local_cup=pm(0, 0.066))
+P5.enter(0, set())
+wtot = 0.0
+for _ in range(int(WAGE_CAP / WAGE) + 200):
+    r = P5.step(obj_t[0][0], obj_t[1][0], armq_t["right"][0], armq_t["left"][0],
+                pads3=True, wrist_r=np.asarray(obj_t[1][0][:3]) + np.array([0, 0, 0.10]),
+                wrist_l=np.asarray(obj_t[0][0][:3]) + np.array([0, 0, 0.10]))
+    wtot += r["wage"]
+    if r["done"]:
+        break
+assert wtot <= WAGE_CAP + 1e-9, f"工资超封顶 {wtot:.2f} > {WAGE_CAP}"
+assert wtot > WAGE_CAP - WAGE, f"工资没发到封顶 {wtot:.2f} (机制可能哑火)"
+print(f"✅ 药④ 工资封顶: 长回合累计 {wtot:.2f} = 上限 {WAGE_CAP} (躺平收益已封)")

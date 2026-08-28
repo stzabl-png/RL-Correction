@@ -8,7 +8,7 @@
 钩子 (全部单旋钮 EMA 体制, 与 RSI/#13 拍板一致):
   p_t0    = 0.2 + 0.6*EMA(sr/gate4)      —— RSI 配比 (#11)
   相B开闸  = EMA(sr/gate1) >= 0.7 单向棘轮 —— #13 拍板3 (v1 只立旗+记录, 接触奖金
-            与转运臂门放开的执行体挂 phase_b 旗, 见 task_env TODO)
+            与转运臂门放开的执行体挂 phase_b 旗, 见 pour_env TODO)
 TB: 引擎自带 + sr/gate1-4 + prog/clock_frac + term/* 每 epoch 倾倒。
 """
 from __future__ import annotations
@@ -57,6 +57,10 @@ class PourPPO(PPO):
         self._ema_g2 = 0.0
         self._ema_g3 = 0.0
         self._ema_g4 = 0.0
+        # L5-8 药②: 无偏解锁 (t0出生口径 + 认证通过率, 且要求持续)
+        self._ema_t0 = {1: 0.0, 2: 0.0, 3: 0.0}
+        self._ema_cert = 0.0
+        self._sustain = {1: 0, 2: 0, 3: 0}
         self._phase_b = bool(getattr(raw_env, "phase_b", False))  # C线开局即真
 
     def write_stats(self, a_losses, c_losses, b_losses, entropies, kls):
@@ -82,19 +86,32 @@ class PourPPO(PPO):
         self._ema_g2 = 0.98 * self._ema_g2 + 0.02 * rates["sr/gate2"]
         self._ema_g3 = 0.98 * self._ema_g3 + 0.02 * rates["sr/gate3"]
         self._ema_g4 = 0.98 * self._ema_g4 + 0.02 * rates["sr/gate4"]
-        # 渐进RSI 解锁 (L5-1 拍板3): EMA(gate_k)>=0.2 解锁该Gate出生点
-        for _gi, _ema in ((1, self._ema_g1), (2, self._ema_g2),
-                          (3, self._ema_g3)):
-            if _ema >= 0.2 and _gi not in raw.unlocked:
+        # 渐进RSI 解锁 (L5-8 药②③): 无偏指标(t0出生口径) + 持续20窗 + 认证闸
+        # 旧版用 sr/gate(有偏: 短回合先结算致虚高) 在假阳性上放开了课程, 实测
+        # 解锁后 G2 断崖到 0 且再未恢复 —— 换指标+持续判定+G2额外认证闸。
+        self._ema_cert = 0.98 * self._ema_cert + 0.02 * rates.get("sr/cert_pass", 0.0)
+        self.writer.add_scalar("curr/ema_cert", self._ema_cert, self.agent_steps)
+        for _gi in (1, 2, 3):
+            _r = rates.get(f"sr_t0/gate{_gi}", 0.0)
+            self._ema_t0[_gi] = 0.98 * self._ema_t0[_gi] + 0.02 * _r
+            self.writer.add_scalar(f"curr/ema_t0_g{_gi}", self._ema_t0[_gi],
+                                   self.agent_steps)
+            _ok = self._ema_t0[_gi] >= 0.30
+            if _gi == 2:
+                _ok = _ok and self._ema_cert >= 0.15      # 药③: 认证站稳才放 g2
+            self._sustain[_gi] = self._sustain[_gi] + 1 if _ok else 0
+            if self._sustain[_gi] >= 20 and _gi not in raw.unlocked:
                 raw.unlocked.add(_gi)
                 raw._rebuild_entries()
                 print(f"[渐进RSI] Gate{_gi} 出生点解锁 @ "
-                      f"{self.agent_steps/1e6:.2f}M (EMA={_ema:.2f})")
+                      f"{self.agent_steps/1e6:.2f}M (t0口径EMA={self._ema_t0[_gi]:.2f}"
+                      f", 持续{self._sustain[_gi]}窗)")
         self.writer.add_scalar("curr/n_entries", len(raw.entries),
                                self.agent_steps)
         self.writer.add_scalar("curr/ema_gate1", self._ema_g1, self.agent_steps)
-        # RSI 配比单旋钮 (#11)
-        raw.p_t0 = 0.2 + 0.6 * self._ema_g4
+        # RSI 配比单旋钮 (#11) + L5-8 药①: t0 底线 0.5
+        # (旧 0.2 致 80% 回合白送 G1/G2, 前段技能失去梯度 —— 实测 G1 塌到 0.2)
+        raw.p_t0 = max(0.5, 0.2 + 0.6 * self._ema_g4)
         self.writer.add_scalar("curr/p_t0", raw.p_t0, self.agent_steps)
         # 相B单向棘轮 (#13): 立旗记录; 执行体挂 phase_b
         if not self._phase_b and self._ema_g1 >= 0.7:

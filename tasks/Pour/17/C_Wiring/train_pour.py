@@ -54,6 +54,8 @@ class PourPPO(PPO):
         super().__init__(*a, **kw)
         self._raw = raw_env
         self._ema_g1 = 0.0
+        self._ema_g2 = 0.0
+        self._ema_g3 = 0.0
         self._ema_g4 = 0.0
         self._phase_b = bool(getattr(raw_env, "phase_b", False))  # C线开局即真
 
@@ -77,7 +79,19 @@ class PourPPO(PPO):
             for k, v in raw.pop_lift().items():
                 self.writer.add_scalar(k, v, self.agent_steps)
         self._ema_g1 = 0.98 * self._ema_g1 + 0.02 * rates["sr/gate1"]
+        self._ema_g2 = 0.98 * self._ema_g2 + 0.02 * rates["sr/gate2"]
+        self._ema_g3 = 0.98 * self._ema_g3 + 0.02 * rates["sr/gate3"]
         self._ema_g4 = 0.98 * self._ema_g4 + 0.02 * rates["sr/gate4"]
+        # 渐进RSI 解锁 (L5-1 拍板3): EMA(gate_k)>=0.2 解锁该Gate出生点
+        for _gi, _ema in ((1, self._ema_g1), (2, self._ema_g2),
+                          (3, self._ema_g3)):
+            if _ema >= 0.2 and _gi not in raw.unlocked:
+                raw.unlocked.add(_gi)
+                raw._rebuild_entries()
+                print(f"[渐进RSI] Gate{_gi} 出生点解锁 @ "
+                      f"{self.agent_steps/1e6:.2f}M (EMA={_ema:.2f})")
+        self.writer.add_scalar("curr/n_entries", len(raw.entries),
+                               self.agent_steps)
         self.writer.add_scalar("curr/ema_gate1", self._ema_g1, self.agent_steps)
         # RSI 配比单旋钮 (#11)
         raw.p_t0 = 0.2 + 0.6 * self._ema_g4
@@ -110,6 +124,18 @@ agent_cfg["algorithm"]["minibatch_size"] = min(
 
 log_dir = os.path.join("logs", args.name)
 os.makedirs(log_dir, exist_ok=True)
+# ---- 世界指纹 (ckpt绑定世界版本纪律 + L5-1: 母带世代进指纹) ----
+import hashlib, json
+_wj = {"variant": os.environ.get("POUR_VARIANT", "HYB").upper(),
+       "beta_r": os.environ.get("POUR_BETA_R", "2.0"),
+       "beta_l": os.environ.get("POUR_BETA_L", "1.0"),
+       "ref_npz": PE.MASTER,
+       "ref_md5": hashlib.md5(open(PE.MASTER, "rb").read()).hexdigest()[:8],
+       "usd": os.environ.get("DEXMATE_FIXED_USD", "default"),
+       "obs_dim": PE.OBS_DIM, "act_dim": PE.ACT_DIM}
+with open(os.path.join(log_dir, "world.json"), "w") as _wf:
+    json.dump(_wj, _wf, indent=1, ensure_ascii=False)
+print(f"[train_pour] 世界指纹: ref_md5={_wj['ref_md5']} 变体={_wj['variant']}", flush=True)
 agent = PourPPO(env, output_dir=log_dir,
                 full_config=ConfigWrapper(agent_cfg, {}), raw_env=raw)
 if args.load_path:

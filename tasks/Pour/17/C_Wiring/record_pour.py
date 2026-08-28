@@ -80,7 +80,7 @@ with torch.no_grad():
 os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
 imageio.mimsave(args.out, frames, fps=15)
 print(f"[record] {args.out} | {len(frames)} 帧 | 终步 {t} "
-      f"M链={[int(x) for x in (raw.PB.ms1[0], raw.PB.ms2[0], raw.PB.ms3[0], raw.PB.ms4[0])]}")
+      f"G链={[int(x) for x in (raw.PB.g1[0], raw.PB.g2[0], raw.PB.g3[0], raw.PB.g4[0])]}")
 try:
     _slot.release()
 except Exception:

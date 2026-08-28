@@ -1,15 +1,16 @@
-"""批量版一致性自检: env0-2 完美放音须与标量版逐位一致; env3 喂静止垃圾须全零。
-另验 TB 逐关率记账 (pop_rates)。纯 CPU torch。"""
+"""批量版一致性自检 (L5-1): env0-2 完美放音(含认证编舞)须与标量版逐位一致;
+env3 喂静止垃圾: G1可立(垫在)、认证3败、G2不立、时钟停滞、无G3+。
+另验 TB 逐关率记账 (pop_rates: 挣的口径)。纯 CPU torch。消费 v2 母带。"""
 import sys
 import numpy as np
 import torch
 
 sys.path.insert(0, "/home/lyh/Project/RL_Correction/tasks/Pour/17/A_Design/L3_Learning")
-from progress import PourProgress
+from progress import PourProgress, CERT_RAMP, CERT_RET
 from progress_batch import PourProgressBatch
 
 NPZ = ("/home/lyh/Project/RL_Correction/tasks/Pour/17/A_Design/"
-       "L2_Reference/pour17_reference_v1.npz")
+       "L2_Reference/pour17_reference_v2.npz")
 z = np.load(NPZ, allow_pickle=True)
 rows = np.where(np.asarray(z["source"]) == 1)[0]
 
@@ -34,58 +35,80 @@ armq = {s: np.asarray(z[f"{s}_q"], np.float64)[rows] for s in ("right", "left")}
 T = B.N_ROW
 rest = {oi: obj[oi][0] for oi in (0, 1)}
 STANCE = {s: np.asarray(z[f"{s}_q"], np.float64)[-1] for s in ("right", "left")}
+WOFF = np.array([0.0, 0.0, 0.10])
 
-sum_s = {"adv": 0.0, "ms": 0.0, "leash": 0.0}
-sum_b = torch.zeros(4, 3)
+def dz_of(phase, t_):
+    if phase == 1:
+        return 0.015 * min((t_ + 1) / CERT_RAMP, 1.0)
+    if phase == 2:
+        return 0.015
+    if phase == 3:
+        return 0.015 * max(1.0 - (t_ + 1) / CERT_RET, 0.0)
+    return 0.0
+
+sum_s = {"adv": 0.0, "ms": 0.0, "leash": 0.0, "wage": 0.0}
+sum_b = torch.zeros(4, 4)
 mism = 0
-for t in range(T + 80):
+TT = T + 130
+for t in range(TT):
     ks = min(S.k, T - 1)
-    o0s, o1s = obj[0][ks], obj[1][ks]
-    if t >= T:                                        # 归位补测段
-        o0s, o1s = rest[0], rest[1]
-    _arS = armq["right"][min(ks, T - 1)]
-    _alS = armq["left"][min(ks, T - 1)]
-    if t >= T and S.ms[3]:
+    dz_s = dz_of(S.cert_phase, S.cert_t) if not S.g[2] else 0.0
+    o0s, o1s = obj[0][ks].copy(), obj[1][ks].copy()
+    if t >= T + 40:                                   # 归位补测段
+        o0s, o1s = rest[0].copy(), rest[1].copy()
+    o0s[2] += dz_s; o1s[2] += dz_s
+    _arS = armq["right"][ks]
+    _alS = armq["left"][ks]
+    if t >= T + 40 and S.placed:
         _arS, _alS = STANCE["right"], STANCE["left"]
-    rs = S.step(o0s, o1s, _arS, _alS, cand_ok=True)
-    sum_s["adv"] += rs["adv"]; sum_s["ms"] += rs["ms"]; sum_s["leash"] += rs["leash"]
-    # 批量: env0-2 同步喂各自时钟行(与标量同源), env3 喂静止垃圾
+    rs = S.step(o0s, o1s, _arS, _alS, pads3=True,
+                wrist_r=o1s[:3] + WOFF, wrist_l=o0s[:3] + WOFF)
+    for k_ in ("adv", "ms", "leash", "wage"):
+        sum_s[k_] += rs[k_]
+    # 批量: env0-2 同编舞, env3 喂静止垃圾(垫在但物体不动)
     kb = B.k.clamp(max=T - 1).numpy()
-    o0 = np.stack([obj[0][kb[i]] if (t < T or i == 3) else rest[0] for i in range(4)])
-    o1 = np.stack([obj[1][kb[i]] if (t < T or i == 3) else rest[1] for i in range(4)])
+    o0 = np.stack([obj[0][kb[i]].copy() for i in range(4)])
+    o1 = np.stack([obj[1][kb[i]].copy() for i in range(4)])
     ar = np.stack([armq["right"][kb[i]] for i in range(4)])
     al = np.stack([armq["left"][kb[i]] for i in range(4)])
-    if t >= T:
-        for i in range(3):
-            if bool(B.ms3[i]):
+    for i in range(3):
+        dzb = dz_of(int(B.cert_phase[i]), int(B.cert_t[i])) \
+            if not bool(B.g2[i]) else 0.0
+        if t >= T + 40:
+            o0[i], o1[i] = rest[0].copy(), rest[1].copy()
+            if bool(B.placed[i]):
                 ar[i], al[i] = STANCE["right"], STANCE["left"]
-    if t >= T:
-        for i in range(3):
-            o0[i], o1[i] = rest[0], rest[1]
+        o0[i][2] += dzb; o1[i][2] += dzb
     o0[3], o1[3] = rest[0], rest[1]                   # env3 物体永远静止
     ar[3], al[3] = armq["right"][0], armq["left"][0]  # env3 手永远首行
+    wr = np.stack([o1[i][:3] + WOFF for i in range(4)])
+    wl = np.stack([o0[i][:3] + WOFF for i in range(4)])
     rb = B.step(torch.tensor(o0, dtype=torch.float32),
                 torch.tensor(o1, dtype=torch.float32),
                 torch.tensor(ar, dtype=torch.float32),
                 torch.tensor(al, dtype=torch.float32),
-                cand_ok=torch.tensor([True, True, True, False]))
-    sum_b += torch.stack([rb["adv"], rb["ms"], rb["leash"]], dim=1)
+                pads3=torch.tensor([True, True, True, True]),
+                wrist_r=torch.tensor(wr, dtype=torch.float32),
+                wrist_l=torch.tensor(wl, dtype=torch.float32))
+    sum_b += torch.stack([rb["adv"], rb["ms"], rb["leash"], rb["wage"]], dim=1)
     if int(rb["clock"][0]) != S.k:
         mism += 1
 
 print(f"[批量自检] 标量: adv={sum_s['adv']:.0f} ms={sum_s['ms']:.0f} "
-      f"leash={sum_s['leash']:.3f} | M1/2/3={S.ms}")
+      f"leash={sum_s['leash']:.3f} wage={sum_s['wage']:.2f} | G={S.g} placed={S.placed}")
 print(f"[批量自检] env0: adv={sum_b[0,0]:.0f} ms={sum_b[0,1]:.0f} "
-      f"leash={sum_b[0,2]:.3f} | 时钟错位次数={mism}")
-print(f"[批量自检] env3(垃圾): adv={sum_b[3,0]:.0f} ms={sum_b[3,1]:.0f} "
-      f"clock={int(B.k[3])} (期望: 时钟停滞, 里程碑0)")
+      f"leash={sum_b[0,2]:.3f} wage={sum_b[0,3]:.2f} | 时钟错位次数={mism}")
+print(f"[批量自检] env3(垃圾): ms={sum_b[3,1]:.0f} clock={int(B.k[3])} g2={bool(B.g2[3])} "
+      f"cert_try={int(B.cert_try[3])} (期望: G1的+5, 时钟0, g2 False, try=3)")
 B.reset_idx(torch.arange(4))
 rates = B.pop_rates()
 print(f"[批量自检] TB逐关率: {dict((k_, round(v_, 2)) for k_, v_ in rates.items())} "
-      f"(期望 gate1=0.75 gate2=0.75 gate3=0.75, env3 拉低)")
+      f"(期望 gate1=1.0 gate2..4=0.75, env3 拉低)")
 ok = (abs(sum_b[0, 0] - sum_s["adv"]) < 1e-3 and abs(sum_b[0, 1] - sum_s["ms"]) < 1e-3
-      and abs(sum_b[0, 2].item() - sum_s["leash"]) < 1e-3 and mism == 0
-      and sum_b[3, 1] == 0 and int(B.k[3]) < 5
-      and abs(rates["sr/gate4"] - 0.75) < 1e-6)
+      and abs(sum_b[0, 2].item() - sum_s["leash"]) < 1e-3
+      and abs(sum_b[0, 3].item() - sum_s["wage"]) < 1e-3 and mism == 0
+      and sum_b[3, 1].item() == 5.0 and int(B.k[3]) == 0
+      and abs(rates["sr/gate4"] - 0.75) < 1e-6
+      and abs(rates["sr/gate1"] - 1.0) < 1e-6)
 print("✅ 批量一致性+TB记账 全部通过" if ok else "❌ 未通过 —— 见上")
 sys.exit(0 if ok else 1)

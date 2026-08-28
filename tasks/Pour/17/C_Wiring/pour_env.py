@@ -28,19 +28,21 @@ from tasks.pregrasp.env import GraspTaskEnv
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _L3 = os.path.abspath(os.path.join(_HERE, "..", "A_Design", "L3_Learning"))
 sys.path.insert(0, _L3)
-from progress import PourProgress, _axis_tilt  # noqa: E402
+from progress import (PourProgress, _axis_tilt, CERT_RAMP, CERT_RET,  # noqa: E402
+                      G1_HOLD)
 from progress_batch import (  # noqa: E402
     M2_HOLD, M3_HOLD, M4_HOLD, PourProgressBatch, TABLE_Z)
 
-MASTER = os.path.abspath(os.path.join(
-    _HERE, "..", "A_Design", "L2_Reference", "pour17_reference_v1.npz"))
+MASTER = os.environ.get("POUR_REF_NPZ") or os.path.abspath(os.path.join(
+    _HERE, "..", "A_Design", "L2_Reference", "pour17_reference_v2.npz"))
 OBS_DIM = 503   # v4: +滑移块8(每侧: 滑移量/滑速/垫压和/垫数) 2026-08-28 拍板
 ACT_DIM = 58
 LOOK_KS = (1, 2, 4, 8, 16)          # #12 拍板2: 几何梯前瞻
 DEV_ARM_MACHINE, DEV_ARM_HUMAN = 0.05, 0.08   # #13 拍板2: source 两档累积界
-D4_SLIP, D7_STEPS = 0.05, 618       # #10: 滑移 5cm; 超时 515*1.2
+D4_SLIP = 0.05                      # #10: 滑移 5cm; 超时动态见 __init__ (L5-3)
 FAIL_PEN, D6_PEN, D6_CAP = -10.0, -0.5, -10.0
 PAD_FTH = 0.5                       # N, 垫接触力阈 (M1 冒烟同款)
+PADS_MIN = 3                        # G1 垫数阈 (L5-1: 探针标定, 左手位形上限3)
 _LPADS = ["left_thumb_elastomer", "left_index_elastomer", "left_middle_elastomer",
           "left_ring_elastomer", "left_pinky_elastomer"]
 
@@ -129,38 +131,53 @@ class PourEnv(GraspTaskEnv):
         self.IA0, self.IA1 = int(rows_h[0]), int(rows_h[-1])
         segl = [int(v) for v in z["seg_lens"]]
         self.EXIT0 = self.IA1 + 1                        # seam2 首行 = 换基捕获点
+        self.D7 = int(self.T_ROW * 1.2) + 120            # 超时 (放回窗扩张+认证机余量)
         self.RETREAT0 = segl[0] + segl[1] + segl[2] + segl[3]
         # 物体静置位 (母带交互首行), env 系 (母带=世界系, 建env后与场景静置位对账)
         self.rest_pose = {oi: torch.tensor(np.concatenate([
             np.asarray(z[f"obj_pos_{oi}"], np.float64)[rows_h][0],
             np.asarray(z[f"obj_quat_{oi}"], np.float64)[rows_h][0]]),
             dtype=torch.float32, device=dev) for oi in (0, 1)}
+        # ---- 认证行 (5mm测试臂参考) + 人手形状先验 (P-HYB) ----
+        if "cert_arm7_right" in z:
+            _ca = np.concatenate([np.asarray(z["cert_arm7_right"], np.float64),
+                                  np.asarray(z["cert_arm7_left"], np.float64)])
+            self.cert_arm14 = torch.tensor(_ca, dtype=torch.float32, device=dev)
+        else:
+            self.cert_arm14 = None
+        _hp = os.environ.get("POUR_VARIANT", "HYB").upper() == "HYB"
+        if _hp and "human_right_q" in z:
+            _hr = np.asarray(z["human_right_q"], np.float64)[rows_h]
+            _hl = np.asarray(z["human_left_q"], np.float64)[rows_h]
+            _dh = np.concatenate([np.diff(_hr, axis=0), np.diff(_hl, axis=0)],
+                                 axis=1)
+            self.hand_dh = torch.tensor(np.vstack([_dh, np.zeros((1, 14))]),
+                                        dtype=torch.float32, device=dev)
+        else:
+            self.hand_dh = None
+        self._prev_armq = torch.zeros(N, 14, device=dev)
         # ---- 进度机 (判据单一来源) ----
         mb = _mouth_local(z, rows_h, 1, 0.087)
         mc = _mouth_local(z, rows_h, 0, 0.066)
         self.KCAP = int(os.environ.get("POUR_KCAP", "0"))   # LIFT 单科考: >0 生效
+        self._variant = os.environ.get("POUR_VARIANT", "HYB").upper()
+        assert self._variant in ("HYB", "OBJ"), self._variant
         self.PB = PourProgressBatch(
             MASTER, num_envs=N, device=str(dev),
             mouth_local_bot=mb, mouth_local_cup=mc,
             leash_rot_tilt=os.environ.get("POUR_LEASH_ROT_TILT") == "1",
-            kcap=self.KCAP if self.KCAP > 0 else None)
-        _ps = PourProgress(MASTER, mouth_local_bot=mb, mouth_local_cup=mc)
+            kcap=self.KCAP if self.KCAP > 0 else None,
+            no_hand_ref=(self._variant == "OBJ"))
+        _ps = PourProgress(MASTER, mouth_local_bot=mb, mouth_local_cup=mc,
+                           no_hand_ref=(self._variant == "OBJ"))
+        print(f"[PourEnv] 变体={self._variant} "
+              f"({'纯物轨消融' if self._variant == 'OBJ' else '置信门控双参考+形状指引'})")
         # RSI 进入点表 (#11 自动推导), env 级: (全链行, 交互行, ms预置, 物体源)
-        et = _ps.entry_table()
-        self.entries = [(0, -1, frozenset(), "rest", "t0")]
-        for row_i, ms, label in et:
-            if label == "seam2_ret":
-                self.entries.append((self.RETREAT0, row_i, frozenset(ms),
-                                     "rest", label))
-            else:
-                self.entries.append((self.IA0 + row_i, row_i, frozenset(ms),
-                                     "ref", label))
-        if self.KCAP > 0:                              # LIFT: 撤退点无意义
-            self.entries = [e for e in self.entries if e[4] in ("t0", "seam1")]
-        self._seam_idx = [i for i, e in enumerate(self.entries)
-                          if e[4] in ("seam1", "seam2_ret")]
-        self._green_idx = [i for i, e in enumerate(self.entries)
-                           if e[4].startswith("green")]
+        self._ps = _ps
+        # 渐进RSI (L5-1 拍板3): 初始仅t0; 训练循环按 EMA(gate_k)>=0.2 调 unlock()
+        self.unlocked = set(int(x) for x in
+                            os.environ.get("POUR_UNLOCK", "").split(",") if x)
+        self._rebuild_entries()
         self.p_t0 = 0.2                                  # 训练循环按 EMA(sr/gate4) 更新
         # C线消融: POUR_BONUS_NOW=1 → 贴实奖金开局即发 (拍板点3的实验分支)
         self.phase_b = os.environ.get("POUR_BONUS_NOW") == "1"
@@ -181,7 +198,6 @@ class PourEnv(GraspTaskEnv):
         self.rebase_armed = torch.zeros(N, dtype=torch.bool, device=dev)
         # ---- 逐env状态 ----
         self.row = torch.zeros(N, dtype=torch.long, device=dev)
-        self.cand_run = torch.zeros(N, 2, dtype=torch.long, device=dev)
         self.grasp_d0 = torch.full((N, 2), float("nan"), device=dev)
         self.d6_acc = torch.zeros(N, device=dev)
         self.last_act = torch.zeros(N, ACT_DIM, device=dev)
@@ -218,8 +234,12 @@ class PourEnv(GraspTaskEnv):
             _sql = np.asarray(np.load(
                 "tasks/pregrasp/priors/Pour17_cup_thumbfix.npz")["squeeze"],
                 np.float64).reshape(-1)[7:29]
+            _br = float(os.environ.get("POUR_BETA_R", "2.0"))
+            _bl = float(os.environ.get("POUR_BETA_L", "1.0"))
             _dsq = np.concatenate([
-                _sqr - ref[self.IA0, 14:36], _sql - ref[self.IA0, 36:58]])
+                _br * (_sqr - ref[self.IA0, 14:36]),
+                _bl * (_sql - ref[self.IA0, 36:58])])
+            print(f"[PourEnv] squeeze 剂量: βR={_br} βL={_bl} (L5-1 探针标定)")
             # 剖面在手指门推导(CLOSE0)之后回填
             self._sq_delta = torch.tensor(_dsq, dtype=torch.float32, device=dev)
         # ---- 相A手指门 (#13 拍板3 + 修正一): 合拢段起全开, 转运/撤退冻结 ----
@@ -258,10 +278,27 @@ class PourEnv(GraspTaskEnv):
         # TB 计数
         self.racc = {"adv": 0.0, "leash": 0.0, "ms": 0.0, "pen": 0.0,
                      "pen6": 0.0, "bonus": 0.0, "regrip": 0.0, "slope": 0.0,
-                     "n": 0}
+                     "wage": 0.0, "shape": 0.0, "n": 0}
         self.tb = {"term/D1": 0, "term/D2": 0, "term/D3": 0, "term/D4": 0,
                    "term/D5": 0, "term/D7_timeout": 0, "term/D8": 0,
                    "term/M4_success": 0, "d6_pen_sum": 0.0, "ep": 0}
+
+    def _rebuild_entries(self):
+        """按已解锁 Gate 重建出生表 (渐进RSI)."""
+        self.entries = []
+        for row_i, ms, label in self._ps.entry_table(self.unlocked):
+            if label == "t0":
+                self.entries.append((0, -1, frozenset(), "rest", "t0"))
+            elif label == "ret":
+                self.entries.append((self.RETREAT0, row_i, frozenset(ms),
+                                     "rest", label))
+            else:
+                self.entries.append((self.IA0 + row_i, row_i, frozenset(ms),
+                                     "ref", label))
+        if self.KCAP > 0:                              # LIFT: 撤退点无意义
+            self.entries = [e for e in self.entries
+                            if e[4] in ("t0", "g1", "g2")]
+        print(f"[PourEnv] RSI出生表: {[e[4] for e in self.entries]}")
 
     # ================= 动作 =================
     def _pre_physics_step(self, actions):
@@ -294,6 +331,19 @@ class PourEnv(GraspTaskEnv):
         if self.sq_add is not None:
             ff = ff.clone()
             ff[:, 14:] += self.sq_add[r]
+        # 认证窗 (L5-1): 站位行上臂参考向 +5mm 认证行插值 (斜坡5/保持5/放回5)
+        if self.cert_arm14 is not None and hasattr(self, "PB"):
+            ph, ct = self.PB.cert_phase, self.PB.cert_t.float()
+            a = torch.where(
+                ph == 1, (ct + 1) / CERT_RAMP,
+                torch.where(ph == 2, torch.ones_like(ct),
+                            torch.where(ph == 3, 1.0 - (ct + 1) / CERT_RET,
+                                        torch.zeros_like(ct)))).clamp(0, 1)
+            a = a * (r == self.IA0).float()
+            if bool((a > 0).any()):
+                ff = ff.clone()
+                ff[:, :14] = (ff[:, :14] * (1 - a).unsqueeze(1)
+                              + self.cert_arm14.unsqueeze(0) * a.unsqueeze(1))
         span = max(self.T_ROW - 1 - self.EXIT0, 1)
         fade = ((self.T_ROW - 1 - r).float() / span).clamp(0.0, 1.0)
         post = (r >= self.EXIT0).float()
@@ -344,24 +394,28 @@ class PourEnv(GraspTaskEnv):
         cup, bot = self._read_objs()
         armq_r = self.hand.data.joint_pos[:, self.map_ids_t[:7]]
         armq_l = self.hand.data.joint_pos[:, self.map_ids_t[7:14]]
-        # ---- cand_ok (拍板: >=4垫 & 相对速度小, 保持4步; 双手AND) ----
+        # ---- G1 垫数 (L5-1: 双手各>=3/5垫; 判据在进度机, 这里只出原料) ----
         f = self._pads_f().norm(dim=-1)                  # (N,10)
-        wl_r = self.hand.data.body_lin_vel_w[:, self.wid["R"]]
-        wl_l = self.hand.data.body_lin_vel_w[:, self.wid["L"]]
-        rel_r = (wl_r - self.object.data.root_lin_vel_w).norm(dim=1)
-        rel_l = (wl_l - self.aux.data.root_lin_vel_w).norm(dim=1)
-        ok_r = ((f[:, :5] > PAD_FTH).sum(dim=1) >= int(self.cfg.success_min_pads)) \
-            & (rel_r < float(self.cfg.grip_slip_vel))
-        ok_l = ((f[:, 5:] > PAD_FTH).sum(dim=1) >= int(self.cfg.success_min_pads)) \
-            & (rel_l < float(self.cfg.grip_slip_vel))
-        for j, ok in ((0, ok_r), (1, ok_l)):
-            self.cand_run[:, j] = torch.where(ok, self.cand_run[:, j] + 1,
-                                              torch.zeros_like(self.cand_run[:, j]))
-        hold = int(self.cfg.candidate_hold_steps)
-        cand = (self.cand_run[:, 0] >= hold) & (self.cand_run[:, 1] >= hold)
+        pads3 = ((f[:, :5] > PAD_FTH).sum(dim=1) >= PADS_MIN) \
+            & ((f[:, 5:] > PAD_FTH).sum(dim=1) >= PADS_MIN)
+        cand = pads3                                     # 兼容旧消费方
+        org_w = self.scene.env_origins
+        wr_pos = self.hand.data.body_pos_w[:, self.wid["R"]] - org_w
+        wl_pos = self.hand.data.body_pos_w[:, self.wid["L"]] - org_w
         # ---- 进度机 (仅交互行起管辖) ----
         run_mask = (self.row >= self.IA0) & ~holding
-        out = self.PB.step(cup, bot, armq_r, armq_l, cand, run_mask=run_mask)
+        out = self.PB.step(cup, bot, armq_r, armq_l, pads3, wr_pos, wl_pos,
+                           run_mask=run_mask)
+        # ---- 形状指引 (P-HYB 红档): 人手行关节速度方向余弦, 只给糖不打鞭 ----
+        r_shape = torch.zeros(N, device=dev)
+        if self.hand_dh is not None:
+            ki_s = self.PB.k.clamp(max=self.PB.N_ROW - 1)
+            red = (self.PB.tmix[ki_s] == 0) & self.PB.g2 & run_mask
+            dq_act = torch.cat([armq_r, armq_l], dim=1) - self._prev_armq
+            cs = torch.nn.functional.cosine_similarity(
+                dq_act, self.hand_dh[ki_s], dim=1)
+            r_shape = 0.15 * cs.clamp(min=0.0) * red.float()
+        self._prev_armq = torch.cat([armq_r, armq_l], dim=1).detach()
         # ---- env 侧死线 ----
         fail_env = torch.zeros(N, dtype=torch.bool, device=dev)
         pre = self.row < self.IA0
@@ -382,7 +436,7 @@ class PourEnv(GraspTaskEnv):
                - self.object.data.root_pos_w).norm(dim=1)
         d_l = (self.hand.data.body_pos_w[:, self.wid["L"]]
                - self.aux.data.root_pos_w).norm(dim=1)
-        need0 = self.PB.ms1 & torch.isnan(self.grasp_d0[:, 0])
+        need0 = self.PB.g2 & torch.isnan(self.grasp_d0[:, 0])
         self.grasp_d0[:, 0] = torch.where(need0, d_r, self.grasp_d0[:, 0])
         self.grasp_d0[:, 1] = torch.where(need0, d_l, self.grasp_d0[:, 1])
         in_ia = (self.row >= self.IA0) & (self.row <= self.IA1)
@@ -397,7 +451,7 @@ class PourEnv(GraspTaskEnv):
         has0 = ~torch.isnan(self.grasp_d0[:, 0])
         slip_amt = (d_now - d0) * has0.float().unsqueeze(1)          # (N,2) m
         slip_v = (d_now - self._prev_d).clamp(min=0.0)               # 正向滑速 m/步
-        gate_g = (self.PB.ms1 & has0).float()
+        gate_g = (self.PB.g2 & has0).float()
         # ③ 握紧反射: 滑速起 → 垫压正差分给奖 ×min(滑速/1cm,1), regrip_w=1.0
         dv = (slip_v / 0.01).clamp(max=1.0)
         dfp = (pf_now - self._prev_pf).clamp(0.0, 3.0)
@@ -418,12 +472,12 @@ class PourEnv(GraspTaskEnv):
         hz = self.hand.data.body_pos_w[:, self.hand_bids, 2]
         fail_env |= (hz < TABLE_Z - 0.005).any(dim=1)
         # D7 超时 (纯终止零罚)
-        timeout = self.episode_length_buf >= D7_STEPS
+        timeout = self.episode_length_buf >= self.D7
         fail_env &= ~holding
         fail = out["fail"] | fail_env
         lift_new = torch.zeros(N, dtype=torch.bool, device=dev)
         if self.KCAP > 0:
-            at_top = self.PB.ms1 & (self.PB.k >= self.KCAP) & ~fail & ~holding
+            at_top = self.PB.g2 & (self.PB.k >= self.KCAP) & ~fail & ~holding
             self.lift_hold = torch.where(at_top, self.lift_hold + 1,
                                          torch.zeros_like(self.lift_hold))
             lift_new = (self.lift_hold >= 20) & ~self.lift_done
@@ -433,8 +487,9 @@ class PourEnv(GraspTaskEnv):
         self.row = torch.where(pre & ~holding, self.row + 1, self.row)
         ia = run_mask & (self.PB.k < self.PB.N_ROW - 1)
         self.row = torch.where(ia, self.IA0 + self.PB.k, self.row)
-        post = run_mask & (self.PB.k >= self.PB.N_ROW - 1) & (self.row >= self.IA1) \
-            & ~holding
+        # L5-1修: k走满时 row 停在 IA0+k_max=IA1-1, 旧条件 row>=IA1 永假 → 死锁
+        post = run_mask & (self.PB.k >= self.PB.N_ROW - 1) \
+            & (self.row >= self.IA1 - 1) & ~holding
         self.row = torch.where(post, (self.row + 1).clamp(max=self.T_ROW - 1),
                                self.row)
         # ---- 奖励合成 ----
@@ -446,14 +501,15 @@ class PourEnv(GraspTaskEnv):
                            torch.zeros(N, device=dev))
         self.d6_acc += pen6
         self.tb["d6_pen_sum"] += float(-pen6.sum())
-        rew = (out["adv"] + out["leash"] + out["ms"] + pen
-               + r_reflex + pen_slope + 15.0 * lift_new.float()) \
+        rew = (out["adv"] + out["leash"] + out["ms"] + out["wage"] + pen
+               + r_reflex + pen_slope + r_shape + 15.0 * lift_new.float()) \
             * (~holding).float() + pen6
         bonus = torch.zeros(N, device=dev)
         # 相B赏钱 (#13 拍板3, 轻量同族实现): 垫贴实势 earn-only 棘轮, 合拢→缝2 窗内
         if self.phase_b:
             r_now = self.row.clamp(max=self.T_ROW - 1)
-            in_win = (r_now >= self.APP_END) & (r_now < self.RETREAT0) & ~holding
+            in_win = (r_now >= self.APP_END) & (r_now < self.RETREAT0) \
+                & ~holding & self.PB.g1        # L5-1: 仅G1后发放 (BCE4农耕闸)
             pot = torch.stack([(f[:, :5].clamp(0, 3) / 3).mean(dim=1),
                                (f[:, 5:].clamp(0, 3) / 3).mean(dim=1)], dim=1)
             if os.environ.get("POUR_BONUS_DIST") == "1":
@@ -486,9 +542,11 @@ class PourEnv(GraspTaskEnv):
         self.racc["regrip"] += float((r_reflex * (~holding).float()).sum())
         self.racc["slope"] += float((pen_slope * (~holding).float()).sum())
         self.racc["bonus"] += float(bonus.sum())
+        self.racc["wage"] += float((out["wage"] * nh).sum())
+        self.racc["shape"] += float((r_shape * nh).sum())
         self.racc["n"] += N
         # TB
-        succ = self.PB.ms4
+        succ = self.PB.g4
         self._tick_out = {"terminated": terminated, "timeout": timeout & ~terminated,
                           "rew": rew, "cand": cand, "out": out, "cup": cup,
                           "bot": bot, "armq_r": armq_r, "armq_l": armq_l,
@@ -509,7 +567,7 @@ class PourEnv(GraspTaskEnv):
         out = {f"ep_rew/{k}": v / n for k, v in self.racc.items() if k != "n"}
         self.racc = {"adv": 0.0, "leash": 0.0, "ms": 0.0, "pen": 0.0,
                      "pen6": 0.0, "bonus": 0.0, "regrip": 0.0, "slope": 0.0,
-                     "n": 0}
+                     "wage": 0.0, "shape": 0.0, "n": 0}
         return out
 
     # ================= 观测 (#12 定稿, 495 维, 变维攒一次) =================
@@ -598,15 +656,19 @@ class PourEnv(GraspTaskEnv):
             devs += [_o[:, :3] - refp, dang.unsqueeze(1)]
         # 进度状态 7
         hold = torch.where(
-            ~self.PB.ms1, self.cand_run.min(dim=1).values.float()
-            / int(self.cfg.candidate_hold_steps),
-            torch.where(~self.PB.ms2, self.PB.m2_run.float() / M2_HOLD,
-                        torch.where(~self.PB.ms3, self.PB.m3_run.float() / M3_HOLD,
-                                    self.PB.m4_run.float() / M4_HOLD))).clamp(0, 1)
+            ~self.PB.g1, self.PB.g1_run.float() / G1_HOLD,
+            torch.where(
+                ~self.PB.g2,
+                (self.PB.cert_phase.float() * 5 + self.PB.cert_t.float()) / 15.0,
+                torch.where(~self.PB.g3, self.PB.m2_run.float() / M2_HOLD,
+                            torch.where(~self.PB.placed,
+                                        self.PB.m3_run.float() / M3_HOLD,
+                                        self.PB.m4_run.float() / M4_HOLD)))
+        ).clamp(0, 1)
         prog = torch.cat([
             (self.row.float() / (self.T_ROW - 1)).unsqueeze(1),
-            self.PB.ms1.float().unsqueeze(1), self.PB.ms2.float().unsqueeze(1),
-            self.PB.ms3.float().unsqueeze(1), self.PB.ms4.float().unsqueeze(1),
+            self.PB.g1.float().unsqueeze(1), self.PB.g2.float().unsqueeze(1),
+            self.PB.g3.float().unsqueeze(1), self.PB.g4.float().unsqueeze(1),
             hold.unsqueeze(1), src.float().unsqueeze(1)], dim=1)
         obs = torch.cat([
             q[:, :14], q[:, 14:],                              # 58 本体位置
@@ -658,19 +720,17 @@ class PourEnv(GraspTaskEnv):
             pick = []
             u = torch.rand(n)
             for i in range(n):
-                if float(u[i]) < self.p_t0 or (not self._seam_idx):
+                if float(u[i]) < self.p_t0 or len(self.entries) <= 1:
                     pick.append(0)
-                elif float(u[i]) < self.p_t0 + (1 - self.p_t0) * 0.5:
-                    pick.append(self._seam_idx[int(torch.randint(
-                        len(self._seam_idx), (1,)))])
                 else:
-                    idxs = self._green_idx or self._seam_idx
-                    pick.append(idxs[int(torch.randint(len(idxs), (1,)))])
-        rows_env, rows_ia, m1, m2, m3, objsrc = [], [], [], [], [], []
+                    pick.append(1 + int(torch.randint(len(self.entries) - 1,
+                                                      (1,))))
+        rows_env, rows_ia, g1, g2, g3, plc, objsrc = [], [], [], [], [], [], []
         for pi in pick:
             er, ir, ms, osrc, _ = self.entries[pi]
             rows_env.append(er); rows_ia.append(max(ir, 0))
-            m1.append(1 in ms); m2.append(2 in ms); m3.append(3 in ms)
+            g1.append(1 in ms); g2.append(2 in ms); g3.append(3 in ms)
+            plc.append("placed" in ms)
             objsrc.append(osrc)
         dev = self.device
         rows_env_t = torch.tensor(rows_env, dtype=torch.long, device=dev)
@@ -682,9 +742,10 @@ class PourEnv(GraspTaskEnv):
             sel = (~t0_mask).nonzero().squeeze(1).cpu().tolist()
             self.PB.enter(ent_ids,
                           torch.tensor([rows_ia[i] for i in sel], device=dev),
-                          torch.tensor([m1[i] for i in sel], device=dev),
-                          torch.tensor([m2[i] for i in sel], device=dev),
-                          torch.tensor([m3[i] for i in sel], device=dev))
+                          torch.tensor([g1[i] for i in sel], device=dev),
+                          torch.tensor([g2[i] for i in sel], device=dev),
+                          torch.tensor([g3[i] for i in sel], device=dev),
+                          torch.tensor([plc[i] for i in sel], device=dev))
         if t0_mask.any():
             self.PB.reset_idx(env_ids[t0_mask])
         # ---- 写机器人/物体状态 ----
@@ -719,8 +780,8 @@ class PourEnv(GraspTaskEnv):
         armed = torch.tensor([self.entries[p][0] < self.EXIT0 for p in pick],
                              device=dev)
         self.rebase_armed[env_ids] = armed
-        self.cand_run[env_ids] = 0
         self.grasp_d0[env_ids] = float("nan")
+        self._prev_armq[env_ids] = self.ref58[rows_env_t][:, :14]
         self.d6_acc[env_ids] = 0.0
         self.pad_pot_max[env_ids] = 0.0
         self.lift_hold[env_ids] = 0

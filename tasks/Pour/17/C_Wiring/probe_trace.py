@@ -22,8 +22,7 @@ N = 16
 cfg = PE.build_cfg(num_envs=N)
 raw = PE.PourEnv(cfg)
 labels = [e[4] for e in raw.entries]
-buckets = [0, labels.index("seam1"), labels.index("green@87"),
-           labels.index("seam2_ret")]
+buckets = (list(range(len(raw.entries))) * 4)[:4]   # v4.1: 现役进入点循环补位
 raw.force_entry = [buckets[i % 4] for i in range(N)]
 env = GymStyleEnvWrapper(raw, clip_actions=1.0)
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -62,8 +61,8 @@ with torch.no_grad():
         upv = quat_apply(qb, raw.PB.up.unsqueeze(0).expand(N, 3))
         vals = {
             "row": raw.row.clone(), "k": raw.PB.k.clone(),
-            "ms1": raw.PB.ms1.clone(), "ms2": raw.PB.ms2.clone(),
-            "ms3": raw.PB.ms3.clone(),
+            "ms1": raw.PB.g2.clone(), "ms2": raw.PB.g3.clone(),
+            "ms3": raw.PB.placed.clone(),
             "adv": o["out"]["adv"], "leash": o["out"]["leash"],
             "ms_r": o["out"]["ms"], "fail_pb": o["out"]["fail"],
             "fail_env": o["fail_env"],

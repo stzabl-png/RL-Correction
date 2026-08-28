@@ -45,12 +45,12 @@ with torch.no_grad():
         for i in range(N):
             if i in res or not bool(dones[i]):
                 continue
-            kind = ("M4" if bool(raw.PB.ms4[i]) else
+            kind = ("G4" if bool(raw.PB.g4[i]) else
                     "timeout" if bool(o["timeout"][i]) else
                     "env侧(D4/D5)" if bool(o["fail_env"][i]) else "进度机(D1/D2/D3/D8)")
             res[i] = (labels[raw.force_entry[i % len(raw.force_entry)]] if False
                       else labels[buckets[i % 4]], kind, t, int(raw.row[i]),
-                      bool(raw.PB.ms1[i]))
+                      bool(raw.PB.g2[i]))
         if len(res) == N:
             break
 print("\n===== 死因探针 =====")

@@ -1,13 +1,13 @@
-"""RSI 进入点放音自检 (#11 铁则): 每个进入点从该行照参考播到底,
-必到 M4 且零死线。母带重生成后必重跑。"""
+"""RSI 进入点放音自检 (#11 铁则, L5-1 渐进版): 全解锁 entry_table 的每个进入点
+从该行照参考播到底, 必到 G4 且零死线。t0/g1 点位含认证编舞。母带/判据改后必重跑。"""
 import sys
 import numpy as np
 
 sys.path.insert(0, "/home/lyh/Project/RL_Correction/tasks/Pour/17/A_Design/L3_Learning")
-from progress import PourProgress
+from progress import PourProgress, CERT_RAMP, CERT_RET
 
 NPZ = ("/home/lyh/Project/RL_Correction/tasks/Pour/17/A_Design/"
-       "L2_Reference/pour17_reference_v1.npz")
+       "L2_Reference/pour17_reference_v2.npz")
 z = np.load(NPZ, allow_pickle=True)
 rows = np.where(np.asarray(z["source"]) == 1)[0]
 
@@ -28,29 +28,47 @@ obj = {oi: np.concatenate([np.asarray(z[f"obj_pos_{oi}"], np.float64)[rows],
        for oi in (0, 1)}
 armq = {s: np.asarray(z[f"{s}_q"], np.float64)[rows] for s in ("right", "left")}
 stance = {s: np.asarray(z[f"{s}_q"], np.float64)[-1] for s in ("right", "left")}
+WOFF = np.array([0.0, 0.0, 0.10])
 P = PourProgress(NPZ, mouth_local_bot=mb, mouth_local_cup=mc)
+et = P.entry_table(unlocked={1, 2, 3})
+print(f"[RSI放音] 全解锁进入点: {[(r_, lb) for r_, _, lb in et]}")
 allok = True
-for row, ms, label in P.entry_table():
+for row, ms, label in et:
     P.enter(row, ms)
     T = P.N
     rest = {oi: obj[oi][0] for oi in (0, 1)}
-    m4, failmsg = False, None
-    for t in range(T + 100):
+    g4, failmsg = False, None
+    for t in range(T + 160):
         k = min(P.k, T - 1)
-        end = (P.k >= T - 1) or P.ms[3]
-        o0, o1 = (rest[0], rest[1]) if end else (obj[0][k], obj[1][k])
-        ar = stance["right"] if P.ms[3] else armq["right"][k]
-        al = stance["left"] if P.ms[3] else armq["left"][k]
-        r = P.step(o0, o1, ar, al, cand_ok=True)
+        if not P.g[2]:                                # 站位+认证编舞
+            if P.cert_phase == 1:
+                dz = 0.015 * min((P.cert_t + 1) / CERT_RAMP, 1.0)
+            elif P.cert_phase == 2:
+                dz = 0.015
+            elif P.cert_phase == 3:
+                dz = 0.015 * max(1.0 - (P.cert_t + 1) / CERT_RET, 0.0)
+            else:
+                dz = 0.0
+            o0 = obj[0][k].copy(); o1 = obj[1][k].copy()
+            o0[2] += dz; o1[2] += dz
+            ar, al = armq["right"][k], armq["left"][k]
+        else:
+            end = (P.k >= T - 1) or P.placed
+            o0, o1 = (rest[0], rest[1]) if end else (obj[0][k], obj[1][k])
+            ar = stance["right"] if P.placed else armq["right"][k]
+            al = stance["left"] if P.placed else armq["left"][k]
+        r = P.step(o0, o1, ar, al, pads3=True,
+                   wrist_r=np.asarray(o1[:3]) + WOFF,
+                   wrist_l=np.asarray(o0[:3]) + WOFF)
         if r["fail"]:
             failmsg = r["fail"]
             break
-        if P.ms[4]:
-            m4 = True
+        if P.g[4]:
+            g4 = True
             break
-    ok = m4 and failmsg is None
+    ok = g4 and failmsg is None
     allok &= ok
-    print(f"[RSI放音] {label:12s} row={row:3d} 预置{sorted(ms)} -> "
+    print(f"[RSI放音] {label:6s} row={row:3d} 预置{sorted(ms, key=str)} -> "
           f"{'✅' if ok else '❌ fail=' + str(failmsg)}")
 print("✅ RSI 全点位放音自洽" if allok else "❌ 有点位不自洽")
 sys.exit(0 if allok else 1)

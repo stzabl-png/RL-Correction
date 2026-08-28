@@ -2,7 +2,7 @@
 
 自检项:
   A 静置位对账: env 场景物体静置位 vs 母带静置位 (<5mm 铁则, 不然进度机判据全错框架)
-  B 观测维 495 / 动作 58 收发正常
+  B 观测维 503 / 动作 58 收发正常
   C 机器段死线零误触 (approach 期 D1/D2/D3/D5 不得响)
   D 时钟/行指针推进与 M 链实录 (M1 在力控体制下是否点火 = 数据, 不是断言 ——
     柔顺补测已知右手垫欠实, 贴实是相A探索正业)
@@ -29,7 +29,7 @@ import pour_env as PE  # noqa: E402
 
 cfg = PE.build_cfg(num_envs=4)
 E = PE.PourEnv(cfg)
-# 4 env 定点出生: t0 / seam1 / green@87 / seam2_ret
+# L5-1: 4 env 定点覆盖出生表 (POUR_UNLOCK=1,2,3 时=t0/g1/g2/g3或ret)
 labels = [e[4] for e in E.entries]
 want = (list(range(len(E.entries))) * 4)[:4]  # v4: 绿点退役, 现役全覆盖
 E.force_entry = want
@@ -66,8 +66,8 @@ for t in range(args.steps):
     maxk = torch.maximum(maxk, E.PB.k.cpu())
     for i in range(4):
         if done_at[i] is None:
-            for m, flag in ((1, E.PB.ms1), (2, E.PB.ms2), (3, E.PB.ms3),
-                            (4, E.PB.ms4)):
+            for m, flag in ((1, E.PB.g1), (2, E.PB.g2), (3, E.PB.g3),
+                            ("p", E.PB.placed), (4, E.PB.g4)):
                 if bool(flag[i]) and m not in ms_at[i]:
                     ms_at[i][m] = t
             if bool(o["fail_env"][i]) and (E.row[i] < E.IA0):
@@ -75,7 +75,7 @@ for t in range(args.steps):
             if bool(term[i]) or bool(trunc[i]):
                 done_at[i] = t
                 fail_at[i] = ("timeout" if bool(trunc[i]) else
-                              ("M4" if bool(E.PB.ms4[i]) else
+                              ("G4" if bool(E.PB.g4[i]) else
                                ("env侧" if bool(o["fail_env"][i]) else "进度机")))
     if t % 100 == 0:
         f = E._pads_f().norm(dim=-1)
@@ -91,7 +91,7 @@ names = [labels[i] for i in want]
 for i in range(4):
     print(f"env{i} [{names[i]:10s}] 终:{fail_at[i] or '未终止'}@{done_at[i]} "
           f"maxrow={int(maxrow[i])} maxK={int(maxk[i])} "
-          f"M链={sorted(ms_at[i])} 累计奖励={float(rew_sum[i]):.1f}")
+          f"G链={sorted(ms_at[i], key=str)} 累计奖励={float(rew_sum[i]):.1f}")
 print(f"机器段死线误触 = {pre_fail} (铁则: 0)")
 ok = pre_fail == 0
 print("✅ 预检骨架通过 (M链/时钟为实录数据)" if ok else "❌ 机器段死线误触")

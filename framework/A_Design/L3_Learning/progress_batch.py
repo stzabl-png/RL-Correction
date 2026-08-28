@@ -13,7 +13,8 @@ import torch
 
 from progress import (LEASH_POS, LEASH_ROT, GATE_POS, GATE_ROT, RED_GATE_POS,
                       MS_REWARD, M2_TILT, M2_HOLD, M3_POS, M3_ROT, M3_HOLD,
-                      M4_ARM, M4_HOLD, M4_DIST_POS, M4_DIST_ROT, W_OBJ, _tier,
+                      M4_ARM, M4_HOLD, M4_DIST_POS, M4_DIST_ROT, W_OBJ, W_HAND,
+                      _tier,
                       G1_HOLD, CERT_RAMP, CERT_HOLD, CERT_RET, CERT_RISE,
                       CERT_SLIP, CERT_WAIT, CERT_TRIES, WAGE,
                       D1_DROP, D2_TILT, D3_DEV, TABLE_Z)
@@ -55,8 +56,6 @@ class PourProgressBatch:
         self.ref_obj = {oi: torch.cat([f32(z[f"obj_pos_{oi}"]),
                                        f32(z[f"obj_quat_{oi}"])], dim=1)
                         for oi in (0, 1)}
-        # 红档手门参考 = 主行(在播参考; 人手行只做形状指引, 归env侧)
-        self.ref_arm = {s: f32(z[f"{s}_q"]) for s in ("right", "left")}
         self.stance = {s: torch.tensor(np.asarray(z[f"{s}_q"], np.float64)[-1],
                                        dtype=torch.float32, device=device)
                        for s in ("right", "left")}
@@ -75,8 +74,11 @@ class PourProgressBatch:
         self.no_hand_ref = bool(no_hand_ref)
         if self.no_hand_ref:
             self.WO = torch.ones(3, device=device)          # P-OBJ: w_obj 恒 1
+            self.WH = torch.zeros(3, device=device)
         else:
             self.WO = torch.tensor([W_OBJ[0], W_OBJ[1], W_OBJ[2]], device=device)
+            self.WH = torch.tensor([W_HAND[0], W_HAND[1], W_HAND[2]],
+                                   device=device)
         self.rest = {oi: self.ref_obj[oi][0].clone() for oi in (0, 1)}
         self.mb = torch.tensor(mouth_local_bot, dtype=torch.float32, device=device)
         self.mc = torch.tensor(mouth_local_cup, dtype=torch.float32, device=device)
@@ -206,12 +208,11 @@ class PourProgressBatch:
                                         torch.zeros_like(pen), pen)
         earning = (self.k < self.N_ROW - 1)
         leash = leash.clamp(min=-3.0) * active.float() * earning.float()
-        # ---- 时钟门 ----
+        # ---- 时钟门 (L5-6: 双变体统一; 红档=宽松物门) ----
         ok_obj = torch.ones(self.Ne, dtype=torch.bool, device=self.dev)
         gp = torch.where(tier > 0,
                          torch.full_like(w_obj, GATE_POS),
-                         torch.full_like(w_obj, RED_GATE_POS if self.no_hand_ref
-                                         else GATE_POS))
+                         torch.full_like(w_obj, RED_GATE_POS))
         for oi, act in ((0, obj0), (1, obj1)):
             ref = self.ref_obj[oi][k]
             ok_obj &= ((act[:, :3] - ref[:, :3]).norm(dim=1) <= gp)
@@ -219,14 +220,7 @@ class PourProgressBatch:
                             .clamp(min=1e-9), ref[:, 3:7]) <= GATE_ROT)
             ok_obj &= torch.where(tier > 0, rot_ok,
                                   torch.ones_like(rot_ok))   # 红档 rot 禁入
-        ok_hand = torch.ones_like(ok_obj)
-        for s, act in (("right", armq_r), ("left", armq_l)):
-            ok_hand &= ((act - self.ref_arm[s][k]).abs().max(dim=1).values
-                        <= np.radians(20))
-        if self.no_hand_ref:
-            ok = ok_obj & active                             # P-OBJ: 全程物门
-        else:
-            ok = torch.where(tier > 0, ok_obj, ok_hand) & active
+        ok = ok_obj & active
         # 时钟: G2 前不走
         _cap = self.N_ROW - 1 if self.kcap is None else min(self.kcap, self.N_ROW - 1)
         can = ok & (self.k < _cap) & self.g2
@@ -343,7 +337,7 @@ class PourProgressBatch:
         fail &= active
         self.done |= fail
         return {"adv": adv, "leash": leash, "ms": ms_r, "wage": wage,
-                "w_obj": w_obj, "clock": self.k.clone(), "done": self.done.clone(),
+                "w_obj": w_obj, "w_hand": self.WH[tier], "clock": self.k.clone(), "done": self.done.clone(),
                 "tier": tier, "fail": fail,
                 "cert_phase": self.cert_phase.clone(),
                 "cert_t": self.cert_t.clone()}

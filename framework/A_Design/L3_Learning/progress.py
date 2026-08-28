@@ -1,7 +1,7 @@
 """Success Tracker 框架件 (身=Pour17 v5 已验收版) —— 四Gate阶段机 + 提升认证测试。
 
 [TASK] 新任务必审块 (顺序):
-  1. G3 判据 (本文件 "G3 倒水完成" 块) —— 换成你的任务核心动作判据;
+  1. G3 判据 (本文件 "G3" 块) —— 换成你的任务核心动作判据;
   2. placed/G4 判据 (放回/收尾语义是否适用);
   3. 常数区 [TASK] 行 (容差/hold/死线数值按任务标定);
   4. 判据改动纪律: 双版同步 (progress_batch.py) + 自检家族重跑。
@@ -26,7 +26,8 @@ from __future__ import annotations
 import numpy as np
 
 TIER_HI, TIER_LO = 70.0, 40.0
-W_OBJ = {2: 0.8, 1: 0.5, 0: 0.2}
+W_OBJ = {2: 1.0, 1: 0.5, 0: 0.2}    # L5-6: 高置信=纯物轨(人手0)
+W_HAND = {2: 0.0, 1: 0.5, 0: 0.8}   # 人手形状指引权重: 绿0/黄五五开/红主导
 LEASH_POS = {2: 0.03, 1: 0.05, 0: 0.08}
 LEASH_ROT = {2: np.radians(15), 1: np.radians(30), 0: None}   # 红档 rot 禁入判据
 GATE_POS, GATE_ROT = 0.05, np.radians(45)
@@ -88,9 +89,6 @@ class PourProgress:
             [np.asarray(z[f"obj_pos_{oi}"], np.float64)[rows],
              np.asarray(z[f"obj_quat_{oi}"], np.float64)[rows]], axis=1)
             for oi in (0, 1)}
-        # 红档手门参考 = 主行(实际在播的参考; L5-1: 人手行只做形状指引, 归env侧)
-        self.armq = {s: np.asarray(z[f"{s}_q"], np.float64)[rows]
-                     for s in ("right", "left")}
         self.tp = {oi: [_tier(v) for v in np.asarray(z[f"conf_pos_{oi}"])[rows]]
                    for oi in (0, 1)}
         self.tr = {oi: [_tier(v) for v in np.asarray(z[f"conf_rot_{oi}"])[rows]]
@@ -171,6 +169,7 @@ class PourProgress:
         k = min(self.k, self.N - 1)
         tier = self.tmix[k]
         out["w_obj"] = 1.0 if self.no_hand_ref else W_OBJ[tier]
+        out["w_hand"] = 0.0 if self.no_hand_ref else W_HAND[tier]
         earning = self.k < self.N - 1
         ok = False
         # 药A: G2 后首个受管步捕获持握基线
@@ -202,26 +201,17 @@ class PourProgress:
                 if dr > lr:
                     leash -= (dr - lr) / lr
         out["leash"] = max(leash, -3.0)                     # 截断
-        # ---- 时钟门 ----
-        if not earning:
-            pass
-        elif tier > 0 or self.no_hand_ref:
+        # ---- 时钟门 (L5-6: 双变体统一; 红档=宽松物门, 绝对位置底线归物轨) ----
+        if earning:
             ok = True
-            gp = GATE_POS if tier > 0 else RED_GATE_POS     # P-OBJ红档宽物门
+            gp = GATE_POS if tier > 0 else RED_GATE_POS
             for oi, act in ((0, obj0), (1, obj1)):
                 ref = self.obj[oi][k]
                 if np.linalg.norm(np.asarray(act[:3]) - ref[:3]) > gp:
                     ok = False
                 if tier > 0 and _qang(np.asarray(act[3:7]), ref[3:7]) > GATE_ROT:
-                    ok = False                              # 红档 rot 禁入
+                    ok = False                              # 红档 rot 禁入(形状不可信)
             out["gate_by"] = "obj"
-        else:
-            ok = True
-            for s, act in (("right", armq_r), ("left", armq_l)):
-                if float(np.abs(np.asarray(act) - self.armq[s][k]).max()) \
-                        > np.radians(20):                    # 关节口径手门(红段)
-                    ok = False
-            out["gate_by"] = "hand"
         # 时钟: G2 前不走 (自主抓稳继承; 认证期 phase>0 亦不走, 因 g2 未立)
         _cap = self.N - 1 if self.kcap is None else min(self.kcap, self.N - 1)
         if earning and ok and self.k < _cap and self.g[2]:

@@ -403,15 +403,15 @@ class PourEnv(GraspTaskEnv):
         run_mask = (self.row >= self.IA0) & ~holding
         out = self.PB.step(cup, bot, armq_r, armq_l, pads3, wr_pos, wl_pos,
                            run_mask=run_mask)
-        # ---- 形状指引 (P-HYB 红档): 人手行关节速度方向余弦, 只给糖不打鞭 ----
+        # ---- 形状指引 (P-HYB, L5-6 档位化): 0.2×W_HAND(绿0/黄0.5/红0.8)×cos+ ----
         r_shape = torch.zeros(N, device=dev)
         if self.hand_dh is not None:
             ki_s = self.PB.k.clamp(max=self.PB.N_ROW - 1)
-            red = (self.PB.tmix[ki_s] == 0) & self.PB.g2 & run_mask
             dq_act = torch.cat([armq_r, armq_l], dim=1) - self._prev_armq
             cs = torch.nn.functional.cosine_similarity(
                 dq_act, self.hand_dh[ki_s], dim=1)
-            r_shape = 0.15 * cs.clamp(min=0.0) * red.float()
+            r_shape = 0.2 * out["w_hand"] * cs.clamp(min=0.0) \
+                * (self.PB.g2 & run_mask).float()
         self._prev_armq = torch.cat([armq_r, armq_l], dim=1).detach()
         # ---- env 侧死线 ----
         fail_env = torch.zeros(N, dtype=torch.bool, device=dev)

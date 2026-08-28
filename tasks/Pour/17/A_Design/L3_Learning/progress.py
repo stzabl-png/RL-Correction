@@ -57,7 +57,8 @@ class PourProgress:
 
     def __init__(self, npz_path, mouth_local_bot, mouth_local_cup,
                  up_local_bot=(0.0, 1.0, 0.0), mouth_gate=0.12,
-                 leash_rot_tilt=False):
+                 leash_rot_tilt=False, kcap=None):
+        # kcap (LIFT 单科考 2026-08-29): 时钟挣行封顶行 (None=全程, 原行为不变)
         # leash_rot_tilt (E线消融 2026-08-28): 皮筋 rot 改"倾角差"口径(yaw豁免),
         # 默认 False=原全角度。胜出才转正。
         z = np.load(npz_path, allow_pickle=True)
@@ -84,6 +85,7 @@ class PourProgress:
         self.up_b = np.asarray(up_local_bot, np.float64)
         self.mouth_gate = float(mouth_gate)
         self.leash_rot_tilt = bool(leash_rot_tilt)
+        self.kcap = kcap
         self.reset()
 
     def entry_table(self):
@@ -188,7 +190,8 @@ class PourProgress:
             out["gate_by"] = "hand"
         # 自主抓稳阶段 (2026-08-29 拍板): M1(双手抓稳)前交互时钟不走 ——
         # 参考停在抓握站位等策略练稳, 不在没抓牢时把物体拖走 (提起墙验尸的结构解)
-        if earning and ok and self.k < self.N - 1 and self.ms[1]:
+        _cap = self.N - 1 if self.kcap is None else min(self.kcap, self.N - 1)
+        if earning and ok and self.k < _cap and self.ms[1]:
             self.k += 1
             out["adv"] = 1.0                                # Δclock earn-only
         # ---- 里程碑 (有序强制) ----

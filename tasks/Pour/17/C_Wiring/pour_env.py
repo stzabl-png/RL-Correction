@@ -138,10 +138,12 @@ class PourEnv(GraspTaskEnv):
         # ---- 进度机 (判据单一来源) ----
         mb = _mouth_local(z, rows_h, 1, 0.087)
         mc = _mouth_local(z, rows_h, 0, 0.066)
+        self.KCAP = int(os.environ.get("POUR_KCAP", "0"))   # LIFT 单科考: >0 生效
         self.PB = PourProgressBatch(
             MASTER, num_envs=N, device=str(dev),
             mouth_local_bot=mb, mouth_local_cup=mc,
-            leash_rot_tilt=os.environ.get("POUR_LEASH_ROT_TILT") == "1")
+            leash_rot_tilt=os.environ.get("POUR_LEASH_ROT_TILT") == "1",
+            kcap=self.KCAP if self.KCAP > 0 else None)
         _ps = PourProgress(MASTER, mouth_local_bot=mb, mouth_local_cup=mc)
         # RSI 进入点表 (#11 自动推导), env 级: (全链行, 交互行, ms预置, 物体源)
         et = _ps.entry_table()
@@ -153,6 +155,8 @@ class PourEnv(GraspTaskEnv):
             else:
                 self.entries.append((self.IA0 + row_i, row_i, frozenset(ms),
                                      "ref", label))
+        if self.KCAP > 0:                              # LIFT: 撤退点无意义
+            self.entries = [e for e in self.entries if e[4] in ("t0", "seam1")]
         self._seam_idx = [i for i, e in enumerate(self.entries)
                           if e[4] in ("seam1", "seam2_ret")]
         self._green_idx = [i for i, e in enumerate(self.entries)
@@ -161,6 +165,9 @@ class PourEnv(GraspTaskEnv):
         # C线消融: POUR_BONUS_NOW=1 → 贴实奖金开局即发 (拍板点3的实验分支)
         self.phase_b = os.environ.get("POUR_BONUS_NOW") == "1"
         self.pad_pot_max = torch.zeros(N, 2, device=dev)  # 相B垫贴实势 earn-only 棘轮
+        self.lift_hold = torch.zeros(N, dtype=torch.long, device=dev)
+        self.lift_done = torch.zeros(N, dtype=torch.bool, device=dev)
+        self._lift_acc = {"ep": 0, "succ": 0}
         self.force_entry = None                          # 冒烟用: 指定各env进入点序号
         # ---- 残差机械 (#13) ----
         to = lambda a: torch.tensor(np.asarray(a), dtype=torch.float32, device=dev)
@@ -414,7 +421,14 @@ class PourEnv(GraspTaskEnv):
         timeout = self.episode_length_buf >= D7_STEPS
         fail_env &= ~holding
         fail = out["fail"] | fail_env
-        terminated = fail | out["done"]                   # done 含 M4 成功终局
+        lift_new = torch.zeros(N, dtype=torch.bool, device=dev)
+        if self.KCAP > 0:
+            at_top = self.PB.ms1 & (self.PB.k >= self.KCAP) & ~fail & ~holding
+            self.lift_hold = torch.where(at_top, self.lift_hold + 1,
+                                         torch.zeros_like(self.lift_hold))
+            lift_new = (self.lift_hold >= 20) & ~self.lift_done
+            self.lift_done |= lift_new
+        terminated = fail | out["done"] | lift_new        # done 含成功终局
         # ---- 行指针推进 (热身期冻结) ----
         self.row = torch.where(pre & ~holding, self.row + 1, self.row)
         ia = run_mask & (self.PB.k < self.PB.N_ROW - 1)
@@ -433,8 +447,8 @@ class PourEnv(GraspTaskEnv):
         self.d6_acc += pen6
         self.tb["d6_pen_sum"] += float(-pen6.sum())
         rew = (out["adv"] + out["leash"] + out["ms"] + pen
-               + r_reflex + pen_slope) * (~holding).float() \
-            + pen6
+               + r_reflex + pen_slope + 15.0 * lift_new.float()) \
+            * (~holding).float() + pen6
         bonus = torch.zeros(N, device=dev)
         # 相B赏钱 (#13 拍板3, 轻量同族实现): 垫贴实势 earn-only 棘轮, 合拢→缝2 窗内
         if self.phase_b:
@@ -482,6 +496,12 @@ class PourEnv(GraspTaskEnv):
 
     def _get_rewards(self):
         return self._tick_out["rew"]
+
+    def pop_lift(self):
+        ep = max(self._lift_acc["ep"], 1)
+        out = {"sr/lift": self._lift_acc["succ"] / ep}
+        self._lift_acc = {"ep": 0, "succ": 0}
+        return out
 
     def pop_racc(self):
         """逐项奖惩台账 (每 epoch 倾倒, 均值/步/env)."""
@@ -625,6 +645,9 @@ class PourEnv(GraspTaskEnv):
             o = self._tick_out
             self.tb["ep"] += len(env_ids)
             self.tb["term/M4_success"] += int(o["succ"][env_ids].sum())
+            if self.KCAP > 0:
+                self._lift_acc["ep"] += len(env_ids)
+                self._lift_acc["succ"] += int(self.lift_done[env_ids].sum())
         DirectRLEnv._reset_idx(self, env_ids)
         n = len(env_ids)
         # ---- 采样进入点 ----
@@ -700,6 +723,8 @@ class PourEnv(GraspTaskEnv):
         self.grasp_d0[env_ids] = float("nan")
         self.d6_acc[env_ids] = 0.0
         self.pad_pot_max[env_ids] = 0.0
+        self.lift_hold[env_ids] = 0
+        self.lift_done[env_ids] = False
         self._prev_d[env_ids] = 0.0
         self._prev_pf[env_ids] = 0.0
         self._slip_obs[env_ids] = 0.0

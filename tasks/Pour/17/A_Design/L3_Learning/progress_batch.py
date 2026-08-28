@@ -43,7 +43,7 @@ class PourProgressBatch:
     def __init__(self, npz_path, num_envs, device,
                  mouth_local_bot, mouth_local_cup,
                  up_local_bot=(0.0, 1.0, 0.0), mouth_gate=0.12,
-                 leash_rot_tilt=False):
+                 leash_rot_tilt=False, kcap=None):
         z = np.load(npz_path, allow_pickle=True)
         rows = np.where(np.asarray(z["source"]) == 1)[0]
         self.N_ROW = len(rows)
@@ -76,6 +76,7 @@ class PourProgressBatch:
         self.up = torch.tensor(up_local_bot, dtype=torch.float32, device=device)
         self.mgate = float(mouth_gate)
         self.leash_rot_tilt = bool(leash_rot_tilt)
+        self.kcap = int(kcap) if kcap is not None else None
         # 参考逐行倾角预计算 (E线口径用)
         upc = torch.tensor([0.0, 1.0, 0.0], device=device)
         self.ref_tilt = {oi: _tilt(self.ref_obj[oi][:, 3:7],
@@ -193,7 +194,8 @@ class PourProgressBatch:
                         <= np.radians(20))
         ok = torch.where(tier > 0, ok_obj, ok_hand) & active
         # 自主抓稳阶段: M1 前时钟不走 (与标量版同拍)
-        can = ok & (self.k < self.N_ROW - 1) & self.ms1
+        _cap = self.N_ROW - 1 if self.kcap is None else min(self.kcap, self.N_ROW - 1)
+        can = ok & (self.k < _cap) & self.ms1
         self.k = self.k + can.long()
         adv = can.float()
         # ---- 里程碑 ----

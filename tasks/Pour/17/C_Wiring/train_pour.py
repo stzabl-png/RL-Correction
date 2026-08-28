@@ -73,6 +73,9 @@ class PourPPO(PPO):
             self.writer.add_scalar(k, v, self.agent_steps)
         for k, v in raw.pop_racc().items():          # 逐项奖惩台账
             self.writer.add_scalar(k, v, self.agent_steps)
+        if getattr(raw, "KCAP", 0) > 0:              # LIFT 单科考主针
+            for k, v in raw.pop_lift().items():
+                self.writer.add_scalar(k, v, self.agent_steps)
         self._ema_g1 = 0.98 * self._ema_g1 + 0.02 * rates["sr/gate1"]
         self._ema_g4 = 0.98 * self._ema_g4 + 0.02 * rates["sr/gate4"]
         self.writer.add_scalar("curr/ema_gate1", self._ema_g1, self.agent_steps)

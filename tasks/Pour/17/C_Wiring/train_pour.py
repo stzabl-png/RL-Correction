@@ -143,12 +143,20 @@ log_dir = os.path.join("logs", args.name)
 os.makedirs(log_dir, exist_ok=True)
 # ---- 世界指纹 (ckpt绑定世界版本纪律 + L5-1: 母带世代进指纹) ----
 import hashlib, json
+# 世界USD: 记实际路径+md5, 不记"default" —— "default"只说明没覆写, 不说明用了哪份
+# (2026-08-29 重建侧发现: 旧 run 的 usd="default" 无法判断实际加载文件)
+from rl_rebuild.correction.env import dexmate_env_cfg as _dcfg
+_usd_path = getattr(_dcfg, "_FIXED_USD", os.environ.get("DEXMATE_FIXED_USD", "?"))
+try:
+    _usd_md5 = hashlib.md5(open(_usd_path, "rb").read()).hexdigest()[:8]
+except Exception:
+    _usd_md5 = "?"
 _wj = {"variant": os.environ.get("POUR_VARIANT", "HYB").upper(),
        "beta_r": os.environ.get("POUR_BETA_R", "2.0"),
        "beta_l": os.environ.get("POUR_BETA_L", "1.0"),
        "ref_npz": PE.MASTER,
        "ref_md5": hashlib.md5(open(PE.MASTER, "rb").read()).hexdigest()[:8],
-       "usd": os.environ.get("DEXMATE_FIXED_USD", "default"),
+       "usd": _usd_path, "usd_md5": _usd_md5,
        "obs_dim": PE.OBS_DIM, "act_dim": PE.ACT_DIM}
 with open(os.path.join(log_dir, "world.json"), "w") as _wf:
     json.dump(_wj, _wf, indent=1, ensure_ascii=False)

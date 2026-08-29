@@ -1,0 +1,21 @@
+{
+ "mode": "dry",
+ "best_sr": 0.0,
+ "fired": false,
+ "history": [
+  {
+   "agent_steps": 1654784,
+   "epoch": 100,
+   "sr": 0.0,
+   "curriculum_done": false,
+   "curriculum_stalled": false
+  },
+  {
+   "agent_steps": 3293184,
+   "epoch": 200,
+   "sr": 0.0,
+   "curriculum_done": false,
+   "curriculum_stalled": false
+  }
+ ]
+}

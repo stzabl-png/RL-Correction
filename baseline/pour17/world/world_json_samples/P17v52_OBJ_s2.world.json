@@ -1,0 +1,10 @@
+{
+ "variant": "OBJ",
+ "beta_r": "2.0",
+ "beta_l": "1.0",
+ "ref_npz": "/home/lyh/Project/RL_Correction/tasks/Pour/17/A_Design/L2_Reference/pour17_reference_v2.npz",
+ "ref_md5": "b95546e9",
+ "usd": "default",
+ "obs_dim": 503,
+ "act_dim": 58
+}

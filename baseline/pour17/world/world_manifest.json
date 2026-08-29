@@ -1,0 +1,612 @@
+{
+  "time": {
+    "physics_dt_s": 0.004166666666666667,
+    "control_dt_s": 0.05,
+    "decimation": 12,
+    "render_interval": 2,
+    "episode_length_s": 13.125
+  },
+  "physx": {
+    "solver_type": 1,
+    "min_position_iteration_count": 1,
+    "max_position_iteration_count": 32,
+    "min_velocity_iteration_count": 0,
+    "max_velocity_iteration_count": 0,
+    "bounce_threshold_velocity": 0.2,
+    "friction_offset_threshold": 0.04,
+    "friction_correlation_distance": 0.025,
+    "gpu_max_rigid_contact_count": 8388608,
+    "enable_ccd": false,
+    "enable_stabilization": false,
+    "gravity": [
+      0.0,
+      0.0,
+      -9.81
+    ]
+  },
+  "table": {
+    "table_top_z_m": 0.87,
+    "table_size_m": [
+      1.2192,
+      1.8288,
+      0.04
+    ],
+    "static_friction": 0.5,
+    "dynamic_friction": 0.5,
+    "note": "桌面板 = 静态 Cuboid, 中心 z = table_top_z - size_z/2; 上表面 = table_top_z"
+  },
+  "objects": {
+    "object_1_bottle_primary": {
+      "mass_kg": 0.5299999713897705,
+      "static_friction": 3.0,
+      "dynamic_friction": 3.0,
+      "restitution": 0.0,
+      "rest_pose_env_frame_xyz_wxyz": [
+        -0.13670389354228973,
+        0.012559212744235992,
+        0.9590080380439758,
+        0.3860042095184326,
+        0.3765038549900055,
+        0.606808066368103,
+        0.5839773416519165
+      ],
+      "prim_path": "/World/envs/env_.*/Object",
+      "usd_loaded": "/home/lyh/Project/RL_Correction/datasets/pour17/objects/object_1.usd"
+    },
+    "object_0_cup_aux": {
+      "mass_kg": 0.15000000596046448,
+      "static_friction": 0.5,
+      "dynamic_friction": 0.5,
+      "restitution": 0.0,
+      "rest_pose_env_frame_xyz_wxyz": [
+        -0.1400739848613739,
+        0.16461984813213348,
+        0.9379628300666809,
+        -1.6339292415068485e-05,
+        1.6505269741173834e-05,
+        0.7071066498756409,
+        0.7071069478988647
+      ],
+      "prim_path": "/World/envs/env_.*/Aux",
+      "usd_loaded": "/home/lyh/Project/RL_Correction/datasets/pour17/cache/object_0.usd"
+    }
+  },
+  "robot": {
+    "prim_path": "/World/envs/env_.*/Robot",
+    "usd": "/home/lyh/Project/RL_Correction/assets/vega_1p_sharpa_fixedtorso.usd",
+    "num_joints_articulation": 58,
+    "num_controlled_joints": 58,
+    "controlled_joint_names_in_order": [
+      "R_arm_j1",
+      "R_arm_j2",
+      "R_arm_j3",
+      "R_arm_j4",
+      "R_arm_j5",
+      "R_arm_j6",
+      "R_arm_j7",
+      "L_arm_j1",
+      "L_arm_j2",
+      "L_arm_j3",
+      "L_arm_j4",
+      "L_arm_j5",
+      "L_arm_j6",
+      "L_arm_j7",
+      "right_thumb_CMC_FE",
+      "right_thumb_CMC_AA",
+      "right_thumb_MCP_FE",
+      "right_thumb_MCP_AA",
+      "right_thumb_IP",
+      "right_index_MCP_FE",
+      "right_index_MCP_AA",
+      "right_index_PIP",
+      "right_index_DIP",
+      "right_middle_MCP_FE",
+      "right_middle_MCP_AA",
+      "right_middle_PIP",
+      "right_middle_DIP",
+      "right_ring_MCP_FE",
+      "right_ring_MCP_AA",
+      "right_ring_PIP",
+      "right_ring_DIP",
+      "right_pinky_CMC",
+      "right_pinky_MCP_FE",
+      "right_pinky_MCP_AA",
+      "right_pinky_PIP",
+      "right_pinky_DIP",
+      "left_thumb_CMC_FE",
+      "left_thumb_CMC_AA",
+      "left_thumb_MCP_FE",
+      "left_thumb_MCP_AA",
+      "left_thumb_IP",
+      "left_index_MCP_FE",
+      "left_index_MCP_AA",
+      "left_index_PIP",
+      "left_index_DIP",
+      "left_middle_MCP_FE",
+      "left_middle_MCP_AA",
+      "left_middle_PIP",
+      "left_middle_DIP",
+      "left_ring_MCP_FE",
+      "left_ring_MCP_AA",
+      "left_ring_PIP",
+      "left_ring_DIP",
+      "left_pinky_CMC",
+      "left_pinky_MCP_FE",
+      "left_pinky_MCP_AA",
+      "left_pinky_PIP",
+      "left_pinky_DIP"
+    ],
+    "controlled_layout": "[R_arm 7, L_arm 7, right_fingers 22, left_fingers 22]",
+    "self_collision": false,
+    "body_names": [
+      "vega_1p_mobile",
+      "dummy_base_x",
+      "dummy_base_y",
+      "vega_1p_base",
+      "B_base_cam",
+      "F_base_cam",
+      "L_base_cam",
+      "R_base_cam",
+      "vega_1p_back_lidar",
+      "vega_1p_front_lidar",
+      "vega_1p_torso_l1",
+      "vega_1p_torso_l2",
+      "vega_1p_torso_l3",
+      "arm_center",
+      "vega_1p_L_arm_l1",
+      "vega_1p_R_arm_l1",
+      "vega_1p_head_l1",
+      "L_arm_l2",
+      "R_arm_l2",
+      "vega_1p_head_l2",
+      "L_arm_l3",
+      "R_arm_l3",
+      "vega_1p_head_l3",
+      "L_arm_l4",
+      "R_arm_l4",
+      "zed_left_camera",
+      "zed_depth_frame",
+      "zed_right_camera",
+      "L_arm_l5",
+      "R_arm_l5",
+      "vega_1p_L_arm_l6",
+      "vega_1p_R_arm_l6",
+      "L_arm_l7",
+      "R_arm_l7",
+      "L_arm_l8",
+      "R_arm_l8",
+      "L_ee",
+      "left_hand_C_MC",
+      "R_ee",
+      "right_hand_C_MC",
+      "left_index_MCP_VL",
+      "left_middle_MCP_VL",
+      "left_pinky_MC",
+      "left_ring_MCP_VL",
+      "left_thumb_CMC_VL",
+      "right_index_MCP_VL",
+      "right_middle_MCP_VL",
+      "right_pinky_MC",
+      "right_ring_MCP_VL",
+      "right_thumb_CMC_VL",
+      "left_index_PP",
+      "left_middle_PP",
+      "left_pinky_MCP_VL",
+      "left_ring_PP",
+      "left_thumb_MC",
+      "right_index_PP",
+      "right_middle_PP",
+      "right_pinky_MCP_VL",
+      "right_ring_PP",
+      "right_thumb_MC",
+      "left_index_MP",
+      "left_middle_MP",
+      "left_pinky_PP",
+      "left_ring_MP",
+      "left_thumb_MCP_VL",
+      "right_index_MP",
+      "right_middle_MP",
+      "right_pinky_PP",
+      "right_ring_MP",
+      "right_thumb_MCP_VL",
+      "left_index_DP",
+      "left_middle_DP",
+      "left_pinky_MP",
+      "left_ring_DP",
+      "left_thumb_PP",
+      "right_index_DP",
+      "right_middle_DP",
+      "right_pinky_MP",
+      "right_ring_DP",
+      "right_thumb_PP",
+      "left_index_elastomer",
+      "left_middle_elastomer",
+      "left_pinky_DP",
+      "left_ring_elastomer",
+      "left_thumb_DP",
+      "right_index_elastomer",
+      "right_middle_elastomer",
+      "right_pinky_DP",
+      "right_ring_elastomer",
+      "right_thumb_DP",
+      "left_index_fingertip",
+      "left_middle_fingertip",
+      "left_pinky_elastomer",
+      "left_ring_fingertip",
+      "left_thumb_elastomer",
+      "right_index_fingertip",
+      "right_middle_fingertip",
+      "right_pinky_elastomer",
+      "right_ring_fingertip",
+      "right_thumb_elastomer",
+      "left_pinky_fingertip",
+      "left_thumb_fingertip",
+      "right_pinky_fingertip",
+      "right_thumb_fingertip"
+    ],
+    "controlled_joint_limits_rad": [
+      [
+        -3.07099986076355,
+        3.07099986076355
+      ],
+      [
+        -1.55299973487854,
+        0.453000009059906
+      ],
+      [
+        -3.07099986076355,
+        3.07099986076355
+      ],
+      [
+        -3.07099986076355,
+        0.24399995803833008
+      ],
+      [
+        -3.07099986076355,
+        3.07099986076355
+      ],
+      [
+        -1.3960000276565552,
+        1.3960000276565552
+      ],
+      [
+        -1.116999864578247,
+        1.378000020980835
+      ],
+      [
+        -3.07099986076355,
+        3.07099986076355
+      ],
+      [
+        -0.453000009059906,
+        1.55299973487854
+      ],
+      [
+        -3.07099986076355,
+        3.07099986076355
+      ],
+      [
+        -3.07099986076355,
+        0.24399995803833008
+      ],
+      [
+        -3.07099986076355,
+        3.07099986076355
+      ],
+      [
+        -1.3960000276565552,
+        1.3960000276565552
+      ],
+      [
+        -1.378000020980835,
+        1.116999864578247
+      ],
+      [
+        -0.17450004816055298,
+        1.9198999404907227
+      ],
+      [
+        -0.3490999639034271,
+        0.3490999639034271
+      ],
+      [
+        -0.5235998630523682,
+        1.3962998390197754
+      ],
+      [
+        -0.3490999639034271,
+        0.3490999639034271
+      ],
+      [
+        0.0,
+        1.7452999353408813
+      ],
+      [
+        -0.17453289031982422,
+        1.5707999467849731
+      ],
+      [
+        -0.3490999639034271,
+        0.3490999639034271
+      ],
+      [
+        0.0,
+        1.7452999353408813
+      ],
+      [
+        0.0,
+        1.3962998390197754
+      ],
+      [
+        -0.17453289031982422,
+        1.5707999467849731
+      ],
+      [
+        -0.3490999639034271,
+        0.3490999639034271
+      ],
+      [
+        0.0,
+        1.7452999353408813
+      ],
+      [
+        0.0,
+        1.3962998390197754
+      ],
+      [
+        -0.17453289031982422,
+        1.5707999467849731
+      ],
+      [
+        -0.3490999639034271,
+        0.3490999639034271
+      ],
+      [
+        0.0,
+        1.7452999353408813
+      ],
+      [
+        0.0,
+        1.3962998390197754
+      ],
+      [
+        0.0,
+        0.26179996132850647
+      ],
+      [
+        -0.17453289031982422,
+        1.5707999467849731
+      ],
+      [
+        -0.3490999639034271,
+        0.3490999639034271
+      ],
+      [
+        0.0,
+        1.7452999353408813
+      ],
+      [
+        0.0,
+        1.3962998390197754
+      ],
+      [
+        -0.17450004816055298,
+        1.9198999404907227
+      ],
+      [
+        -0.3490999639034271,
+        0.3490999639034271
+      ],
+      [
+        -0.5235998630523682,
+        1.3962998390197754
+      ],
+      [
+        -0.3490999639034271,
+        0.3490999639034271
+      ],
+      [
+        0.0,
+        1.7452999353408813
+      ],
+      [
+        -0.17453289031982422,
+        1.5707999467849731
+      ],
+      [
+        -0.3490999639034271,
+        0.3490999639034271
+      ],
+      [
+        0.0,
+        1.7452999353408813
+      ],
+      [
+        0.0,
+        1.3962998390197754
+      ],
+      [
+        -0.17453289031982422,
+        1.5707999467849731
+      ],
+      [
+        -0.3490999639034271,
+        0.3490999639034271
+      ],
+      [
+        0.0,
+        1.7452999353408813
+      ],
+      [
+        0.0,
+        1.3962998390197754
+      ],
+      [
+        -0.17453289031982422,
+        1.5707999467849731
+      ],
+      [
+        -0.3490999639034271,
+        0.3490999639034271
+      ],
+      [
+        0.0,
+        1.7452999353408813
+      ],
+      [
+        0.0,
+        1.3962998390197754
+      ],
+      [
+        0.0,
+        0.26179996132850647
+      ],
+      [
+        -0.17453289031982422,
+        1.5707999467849731
+      ],
+      [
+        -0.3490999639034271,
+        0.3490999639034271
+      ],
+      [
+        0.0,
+        1.7452999353408813
+      ],
+      [
+        0.0,
+        1.3962998390197754
+      ]
+    ]
+  },
+  "sensors": {
+    "count": 11,
+    "pad_force_threshold_N": 0.5,
+    "pads_min_per_hand": 3,
+    "detail": [
+      {
+        "idx": 0,
+        "prim_path": "/World/envs/env_.*/Robot/right_thumb_elastomer",
+        "history_length": 1,
+        "filter_prim_paths_expr": [
+          "/World/envs/env_.*/Object"
+        ],
+        "update_period": 0.0
+      },
+      {
+        "idx": 1,
+        "prim_path": "/World/envs/env_.*/Robot/right_index_elastomer",
+        "history_length": 1,
+        "filter_prim_paths_expr": [
+          "/World/envs/env_.*/Object"
+        ],
+        "update_period": 0.0
+      },
+      {
+        "idx": 2,
+        "prim_path": "/World/envs/env_.*/Robot/right_middle_elastomer",
+        "history_length": 1,
+        "filter_prim_paths_expr": [
+          "/World/envs/env_.*/Object"
+        ],
+        "update_period": 0.0
+      },
+      {
+        "idx": 3,
+        "prim_path": "/World/envs/env_.*/Robot/right_ring_elastomer",
+        "history_length": 1,
+        "filter_prim_paths_expr": [
+          "/World/envs/env_.*/Object"
+        ],
+        "update_period": 0.0
+      },
+      {
+        "idx": 4,
+        "prim_path": "/World/envs/env_.*/Robot/right_pinky_elastomer",
+        "history_length": 1,
+        "filter_prim_paths_expr": [
+          "/World/envs/env_.*/Object"
+        ],
+        "update_period": 0.0
+      },
+      {
+        "idx": 5,
+        "prim_path": "/World/envs/env_.*/Robot/left_thumb_elastomer",
+        "history_length": 1,
+        "filter_prim_paths_expr": [
+          "/World/envs/env_.*/Aux"
+        ],
+        "update_period": 0.0
+      },
+      {
+        "idx": 6,
+        "prim_path": "/World/envs/env_.*/Robot/left_index_elastomer",
+        "history_length": 1,
+        "filter_prim_paths_expr": [
+          "/World/envs/env_.*/Aux"
+        ],
+        "update_period": 0.0
+      },
+      {
+        "idx": 7,
+        "prim_path": "/World/envs/env_.*/Robot/left_middle_elastomer",
+        "history_length": 1,
+        "filter_prim_paths_expr": [
+          "/World/envs/env_.*/Aux"
+        ],
+        "update_period": 0.0
+      },
+      {
+        "idx": 8,
+        "prim_path": "/World/envs/env_.*/Robot/left_ring_elastomer",
+        "history_length": 1,
+        "filter_prim_paths_expr": [
+          "/World/envs/env_.*/Aux"
+        ],
+        "update_period": 0.0
+      },
+      {
+        "idx": 9,
+        "prim_path": "/World/envs/env_.*/Robot/left_pinky_elastomer",
+        "history_length": 1,
+        "filter_prim_paths_expr": [
+          "/World/envs/env_.*/Aux"
+        ],
+        "update_period": 0.0
+      },
+      {
+        "idx": 10,
+        "prim_path": "/World/envs/env_.*/Robot/(R_arm_l5|R_arm_l7|R_arm_l8|right_hand_C_MC|right_.*_elastomer)",
+        "history_length": 1,
+        "filter_prim_paths_expr": [
+          "/World/envs/env_.*/Robot/L_arm_l5",
+          "/World/envs/env_.*/Robot/L_arm_l7",
+          "/World/envs/env_.*/Robot/L_arm_l8",
+          "/World/envs/env_.*/Robot/left_hand_C_MC",
+          "/World/envs/env_.*/Robot/left_.*_elastomer"
+        ],
+        "update_period": 0.0
+      }
+    ]
+  },
+  "scene": {
+    "num_envs_in_export": 2,
+    "env_spacing_m": 2.0,
+    "replicate_physics": false
+  },
+  "switches": {
+    "approach_only": true,
+    "obj_jitter_xy": 0.0,
+    "friction_curriculum": false,
+    "friction_hi": 6.0,
+    "friction_lo": 3.0,
+    "POUR_NO_D6_effective": false,
+    "note": "POUR_NO_D6=1 时不装 D6 跨侧互撞传感器(1-env 回放规避 PhysX 断言); 训练默认不设该变量, 即装 D6。"
+  },
+  "reference_tape": {
+    "path": "/home/lyh/Project/RL_Correction/tasks/Pour/17/A_Design/L2_Reference/pour17_reference_v2.npz",
+    "md5": "2ed813586745e72d74cc1f0f04ec3b5d",
+    "sha256": "a164d34e3ad0f86ca7aaae24f425a0f065474fe438fa2d2779c55edcaaa5865f",
+    "bytes": 434850
+  }
+}

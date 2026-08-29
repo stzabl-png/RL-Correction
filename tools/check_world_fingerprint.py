@@ -140,8 +140,19 @@ def _git(repo: Path, *args) -> str | None:
 
 
 CRITICAL = ["effective_robot_usd", "tape_pour17_v2", "scene_layout_pour17",
-            "object_0_usd_cache", "object_1_usd_cache",
-            "criteria_pour17", "criteria_pour17_batch"]   # 判据变=成败判定变
+            "object_0_usd_cache", "object_1_usd_cache"]
+# ★ 2026-08-29 降级: criteria_pour17 / criteria_pour17_batch 曾被列为 CRITICAL, 已改回 WARN。
+#   理由不是"太吵", 是**机制不对**: 整文件哈希分不出"判定变了"与"记账变了"。
+#   实证 —— RL session 当天三次改动 progress*.py(加认证失败计数 / 加死因分项 /
+#   加禁碰判断)全是纯记账, Gate 判定一字未动(selftest_progress_batch 逐位比对标量与
+#   批量版三次全绿), 但整文件哈希会让**每一次**都把所有历史 ckpt 判红。
+#   一天误报三次的闸门, 人第二天就开始无视它 —— 那比没有闸门更糟, 因为它还提供
+#   "我们有闸门"的错觉。
+#   ⟹ 正解是把 CRITICAL 挂到**判据摘要**(只覆盖决定成败判定的阈值, 不含奖励权重与计数器):
+#      改阈值 -> 摘要变 -> 红(该红); 加计数器 -> 摘要不变 -> 静(该静)。
+#   RL session 正在 progress.py 里实现 criteria_digest(), 键名 `criteria.digest`
+#   (16 位十六进制 + `criteria.schema` 版本号)。上线后把该键提到 CRITICAL, 
+#   并把这两个文件哈希撤掉或留 WARN。在此之前保持 WARN: 信息仍在, 不误拦。
 # WARN 层: 改了会让世界不同, 但未必让 ckpt 立刻废 —— 报出来让人自己判
 # (env_wiring_pour17 / aux_spawn 在此: 传感器增减会改世界, 而此前指纹看不见)
 

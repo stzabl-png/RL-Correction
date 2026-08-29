@@ -124,7 +124,9 @@ class PourProgressBatch:
         # TB 记账
         self._acc = {"ep": 0, "g1": 0, "g2": 0, "g3": 0, "g4": 0,
                      "clock": 0.0, "catt": 0, "cpass": 0,
-                     "ep_t0": 0, "g1_t0": 0, "g2_t0": 0, "g3_t0": 0, "g4_t0": 0}
+                     "ep_t0": 0, "g1_t0": 0, "g2_t0": 0, "g3_t0": 0, "g4_t0": 0,
+                     "cf_rise_bot": 0, "cf_rise_cup": 0, "cf_slip_r": 0,
+                     "cf_slip_l": 0, "cf_pads": 0}
 
     def reset_idx(self, env_ids):
         n = len(env_ids)
@@ -198,9 +200,14 @@ class PourProgressBatch:
                "n/ep_done": float(_ep),          # ★分母本身: 判读前先看它
                "n/ep_done_t0": float(_ep0),
                "n/cert_attempts": float(_at)}
+        # F: 认证失败分项占比 (分母=认证尝试数; 空分母同样发 NaN, 不发 0.0)
+        for _k in ("rise_bot", "rise_cup", "slip_r", "slip_l", "pads"):
+            out["cert_fail/" + _k] = _r(self._acc["cf_" + _k], _at)
         self._acc = {"ep": 0, "g1": 0, "g2": 0, "g3": 0, "g4": 0,
                      "clock": 0.0, "catt": 0, "cpass": 0,
-                     "ep_t0": 0, "g1_t0": 0, "g2_t0": 0, "g3_t0": 0, "g4_t0": 0}
+                     "ep_t0": 0, "g1_t0": 0, "g2_t0": 0, "g3_t0": 0, "g4_t0": 0,
+                     "cf_rise_bot": 0, "cf_rise_cup": 0, "cf_slip_r": 0,
+                     "cf_slip_l": 0, "cf_pads": 0}
         return out
 
     def step(self, obj0, obj1, armq_r, armq_l, pads3, wrist_r, wrist_l,
@@ -291,9 +298,15 @@ class PourProgressBatch:
         if judge.any():
             rel_r = ((wrist_r - obj1[:, :3]) - self.cert_rel0["right"]).norm(dim=1)
             rel_l = ((wrist_l - obj0[:, :3]) - self.cert_rel0["left"]).norm(dim=1)
-            ok5 = ((obj1[:, 2] - self.cert_z0[:, 1] >= CERT_RISE)
-                   & (obj0[:, 2] - self.cert_z0[:, 0] >= CERT_RISE)
-                   & (rel_r < CERT_SLIP) & (rel_l < CERT_SLIP) & pads3)
+            # F (L5-21): 与标量版逐项对齐 —— 分项失败计数
+            _cj = (("rise_bot", obj1[:, 2] - self.cert_z0[:, 1] >= CERT_RISE),
+                   ("rise_cup", obj0[:, 2] - self.cert_z0[:, 0] >= CERT_RISE),
+                   ("slip_r", rel_r < CERT_SLIP),
+                   ("slip_l", rel_l < CERT_SLIP),
+                   ("pads", pads3))
+            ok5 = _cj[0][1] & _cj[1][1] & _cj[2][1] & _cj[3][1] & _cj[4][1]
+            for _k, _okm in _cj:
+                self._acc["cf_" + _k] += int((judge & (~_okm)).sum())
             self.cert_pending |= judge & ok5
             failj = judge & (~ok5)
             self.cert_try[failj] += 1

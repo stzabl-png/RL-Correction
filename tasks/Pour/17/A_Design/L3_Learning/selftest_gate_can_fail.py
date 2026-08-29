@@ -44,8 +44,11 @@ def gate(before, after, tag):
     return bool(bad)
 
 
-d = np.load("/home/lyh/Project/RL_Correction/tasks/Pour/17/A_Design/"
-            "L2_Reference/pour17_reference_v2.npz")
+# ★路径必须相对 __file__: 早先写死本机绝对路径, 本机永远绿、三台远端永远
+# FileNotFoundError —— "只在作者机器上有效的检查"等于没有检查。
+import os  # noqa: E402
+_HERE = os.path.dirname(os.path.abspath(__file__))
+d = np.load(os.path.join(_HERE, "..", "L2_Reference", "pour17_reference_v2.npz"))
 rows = np.where(np.asarray(d["source"]) == 1)[0]
 P = np.asarray(d["obj_pos_1"], np.float64)[rows]
 Q = np.asarray(d["obj_quat_1"], np.float64)[rows]

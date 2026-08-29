@@ -146,6 +146,8 @@ class PourProgress:
         self.cert_try = 0
         self.cert_wait = 0
         self.cert_pending = False
+        self.cert_fail_n = {"rise_bot": 0, "rise_cup": 0, "slip_r": 0,
+                            "slip_l": 0, "pads": 0}    # F: 逐项失败计数
         self.cert_z0 = {0: 0.0, 1: 0.0}
         self.cert_rel0 = {"right": np.zeros(3), "left": np.zeros(3)}
         self.m2_run = 0
@@ -247,9 +249,18 @@ class PourProgress:
                 rel_l = np.linalg.norm(
                     (np.asarray(wrist_l, np.float64) - np.asarray(obj0[:3]))
                     - self.cert_rel0["left"])
-                ok5 = (float(obj1[2]) - self.cert_z0[1] >= CERT_RISE
-                       and float(obj0[2]) - self.cert_z0[0] >= CERT_RISE
-                       and rel_r < CERT_SLIP and rel_l < CERT_SLIP and pads3)
+                # F (L5-21): 五项合取必须分项记录 —— 不分项就只能猜是哪一项卡住,
+                # 而"放宽阈值"和"提高奖励"是两个相反的处方, 猜错就是白跑一轮。
+                _c = {"rise_bot": float(obj1[2]) - self.cert_z0[1] >= CERT_RISE,
+                      "rise_cup": float(obj0[2]) - self.cert_z0[0] >= CERT_RISE,
+                      "slip_r": rel_r < CERT_SLIP,
+                      "slip_l": rel_l < CERT_SLIP,
+                      "pads": bool(pads3)}
+                ok5 = all(_c.values())
+                for _k, _v in _c.items():
+                    if not _v:
+                        self.cert_fail_n[_k] += 1
+                out["cert_fail"] = {k: (not v) for k, v in _c.items()}
                 if ok5:
                     self.cert_pending = True
                 else:

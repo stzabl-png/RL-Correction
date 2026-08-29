@@ -82,20 +82,30 @@ class PourPPO(PPO):
         if getattr(raw, "KCAP", 0) > 0:              # LIFT 单科考主针
             for k, v in raw.pop_lift().items():
                 self.writer.add_scalar(k, v, self.agent_steps)
-        self._ema_g1 = 0.98 * self._ema_g1 + 0.02 * rates["sr/gate1"]
-        self._ema_g2 = 0.98 * self._ema_g2 + 0.02 * rates["sr/gate2"]
-        self._ema_g3 = 0.98 * self._ema_g3 + 0.02 * rates["sr/gate3"]
-        self._ema_g4 = 0.98 * self._ema_g4 + 0.02 * rates["sr/gate4"]
+        # ★L5-21 NaN 防护: 空分母窗发 NaN(L5-17), 而 0.98*x+0.02*NaN = NaN ——
+        # 一次污染后 EMA 永久为 NaN, 所有 `>=阈值` 恒 False ⟹ 课程永不解锁、
+        # 相B永不开闸。实测验证过。旧行为(代入0.0)是把"没测到"当成"测到了0",
+        # 方向保守但同样是假值。正解: **无数据 = 无证据 = 不动估计**。
+        def _ema(prev, r, a=0.02):
+            return prev if r != r else (1.0 - a) * prev + a * r
+        self._ema_g1 = _ema(self._ema_g1, rates["sr/gate1"])
+        self._ema_g2 = _ema(self._ema_g2, rates["sr/gate2"])
+        self._ema_g3 = _ema(self._ema_g3, rates["sr/gate3"])
+        self._ema_g4 = _ema(self._ema_g4, rates["sr/gate4"])
         # 渐进RSI 解锁 (L5-8 药②③): 无偏指标(t0出生口径) + 持续20窗 + 认证闸
         # 旧版用 sr/gate(有偏: 短回合先结算致虚高) 在假阳性上放开了课程, 实测
         # 解锁后 G2 断崖到 0 且再未恢复 —— 换指标+持续判定+G2额外认证闸。
-        self._ema_cert = 0.98 * self._ema_cert + 0.02 * rates.get("sr/cert_pass", 0.0)
+        self._ema_cert = _ema(self._ema_cert, rates.get("sr/cert_pass", float("nan")))
         self.writer.add_scalar("curr/ema_cert", self._ema_cert, self.agent_steps)
         for _gi in (1, 2, 3):
-            _r = rates.get(f"sr_t0/gate{_gi}", 0.0)
-            self._ema_t0[_gi] = 0.98 * self._ema_t0[_gi] + 0.02 * _r
+            _r = rates.get(f"sr_t0/gate{_gi}", float("nan"))
+            self._ema_t0[_gi] = _ema(self._ema_t0[_gi], _r)
             self.writer.add_scalar(f"curr/ema_t0_g{_gi}", self._ema_t0[_gi],
                                    self.agent_steps)
+            if _r != _r:
+                # ★空分母窗: 既不推进也不清零 sustain。清零会惩罚长回合线
+                # (EASY 线 72% 的窗没有回合结算), 推进则是拿陈旧证据解锁。
+                continue
             _ok = self._ema_t0[_gi] >= 0.30
             if _gi == 2:
                 _ok = _ok and self._ema_cert >= 0.15      # 药③: 认证站稳才放 g2

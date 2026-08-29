@@ -135,7 +135,7 @@ def _flat(d, pre=""):
 
 
 def compare(recorded: dict, current: dict):
-    """返回 (critical_mismatch, warn_mismatch); 每项 = (键, 记录值, 当前值)."""
+    """返回 (不符, 提示, 无法核对); 每项 = (键, 记录值, 当前值)."""
     a, b = _flat(recorded), _flat(current)
     crit, warn = [], []
     def _ne(key):
@@ -145,13 +145,22 @@ def compare(recorded: dict, current: dict):
             return x[:n] != y[:n]
         return x != y
 
+    # ★L5-16 自审修复: 原来写的是 `if key in a and key in b and _ne(key)` ——
+    # **键缺失或值为 None 时直接跳过 = 缺数据即通过**, 正是我们刚立规矩要防的形状。
+    # 现在三分类: 一致 / 不符 / 无法核对; "无法核对"必须显式报出, 不得冒充通过。
+    unver = []
     for key in CRITICAL:
-        if key in a and key in b and _ne(key):
+        x, y = a.get(key, KeyError), b.get(key, KeyError)
+        if x is KeyError or y is KeyError or x is None or y is None:
+            unver.append((key, None if x is KeyError else x,
+                          None if y is KeyError else y))
+        elif _ne(key):
             crit.append((key, a[key], b[key]))
     for key in WARN:
-        if key in a and key in b and a[key] != b[key]:
+        if key in a and key in b and a[key] is not None and b[key] is not None \
+                and a[key] != b[key]:
             warn.append((key, a[key], b[key]))
-    return crit, warn
+    return crit, warn, unver
 
 
 def write(env, path, extra=None):
@@ -199,7 +208,12 @@ def assert_match(env, path, strict=True):
                                           "实际加载的机器人文件") +
               "; 桌高/物体质量摩擦/关节表/控制步 **全部无法核对**", flush=True)
         rec = legacy
-    crit, warn = compare(rec, collect(env))
+    crit, warn, unver = compare(rec, collect(env))
+    if unver:
+        print(f"[world] ⚠ {len(unver)}/{len(CRITICAL)} 项关键项**无法核对**"
+              f"(缺失或值为 None) —— 这不是通过, 是未验:", flush=True)
+        for k, x, y in unver:
+            print(f"[world]   {k}: 记录={x} 当前={y}", flush=True)
     for k, x, y in warn:
         print(f"[world] 提示 {k}: 记录={x} 当前={y}", flush=True)
     if crit:

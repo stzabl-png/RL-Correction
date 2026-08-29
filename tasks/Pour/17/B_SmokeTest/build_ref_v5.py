@@ -21,7 +21,7 @@ import pour_env as PE
 from rl_rebuild.correction.kinematics import ArmIK, quat_to_R
 
 BR, BL = 2.0, 1.0
-OUT = "tasks/Pour/17/A_Design/L2_Reference/pour17_reference_v2.npz"
+OUT = os.environ.get("POUR_REF_OUT") or "tasks/Pour/17/A_Design/L2_Reference/pour17_reference_v2.npz"
 cfg = PE.build_cfg(num_envs=1)
 E = PE.PourEnv(cfg)
 E.force_entry = [0]
@@ -160,6 +160,44 @@ def _task_features(P, Q, oi):
 
 _z1 = np.load(V1, allow_pickle=True)
 _rows1 = np.where(np.asarray(_z1["source"]) == 1)[0]
+def _tilt_to(q, up_world):
+    """物体自身 up 轴(局部 +y)在世界系与给定参考轴的夹角(弧度)。"""
+    w, x, y, z = np.asarray(q, np.float64) / np.linalg.norm(q)
+    R = np.array([[1-2*(y*y+z*z), 2*(x*y-w*z), 2*(x*z+w*y)],
+                  [2*(x*y+w*z), 1-2*(x*x+z*z), 2*(y*z-w*x)],
+                  [2*(x*z-w*y), 2*(y*z+w*x), 1-2*(x*x+y*y)]])
+    v = R @ np.array([0.0, 1.0, 0.0])
+    c = float(np.dot(v, up_world) / (np.linalg.norm(v) * np.linalg.norm(up_world)))
+    return float(np.arccos(np.clip(c, -1.0, 1.0)))
+
+
+HOME_K = 30              # 末态归位窗 (原始行数); 5.6cm/30行 = 1.9mm/行, 极缓
+
+
+def _home_end(traj, tag, K=HOME_K):
+    """把交互段末尾 K 行的物体位姿平滑送回**它自己的第 0 行**。
+
+    为什么目标是"第 0 行"而不是母带第 0 行: 判据 self.rest 与 env.rest_pose
+    **都取交互段首行**(实测确认), 仿真也把物体放在那里。
+    为什么不是瞬跳: 母带原本在交互/机器段边界一行之内从 4.08cm 跳回 0 ——
+    带子能瞬移, 真瓶子不行。
+    权重用余弦缓入, 首末导数为 0, 不给关节连续性硬闸添乱。
+    """
+    out = traj.copy()
+    n = len(out)
+    K = min(K, n - 1)
+    p_t, q_t = out[0, :3].copy(), out[0, 3:7].copy()
+    d0 = float(np.linalg.norm(out[-1, :3] - p_t))
+    for i in range(n - K, n):
+        a = 0.5 * (1 - np.cos(np.pi * (i - (n - K) + 1) / K))     # 0->1 余弦
+        out[i, :3] = (1 - a) * out[i, :3] + a * p_t
+        out[i, 3:7] = _qslerp(out[i, 3:7], q_t, a)
+    d1_ = float(np.linalg.norm(out[-1, :3] - p_t))
+    print(f"[v5] 末态归位 {tag}: 末行距首行 {d0*100:.2f}cm -> {d1_*100:.2f}cm "
+          f"(窗 {K} 行, 峰值 {d0/K*1000:.1f}mm/行)", flush=True)
+    return out
+
+
 FEAT_TOL = 0.05          # 关键特征允许的相对损失 (5%)
 _feat_bad = 0
 for oi, nm in ((0, "杯"), (1, "瓶")):
@@ -167,6 +205,13 @@ for oi, nm in ((0, "杯"), (1, "瓶")):
     _before = _task_features(ref_obj_raw[oi][:, :3], ref_obj_raw[oi][:, 3:7], oi)
     ref_obj_raw[oi][:, 3:7] = _smooth_quat(
         ref_obj_raw[oi][:, 3:7].copy(), _cf, nm)
+    # ★L5-27 末态归位: 参考的交互段**末行必须回到它自己的首行**, 否则
+    #   "完美跟随参考"与 placed 判据(≤M3_POS 3cm)直接矛盾。
+    #   实测 v2: 瓶末行距首行 5.60cm, 末尾连续<3cm 的行数 = 0 —— 参考从未把瓶
+    #   送进容差, placed 永远立不了, G4 因此封顶。杯 2.04cm 合格但判据是 AND。
+    #   归位放在平滑之后、峰值检查取 _after 之前, 让峰值保全检查一并覆盖它:
+    #   若归位把任务特征(倾角峰值/高度行程/水平行程)改坏了, 出厂就会红。
+    ref_obj_raw[oi] = _home_end(ref_obj_raw[oi], nm)
     _after = _task_features(ref_obj_raw[oi][:, :3], ref_obj_raw[oi][:, 3:7], oi)
     # ★L5-11 峰值保全检查: 平滑是"不信重建", 但不能顺手把任务本身改掉。
     # 本次实测倾角峰值 111.3° 前后不变 —— 但换个任务(如拧瓶盖)关键动作可能恰好
@@ -349,7 +394,12 @@ for oi in (0, 1):
     ia_raw = raw[IA0:IA1 + 1]
     lo = floor_map; hi = np.minimum(lo + 1, Nrow_raw - 1)
     a = (frac_rows - lo)[:, None]
-    pos = ia_raw[lo, :3] * (1 - a) + ia_raw[hi, :3] * a
+    # ★L5-27: 位置列必须写**归位后**的同一条轨迹。原来这里重读 v1 原始值,
+    #   归位后就会出现"IK 按归位轨迹解、判据按原始轨迹打分"的自相矛盾 ——
+    #   与上面朝向列那条注释是同一个道理。
+    pos = ref_obj[oi][:, :3].copy()
+    assert len(pos) == Nrow, (len(pos), Nrow)
+    _unused_pos = ia_raw[lo, :3] * (1 - a) + ia_raw[hi, :3] * a
     q0, q1 = ia_raw[lo, 3:7], ia_raw[hi, 3:7]
     sgn = np.sign((q0 * q1).sum(axis=1, keepdims=True)); sgn[sgn == 0] = 1
     q = q0 * (1 - a) + q1 * sgn * a
@@ -383,6 +433,29 @@ out.update(obj_cols, source=src_new, frame_of_row=fr_new,
            cert_arm7_right=cert["right"], cert_arm7_left=cert["left"],
            meta_v5=np.array([f"gen=L5-1;parent_v1_md5={parent_md5};betaR={BR};betaL={BL};"
                              f"obj_rest_z=0.959;ik=delta_space;date=2026-08-27"]))
+# ═══ ★第四道出厂检查 (L5-27): 末态-判据一致性 ═══
+import sys as _sys                                                    # noqa: E402
+_sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "..", "A_Design", "L3_Learning"))
+from progress import endstate_consistency as _endchk                  # noqa: E402
+_e4 = []
+for oi, nm in ((0, "杯"), (1, "瓶")):
+    _P = np.asarray(obj_cols[f"obj_pos_{oi}"], np.float64)[IA0:IA0 + Nrow]
+    _Q = np.asarray(obj_cols[f"obj_quat_{oi}"], np.float64)[IA0:IA0 + Nrow]
+    _ok4, _inf = _endchk(_P, _Q)
+    print(f"[v5] 末态-判据一致性 {nm}: 末行距首行={_inf['end_pos_cm']:.2f}cm "
+          f"(限{_inf['lim_pos_cm']:.0f}) 末行倾角={_inf['end_tilt_deg']:.1f}° "
+          f"(限{_inf['lim_tilt_deg']:.0f}) 末尾连续达标={_inf['tail_ok_rows']}行 "
+          f"(需{_inf['need_hold']})", flush=True)
+    if not _ok4:
+        _e4 += [f"{nm}: {m}" for m in _inf["bad"]]
+if _e4:
+    print("[v5] ★第四道出厂检查未过 (末态-判据一致性) —— 不写母带:", flush=True)
+    for _m in _e4:
+        print(f"[v5]     {_m}", flush=True)
+    raise SystemExit(4)
+print("[v5] ✅ 第四道出厂检查通过 (末态-判据一致性)", flush=True)
+
 np.savez(OUT, **out)
 with open(OUT, "rb") as fh:
     print(f"[v5] 已写 {OUT} md5={hashlib.md5(fh.read()).hexdigest()[:8]}", flush=True)

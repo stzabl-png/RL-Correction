@@ -168,9 +168,13 @@ def setup_scene(env):
                           max_convex_hulls=sec.get("usd_convex_hulls"),
                           shrink_wrap=sec.get("usd_shrink_wrap"))
     pose = env.aux_init_pose_np
+    # aux_contact_sensors: 只有显式置旗的任务(Pour17 的 POUR_OBJ_CONTACT=1)才开
+    # 接触上报; 默认 False, 其余任务行为一字不变。
+    _auxc = bool(getattr(env.cfg, "aux_contact_sensors", False))
     aux_cfg = RigidObjectCfg(
         prim_path="/World/envs/env_.*/Aux",
-        spawn=sim_utils.UsdFileCfg(usd_path=sec["usd"]),
+        spawn=sim_utils.UsdFileCfg(usd_path=sec["usd"],
+                                   activate_contact_sensors=_auxc),
         init_state=RigidObjectCfg.InitialStateCfg(
             pos=tuple(float(v) for v in pose[:3]),
             rot=tuple(float(v) for v in pose[3:7]),

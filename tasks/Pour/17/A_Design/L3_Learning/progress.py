@@ -130,6 +130,62 @@ def criteria_digest():
     return CRITERIA_SCHEMA, _h.md5(blob.encode()).hexdigest()[:16]
 
 
+def endstate_consistency(P, Q, m3_pos=None, m3_rot=None, m3_hold=None):
+    """★第四道出厂检查 (L5-27): 参考带交互段的**末态必须能通过 placed 判据**。
+
+    前三道出厂检查(关节连续性 / 峰值保全 / IK 精度)查的都是"带子自己顺不顺",
+    没有一道查"带子的结尾能不能通过判分标准"。v2 母带就死在这里:
+    瓶末行距首行 5.60cm 而判据要 ≤3cm, 且末尾连续达标 0 行(判据要保持 15 行)——
+    **照着带子做必然扣分, 想拿分就得违抗带子**, G4 因此被封在 0.08~0.12。
+
+    对任何"放回原位"类任务通用: 判据基准 = 交互段首行(= env.rest_pose 同源)。
+    P (N,3) 位置, Q (N,4) wxyz 朝向。返回 (ok, 详情)。
+    """
+    import numpy as _np
+    m3_pos = M3_POS if m3_pos is None else m3_pos
+    m3_rot = M3_ROT if m3_rot is None else m3_rot
+    m3_hold = M3_HOLD if m3_hold is None else m3_hold
+    P = _np.asarray(P, _np.float64)
+    Q = _np.asarray(Q, _np.float64)
+    d = _np.linalg.norm(P - P[0], axis=1)
+    up0 = _quat_up(Q[0])
+    t = _np.array([_ang(_quat_up(q), up0) for q in Q])
+    ok_row = (d <= m3_pos) & (t <= m3_rot)
+    run = 0
+    for v in ok_row[::-1]:
+        if not v:
+            break
+        run += 1
+    info = {"end_pos_cm": float(d[-1] * 100), "end_tilt_deg": float(_np.degrees(t[-1])),
+            "tail_ok_rows": int(run), "need_hold": int(m3_hold),
+            "lim_pos_cm": float(m3_pos * 100),
+            "lim_tilt_deg": float(_np.degrees(m3_rot))}
+    bad = []
+    if d[-1] > m3_pos:
+        bad.append(f"末行距首行 {d[-1]*100:.2f}cm > {m3_pos*100:.0f}cm")
+    if t[-1] > m3_rot:
+        bad.append(f"末行倾角 {_np.degrees(t[-1]):.1f}° > {_np.degrees(m3_rot):.0f}°")
+    if run < m3_hold:
+        bad.append(f"末尾连续达标 {run} 行 < {m3_hold} (placed 需保持)")
+    info["bad"] = bad
+    return (not bad), info
+
+
+def _quat_up(q):
+    import numpy as _np
+    w, x, y, z = _np.asarray(q, _np.float64) / _np.linalg.norm(q)
+    R = _np.array([[1-2*(y*y+z*z), 2*(x*y-w*z), 2*(x*z+w*y)],
+                   [2*(x*y+w*z), 1-2*(x*x+z*z), 2*(y*z-w*x)],
+                   [2*(x*z-w*y), 2*(y*z+w*x), 1-2*(x*x+y*y)]])
+    return R @ _np.array([0.0, 1.0, 0.0])
+
+
+def _ang(a, b):
+    import numpy as _np
+    c = float(_np.dot(a, b) / (_np.linalg.norm(a) * _np.linalg.norm(b)))
+    return float(_np.arccos(_np.clip(c, -1.0, 1.0)))
+
+
 class PourProgress:
     """时钟=交互行索引, 只进不退。每步喂实测, 吐奖励账目."""
 

@@ -22,7 +22,11 @@ BASE = {"schema": "world_fingerprint_v1",
         "time": {"control_dt_s": 0.05, "decimation": 12},
         "table": {"table_top_z_m": 0.87},
         "objects": {"object_1": {"mass_kg": 0.53, "static_friction": 3.0},
-                    "object_0": {"mass_kg": 0.15, "static_friction": 0.5}}}
+                    "object_0": {"mass_kg": 0.15, "static_friction": 0.5}},
+        # ★L5-26: 判据摘要也是关键项 —— 改阈值=改成败判定。
+        # 它进 CRITICAL 之后, **没有这两个键的旧指纹会被判为"无法核对"**,
+        # 这是设计意图(老 ckpt 拿不出判据摘要, 就不能声称核对过), 不是 bug。
+        "criteria": {"schema": 1, "digest": "0" * 16}}
 
 
 def run(tag, mut):
@@ -41,6 +45,10 @@ reds = [
     run("② 站姿USD换版", lambda d: d["robot"].__setitem__("usd_md5", "d" * 32)),
     run("③ 桌高改了", lambda d: d["table"].__setitem__("table_top_z_m", 0.85)),
     run("④ 物体质量改了", lambda d: d["objects"]["object_1"].__setitem__("mass_kg", 0.1)),
+    run("⑥ 判据阈值变了(digest)",
+        lambda d: d["criteria"].__setitem__("digest", "1" * 16)),
+    run("⑦ 判据清单扩了(schema)",
+        lambda d: d["criteria"].__setitem__("schema", 2)),
     run("⑤ 关节表顺序变了",
         lambda d: d["robot"].__setitem__("controlled_joint_names_in_order",
                                          ["j2", "j1"])),

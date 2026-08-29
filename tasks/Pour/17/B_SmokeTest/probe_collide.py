@@ -104,6 +104,44 @@ BIG[:, 0:7] = 1.0        # 右臂 7 关节残差打满
 BIG[:, 7:14] = -1.0      # 左臂 7 关节反向打满
 a1, m1 = sweep("B 双臂残差打满相向(强行制造碰撞)", lambda t: BIG, args.steps)
 
+# ★C 段: 残差被限幅在 0.05~0.10 rad, 动作打满也只有 ±5.7°, 手臂根本撞不到一起
+# —— B 段"强行撞"其实没撞。绕过残差, 直接改写关节状态, 把手臂扫进桌面/彼此。
+print("\n[probe] === C 直接改写关节(绕过残差限幅), 逐档扫描 ===", flush=True)
+E.reset()
+for _ in range(3):
+    E.step(Z)
+q0 = E.hand.data.joint_pos.clone()
+qd0 = torch.zeros_like(q0)
+armR = E.hand.find_joints(["R_arm_j[1-7]"])[0]
+armL = E.hand.find_joints(["L_arm_j[1-7]"])[0]
+best = {"arm": 0.0, "d6": 0.0, "hit": 0}
+for j in range(7):
+    for amp in (-1.2, -0.6, 0.6, 1.2):
+        q = q0.clone()
+        q[:, armR[j]] += amp
+        q[:, armL[j]] -= amp
+        E.hand.write_joint_state_to_sim(q, qd0)
+        for _ in range(6):
+            E.step(Z)
+        c = E._collide()
+        na = torch.cat([sn.data.net_forces_w.reshape(E.num_envs, -1, 3)
+                        for sn in E._seg("noc_arm")], dim=1).nan_to_num(0.0) \
+            .norm(dim=-1).max()
+        nd = (torch.cat([sn.data.force_matrix_w.reshape(E.num_envs, -1, 3)
+                         for sn in E._seg("d6")], dim=1).nan_to_num(0.0)
+              .norm(dim=-1).max() if E._seg("d6") else torch.tensor(0.0))
+        h = int((c["arm"] | c["d6"]).sum())
+        if float(na) > best["arm"] or float(nd) > best["d6"] or h > best["hit"]:
+            print(f"[probe]   关节R_arm_j{j+1} ±{abs(amp):.1f}rad -> "
+                  f"臂净力={float(na):7.3f}N  D6={float(nd):7.3f}N  触发={h}", flush=True)
+        best["arm"] = max(best["arm"], float(na))
+        best["d6"] = max(best["d6"], float(nd))
+        best["hit"] = max(best["hit"], h)
+print(f"[probe]   C 段最大: 臂净力={best['arm']:.3f}N  D6={best['d6']:.3f}N  "
+      f"最多触发={best['hit']}", flush=True)
+m1["arm"] = max(m1["arm"], best["arm"])
+m1["d6"] = max(m1["d6"], best["d6"])
+
 print("\n[probe] ★判读表", flush=True)
 live_pad = m0["pad_net"] > 0 or m1["pad_net"] > 0
 live_arm = m1["arm"] > 0 or m0["arm"] > 0

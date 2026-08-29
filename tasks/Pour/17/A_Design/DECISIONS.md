@@ -543,3 +543,22 @@
 - 发射: P17v53_{HYB,OBJ}_{s0,s1,s2} 六线, 种子0~5, 同变体分散三机(taitan/UCBY/msc),
   全员 ref_md5=2ed81358 核对通过。老线 P17v52_{OBJ_s0,HYB_s2} 保留跑到收敛,
   旧母带已留档 pour17_reference_v2_b95546e9_OLD.npz, 其录像循环已停(防读到新母带)。
+
+### L5-12 世界契约: ckpt 交接机制 (2026-08-29, 用户拍板"以新场景为基础, 吸取教训")
+- 动机: 同维异义事故(站姿USD换版 -> 某ckpt回放 0/64, obs 348维一字未变, 零报错)。
+  策略是"输入数字->输出数字"的查表, 执行时不重新感知, 学到的一切锚在一套固定几何上。
+- 机制(已落码, 不靠人记):
+  ① world_fingerprint.py: collect/write/compare/assert_match, 12 条关键项 + 8 条提示项;
+  ② train_pour 开训即落**完整**指纹(原来只有9个平铺键, usd 还只记 "default");
+  ③ record_pour / eval_pour 回放前自动核对, 关键项不符 **os._exit(11) 拒跑**;
+     POUR_IGNORE_WORLD=1 可显式绕过。
+  ④ docs/CKPT_HANDOFF.md: 交接清单 + 三条踩过的坑。
+- ★实测暴露并修掉三个自身漏洞(闸门不实测就是摆设):
+  a) 旧格式 world.json 键名不同(ref_md5 vs reference.md5) -> 关键项一条都匹配不上,
+     **静默放行**, 而那恰是最需核对的一批 ckpt。已加旧格式转译 + "哪些项无法核对"报警。
+  b) collect() 没自填 reference.md5 / obs_dim / act_dim(只靠 write 的 extra 传),
+     导致核对时**报假警(None)而漏掉真不符**。已改为自采。
+  c) raise SystemExit(11) 被 Isaac 吞掉, **退出码变 0、录像照样产出**。改 os._exit(11)。
+  d) md5 全等比较: 旧记录只存 8 位前缀, 与新记录 32 位比会把"其实相同"误判。改前缀比。
+- 验收: 拿 v52 的 ckpt(母带 b95546e9)在 v53 世界(2ed81358)回放 ->
+  准确报 reference.md5 不符, 退出码 11, 无录像产出。

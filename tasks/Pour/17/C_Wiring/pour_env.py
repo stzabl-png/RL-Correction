@@ -111,6 +111,7 @@ class PourEnv(GraspTaskEnv):
     def __init__(self, cfg, **kw):
         super().__init__(cfg, **kw)
         dev, N = self.device, self.num_envs
+        self._master_path = MASTER          # 世界指纹用
         z = np.load(MASTER, allow_pickle=True)
         rows_h = np.where(np.asarray(z["source"]) == 1)[0]
         # ---- 母带 -> 58 维布局 + 关节映射 ----

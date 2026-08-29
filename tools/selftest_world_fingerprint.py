@@ -5,11 +5,14 @@
 闸门比采集器更需要反证 —— 采集器读错值只是记了个错数, **闸门读错值会放行一个
 本该拦住的 ckpt**。
 
-四例:
+七例:
   1 同一世界            -> 绿 (退出 0)   证明不是恒红
   2 USD md5 被改        -> 红 (退出 1)   证明关键项真能拦
   3 files 段整段缺失    -> 无法核对 (退 1)  ★ 2026-08-29 实测漏放过: 曾报"完全一致"
   4 schema 不认识       -> 无法核对 (退 1)  旧格式 world.json 的形状
+  5 判据**阈值**变了    -> 红 (退 1)     且要指名是哪个键、从多少变成多少
+  6 判据**清单扩了**但阈值没变 -> 不硬拦 (退 0)  ★ 只给哈希分不出这两者
+  7 本机读不到判据摘要  -> 无法核对 (退 1)
 
 跑法: python tools/selftest_world_fingerprint.py
 """
@@ -64,11 +67,39 @@ def main() -> int:
     cases.append(("④ 旧格式 world.json -> 无法核对", rc == 1 and "无法核对" in out, rc,
                   "无法核对" in out))
 
+    # 5 判据阈值变了 -> 必须红, 且指名道姓
+    thr = copy.deepcopy(now)
+    thr["criteria"]["digest"] = "deadbeefdeadbeef"
+    thr["criteria"]["items"] = dict(thr["criteria"]["items"] or {})
+    thr["criteria"]["items"]["D1_DROP"] = 0.08          # 真值 0.05
+    rc, out = run(thr, tmp, "thr")
+    cases.append(("⑤ 判据阈值变了 -> 红", rc == 1 and "D1_DROP" in out, rc,
+                  "0.08" in out and "0.05" in out))
+
+    # 6 清单扩了但阈值没变 -> 不该硬拦(这正是只给哈希时分不出的那种)
+    ext = copy.deepcopy(now)
+    ext["criteria"]["digest"] = "cafecafecafecafe"
+    ext["criteria"]["items"] = {k: v for k, v in (ext["criteria"]["items"] or {}).items()}
+    ext["criteria"]["items"].pop("D1_DROP", None)       # 期望比现状少一项 = 现状"新增"了它
+    rc, out = run(ext, tmp, "ext")
+    cases.append(("⑥ 清单扩了/阈值没变 -> 不硬拦", rc == 0 and "新增键" in out, rc,
+                  "预期内变化" in out))
+
+    # 7 本机读不到判据摘要 -> 无法核对(直接调 compare, 子进程里造不出这个场景)
+    import check_world_fingerprint as CW
+    blind_now = copy.deepcopy(now)
+    blind_now["criteria"] = {"schema": None, "digest": None, "items": None,
+                             "_source": "unavailable: 模拟"}
+    d7 = CW.compare(blind_now, now)
+    hit7 = any(x.get("item") == "criteria.digest" and x.get("verdict") == "UNVERIFIABLE"
+               for x in d7)
+    cases.append(("⑦ 读不到判据摘要 -> 无法核对", hit7, "-", hit7))
+
     print("闸门自证 —— 造必然该红的输入, 看它红不红\n")
     for name, passed, rc, detail in cases:
         print(f"  {'✅' if passed else '❌'} {name:34s} 退出码 {rc}  判据命中 {detail}")
         ok &= passed
-    print("\n" + ("✅ 四例全过 —— 闸门不是恒真断言, 缺数据不会被当成通过"
+    print("\n" + ("✅ 七例全过 —— 闸门不是恒真断言; 该红时红、该静时静、缺数据不当成通过"
                   if ok else "❌ 有用例失败 —— 闸门可能在该拦的输入上放行"))
     return 0 if ok else 1
 

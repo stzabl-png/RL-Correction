@@ -95,6 +95,29 @@ def usd_self_collision(usd: Path) -> dict:
         return {"value": None, "_source": f"unreadable: {type(e).__name__}"}
 
 
+def read_criteria(repo: Path) -> dict:
+    """判据摘要 —— **决定成败判定**的 26 项阈值, 不含奖励权重与任何计数器。
+
+    ★ 为什么不用整文件哈希(2026-08-29 定): 整文件哈希分不出"判定变了"与"记账变了"。
+      RL session 当天三次改 progress*.py 全是纯记账(加计数/加分项/加禁碰判断),
+      Gate 判定一字未动, 而文件哈希会让每一次都把历史 ckpt 判红 ——
+      一天误报三次的闸门, 人第二天就无视它, 比没有闸门更糟。
+    源: progress.criteria_digest() / criteria_items(), 只依赖 numpy, 不需要 Isaac。
+    """
+    try:
+        import sys as _sys
+        d = str(repo / "tasks/Pour/17/A_Design/L3_Learning")
+        if d not in _sys.path:
+            _sys.path.insert(0, d)
+        from progress import criteria_digest, criteria_items
+        schema, digest = criteria_digest()
+        return {"schema": schema, "digest": digest, "items": criteria_items(),
+                "_source": "progress.criteria_digest()"}
+    except Exception as e:
+        return {"schema": None, "digest": None, "items": None,
+                "_source": f"unavailable: {type(e).__name__}: {e}"}
+
+
 def record(repo: Path) -> dict:
     files = {}
     for key, rel, why in WATCHED_FILES:
@@ -124,6 +147,7 @@ def record(repo: Path) -> dict:
             "note": "★ ckpt 能不能跑, 主要看这一项。DEXMATE_FIXED_USD 会覆写默认 USD。"},
         "self_collision": usd_self_collision(eff) if eff.is_file() else
                           {"value": None, "_source": "effective USD 不存在"},
+        "criteria": read_criteria(repo),
     }
     if fp["effective_robot_usd"]["md5"] in KNOWN_USD:
         fp["effective_robot_usd"]["known_as"] = KNOWN_USD[fp["effective_robot_usd"]["md5"]]
@@ -158,7 +182,7 @@ CRITICAL = ["effective_robot_usd", "tape_pour17_v2", "scene_layout_pour17",
 
 
 #: 期望指纹里必须存在的段 —— 缺任何一段都判"无法核对", 不是"通过"
-REQUIRED_SECTIONS = ["effective_robot_usd", "files", "env_overrides"]
+REQUIRED_SECTIONS = ["effective_robot_usd", "files", "env_overrides", "criteria"]
 
 
 def audit_expect(want: dict) -> list[dict]:
@@ -202,6 +226,35 @@ def compare(now: dict, want: dict) -> list[dict]:
             diffs.append({"item": f"files.{key}", "critical": key in CRITICAL,
                           "expected": e, "actual": g,
                           "why": want["files"][key].get("why")})
+    # ★ 判据摘要: digest 相同即静默(快路径); 不同则拿 items 逐键 diff,
+    #   分成"新增键(清单扩了, 预期)"与"值变了的键(真警报)" —— 只给哈希的话这两者分不开。
+    cn, cw = now.get("criteria") or {}, want.get("criteria") or {}
+    if cn.get("digest") and cw.get("digest") and cn["digest"] != cw["digest"]:
+        inow, iwant = cn.get("items") or {}, cw.get("items") or {}
+        added = sorted(set(inow) - set(iwant))
+        removed = sorted(set(iwant) - set(inow))
+        changed = sorted(k for k in (set(inow) & set(iwant)) if inow[k] != iwant[k])
+        if changed:
+            diffs.append({"item": "criteria.digest", "critical": True,
+                          "expected": cw["digest"], "actual": cn["digest"],
+                          "why": "★ 判据阈值变了 -> **成败判定变了**",
+                          "changed_keys": {k: {"expected": iwant[k], "actual": inow[k]}
+                                           for k in changed},
+                          "fix": "阈值不同则成功率不可比; 要么用出生时的判据, 要么重新评测。"})
+        if (added or removed) and not changed:
+            diffs.append({"item": "criteria.digest", "critical": False,
+                          "expected": cw["digest"], "actual": cn["digest"],
+                          "why": ("判据清单扩/缩了但**已有阈值一个都没变** —— 预期内变化"
+                                  f"(schema {cw.get('schema')} -> {cn.get('schema')})"),
+                          "added_keys": added, "removed_keys": removed})
+        elif added or removed:
+            diffs[-1]["added_keys"] = added
+            diffs[-1]["removed_keys"] = removed
+    elif cw.get("digest") and not cn.get("digest"):
+        diffs.append({"item": "criteria.digest", "critical": True, "verdict": "UNVERIFIABLE",
+                      "expected": cw["digest"], "actual": None,
+                      "fix": f"本机读不到判据摘要({cn.get('_source')}) —— 无法核对, 不要跑。"})
+
     for k, e in (want.get("env_overrides") or {}).items():
         g = (now.get("env_overrides") or {}).get(k)
         if e != g:
@@ -230,6 +283,9 @@ def main() -> int:
         print(f"  来源         : {u['_source']}")
         sc = now["self_collision"]
         print(f"self_collision : {sc['value']}   来源 {sc['_source']}")
+        c = now.get("criteria") or {}
+        print(f"判据摘要       : schema {c.get('schema')}  digest {c.get('digest')}"
+              f"  ({len(c.get('items') or {})} 项)   来源 {c.get('_source')}")
         print(f"git            : {now['git_branch']} @ {str(now['git_commit'])[:8]}")
         act = {k: v for k, v in now["env_overrides"].items() if v}
         print(f"环境覆写       : {act or '无'}")
@@ -263,6 +319,11 @@ def main() -> int:
         print(f"     实际 {d.get('actual')} {d.get('actual_known_as') or ''}")
         if d.get("why"):
             print(f"     影响 {d['why']}")
+        for tag, keys in (("新增键", d.get("added_keys")), ("移除键", d.get("removed_keys"))):
+            if keys:
+                print(f"     {tag} {keys}")
+        for k, v in (d.get("changed_keys") or {}).items():
+            print(f"     ▸ {k}: {v['expected']} -> {v['actual']}")
         if d.get("fix"):
             print(f"     ✚ 修法 {d['fix']}")
     if crit:

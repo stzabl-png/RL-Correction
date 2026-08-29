@@ -62,3 +62,13 @@ steps/step3_grasppose/assets/object
 steps/step3_grasppose/output/
 steps/step3_grasppose/*.log
 steps/step3_grasppose/dexonomy.egg-info/
+
+# Baseline bundle 的二进制资产不入库(USD 各 25MB, 母带走 LFS 亦无必要):
+# 交付走 tar.gz, 仓里只保留文档/脚本/清单, 见 docs/WORLD_FINGERPRINT.md
+baseline/pour17/world/*.usd
+baseline/pour17/world/cache/
+baseline/pour17/world/objects/
+baseline/pour17/reference/*.npz
+baseline/pour17/perception/*.mp4
+baseline/pour17/perception/*.npz
+baseline/*.tar.gz

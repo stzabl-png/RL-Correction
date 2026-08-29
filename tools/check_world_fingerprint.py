@@ -131,8 +131,37 @@ CRITICAL = ["effective_robot_usd", "tape_pour17_v2", "scene_layout_pour17",
             "object_0_usd_cache", "object_1_usd_cache"]
 
 
+#: 期望指纹里必须存在的段 —— 缺任何一段都判"无法核对", 不是"通过"
+REQUIRED_SECTIONS = ["effective_robot_usd", "files", "env_overrides"]
+
+
+def audit_expect(want: dict) -> list[dict]:
+    """★ 闸门自审: 期望指纹本身完不完整?
+
+    为什么必须有这一步(2026-08-29 实测到的漏放):
+      给一份"USD md5 对得上、但 files/env 整段缺失"的指纹, 原实现报
+      "✅ 完全一致, 可以跑" 退出码 0 —— 母带、物体、场景**一个都没核过**。
+      这就是"缺数据即通过": 闸门在最需要拦的输入(旧格式/半成品 world.json)上失效。
+      采集器读错值只是记了个错数; **闸门读错值会放行一个本该拦住的 ckpt**。
+    """
+    missing = []
+    for sec in REQUIRED_SECTIONS:
+        v = want.get(sec)
+        if v is None or (isinstance(v, dict) and not v):
+            missing.append({"item": f"expect.{sec}", "critical": True,
+                            "verdict": "UNVERIFIABLE",
+                            "expected": "<该段应存在且非空>", "actual": "缺失或为空",
+                            "fix": ("期望指纹不完整, **无法核对** —— 不要当成通过。"
+                                    "用 `check_world_fingerprint.py record` 重新生成一份完整指纹。")})
+    if want.get("schema") != "world_fingerprint_v1":
+        missing.append({"item": "expect.schema", "critical": True, "verdict": "UNVERIFIABLE",
+                        "expected": "world_fingerprint_v1", "actual": want.get("schema"),
+                        "fix": "指纹格式不认识(可能是旧格式的 world.json), 无法核对。"})
+    return missing
+
+
 def compare(now: dict, want: dict) -> list[dict]:
-    diffs = []
+    diffs = audit_expect(want)          # ★ 先自审期望, 再比对
     a, b = now["effective_robot_usd"], want.get("effective_robot_usd", {})
     if a.get("md5") != b.get("md5"):
         diffs.append({"item": "effective_robot_usd", "critical": True,
@@ -192,13 +221,17 @@ def main() -> int:
     diffs = compare(now, want)
     crit = [d for d in diffs if d.get("critical")]
 
+    unver = [d for d in diffs if d.get("verdict") == "UNVERIFIABLE"]
     if not diffs:
         print("✅ 世界指纹完全一致 —— 可以跑")
         return 0
-    print(f"{'❌' if crit else '⚠'} 世界指纹有 {len(diffs)} 处差异"
-          f"({len(crit)} 处关键):\n")
+    if unver:
+        print(f"❌ **无法核对** —— 期望指纹本身不完整({len(unver)} 项)。")
+        print("   这不是'通过', 是'没查成'。不要跑。\n")
+    print(f"{'❌' if crit else '⚠'} 共 {len(diffs)} 处问题({len(crit)} 处关键):\n")
     for d in diffs:
-        mark = "❌关键" if d.get("critical") else "⚠ "
+        mark = ("❌无法核对" if d.get("verdict") == "UNVERIFIABLE"
+                else ("❌关键" if d.get("critical") else "⚠ "))
         print(f"{mark} {d['item']}")
         print(f"     期望 {d.get('expected')} {d.get('expected_known_as') or ''}")
         print(f"     实际 {d.get('actual')} {d.get('actual_known_as') or ''}")

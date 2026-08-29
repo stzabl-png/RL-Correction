@@ -20,10 +20,10 @@ GraspPose、CuRobo guide、confidence reward、503D obs、58D residual action **
 | horizon 三个数并存 | ✅ **冻结 903 步**（`int(653×1.2)+120`）。`episode_length_s=13.125` 对 Pour17 **无效**，已在 manifest 与文档标注；**评测器自己强制上限，不看 baseline env 的 `truncated`** |
 | 缺 canonical reset | ✅ `world/canonical_reset_v1.json`：58 关节初始 q（母带行 0，已自验与末行逐关节差 **0.000°**）+ qd 全零 + 两物体位姿/零速度 + 无随机化 + root pose 处置 |
 | **G2 无法通过** | ✅ 新增第三个回调 `env.apply_certification_offset(alpha)`，**由评测器发起**。规范口径定为**笛卡尔**"双腕世界 +Z 抬 15mm、姿态不变"，ours 的关节空间实现已 FK 反算验证等价（右腕 +14.65mm / 左腕 +13.81mm，姿态变化 0.1° 级） |
-| 焊接热身未披露 | ⚠ ours 训练默认 `POUR_HOLD_K=15`（前 15 步钳位物体）。**评测协议建议设 0**，★需两边确认 |
+| 焊接热身未披露 | ✅ **已裁定 `POUR_HOLD_K=0`**（2026-08-29）——评测两边都不做。ours 训练默认 15 是脚手架，不属任务定义 |
 | `pour_env.py.reference` / `REWARD_DOC.md` 与红线矛盾 | ✅ **已撤出**（含 reward 权重与残差界分档，等于附送配方） |
 | `self_collision` 记录不可信 | ✅ 已重导。**真值 `False`**（来源 `USD:/World/envs/env_0/Robot/root_joint`，本 bundle 用 `pxr` 独立复核过 authored 值）。⚠ 注意 `correction_env_cfg.py:121` 写的 `enabled_self_collisions=True` **对本任务未生效** —— 三处都叫 self_collision，只有 USD 那个是 PhysX 真读的。原来那个 `False` 是采集器默认值**蒙对的**，故新增 `self_collision_source` 字段：**值对不等于记录可信** |
-| `progress.py` 里含 ours 奖励常量 | ⚠ **未解决，待拍板**。撤掉 `REWARD_DOC.md` 只是换了容器 —— `W_OBJ`/`W_HAND`/`LEASH_*`/`MS_REWARD`/`WAGE*` 原样在评测器必需的 `progress.py` 里。当前按 **(a) 显式声明**处理（见 `evaluator/INTEGRATION.md` 顶部），终态是 **(b) ours 侧拆成 `criteria.py` + `reward_weights.py`**。不做 (c) 裁剪版：会破坏唯一真源 |
+| `progress.py` 里含 ours 奖励常量 | ⚠ **未解决，待拍板**。撤掉 `REWARD_DOC.md` 只是换了容器 —— `W_OBJ`/`W_HAND`/`LEASH_*`/`MS_REWARD`/`WAGE*` 原样在评测器必需的 `progress.py` 里。当前按 **(a) 显式声明**处理（见 `evaluator/INTEGRATION.md` 顶部）。⚠ **另一个候选方案 (b)「ours 侧把 `progress.py` 拆成 `criteria.py` + `reward_weights.py`」尚未获得项目负责人裁定，不是既定终态** —— 请勿按 (b) 的结构去接。(c) 裁剪版已否决：会破坏唯一真源 |
 | 率值无分母 | ✅ `eval_result.json` 里任何"率"都带 `*_denominator`，分母为 0 给 `null` 不给 `0.0`（RL session 曾因此把"本窗零回合"误判成"成功率 0%"） |
 | UTF-8 / 文件数 | ✅ `read_text/write_text` 全部显式 `encoding="utf-8"`；文件数以 `HASHES.txt` 为准 |
 
@@ -260,6 +260,7 @@ python run_eval.py --entry your_pkg.mod:make_env,policy --episodes 512
 剩下的都在 baseline 侧或需要合作方拍板：
 1. baseline 实现 `make_env` / `policy` 两个回调（契约见 `evaluator/INTEGRATION.md`）；
 2. ~~母带用哪一版~~ —— **已定 `2ed81358`**（`reference/TAPE_DECISION.md`）；
+   ~~焊接热身~~ —— **已定 `POUR_HOLD_K=0`**（两边都不做）；
 3. 可选：在 Isaac 里跑一次零动作回放对拍，做物理一致性的严格证明
    （四个出生点的累计奖励与终止步逐位一致；USD 已验证零外部依赖，此步必要性已大幅下降）。
 

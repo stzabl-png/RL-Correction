@@ -13,11 +13,14 @@ import numpy as np, torch
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "C_Wiring"))
 os.environ["POUR_NO_D6"] = "1"
 os.environ.pop("POUR_SQUEEZE_FF", None)
+V1 = "tasks/Pour/17/A_Design/L2_Reference/pour17_reference_v1.npz"
+# ★L5-11 #4: 生成器必须从 v1 读物体轨迹 —— env 默认加载 v2, 重跑一次就多扩张一次
+# (实测 135->163->191). 显式覆写 MASTER, 保证幂等。
+os.environ["POUR_REF_NPZ"] = os.path.abspath(V1)
 import pour_env as PE
 from rl_rebuild.correction.kinematics import ArmIK, quat_to_R
 
 BR, BL = 2.0, 1.0
-V1 = "tasks/Pour/17/A_Design/L2_Reference/pour17_reference_v1.npz"
 OUT = "tasks/Pour/17/A_Design/L2_Reference/pour17_reference_v2.npz"
 cfg = PE.build_cfg(num_envs=1)
 E = PE.PourEnv(cfg)
@@ -63,12 +66,19 @@ side_obj = {"right": 1, "left": 0}
 Nrow_raw = E.PB.N_ROW
 # ---- 放回窗时间扩张 (L5-3): 交互行 72..100 (=全链262..290) 二倍细分 ----
 # 母带放回 = 回正旋转55° + 10cm/s 下降复合, v2硬闸实证 3垫握被拧脱; 扩张后速率减半
-W0, W1 = 72, 100
+# 窗口表: (起, 止, 细分倍数)。倍数 n = 该窗每行摊成 n 行。
+# ★L5-11 新增倒水转动窗: 行40~52 是腕部奇异区, IK 需要 40.8°/帧 的关节运动
+#   (腕目标只转8.2°, 但雅可比病态)。放慢 8 倍 -> ~5°/帧, 回到可执行范围。
+#   放回窗 72~100 沿用 2 倍 (治放回俯冲甩脱)。
+WINDOWS = [(40, 53, 8), (53, 100, 2)]   # 倒水转动8x(治奇异) + 倾倒保持&放回2x(治G3窗口过短&放回甩脱)
 frac_rows = []
 for k in range(Nrow_raw):
     frac_rows.append(float(k))
-    if W0 <= k < W1:
-        frac_rows.append(k + 0.5)
+    for (a, b, n) in WINDOWS:
+        if a <= k < b:
+            for j in range(1, n):
+                frac_rows.append(k + j / n)
+            break
 frac_rows = np.array(frac_rows)
 Nrow = len(frac_rows)
 def _lerp_track(tr):
@@ -81,9 +91,104 @@ def _lerp_track(tr):
     q = q0 * (1 - a) + q1 * sgn * a
     q = q / np.linalg.norm(q, axis=1, keepdims=True).clip(1e-9)
     return np.concatenate([pos, q], axis=1)
+# ★L5-11 #2 主修复: 物体朝向按置信度平滑 + 转速上限
+# 病因: 重建在倒水段朝向估计不稳(位置只动0.3cm、长轴摆44~57°/帧), conf_rot 13~39
+# 全在红档 —— 系统自己知道不可信, 我们却照单全收喂给 IK, 被翻译成 72°/帧 的关节跳。
+ROT_CAP = np.radians(10.0)          # 转速上限 10°/帧 = 200°/秒 (人倒水的合理上限)
+CONF_TRUST = 40.0                   # conf_rot 低于此 = 不可信, 由两侧可信帧插值
+
+def _qslerp(q0, q1, a):
+    q0 = q0 / np.linalg.norm(q0); q1 = q1 / np.linalg.norm(q1)
+    d = float(np.dot(q0, q1))
+    if d < 0:
+        q1, d = -q1, -d
+    if d > 0.9995:
+        q = q0 + a * (q1 - q0)
+        return q / np.linalg.norm(q)
+    th = np.arccos(np.clip(d, -1, 1))
+    return (np.sin((1 - a) * th) * q0 + np.sin(a * th) * q1) / np.sin(th)
+
+def _qang(q0, q1):
+    return 2 * np.arccos(min(1.0, abs(float(np.dot(
+        q0 / np.linalg.norm(q0), q1 / np.linalg.norm(q1))))))
+
+def _smooth_quat(Q, conf, tag):
+    """可信帧当锚, 不可信帧 SLERP; 再迭代压掉超过转速上限的残余跳变。"""
+    n = len(Q)
+    trust = conf >= CONF_TRUST
+    trust[0] = trust[-1] = True                    # 两端必须是锚
+    for _it in range(40):
+        idx = np.where(trust)[0]
+        out = Q.copy()
+        for a, b in zip(idx[:-1], idx[1:]):
+            if b - a <= 1:
+                continue
+            for j in range(a + 1, b):
+                out[j] = _qslerp(Q[a], Q[b], (j - a) / (b - a))
+        rate = np.array([_qang(out[i], out[i + 1]) for i in range(n - 1)])
+        if rate.max() <= ROT_CAP:
+            break
+        # 最快的那一跳: 把置信度较低的那一端降级为不可信, 重新插值
+        j = int(rate.argmax())
+        cand = [k for k in (j, j + 1) if trust[k] and 0 < k < n - 1]
+        if not cand:
+            break
+        trust[min(cand, key=lambda k: conf[k])] = False
+    print(f"[v5] {tag} 朝向平滑: 锚点 {int(trust.sum())}/{n}, "
+          f"转速 中位={np.degrees(np.median(rate)):.2f}° 最大={np.degrees(rate.max()):.2f}° "
+          f"(上限 {np.degrees(ROT_CAP):.0f}°)", flush=True)
+    return out
+
+def _task_features(P, Q, oi):
+    """任务关键特征: 用于"平滑有没有把任务改掉"的前后对账。
+    倾角峰值(倒水靠它) / 高度行程(提起靠它) / 水平行程(搬运靠它)。"""
+    up = np.array([0.0, 1.0, 0.0])
+    tl = []
+    for q in Q:
+        w, x, y, z = q / np.linalg.norm(q)
+        R = np.array([[1-2*(y*y+z*z), 2*(x*y-w*z), 2*(x*z+w*y)],
+                      [2*(x*y+w*z), 1-2*(x*x+z*z), 2*(y*z-w*x)],
+                      [2*(x*z-w*y), 2*(y*z+w*x), 1-2*(x*x+y*y)]])
+        v = R @ up
+        tl.append(np.degrees(np.arccos(np.clip(v[2] / max(np.linalg.norm(v), 1e-9),
+                                               -1, 1))))
+    tl = np.array(tl)
+    return {"倾角峰值": float(tl.max()),
+            "倾角行程": float(tl.max() - tl.min()),
+            "高度行程": float((P[:, 2].max() - P[:, 2].min()) * 100),
+            "水平行程": float(np.linalg.norm(P[:, :2] - P[0, :2], axis=1).max() * 100)}
+
+_z1 = np.load(V1, allow_pickle=True)
+_rows1 = np.where(np.asarray(_z1["source"]) == 1)[0]
+FEAT_TOL = 0.05          # 关键特征允许的相对损失 (5%)
+_feat_bad = 0
+for oi, nm in ((0, "杯"), (1, "瓶")):
+    _cf = np.asarray(_z1[f"conf_rot_{oi}"], np.float64)[_rows1]
+    _before = _task_features(ref_obj_raw[oi][:, :3], ref_obj_raw[oi][:, 3:7], oi)
+    ref_obj_raw[oi][:, 3:7] = _smooth_quat(
+        ref_obj_raw[oi][:, 3:7].copy(), _cf, nm)
+    _after = _task_features(ref_obj_raw[oi][:, :3], ref_obj_raw[oi][:, 3:7], oi)
+    # ★L5-11 峰值保全检查: 平滑是"不信重建", 但不能顺手把任务本身改掉。
+    # 本次实测倾角峰值 111.3° 前后不变 —— 但换个任务(如拧瓶盖)关键动作可能恰好
+    # 落在低置信帧, 那时平滑会把任务特征一起抹掉, 且只会在训练几小时后才暴露。
+    _msg = []
+    for k in _before:
+        b, a = _before[k], _after[k]
+        rel = (b - a) / max(abs(b), 1e-9)
+        flag = "★损失" if rel > FEAT_TOL else ""
+        _msg.append(f"{k} {b:.1f}->{a:.1f}({-rel*100:+.1f}%){flag}")
+        if rel > FEAT_TOL:
+            _feat_bad += 1
+    print(f"[v5] {nm} 关键特征对账: " + " | ".join(_msg), flush=True)
+if _feat_bad:
+    print(f"[v5] ★峰值保全检查未过: {_feat_bad} 项关键特征损失 >{FEAT_TOL*100:.0f}% "
+          f"—— 平滑改掉了任务本身, 不写母带", flush=True)
+    raise SystemExit(3)
+print("[v5] ✅ 峰值保全检查通过", flush=True)
+
 ref_obj = {oi: _lerp_track(ref_obj_raw[oi]) for oi in (0, 1)}
 floor_map = np.floor(frac_rows).astype(int)          # 新交互行 -> 原交互行
-print(f"[v5] 放回窗扩张: 交互 {Nrow_raw} -> {Nrow} 行 (窗{W0}..{W1} 二倍)", flush=True)
+print(f"[v5] 时间扩张: 交互 {Nrow_raw} -> {Nrow} 行 (窗 {WINDOWS})", flush=True)
 q_ik = {s: np.zeros((Nrow, 7)) for s in ("right", "left")}
 cert = {}
 q_seed, w0 = {}, {}
@@ -104,19 +209,114 @@ for s in ("right", "left"):
             break
     cert[s] = np.asarray(best["q"], np.float64)
     print(f"[v5] 认证行IK {s}: pos_err={best['pos_err']*1000:.2f}mm", flush=True)
+# ★L5-10 IK 连续性修复: 目标细分连续跟踪 (原来每行独立解 -> 冗余零空间换支,
+# 实测 v2 母带 行234->236 肩关节跳 42°+72°/帧, 策略残差只有4.6°根本无力跟随)
+MAX_DQ = np.radians(3.0)      # 每行关节变化上限
+SUB_MAX = 32                  # 细分上限
+UP_LOCAL = np.array([0.0, 1.0, 0.0])    # 瓶/杯的长轴(局部系)
+
+def _axis_only_R(q0_, qk_):
+    """★L5-11 #3: 只取"把长轴从 a0 转到 ak"的最小旋转, 丢掉绕长轴的自转分量。
+    轴对称物体绕自身长轴转多少不可观测, 照抄会把估计抖动变成手腕的无谓自转。"""
+    a0 = quat_to_R(q0_) @ UP_LOCAL
+    ak = quat_to_R(qk_) @ UP_LOCAL
+    a0 = a0 / np.linalg.norm(a0); ak = ak / np.linalg.norm(ak)
+    v = np.cross(a0, ak)
+    c = float(np.dot(a0, ak))
+    sn = float(np.linalg.norm(v))
+    if sn < 1e-9:
+        return np.eye(3) if c > 0 else -np.eye(3)
+    K = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]]) / sn
+    th = np.arctan2(sn, c)
+    return np.eye(3) + np.sin(th) * K + (1 - np.cos(th)) * (K @ K)
+
+def _tgt(s_, oi, k):
+    p0, q0_ = ref_obj[oi][0][:3], ref_obj[oi][0][3:7]
+    pk, qk_ = ref_obj[oi][k][:3], ref_obj[oi][k][3:7]
+    Rk = _axis_only_R(q0_, qk_)
+    return Rk @ w0[s_][0] + (pk - Rk @ p0), Rk @ w0[s_][1]
+
+def _slerp_solve(s_, oi, k, q_from):
+    """★L5-11: 小步长跟随 —— 腕部奇异(j5过零, j4/j6转轴对齐)处求解器会在等价构型
+    间跳(实测腕目标只动1.5cm/8°, j5却跳42°)。把单步上限压到 1.1°/迭代, 逼它从上一帧
+    的解沿局部分支慢慢挪, 就跳不过去了。收敛不了才退回默认步长。"""
+    tp1, tR1 = _tgt(s_, oi, k)
+    r = ik[s_].solve(tp1, tR1, q0=q_from, iters=600, step_clip=0.02)
+    dq = float(np.abs(np.asarray(r["q"]) - q_from).max())
+    if dq <= MAX_DQ and r["pos_err"] <= 0.01:
+        return r, 1
+    if r["pos_err"] > 0.01:                       # 小步长没够着 -> 放开步长重试
+        r = ik[s_].solve(tp1, tR1, q0=q_from, iters=200)
+        dq = float(np.abs(np.asarray(r["q"]) - q_from).max())
+        if dq <= MAX_DQ and r["pos_err"] <= 0.01:
+            return r, 1
+    tp0, tR0 = _tgt(s_, oi, max(k - 1, 0))
+    n_sub = 2
+    while n_sub <= SUB_MAX:
+        q_cur, ok = q_from.copy(), True
+        worst = 0.0
+        for j in range(1, n_sub + 1):
+            a = j / n_sub
+            pj = (1 - a) * tp0 + a * tp1
+            Rj = tR0 @ _rot_interp(tR0, tR1, a)
+            rj = ik[s_].solve(pj, Rj, q0=q_cur, iters=120)
+            d = float(np.abs(np.asarray(rj["q"]) - q_cur).max())
+            worst = max(worst, d)
+            q_cur = np.asarray(rj["q"], np.float64)
+        if worst <= MAX_DQ and rj["pos_err"] <= 0.01:
+            return rj, n_sub
+        n_sub *= 2
+    return rj, n_sub          # 尽力而为, 由后续硬闸报警
+
+def _rot_interp(R0, R1, a):
+    """返回 dR 使 R0 @ dR = 插值姿态 (轴角线性插值)."""
+    dR = R0.T @ R1
+    w = np.arccos(np.clip((np.trace(dR) - 1) / 2, -1, 1))
+    if w < 1e-8:
+        return np.eye(3)
+    ax = np.array([dR[2, 1] - dR[1, 2], dR[0, 2] - dR[2, 0],
+                   dR[1, 0] - dR[0, 1]]) / (2 * np.sin(w))
+    th = w * a
+    K = np.array([[0, -ax[2], ax[1]], [ax[2], 0, -ax[0]], [-ax[1], ax[0], 0]])
+    return np.eye(3) + np.sin(th) * K + (1 - np.cos(th)) * (K @ K)
+
+sub_tot = 0
 for k in range(Nrow):
     for s in ("right", "left"):
         oi = side_obj[s]
-        p0, q0_ = ref_obj[oi][0][:3], ref_obj[oi][0][3:7]
-        pk, qk_ = ref_obj[oi][k][:3], ref_obj[oi][k][3:7]
-        Rk = quat_to_R(qk_) @ quat_to_R(q0_).T
-        tp = pk - Rk @ p0
-        r = ik[s].solve(Rk @ w0[s][0] + tp, Rk @ w0[s][1], q0=q_seed[s], iters=60)
+        r, nsub = _slerp_solve(s, oi, k, q_seed[s])
+        sub_tot += nsub - 1
         if r["pos_err"] > 0.01:
             fail_ik += 1
         err_max = max(err_max, float(r["pos_err"]))
         q_ik[s][k] = r["q"]
         q_seed[s] = np.asarray(r["q"], np.float64)
+print(f"[v5] IK 细分总次数={sub_tot} (0=全部一次过)", flush=True)
+
+# ★生成后硬闸: 关节连续性 (v2 母带就是死在这里没查)
+_bad = 0
+for s in ("right", "left"):
+    dd = np.degrees(np.abs(np.diff(q_ik[s], axis=0)))
+    mx = dd.max(axis=1)
+    p95 = float(np.percentile(mx, 95))
+    print(f"[v5] {s} 逐行最大关节跳变: 中位={np.median(mx):.2f}° "
+          f"P95={p95:.2f}° 最大={mx.max():.2f}°", flush=True)
+    # ★闸门口径 (L5-11 修正): 原 3°/5° 是我拍的, 连真人做的动作都过不了
+    # (人手行实测 P95 8.03°/帧、最大 24.04°/帧)。改按"人做得到"定线。
+    if mx.max() > 25.0 or p95 > 8.0:
+        _bad += 1
+        _w = np.where(mx > 5.0)[0]
+        print(f"[v5]   {s} 越限行(交互行号): {_w[:12].tolist()}", flush=True)
+        for _b in _w[:4]:
+            _j = int(dd[_b].argmax())
+            print(f"[v5]     行{_b}->{_b+1}: j{_j+1} 跳 {dd[_b,_j]:.1f}°; "
+                  f"腕目标位移 {np.linalg.norm(_tgt(s,side_obj[s],_b+1)[0]-_tgt(s,side_obj[s],_b)[0])*100:.2f}cm; "
+                  f"腕目标转角 {np.degrees(np.arccos(np.clip((np.trace(_tgt(s,side_obj[s],_b)[1].T@_tgt(s,side_obj[s],_b+1)[1])-1)/2,-1,1))):.2f}°",
+                  flush=True)
+if _bad:
+    print("[v5] ★连续性硬闸未过 (要求 P95<8° 且 最大<25°, 按人手行实测定线) —— 不写母带", flush=True)
+    raise SystemExit(2)
+print("[v5] ✅ 连续性硬闸通过", flush=True)
 print(f"[v5] 交互IK: >1cm 失败 {fail_ik}/{Nrow*2} 最大误差={err_max*100:.2f}cm", flush=True)
 
 d1 = dict(np.load(V1, allow_pickle=True))
@@ -155,7 +355,11 @@ for oi in (0, 1):
     q = q0 * (1 - a) + q1 * sgn * a
     q = q / np.linalg.norm(q, axis=1, keepdims=True).clip(1e-9)
     obj_cols[f"obj_pos_{oi}"] = _splice(d1[f"obj_pos_{oi}"], pos)
-    obj_cols[f"obj_quat_{oi}"] = _splice(d1[f"obj_quat_{oi}"], q)
+    # ★平滑后的朝向写回 npz: 判据(皮筋/时钟门/G3)与 IK 必须用同一条轨迹, 否则
+    #   前馈按平滑轨迹走, 判据却按原始跳变轨迹打分 —— 自相矛盾。
+    q_sm = ref_obj[oi][:, 3:7].copy()
+    q_sm = q_sm / np.linalg.norm(q_sm, axis=1, keepdims=True)
+    obj_cols[f"obj_quat_{oi}"] = _splice(d1[f"obj_quat_{oi}"], q_sm)
     for cn in (f"conf_pos_{oi}", f"conf_rot_{oi}"):
         obj_cols[cn] = _splice(d1[cn], np.asarray(d1[cn])[IA0 + floor_map])
 src_new = _splice(d1["source"], np.ones(Nrow, np.int8))

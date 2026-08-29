@@ -65,12 +65,17 @@ _annot.attach(_rp)
 
 obs = env.reset()
 frames = []
+# ★闸门读数必须逐步取最大: IsaacLab 在 step() 内对终止 env 当场自动重置,
+#   回合结束后再读 PB.g* 读到的是重置后的空状态 (2026-08-28 实测全零假报)
+gmax = [0, 0, 0, 0]
 with torch.no_grad():
     for t in range(args.steps):
         inp = {"obs": agent.running_mean_std(obs["obs"]),
                "priv_info": obs["priv_info"]}
         mu = agent.model.act_inference(inp)
         obs, rew, dones, infos = env.step(torch.clamp(mu, -1.0, 1.0))
+        for _i, _g in enumerate((raw.PB.g1, raw.PB.g2, raw.PB.g3, raw.PB.g4)):
+            gmax[_i] = max(gmax[_i], int(_g[0]))
         raw.sim.render()
         d = _annot.get_data()
         if d is not None and getattr(d, "size", 0):
@@ -80,7 +85,7 @@ with torch.no_grad():
 os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
 imageio.mimsave(args.out, frames, fps=15)
 print(f"[record] {args.out} | {len(frames)} 帧 | 终步 {t} "
-      f"G链={[int(x) for x in (raw.PB.g1[0], raw.PB.g2[0], raw.PB.g3[0], raw.PB.g4[0])]}")
+      f"G链={gmax} (逐步取最大)")
 try:
     _slot.release()
 except Exception:

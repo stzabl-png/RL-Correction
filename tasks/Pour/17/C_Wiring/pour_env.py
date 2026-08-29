@@ -38,7 +38,10 @@ MASTER = os.environ.get("POUR_REF_NPZ") or os.path.abspath(os.path.join(
 OBS_DIM = 503   # v4: +滑移块8(每侧: 滑移量/滑速/垫压和/垫数) 2026-08-28 拍板
 ACT_DIM = 58
 LOOK_KS = (1, 2, 4, 8, 16)          # #12 拍板2: 几何梯前瞻
-DEV_ARM_MACHINE, DEV_ARM_HUMAN = 0.05, 0.08   # #13 拍板2: source 两档累积界
+DEV_ARM_MACHINE = 0.05              # 机器段(照谱)累积界
+# L5-10 用户拍板: 交互段残差界按置信档 —— 越不信参考, 给策略越大的绕开权限
+# (原全段 0.08 与"红档容差8cm"不自洽: 保证能力仅 3.2cm, 名义自由度是空转)
+DEV_ARM_TIER = {2: 0.05, 1: 0.08, 0: 0.10}   # 绿/黄/红
 D4_SLIP = 0.05                      # #10: 滑移 5cm; 超时动态见 __init__ (L5-3)
 FAIL_PEN, D6_PEN, D6_CAP = -10.0, -0.5, -10.0
 PAD_FTH = 0.5                       # N, 垫接触力阈 (M1 冒烟同款)
@@ -253,6 +256,15 @@ class PourEnv(GraspTaskEnv):
         gate_rows = torch.zeros(self.T_ROW, device=dev)
         gate_rows[self.APP_END:self.RETREAT0] = 1.0    # 缝1→交互→缝2 开
         self.fin_gate_rows = gate_rows
+        # 逐行臂残差界 (机器行=0.05; 交互行按 conf 档查表)
+        dev_rows = torch.full((self.T_ROW,), DEV_ARM_MACHINE, device=dev)
+        _tm = self.PB.tmix.detach().cpu().numpy()
+        for _k in range(self.PB.N_ROW):
+            dev_rows[self.IA0 + _k] = DEV_ARM_TIER[int(_tm[_k])]
+        self.dev_arm_rows = dev_rows
+        _cnt = {t: int((_tm == t).sum()) for t in (2, 1, 0)}
+        print(f"[PourEnv] 残差界按档: 绿{DEV_ARM_TIER[2]}({_cnt[2]}行) "
+              f"黄{DEV_ARM_TIER[1]}({_cnt[1]}行) 红{DEV_ARM_TIER[0]}({_cnt[0]}行)")
         # 2026-08-28 用户裁定补全: "不改动原轨迹"含臂 —— Approach 段臂残差同冻
         # (规划已是带碰撞检查的可行解, ±2cm臂权限曾致撞杯; 撤退臂保留=D8躲避正业)
         arm_gate = torch.ones(self.T_ROW, device=dev)
@@ -310,9 +322,7 @@ class PourEnv(GraspTaskEnv):
         delta[:, 14:] *= self.fin_gate_rows[r0].unsqueeze(1)   # 相A手指门(硬冻)
         self.cum_res = self.cum_res + delta
         r = self.row.clamp(max=self.T_ROW - 1)
-        src = self.SRC[r]
-        dev_arm = (DEV_ARM_MACHINE + (DEV_ARM_HUMAN - DEV_ARM_MACHINE)
-                   * (src == 1).float()).unsqueeze(1)
+        dev_arm = self.dev_arm_rows[r].unsqueeze(1)
         self.cum_res[:, :14] = torch.maximum(
             torch.minimum(self.cum_res[:, :14], dev_arm), -dev_arm)
         self.cum_res[:, 14:] = torch.maximum(
@@ -589,8 +599,7 @@ class PourEnv(GraspTaskEnv):
         ff = self._ff_row(r)          # 始终现算 (重置后缓存行会陈旧)
         # 残差归一
         src = self.SRC[r]
-        dev_arm = (DEV_ARM_MACHINE + (DEV_ARM_HUMAN - DEV_ARM_MACHINE)
-                   * (src == 1).float()).unsqueeze(1)
+        dev_arm = self.dev_arm_rows[r].unsqueeze(1)
         res_n = torch.cat([self.cum_res[:, :14] / dev_arm,
                            self.cum_res[:, 14:] / self.dev_fin], dim=1)
         # 前瞻 (双臂q差14 + w_obj1) x5

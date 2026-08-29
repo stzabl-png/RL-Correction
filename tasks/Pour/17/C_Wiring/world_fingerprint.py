@@ -23,6 +23,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 
 # 关键项: 对不上 = ckpt 在这台机器上无效, 直接拒跑
 CRITICAL = (
@@ -57,6 +58,42 @@ def _f(x):
         return None
 
 
+def _self_collision(env, sp):
+    """自碰撞开关的**生效值**, 返回 (值, 来源)。
+
+    ★USD 优先, 不是 cfg 优先: cfg 里写的值不一定被写进 stage
+    (2026-08-29 实测 cfg=True 而 USD authored=False, PhysX 认的是后者)。
+    ★读不到时返回 (None, ...) 而非 False —— "读不到"和"关着"是两回事,
+    把默认值当事实记下来就是"假值", 比记"未知"危险。
+    只查 env_0 一个 prim, 不做全 stage 遍历 —— 1024 env 下遍历会拖慢启动。
+    """
+    path = getattr(getattr(env, "hand", None), "cfg", None)
+    path = getattr(path, "prim_path", None)
+    why = "无 prim_path"
+    if path:
+        p0 = re.sub(r"env_[^/]*", "env_0", path)
+        try:
+            import omni.usd
+            stg = omni.usd.get_context().get_stage()
+            prim = stg.GetPrimAtPath(p0)
+            if prim and prim.IsValid():
+                a = prim.GetAttribute("physxArticulation:enabledSelfCollisions")
+                if a and a.IsValid() and a.HasAuthoredValue():
+                    return bool(a.Get()), f"USD:{p0}"
+                why = f"USD无authored值@{p0}"
+            else:
+                why = f"USD无此prim@{p0}"
+        except Exception as e:
+            # ★不能在这里 return: USD 读不到不代表 cfg 也没有。早先写成直接 return,
+            # 等于"有兜底也不用", 把已知信息丢掉退回未知 —— 是"记未知"矫枉过正的另一面。
+            why = f"USD不可读({type(e).__name__})"
+    v = getattr(getattr(sp, "articulation_props", None),
+                "enabled_self_collisions", None)
+    if v is not None:
+        return bool(v), f"cfg.spawn.articulation_props(★未必生效; {why})"
+    return None, f"unreadable({why}; cfg亦无)"
+
+
 def collect(env) -> dict:
     """从活的 env 采集世界指纹 (只采"世界", 不采方法)。"""
     sim, cfg = env.sim, env.cfg
@@ -83,6 +120,7 @@ def collect(env) -> dict:
         d["usd"] = getattr(getattr(art.cfg, "spawn", None), "usd_path", None)
         objs[oid] = d
 
+    _sc, _sc_src = _self_collision(env, sp)
     ref = getattr(env, "_master_path", None) or os.environ.get("POUR_REF_NPZ")
     fp = {
         "reference": {"path": ref, "md5": _md5(ref) if ref else None},
@@ -104,12 +142,8 @@ def collect(env) -> dict:
         "robot": {"usd": usd, "usd_md5": _md5(usd) if usd else None,
                   "num_joints_articulation": len(jn),
                   "controlled_joint_names_in_order": ctrl,
-                  # ★不可读时必须记 None, 不能记 False —— "读不到"和"关着"是两回事,
-                  # 后者会把一个错值当成事实交出去 (2026-08-29 实测: cfg 写 True,
-                  # 采集却记 False, 差点交给外部合作方)。
-                  "self_collision": (
-                      getattr(getattr(sp, "articulation_props", None),
-                              "enabled_self_collisions", None))},
+                  # ★记生效值 + 来源, 见 _self_collision() 注释。
+                  "self_collision": _sc, "self_collision_source": _sc_src},
         "sensors": {"count": len(getattr(env, "_all_sensors", [])),
                     "pad_force_threshold_N": None, "pads_min_per_hand": None},
         "scene": {"env_spacing_m": _f(getattr(cfg.scene, "env_spacing", None)),

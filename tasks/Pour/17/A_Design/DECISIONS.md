@@ -684,3 +684,33 @@
   故不是物理不同。
 - 判决实验: taitan 换 seed 8/9 重跑(P17v53_HYB_s8 / OBJ_s9)。
   **若照样卡住 ⟹ 机器相关; 若正常 ⟹ seed 运气, 且说明 seed 方差比我们以为的大。**
+
+### L5-20 共用工作区被切分支: 事故核查 + self_collision 记生效值 (2026-08-29)
+**事故**: Reconstruction session 在**同一个 worktree**(`git worktree list` 只有一条)里
+`git checkout Step3_Dexonomy → Step4_RL_Correction`, 而其本地 Step4 落后远端 14 个提交,
+HEAD 掉到 c35ec8a, 10 秒后 `git pull --ff-only` 才恢复。窗口 02:24:56–02:25:06。
+期间盘上 `pour17_reference_v2.npz` 被换成旧版(543行), `progress.py` 等约 20 个我方文件退版。
+
+**核查结论: 零污染, 八条线一条不重跑。** 四条独立证据:
+1. 母带 `np.load` 在 `pour_env.py:115` 的 `__init__` 里; `_reset_idx`(738起)无母带重读
+   ⟹ 已在跑的进程对盘上母带免疫。
+2. 本机 02:20–02:30 `ps -eo lstart` 全表筛查为空 ⟹ 无进程 import 到旧判据。
+3. ★**八条线全在远端**(taitan/msc/UCBY 各有独立 repo), 本地 checkout 传不过去;
+   逐台核盘: 母带 md5 三台全 `2ed81358`, progress.py 全 `5da0f8b7`, 与本机一致。
+4. 训练启动时间 taitan 02:14:41/02:15:26、msc 8-28 21:48 及 00:30/00:31、
+   UCBY 01:33:02/01:33:47 —— 全部早于 02:24:56。
+
+★**留给我们自己的教训**(不是对方的): 共用工作区下"我的分区/你的分区"只约束**写文件**,
+约束不了 `git checkout` —— 它一次性改写全仓。分区纪律必须补一条:
+**任何 checkout/reset/stash pop 之前先 fetch 确认本地不落后**(落后时 checkout 才会动工作区)。
+"push 前 fetch"挡不住这类事故, 因为事故发生在 push 之前。
+
+**顺带修复**: `world_fingerprint.py` 的 `self_collision` 原来只从 cfg 读, 拿到的是
+"写了 True 但未生效"的值(生效值是 USD authored 的 False, L5-18 已查明)。
+改为 **USD 优先 → cfg 兜底(标注★未必生效)→ None**, 并记 `self_collision_source`。
+中途自己犯了一个反向错误: `import omni.usd` 失败时直接 return, **吃掉了 cfg 兜底** ——
+"读不到就记未知"矫枉过正成"有兜底也不用", 同样是丢信息。已修。
+反证五例(按"造一个必然该红的输入"): USD=False/cfg=True 取 False ✅ ·
+USD=True/cfg=False 取 True ✅(证明非恒返回 False) · USD 无 authored 兜底取 cfg ✅ ·
+omni.usd 不可导入仍兜到 cfg ✅ · 两边都读不到返回 None 而非 False ✅。
+判据自检家族七件全绿。该项在 WARN 层不在 CRITICAL 层, 故此前不会造成误闸。

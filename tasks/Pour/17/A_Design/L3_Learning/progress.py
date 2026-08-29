@@ -10,8 +10,9 @@ rot15/30°/红禁, 时钟门5cm/45° 红档人手关节口径20°) 原样保留;
   placed 平稳放回: 双物回静置3cm/15° hold15 (内部态, 不付奖)
   G4 放稳=Success: 撤退归位 + 物体不被碰倒碰歪 (相对placed快照) +15 终局
 时钟: G2 前不走(自主抓稳继承); 渐进RSI: entry_table(unlocked) 按已解锁Gate给出生点。
-变体: no_hand_ref=True → P-OBJ消融(红档宽物门8cm无手接管, w_obj恒1);
-      False → P-HYB(已拍双参考体制, 红档人手轨迹接管, v2母带用 human_* 行)。
+变体: no_hand_ref 只影响 out["w_obj"]/out["w_hand"](奖励侧输出);
+      ★L5-6 起时钟门已双体制统一(红档=宽物门8cm、rot不判), 人手绝对位姿参考
+      全面废除 —— 故本旗对判据/成败/死线**零影响**, 评测侧保持默认即可。
 消费母带: pour17_reference_v2.npz (v1 亦兼容: 无 human_* 时用主行)。
 机器段(approach/retreat)不归本模块管辖 —— 本模块只覆盖 interact 行。
 """

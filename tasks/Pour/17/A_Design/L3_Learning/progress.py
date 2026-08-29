@@ -69,6 +69,67 @@ def _axis_tilt(q, up_local):
     return float(np.arccos(np.clip(v[2] / max(np.linalg.norm(v), 1e-9), -1, 1)))
 
 
+# =============================================================================
+#   判据摘要 (L5-26): 只覆盖**决定成败判定**的常量, 不含奖励权重与任何计数器。
+#
+#   为什么不用整文件哈希 (与 Reconstruction 会商定案):
+#     整文件哈希分不出"判定变了"与"记账变了"。2026-08-29 一天之内本文件被改三次
+#     (cert_fail 计数 / term 死因分项 / collide_flags), **三次都是纯记账**,
+#     Gate 判定一字未动(selftest_progress_batch 逐位对拍 + selftest_regime 13 条
+#     断言作证)。整文件哈希会让这三次每一次都把所有历史 ckpt 判红。
+#     ★一天误报三次的闸门, 人第二天就开始无视它 —— 那比没有闸门更糟, 因为它还
+#      额外提供"我们有闸门"的错觉。
+#
+#   为什么同时给 items 而不只给 digest:
+#     只给哈希, 消费方只能得到"变了/没变"。加一项判据时哈希必变, 于是"清单扩了"
+#     和"阈值变了"又混成一团 —— 就是刚避开的坑换个地方复发。给出逐项表, 消费方
+#     可以精确说出: 哪些键新增、哪些键的值变了。
+# =============================================================================
+CRITERIA_SCHEMA = 1
+
+
+def criteria_items():
+    """决定成败判定的常量表 (键 -> 规范化后的值)。奖励权重不在内。"""
+    import numpy as _np
+
+    def _n(v):
+        if isinstance(v, dict):
+            return {str(k): _n(v[k]) for k in sorted(v, key=str)}
+        if isinstance(v, (list, tuple)):
+            return [_n(x) for x in v]
+        if v is None:
+            return None
+        try:
+            return round(float(v), 9)
+        except Exception:
+            return str(v)
+
+    return {k: _n(val) for k, val in {
+        "GATE_POS": GATE_POS, "GATE_ROT": GATE_ROT,
+        "RED_GATE_POS": RED_GATE_POS,
+        "LEASH_POS": LEASH_POS, "LEASH_ROT": LEASH_ROT,
+        "G1_HOLD": G1_HOLD,
+        "CERT_RAMP": CERT_RAMP, "CERT_HOLD": CERT_HOLD, "CERT_RET": CERT_RET,
+        "CERT_RISE": CERT_RISE, "CERT_SLIP": CERT_SLIP,
+        "CERT_WAIT": CERT_WAIT, "CERT_TRIES": CERT_TRIES,
+        "M2_TILT": M2_TILT, "M2_HOLD": M2_HOLD,
+        "M3_POS": M3_POS, "M3_ROT": M3_ROT, "M3_HOLD": M3_HOLD,
+        "M4_ARM": M4_ARM, "M4_HOLD": M4_HOLD,
+        "M4_DIST_POS": M4_DIST_POS, "M4_DIST_ROT": M4_DIST_ROT,
+        "D1_DROP": D1_DROP, "D2_TILT": D2_TILT, "D3_DEV": D3_DEV,
+        "TABLE_Z": TABLE_Z,
+    }.items()}
+
+
+def criteria_digest():
+    """返回 (schema, digest16)。schema 变 = 清单扩了(预期); schema 不变而
+    digest 变 = 阈值真的改了(真警报)。"""
+    import hashlib as _h
+    import json as _j
+    blob = _j.dumps(criteria_items(), sort_keys=True, ensure_ascii=False)
+    return CRITERIA_SCHEMA, _h.md5(blob.encode()).hexdigest()[:16]
+
+
 class PourProgress:
     """时钟=交互行索引, 只进不退。每步喂实测, 吐奖励账目."""
 

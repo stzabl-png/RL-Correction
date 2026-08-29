@@ -39,28 +39,80 @@ for k in ("pad_r", "pad_l", "d6", "noc_arm", "obj_obj"):
     print(f"[probe] {k:8s} n={len(ss)} net={tuple(nf.shape) if nf is not None else None}"
           f" mat={tuple(fm.shape) if fm is not None else None}", flush=True)
 
-acc = {k: 0 for k in ("arm", "pad", "objobj", "d6")}
-mx = {k: 0.0 for k in ("arm", "pad", "objobj", "d6")}
-E.reset()
-a = torch.zeros(E.num_envs, PE.ACT_DIM, device=E.device)
-for t in range(args.steps):
-    E.step(a)
-    c = E._collide()
-    for k in acc:
-        acc[k] += int(c[k].sum())
-    for k, ss in (("arm", E._seg("noc_arm")), ("d6", E._seg("d6")),
-                  ("objobj", E._seg("obj_obj"))):
-        if ss:
-            at = "net_forces_w" if k == "arm" else "force_matrix_w"
-            v = torch.cat([getattr(s.data, at).reshape(E.num_envs, -1, 3)
-                           for s in ss], dim=1).nan_to_num(0.0).norm(dim=-1).max()
-            mx[k] = max(mx[k], float(v))
+def sweep(tag, action_fn, steps):
+    """跑一段, 返回 (触发计数, 各通道观测到的最大力)。"""
+    acc = {k: 0 for k in ("arm", "pad", "objobj", "d6")}
+    mx = {k: 0.0 for k in ("arm", "pad", "objobj", "d6", "pad_net")}
+    perbody = [[0, 0.0] for _ in range(len(E._seg("noc_arm")))]
+    E.reset()
+    trace = []
+    for t in range(steps):
+        E.step(action_fn(t))
+        c = E._collide()
+        if t % 50 == 0 or t == steps - 1:
+            pn = 0.0
+            ps = E._seg("pad_r") + E._seg("pad_l")
+            if ps:
+                pn = float(torch.cat([s.data.net_forces_w.reshape(E.num_envs, -1, 3)
+                                      for s in ps], dim=1).nan_to_num(0.0)
+                           .norm(dim=-1).max())
+            trace.append((t, int(E.row.float().mean()), pn,
+                          int(E.PB.g1.sum()), int(E.PB.g2.sum())))
+        for k in acc:
+            acc[k] += int(c[k].sum())
+        for _i, _sn in enumerate(E._seg("noc_arm")):
+            _nn = _sn.data.net_forces_w.reshape(E.num_envs, -1, 3) \
+                .nan_to_num(0.0).norm(dim=-1)
+            perbody[_i][0] += int((_nn > 1.0).any(dim=1).sum())
+            perbody[_i][1] = max(perbody[_i][1], float(_nn.max()))
+        for k, ss, at in (("arm", E._seg("noc_arm"), "net_forces_w"),
+                          ("d6", E._seg("d6"), "force_matrix_w"),
+                          ("objobj", E._seg("obj_obj"), "force_matrix_w"),
+                          ("pad_net", E._seg("pad_r") + E._seg("pad_l"),
+                           "net_forces_w"),
+                          ("pad", E._seg("pad_r") + E._seg("pad_l"),
+                           "force_matrix_w")):
+            if ss:
+                v = torch.cat([getattr(s.data, at).reshape(E.num_envs, -1, 3)
+                               for s in ss], dim=1).nan_to_num(0.0).norm(dim=-1).max()
+                mx[k] = max(mx[k], float(v))
+    print(f"\n[probe] === {tag} ({steps} 步 × {E.num_envs} env) ===", flush=True)
+    for k in ("arm", "pad", "objobj", "d6"):
+        print(f"[probe]   {k:8s} 触发={acc[k]:5d}  最大力={mx[k]:.3f} N", flush=True)
+    print(f"[probe]   [正对照] 手垫净接触力最大 = {mx['pad_net']:.3f} N "
+          f"(抓着物体时必须 >0, 否则整条接触链路是死的)", flush=True)
+    NAMES = ["R_arm_l5", "R_arm_l7", "R_arm_l8", "right_hand_C_MC",
+             "L_arm_l5", "L_arm_l7", "L_arm_l8", "left_hand_C_MC"]
+    print("[probe]   逐体分解 (到底是哪个体在碰):", flush=True)
+    for _i, _nm in enumerate(NAMES[:len(perbody)]):
+        print(f"[probe]     {_nm:18s} 触发={perbody[_i][0]:5d} "
+              f"最大力={perbody[_i][1]:7.3f} N", flush=True)
+    print("[probe]   轨迹 (步/参考行/垫净力/G1数/G2数):", flush=True)
+    for t, r, pn, g1, g2 in trace:
+        print(f"[probe]     t={t:4d} row={r:4d} padN={pn:7.3f} g1={g1} g2={g2}",
+              flush=True)
+    return acc, mx
 
-print(f"\n[probe] 零动作 {args.steps} 步 × {E.num_envs} env 结果:", flush=True)
-for k in acc:
-    print(f"[probe]   {k:8s} 触发步数={acc[k]:5d}  观测到的最大力={mx[k]:.3f} N", flush=True)
-print("\n[probe] ★判读: 力恒为 0.000 = 传感器没绑上(D6 的老毛病);"
-      "\n[probe]        力有非零值 = 通道是活的, 判据才有意义。", flush=True)
+
+Z = torch.zeros(E.num_envs, PE.ACT_DIM, device=E.device)
+a0, m0 = sweep("A 零动作(参考回放)", lambda t: Z, args.steps)
+
+# ★必然该红的输入: 把两条手臂的残差打满并相向, 强行制造碰撞。
+# 若这样都读不到力, 说明通道是死的 —— 这是本探针的核心判据。
+BIG = torch.zeros(E.num_envs, PE.ACT_DIM, device=E.device)
+BIG[:, 0:7] = 1.0        # 右臂 7 关节残差打满
+BIG[:, 7:14] = -1.0      # 左臂 7 关节反向打满
+a1, m1 = sweep("B 双臂残差打满相向(强行制造碰撞)", lambda t: BIG, args.steps)
+
+print("\n[probe] ★判读表", flush=True)
+live_pad = m0["pad_net"] > 0 or m1["pad_net"] > 0
+live_arm = m1["arm"] > 0 or m0["arm"] > 0
+print(f"[probe]   接触链路是否活的(垫净力>0)      : {'✅ 是' if live_pad else '★否 —— 整条链路死的'}",
+      flush=True)
+print(f"[probe]   臂传感器能否读到力(B段)          : {'✅ 能' if live_arm else '★不能'}",
+      flush=True)
+print(f"[probe]   A段全零 + B段非零 ⟹ A的0是真的没碰, 不是没绑上", flush=True)
+print(f"[probe]   A段全零 + B段也全零 ⟹ ★通道有问题, 判据无意义", flush=True)
 sys.stdout.flush()
 app.close()
 os._exit(0)

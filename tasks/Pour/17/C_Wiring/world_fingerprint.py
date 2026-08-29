@@ -29,6 +29,9 @@ import re
 CRITICAL = (
     "robot.usd_md5", "robot.controlled_joint_names_in_order",
     "reference.md5", "policy_io.obs_dim", "policy_io.act_dim",
+    # ★L5-26: 判据摘要 —— 改阈值=改成败判定, 属关键项。与整文件哈希不同,
+    # 加计数器不会动它(见 progress.criteria_items 的说明)。
+    "criteria.digest", "criteria.schema",
     "time.control_dt_s", "time.decimation",
     "table.table_top_z_m",
     "objects.object_1.mass_kg", "objects.object_1.static_friction",
@@ -133,12 +136,20 @@ def collect(env) -> dict:
         objs[oid] = d
 
     _sc, _sc_src = _self_collision(env, sp)
+    try:
+        import progress as _PG
+        _cs, _cd = _PG.criteria_digest()
+        _crit = {"schema": _cs, "digest": _cd, "items": _PG.criteria_items()}
+    except Exception as e:                       # 读不到就记未知, 不记假值
+        _crit = {"schema": None, "digest": None,
+                 "items": None, "error": type(e).__name__}
     ref = getattr(env, "_master_path", None) or os.environ.get("POUR_REF_NPZ")
     fp = {
         "reference": {"path": ref, "md5": _md5(ref) if ref else None},
         "policy_io": {"obs_dim": int(getattr(cfg, "observation_space", 0)) or None,
                       "act_dim": int(getattr(cfg, "action_space", 0)) or None},
         "schema": "world_fingerprint_v1",
+        "criteria": _crit,
         "time": {"physics_dt_s": _f(sim.get_physics_dt()),
                  "control_dt_s": _f(sim.get_physics_dt()
                                     * int(getattr(cfg, "decimation", 1))),

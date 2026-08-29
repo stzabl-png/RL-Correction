@@ -81,7 +81,7 @@ def build_cfg(num_envs=1):
     if os.environ.get("POUR_NO_D6") == "1":
         cfg.sensor_slices = {"pad_r": (0, 5), "pad_l": (5, 10),
                              "d6": (10, 10), "noc_arm": (10, 10),
-                             "obj_obj": (10, 10)}          # 全空段
+                             "palm": (10, 10), "obj_obj": (10, 10)}   # 全空段
         cfg.approach_only = True
         apply_grasp_prior(cfg, "tasks/pregrasp/priors/Pour17_bottle_thumbfix.npz",
                           19.5, approach=True)
@@ -103,25 +103,36 @@ def build_cfg(num_envs=1):
             for n in _RD]                                   # D6: 4 个 (右体 × 左组)
     # ★禁碰传感器 (拍板: 只有手和自己要操作的物体可以碰): 臂节与掌根**不该碰任何
     # 东西**, 所以用不带 filter 的净接触力, 判据精确且便宜(无力矩阵)。
+    # 掌根归组更正 (实测): 零动作参考回放里 813 次"禁碰"全部来自掌根
+    # (right_hand_C_MC 810 次 23.97N / left_hand_C_MC 417 次 4.97N), 臂连杆
+    # l5/l7/l8 一次都没碰过。而掌根碰的正是它自己要操作的物体 -- 掌根是手的一部分,
+    # 按"手可以碰自己的物体"本就该允许。若按原归组上 pen, 等于罚策略跟随参考。
     _new += [ContactSensorCfg(prim_path=f"/World/envs/env_.*/Robot/{n}",
                               history_length=1)
-             for n in (_RD + _LD)]                          # 禁碰臂: 8 个
+             for n in (_RD[:3] + _LD[:3])]                  # 禁碰臂连杆: 6 个
+    # 掌根: 与手垫同规矩(净力 - 对自物体的力); 碰自己物体合法, 碰别的算禁碰
+    _new += [ContactSensorCfg(prim_path="/World/envs/env_.*/Robot/right_hand_C_MC",
+                              history_length=1,
+                              filter_prim_paths_expr=["/World/envs/env_.*/Object"]),
+             ContactSensorCfg(prim_path="/World/envs/env_.*/Robot/left_hand_C_MC",
+                              history_length=1,
+                              filter_prim_paths_expr=["/World/envs/env_.*/Aux"])]
     # 物体互撞(瓶 vs 杯): 需要物体 spawn 开 activate_contact_sensors, 否则
     # ContactSensor 初始化直接 RuntimeError(实测)。开它=改世界, 故挂开关默认关。
     _oc = os.environ.get("POUR_OBJ_CONTACT") == "1"
     if _oc:
-        for _a in ("object", "aux"):
-            _ac = getattr(cfg, _a, None)
-            _sp = getattr(_ac, "spawn", None) if _ac is not None else None
-            if _sp is not None and hasattr(_sp, "activate_contact_sensors"):
-                _sp.activate_contact_sensors = True
+        # ★不能在 spawn 阶段设 activate_contact_sensors: 主物体的 usd 是**纯视觉
+        # 网格**, 刚体是 correction_env._setup_scene 运行时才贴的, spawn 时
+        # prim 下没有 rigid body ⟹ IsaacLab 直接 ValueError(实测)。
+        # 正确位置 = 贴完刚体之后, 见 PourEnv._setup_scene 里的 ContactReportAPI。
+        pass
         _new += [ContactSensorCfg(prim_path="/World/envs/env_.*/Object",
                                   history_length=1,
                                   filter_prim_paths_expr=["/World/envs/env_.*/Aux"])]
     cfg.contact_sensors = list(cfg.contact_sensors) + _new
     # ★索引区段显式记账: 原来靠 [:5]/[5:10]/[10:] 魔法切片, 一加传感器就串位。
     cfg.sensor_slices = {"pad_r": (0, 5), "pad_l": (5, 10), "d6": (10, 14),
-                         "noc_arm": (14, 22),
+                         "noc_arm": (14, 20), "palm": (20, 22),
                          "obj_obj": (22, 23) if _oc else (22, 22)}
     cfg.approach_only = True
     apply_grasp_prior(cfg, "tasks/pregrasp/priors/Pour17_bottle_thumbfix.npz",
@@ -138,12 +149,29 @@ class PourEnv(GraspTaskEnv):
 
     def _setup_scene(self):
         super()._setup_scene()
+        if os.environ.get("POUR_OBJ_CONTACT") == "1":
+            # 物体接触上报: 必须在刚体贴好之后、传感器初始化(sim.reset)之前。
+            # 只对 env_0 施加, 其余 env 由场景克隆复制(与刚体化同一套路)。
+            import omni.usd
+            from pxr import PhysxSchema
+            _stg = omni.usd.get_context().get_stage()
+            _done = []
+            for _pth in ("/World/envs/env_0/Object", "/World/envs/env_0/Aux"):
+                _pr = _stg.GetPrimAtPath(_pth)
+                if _pr and _pr.IsValid():
+                    PhysxSchema.PhysxContactReportAPI.Apply(_pr)
+                    _done.append(_pth.rsplit("/", 1)[-1])
+            assert len(_done) == 2, \
+                f"POUR_OBJ_CONTACT=1 但只给 {_done} 加上了接触上报 —— " \
+                f"缺的那个物体的碰撞检测不到, 不能静默继续"
+            print(f"[setup] 物体接触上报已开: {_done}", flush=True)
         self._all_sensors = list(self._contact_sensors)
         self._slices = dict(getattr(self.cfg, "sensor_slices", {}))
         if not self._slices:                       # 兜底: 老配方(无禁碰传感器)
             self._slices = {"pad_r": (0, 5), "pad_l": (5, 10),
                             "d6": (10, len(self._all_sensors)),
-                            "noc_arm": (0, 0), "obj_obj": (0, 0)}
+                            "noc_arm": (0, 0), "palm": (0, 0),
+                            "obj_obj": (0, 0)}
         self._contact_sensors = self._all_sensors[:5]   # 父类内部形状 5 (冒烟同款)
 
     def __init__(self, cfg, **kw):
@@ -481,7 +509,7 @@ class PourEnv(GraspTaskEnv):
         E = torch.zeros(N, 0, 3, device=dev)
         cat = (lambda ss, a: torch.cat([getattr(s.data, a).reshape(N, -1, 3)
                                         for s in ss], dim=1) if ss else E)
-        pads = self._seg("pad_r") + self._seg("pad_l")
+        pads = self._seg("pad_r") + self._seg("pad_l") + self._seg("palm")
         if pads:
             netp = torch.stack([s.data.net_forces_w.reshape(N, -1, 3)
                                 .norm(dim=-1).amax(dim=1) for s in pads], dim=1)

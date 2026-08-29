@@ -119,10 +119,12 @@ M["robot"] = {
     "num_controlled_joints": len(ctrl),
     "controlled_joint_names_in_order": ctrl,
     "controlled_layout": "[R_arm 7, L_arm 7, right_fingers 22, left_fingers 22]",
-    "self_collision": bool(getattr(getattr(E.hand.cfg, "spawn", None),
-                                   "articulation_props", None)
-                           and getattr(E.hand.cfg.spawn.articulation_props,
-                                       "enabled_self_collisions", None)),
+    # ★不可读时记 None 而非 False: "读不到"与"关着"是两回事 (2026-08-29 实测,
+    # cfg 写 True 而此处记了 False, 差点把错值交出去)
+    "self_collision": getattr(getattr(getattr(E.hand.cfg, "spawn", None),
+                                      "articulation_props", None),
+                              "enabled_self_collisions", None),
+
     "body_names": list(E.hand.body_names),
 }
 try:

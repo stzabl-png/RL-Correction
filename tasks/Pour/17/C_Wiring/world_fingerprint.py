@@ -104,9 +104,12 @@ def collect(env) -> dict:
         "robot": {"usd": usd, "usd_md5": _md5(usd) if usd else None,
                   "num_joints_articulation": len(jn),
                   "controlled_joint_names_in_order": ctrl,
-                  "self_collision": bool(
+                  # ★不可读时必须记 None, 不能记 False —— "读不到"和"关着"是两回事,
+                  # 后者会把一个错值当成事实交出去 (2026-08-29 实测: cfg 写 True,
+                  # 采集却记 False, 差点交给外部合作方)。
+                  "self_collision": (
                       getattr(getattr(sp, "articulation_props", None),
-                              "enabled_self_collisions", False))},
+                              "enabled_self_collisions", None))},
         "sensors": {"count": len(getattr(env, "_all_sensors", [])),
                     "pad_force_threshold_N": None, "pads_min_per_hand": None},
         "scene": {"env_spacing_m": _f(getattr(cfg.scene, "env_spacing", None)),

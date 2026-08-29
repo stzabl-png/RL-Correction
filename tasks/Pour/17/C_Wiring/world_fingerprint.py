@@ -40,6 +40,9 @@ WARN = (
     "switches.friction_curriculum", "switches.obj_jitter_xy",
     "robot.self_collision", "sensors.pad_force_threshold_N",
     "sensors.pads_min_per_hand",
+    # ★L5-25: 加/减接触传感器**会改世界**, 而此前指纹里没有任何一项能看见它 ——
+    # 换了传感器配置的 ckpt 会静默"匹配"。至少让它在提示层可见。
+    "sensors.count",
 )
 
 
@@ -80,7 +83,16 @@ def _self_collision(env, sp):
                 a = prim.GetAttribute("physxArticulation:enabledSelfCollisions")
                 if a and a.IsValid() and a.HasAuthoredValue():
                     return bool(a.Get()), f"USD:{p0}"
-                why = f"USD无authored值@{p0}"
+                # ★属性常常 authored 在子 prim(articulation root 未必是顶层)。
+                # 早先只查顶层, 在 msc 上报"无 authored 值", 而独立 pxr 复核到的是
+                # False —— 少查一层就把"已知"降级成了"未知"。只遍历 env_0 这一棵
+                # 子树, 与 1024 env 无关, 开销可忽略。
+                from pxr import Usd
+                for c in Usd.PrimRange(prim):
+                    a = c.GetAttribute("physxArticulation:enabledSelfCollisions")
+                    if a and a.IsValid() and a.HasAuthoredValue():
+                        return bool(a.Get()), f"USD:{c.GetPath().pathString}"
+                why = f"USD子树无authored值@{p0}"
             else:
                 why = f"USD无此prim@{p0}"
         except Exception as e:

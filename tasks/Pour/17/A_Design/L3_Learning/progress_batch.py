@@ -42,6 +42,37 @@ def _qang(a, b):
     return 2 * torch.acos(d)
 
 
+def collide_flags(net_arm, net_pad, fil_pad, fm_objobj, fm_d6, thr=1.0):
+    """禁碰判断(纯张量逻辑, 与 Isaac 无关, 便于自检)。
+
+    约定: **只有手垫与自己要操作的物体可以接触**, 其余一切接触都是禁碰。
+      net_arm  (N,Ka,3) 臂节/掌根的**净**接触力 —— 这些体不该碰任何东西
+      net_pad  (N,Kp)   手垫净接触力模长(每垫取最大)
+      fil_pad  (N,Kp)   手垫对**自己物体**的接触力模长
+      fm_objobj(N,Ko,3) 瓶对杯的接触力
+      fm_d6    (N,Kd,3) 右侧体对左侧体的接触力
+    返回 dict of (N,) bool。
+    ★判据: 垫的"净力 - 对自物体的力 > thr" ⟹ 还碰到了别的东西。这是模长差,
+      不是矢量分解 —— 同向叠加时会低估, 故属**保守**(漏报而非误报)。
+    """
+    import torch as _t
+    z = lambda x: _t.nan_to_num(x, nan=0.0)          # noqa: E731
+    N = net_pad.shape[0] if net_pad is not None and net_pad.numel() else (
+        net_arm.shape[0] if net_arm is not None else 0)
+    out = {}
+    out["arm"] = ((z(net_arm).norm(dim=-1) > thr).any(dim=1)
+                  if net_arm is not None and net_arm.numel()
+                  else _t.zeros(N, dtype=_t.bool, device=net_pad.device))
+    out["pad"] = (((z(net_pad) - z(fil_pad)) > thr).any(dim=1)
+                  if net_pad is not None and net_pad.numel()
+                  else _t.zeros(N, dtype=_t.bool))
+    for k, fm in (("objobj", fm_objobj), ("d6", fm_d6)):
+        out[k] = ((z(fm).norm(dim=-1) > thr).any(dim=1)
+                  if fm is not None and fm.numel()
+                  else _t.zeros(N, dtype=_t.bool, device=out["arm"].device))
+    return out
+
+
 class PourProgressBatch:
     def __init__(self, npz_path, num_envs, device,
                  mouth_local_bot, mouth_local_cup,

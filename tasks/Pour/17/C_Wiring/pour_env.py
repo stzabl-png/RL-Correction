@@ -32,6 +32,7 @@ from progress import (PourProgress, _axis_tilt, CERT_RAMP, CERT_RET,  # noqa: E4
                       G1_HOLD)
 from progress_batch import (  # noqa: E402
     M2_HOLD, M3_HOLD, M4_HOLD, PourProgressBatch, TABLE_Z)
+import progress_batch as PBM  # noqa: E402
 
 MASTER = os.environ.get("POUR_REF_NPZ") or os.path.abspath(os.path.join(
     _HERE, "..", "A_Design", "L2_Reference", "pour17_reference_v2.npz"))
@@ -44,6 +45,10 @@ DEV_ARM_MACHINE = 0.05              # 机器段(照谱)累积界
 DEV_ARM_TIER = {2: 0.05, 1: 0.08, 0: 0.10}   # 绿/黄/红
 D4_SLIP = 0.05                      # #10: 滑移 5cm; 超时动态见 __init__ (L5-3)
 FAIL_PEN, D6_PEN, D6_CAP = -10.0, -0.5, -10.0
+COLLIDE_FTH = 1.0                    # 禁碰力阈值 N
+# 禁碰处置: off=只记账不改行为(默认) / pen=逐步小罚 / kill=死线终止
+COLLIDE_MODE = os.environ.get("POUR_COLLIDE", "off")
+COLLIDE_PEN = float(os.environ.get("POUR_COLLIDE_PEN", "0.5"))
 PAD_FTH = 0.5                       # N, 垫接触力阈 (M1 冒烟同款)
 PADS_MIN = 3                        # G1 垫数阈 (L5-1: 探针标定, 左手位形上限3)
 _LPADS = ["left_thumb_elastomer", "left_index_elastomer", "left_middle_elastomer",
@@ -74,6 +79,9 @@ def build_cfg(num_envs=1):
     # 右侧远端外壳 × 左侧远端外壳, 判力不判距
     # POUR_NO_D6=1 跳过 (录像 1-env 下 PhysX 过滤展开数断言, 训练 512env 无此病)
     if os.environ.get("POUR_NO_D6") == "1":
+        cfg.sensor_slices = {"pad_r": (0, 5), "pad_l": (5, 10),
+                             "d6": (10, 10), "noc_arm": (10, 10),
+                             "obj_obj": (10, 10)}          # 全空段
         cfg.approach_only = True
         apply_grasp_prior(cfg, "tasks/pregrasp/priors/Pour17_bottle_thumbfix.npz",
                           19.5, approach=True)
@@ -82,14 +90,39 @@ def build_cfg(num_envs=1):
         cfg.action_space = ACT_DIM
         cfg.observation_space = OBS_DIM
         return cfg
-    _rx = "(R_arm_l5|R_arm_l7|R_arm_l8|right_hand_C_MC|right_.*_elastomer)"
-    _lf = ["L_arm_l5", "L_arm_l7", "L_arm_l8", "left_hand_C_MC",
-           "left_.*_elastomer"]
-    cfg.contact_sensors = list(cfg.contact_sensors) + [
-        ContactSensorCfg(prim_path=f"/World/envs/env_.*/Robot/{_rx}",
-                         history_length=1,
-                         filter_prim_paths_expr=[
-                             f"/World/envs/env_.*/Robot/{n}" for n in _lf])]
+    # ★L5-25 修 D6 绑定 (实测 bug): 原写法源 prim 用正则匹配 9 个体, 而每个
+    # filter 表达式只展开 512 个 —— PhysX 要求"每个 filter 展开数 == 源体数",
+    # 于是启动即报 `expected 4608, found 512` 且力矩阵恒零。**D6 从未工作过**
+    # (5 条线 7900 万步 pen6 恒为 0)。正确形态见垫传感器: **1 个源体 : N 个 filter**。
+    _RD = ["R_arm_l5", "R_arm_l7", "R_arm_l8", "right_hand_C_MC"]
+    _LD = ["L_arm_l5", "L_arm_l7", "L_arm_l8", "left_hand_C_MC"]
+    _lf = [f"/World/envs/env_.*/Robot/{n}" for n in
+           ("L_arm_l5", "L_arm_l7", "L_arm_l8", "left_hand_C_MC")]
+    _new = [ContactSensorCfg(prim_path=f"/World/envs/env_.*/Robot/{n}",
+                             history_length=1, filter_prim_paths_expr=_lf)
+            for n in _RD]                                   # D6: 4 个 (右体 × 左组)
+    # ★禁碰传感器 (拍板: 只有手和自己要操作的物体可以碰): 臂节与掌根**不该碰任何
+    # 东西**, 所以用不带 filter 的净接触力, 判据精确且便宜(无力矩阵)。
+    _new += [ContactSensorCfg(prim_path=f"/World/envs/env_.*/Robot/{n}",
+                              history_length=1)
+             for n in (_RD + _LD)]                          # 禁碰臂: 8 个
+    # 物体互撞(瓶 vs 杯): 需要物体 spawn 开 activate_contact_sensors, 否则
+    # ContactSensor 初始化直接 RuntimeError(实测)。开它=改世界, 故挂开关默认关。
+    _oc = os.environ.get("POUR_OBJ_CONTACT") == "1"
+    if _oc:
+        for _a in ("object", "aux"):
+            _ac = getattr(cfg, _a, None)
+            _sp = getattr(_ac, "spawn", None) if _ac is not None else None
+            if _sp is not None and hasattr(_sp, "activate_contact_sensors"):
+                _sp.activate_contact_sensors = True
+        _new += [ContactSensorCfg(prim_path="/World/envs/env_.*/Object",
+                                  history_length=1,
+                                  filter_prim_paths_expr=["/World/envs/env_.*/Aux"])]
+    cfg.contact_sensors = list(cfg.contact_sensors) + _new
+    # ★索引区段显式记账: 原来靠 [:5]/[5:10]/[10:] 魔法切片, 一加传感器就串位。
+    cfg.sensor_slices = {"pad_r": (0, 5), "pad_l": (5, 10), "d6": (10, 14),
+                         "noc_arm": (14, 22),
+                         "obj_obj": (22, 23) if _oc else (22, 22)}
     cfg.approach_only = True
     apply_grasp_prior(cfg, "tasks/pregrasp/priors/Pour17_bottle_thumbfix.npz",
                       19.5, approach=True)
@@ -106,6 +139,11 @@ class PourEnv(GraspTaskEnv):
     def _setup_scene(self):
         super()._setup_scene()
         self._all_sensors = list(self._contact_sensors)
+        self._slices = dict(getattr(self.cfg, "sensor_slices", {}))
+        if not self._slices:                       # 兜底: 老配方(无禁碰传感器)
+            self._slices = {"pad_r": (0, 5), "pad_l": (5, 10),
+                            "d6": (10, len(self._all_sensors)),
+                            "noc_arm": (0, 0), "obj_obj": (0, 0)}
         self._contact_sensors = self._all_sensors[:5]   # 父类内部形状 5 (冒烟同款)
 
     def __init__(self, cfg, **kw):
@@ -323,8 +361,11 @@ class PourEnv(GraspTaskEnv):
         # 出口。若当初有人接上去, 会读到一串 0 并得出"没有死于 D1~D8"的假结论。
         self.tb = {k: 0 for k in
                    ("term/D1_pre", "term/D2_pre", "term/D3_pre", "term/D4_slip",
-                    "term/D5_table", "term/D7_timeout", "term/judge_fail",
-                    "term/M4_success")}
+                    "term/D5_table", "term/D9_collide", "term/D7_timeout",
+                    "term/judge_fail", "term/M4_success",
+                    "term/collide_arm", "term/collide_pad",
+                    "term/collide_objobj", "term/collide_d6",
+                    "term/collide_any")}
         self.tb["d6_pen_sum"] = 0.0
         self.tb["ep"] = 0
 
@@ -411,15 +452,48 @@ class PourEnv(GraspTaskEnv):
 
     def _pads_f(self):
         F = torch.cat([s.data.force_matrix_w.view(self.num_envs, 1, 3)
-                       for s in self._all_sensors[:10]], dim=1).nan_to_num(0.0)
+                       for s in (self._seg("pad_r") + self._seg("pad_l"))],
+                      dim=1).nan_to_num(0.0)
         return F                                          # (N,10,3) 前5右vs瓶 后5左vs杯
 
+    def _seg(self, key):
+        a, b = self._slices.get(key, (0, 0))
+        return self._all_sensors[a:b]
+
     def _d6_hit(self):
-        if len(self._all_sensors) <= 10:
+        ss = self._seg("d6")
+        if not ss:
             return torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         fm = torch.cat([s.data.force_matrix_w.reshape(self.num_envs, -1, 3)
-                        for s in self._all_sensors[10:]], dim=1).nan_to_num(0.0)
-        return (fm.norm(dim=-1) > 1.0).any(dim=1)
+                        for s in ss], dim=1).nan_to_num(0.0)
+        return (fm.norm(dim=-1) > COLLIDE_FTH).any(dim=1)
+
+    def _collide(self):
+        """禁碰检测。返回 dict of (N,) bool。
+        约定: **只有手垫与自己要操作的物体可以接触**; 其余一切接触都是禁碰。
+        - arm : 臂节/掌根碰到任何东西 (无 filter 的净接触力, 精确)
+        - pad : 手垫碰到了自己物体以外的东西 (净力 - 对自己物体的力)
+        - objobj : 瓶碰杯
+        - d6 : 左右两侧互撞 (修好后的 D6)
+        ★覆盖边界: 臂只装了远端 4 节/侧 (l5/l7/l8/掌根, 沿用 FK 可达剪枝),
+        近端 l1~l4 未覆盖 —— 不能声称"检测到了全部碰撞"。"""
+        N, dev = self.num_envs, self.device
+        E = torch.zeros(N, 0, 3, device=dev)
+        cat = (lambda ss, a: torch.cat([getattr(s.data, a).reshape(N, -1, 3)
+                                        for s in ss], dim=1) if ss else E)
+        pads = self._seg("pad_r") + self._seg("pad_l")
+        if pads:
+            netp = torch.stack([s.data.net_forces_w.reshape(N, -1, 3)
+                                .norm(dim=-1).amax(dim=1) for s in pads], dim=1)
+            filp = torch.stack([s.data.force_matrix_w.reshape(N, -1, 3)
+                                .norm(dim=-1).amax(dim=1) for s in pads], dim=1)
+        else:
+            netp = filp = torch.zeros(N, 0, device=dev)
+        return PBM.collide_flags(cat(self._seg("noc_arm"), "net_forces_w"),
+                                 netp, filp,
+                                 cat(self._seg("obj_obj"), "force_matrix_w"),
+                                 cat(self._seg("d6"), "force_matrix_w"),
+                                 thr=COLLIDE_FTH)
 
     def _tick(self):
         N, dev = self.num_envs, self.device
@@ -461,10 +535,17 @@ class PourEnv(GraspTaskEnv):
                 * (self.PB.g2 & run_mask).float()
         self._prev_armq = torch.cat([armq_r, armq_l], dim=1).detach()
         # ---- env 侧死线 ----
+        # ★L5-25 禁碰: 只有手垫与自己要操作的物体可以接触, 其余接触一律记为禁碰。
+        _col = self._collide()
+        for _k, _v in _col.items():
+            self.tb["term/collide_" + _k] += int((_v & ~holding).sum())
+        col_any = (_col["arm"] | _col["pad"] | _col["objobj"] | _col["d6"]) \
+            & ~holding
+        self.tb["term/collide_any"] += int(col_any.sum())
         # ★L5-23 死因分项(env 侧): 原来五种死因 OR 成一个布尔, 死了说不出为什么。
         _ez = lambda: torch.zeros(N, dtype=torch.bool, device=dev)   # noqa: E731
         _ec = {"D1_pre": _ez(), "D2_pre": _ez(), "D3_pre": _ez(),
-               "D4_slip": _ez(), "D5_table": _ez()}
+               "D4_slip": _ez(), "D5_table": _ez(), "D9_collide": _ez()}
         pre = self.row < self.IA0
         for _o, code in ((cup, "cup"), (bot, "bot")):
             _ec["D1_pre"] |= pre & (_o[:, 2] < TABLE_Z - 0.05)         # D1 机器段
@@ -518,6 +599,8 @@ class PourEnv(GraspTaskEnv):
         # D5 撞桌: 手部体中心低于桌面
         hz = self.hand.data.body_pos_w[:, self.hand_bids, 2]
         _ec["D5_table"] |= (hz < TABLE_Z - 0.005).any(dim=1)
+        if COLLIDE_MODE == "kill":
+            _ec["D9_collide"] = col_any
         # D7 超时 (纯终止零罚)
         timeout = self.episode_length_buf >= self.D7
         fail_env = _ez()
@@ -550,10 +633,15 @@ class PourEnv(GraspTaskEnv):
         # ---- 奖励合成 ----
         pen = torch.where(fail, torch.full((N,), FAIL_PEN, device=dev),
                           torch.zeros(N, device=dev))
-        d6 = self._d6_hit() & ~holding
+        d6 = _col["d6"] & ~holding
         pen6 = torch.where(d6 & (self.d6_acc > D6_CAP),
                            torch.full((N,), D6_PEN, device=dev),
                            torch.zeros(N, device=dev))
+        if COLLIDE_MODE == "pen":
+            pen6 = pen6 + torch.where(
+                col_any & (self.d6_acc > D6_CAP),
+                torch.full((N,), -COLLIDE_PEN, device=dev),
+                torch.zeros(N, device=dev))
         self.d6_acc += pen6
         self.tb["d6_pen_sum"] += float(-pen6.sum())
         rew = (out["adv"] + out["leash"] + out["ms"] + out["wage"] + pen

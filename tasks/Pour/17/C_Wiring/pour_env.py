@@ -218,6 +218,33 @@ class PourEnv(GraspTaskEnv):
         self.hand_bids = [i for i, n in enumerate(bn)
                           if ("elastomer" in n or "hand" in n)]
         self.arm_jids_t = self.map_ids_t[:14]
+        # ---- 难度消融旋钮 (L5-13, 2026-08-29 用户拍板): 物体质量/摩擦运行时覆写 ----
+        # POUR_OBJ_MASS: 两物体质量(kg) | POUR_OBJ_FRIC: 两物体摩擦
+        # 配合 POUR_PAD_FRIC(指垫摩擦, 在 correction_env)。不设则保持原值。
+        _m = os.environ.get("POUR_OBJ_MASS")
+        _fr = os.environ.get("POUR_OBJ_FRIC")
+        if _m or _fr:
+            for _nm, _art in (("瓶", self.object), ("杯", self.aux)):
+                try:
+                    _v = _art.root_physx_view
+                    if _m:
+                        _ms = _v.get_masses().clone()
+                        _ms[:] = float(_m) / max(_ms.shape[1], 1)
+                        _v.set_masses(_ms, torch.arange(_ms.shape[0]))
+                    if _fr:
+                        _mp = _v.get_material_properties().clone()
+                        _mp[..., 0] = float(_fr)      # static
+                        _mp[..., 1] = float(_fr)      # dynamic
+                        _v.set_material_properties(_mp, torch.arange(_mp.shape[0]))
+                    _ms2 = _v.get_masses()[0].sum()
+                    _mp2 = _v.get_material_properties()[0][0]
+                    print(f"[PourEnv] 难度覆写 {_nm}: 质量={float(_ms2):.3f}kg "
+                          f"摩擦={float(_mp2[0]):.2f}/{float(_mp2[1]):.2f}")
+                except Exception as _e:
+                    print(f"[PourEnv] ★难度覆写 {_nm} 失败: {type(_e).__name__}: {_e}")
+        if os.environ.get("POUR_PAD_FRIC"):
+            print(f"[PourEnv] 指垫摩擦覆写 = {os.environ['POUR_PAD_FRIC']}")
+
         # ---- 参考系 z 对齐 (接线口径#3): 瓶母带静置 z 穿桌 1.6cm 被物理弹飞 ----
         # 病根: recon网格顶点(母带净空钳制用) vs 烘焙碰撞USD 的原点/尺度系统差。
         # 修法: 瓶全轨 z 平移换基到父类物理推导的 obj_rest_z (烘焙USD立姿合法z);

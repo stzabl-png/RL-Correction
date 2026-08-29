@@ -6,6 +6,8 @@ M1 再接 obs/reward/dones 的正式实现 (当前为占位).
 """
 from __future__ import annotations
 
+import os
+
 from collections.abc import Sequence
 
 import numpy as np
@@ -430,8 +432,11 @@ class SharpaCorrectionEnv(DirectRLEnv):
         # SuperGrip 只给 5 指尖 elastomer + 物体; 手身(掌/背/指节)用低摩擦.
         # 教训: 整手 9.0 会让手掌一碰物体就刚性粘住拖飞(参考手差几cm没抓上时尤甚).
         # 指尖↔物=3.0×3.0=9.0 (真抓握强握); 手身↔物=0.2×3.0=0.6 (掌蹭不拖飞).
+        # POUR_PAD_FRIC: 指垫(及绑同材质的主体物)摩擦覆写, 默认 3.0 保持原行为。
+        # 用途: 难度消融(调大=更好抓)。2026-08-29 加, 不设变量时零影响。
+        _grip_mu = float(os.environ.get("POUR_PAD_FRIC", "3.0"))
         grip = sim_utils.RigidBodyMaterialCfg(
-            static_friction=3.0, dynamic_friction=3.0, restitution=0.0,
+            static_friction=_grip_mu, dynamic_friction=_grip_mu, restitution=0.0,
             friction_combine_mode="multiply", restitution_combine_mode="multiply")
         grip.func("/World/Materials/SuperGrip", grip)
         low = sim_utils.RigidBodyMaterialCfg(

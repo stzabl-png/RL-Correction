@@ -51,6 +51,35 @@ sim = E.sim
 scn = E.scene
 M = {}
 
+
+def _self_collision():
+    """多路取真值: cfg -> USD 属性 -> 未知。返回 (值, 来源)。
+    ★读不到时返回 (None, "unreadable"), 绝不返回 False —— 假值比未知危险。"""
+    sp = getattr(E.hand.cfg, "spawn", None)
+    ap = getattr(sp, "articulation_props", None)
+    v = getattr(ap, "enabled_self_collisions", None)
+    if v is not None:
+        return bool(v), "cfg.spawn.articulation_props"
+    try:
+        import omni.usd
+        from pxr import Usd
+        stg = omni.usd.get_context().get_stage()
+        for p in stg.Traverse():
+            if p.GetPath().pathString.endswith("/envs/env_0/Robot"):
+                a = p.GetAttribute("physxArticulation:enabledSelfCollisions")
+                if a and a.IsValid() and a.HasAuthoredValue():
+                    return bool(a.Get()), f"USD:{p.GetPath().pathString}"
+                for c in Usd.PrimRange(p):
+                    a = c.GetAttribute("physxArticulation:enabledSelfCollisions")
+                    if a and a.IsValid() and a.HasAuthoredValue():
+                        return bool(a.Get()), f"USD:{c.GetPath().pathString}"
+                break
+    except Exception as e:
+        return None, f"unreadable({type(e).__name__})"
+    return None, "unreadable"
+
+
+
 # ---- 1. 时间步 ----
 pcfg = getattr(E.cfg, "sim", None)
 M["time"] = {
@@ -121,9 +150,8 @@ M["robot"] = {
     "controlled_layout": "[R_arm 7, L_arm 7, right_fingers 22, left_fingers 22]",
     # ★不可读时记 None 而非 False: "读不到"与"关着"是两回事 (2026-08-29 实测,
     # cfg 写 True 而此处记了 False, 差点把错值交出去)
-    "self_collision": getattr(getattr(getattr(E.hand.cfg, "spawn", None),
-                                      "articulation_props", None),
-                              "enabled_self_collisions", None),
+    "self_collision": _self_collision()[0],
+    "self_collision_source": _self_collision()[1],
 
     "body_names": list(E.hand.body_names),
 }

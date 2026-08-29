@@ -138,6 +138,7 @@
     ],
     "controlled_layout": "[R_arm 7, L_arm 7, right_fingers 22, left_fingers 22]",
     "self_collision": false,
+    "self_collision_source": "USD:/World/envs/env_0/Robot/root_joint",
     "body_names": [
       "vega_1p_mobile",
       "dummy_base_x",
@@ -477,7 +478,8 @@
         0.0,
         1.3962998390197754
       ]
-    ]
+    ],
+    "self_collision_note": "运行时真值(PhysX 读的 USD 属性)。⚠ correction_env_cfg.py:121 写的 enabled_self_collisions=True **未生效** —— 那段 cfg 对本任务的 articulation 不适用。以本字段为准, 并看 self_collision_source 确认来源。"
   },
   "sensors": {
     "count": 11,

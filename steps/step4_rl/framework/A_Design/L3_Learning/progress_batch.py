@@ -174,18 +174,30 @@ class PourProgressBatch:
                 .expand(len(env_ids), 7)
 
     def pop_rates(self):
-        ep = max(self._acc["ep"], 1)
-        ep0 = max(self._acc["ep_t0"], 1)
-        out = {"sr/gate1": self._acc["g1"] / ep, "sr/gate2": self._acc["g2"] / ep,
-               "sr/gate3": self._acc["g3"] / ep, "sr/gate4": self._acc["g4"] / ep,
-               "sr_t0/gate1": self._acc["g1_t0"] / ep0,
-               "sr_t0/gate2": self._acc["g2_t0"] / ep0,
-               "sr_t0/gate3": self._acc["g3_t0"] / ep0,
-               "sr_t0/gate4": self._acc["g4_t0"] / ep0,
-               "prog/ep_t0_frac": self._acc["ep_t0"] / ep,
-               "prog/clock_frac": self._acc["clock"] / ep,
-               "sr/cert_pass": self._acc["cpass"] / max(self._acc["catt"], 1),
-               "prog/cert_att": self._acc["catt"] / ep}
+        # ★L5-17: 分母为 0 时必须发 NaN, 不得发 0.0 ——
+        # 原写法 max(ep,1) 把"本窗没有任何回合结算"渲染成"成功率 0%", 二者在图上
+        # 一模一样。实测被这个坑过一次: EASY 线开局 20 窗全 0, 我一度判成"全部失败",
+        # 真相是回合太长(903步)还没有一个结算。同族: 缺数据被写成一个正常的值。
+        # 同时把分母本身作为指标发出去 —— 只有计数能让"没发生的事"可见。
+        _ep, _ep0 = self._acc["ep"], self._acc["ep_t0"]
+        _at = self._acc["catt"]
+        nan = float("nan")
+        _r = (lambda num, den: (num / den) if den > 0 else nan)
+        out = {"sr/gate1": _r(self._acc["g1"], _ep),
+               "sr/gate2": _r(self._acc["g2"], _ep),
+               "sr/gate3": _r(self._acc["g3"], _ep),
+               "sr/gate4": _r(self._acc["g4"], _ep),
+               "sr_t0/gate1": _r(self._acc["g1_t0"], _ep0),
+               "sr_t0/gate2": _r(self._acc["g2_t0"], _ep0),
+               "sr_t0/gate3": _r(self._acc["g3_t0"], _ep0),
+               "sr_t0/gate4": _r(self._acc["g4_t0"], _ep0),
+               "prog/ep_t0_frac": _r(self._acc["ep_t0"], _ep),
+               "prog/clock_frac": _r(self._acc["clock"], _ep),
+               "sr/cert_pass": _r(self._acc["cpass"], _at),
+               "prog/cert_att": _r(self._acc["catt"], _ep),
+               "n/ep_done": float(_ep),          # ★分母本身: 判读前先看它
+               "n/ep_done_t0": float(_ep0),
+               "n/cert_attempts": float(_at)}
         self._acc = {"ep": 0, "g1": 0, "g2": 0, "g3": 0, "g4": 0,
                      "clock": 0.0, "catt": 0, "cpass": 0,
                      "ep_t0": 0, "g1_t0": 0, "g2_t0": 0, "g3_t0": 0, "g4_t0": 0}
@@ -298,7 +310,7 @@ class PourProgressBatch:
             self.cert_pending[fin] = False
             self.cert_phase[fin] = 0
             self.cert_t[fin] = 0
-        # ==== [TASK] G3 任务核心判据 (与标量版同步换) ====
+        # ---- G3 倒水完成 ----
         R1 = _q2R(obj1[:, 3:7])
         v = torch.einsum("nij,j->ni", R1, self.up)
         tilt = torch.acos((v[:, 2] / v.norm(dim=1).clamp(min=1e-9))

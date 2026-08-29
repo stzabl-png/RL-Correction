@@ -38,8 +38,14 @@ WATCHED_FILES = [
      "机器人 USD —— 换站姿会让 ckpt 的绝对数值记忆全废(2026-08-26 实测 0/64)"),
     ("robot_usd_stance0803", "assets/vega_1p_sharpa_fixedtorso_stance0803.usd",
      "AAG-F 的出生世界存档(旧站姿)。不是病文件, 是版本错配, 永久禁删"),
-    ("tape_pour17_v2", "tasks/Pour/17/A_Design/L2_Reference/pour17_reference_v2.npz",
-     "Pour17 母带 —— evaluator 从中取瓶口/杯口方向与静置位姿, 换版=换判据"),
+    # ★ 键名不带版本号(2026-08-29): 曾叫 tape_pour17_v2, 但母带会换版(v2 -> v3),
+    #   带版本号的键名会让人以为"这个键只管 v2"。它管的是**当前生效的母带**这件事。
+    #   换母带该由本键报红(ckpt 确实失效), 与 criteria.digest 各管各的:
+    #   换带子 -> 本键红; 改判据阈值 -> criteria.digest 红。互不串味。
+    ("tape_pour17", "tasks/Pour/17/A_Design/L2_Reference/pour17_reference_v2.npz",
+     "Pour17 母带(旧路径 v2) —— evaluator 从中取瓶口/杯口方向与静置位姿"),
+    ("tape_pour17_v3", "tasks/Pour/17/A_Design/L2_Reference/pour17_reference_v3.npz",
+     "Pour17 母带 v3(2026-08-29 起现役) —— v2 有末态与 placed 判据矛盾的结构缺陷"),
     ("scene_layout_pour17", "datasets/pour17/scene_layout.json",
      "物体静置位姿(重建侧摆放量; 注意其中的桌高不进物理)"),
     ("object_0_usd", "datasets/pour17/objects/object_0.usd", "杯 视觉/primary 版"),
@@ -163,7 +169,7 @@ def _git(repo: Path, *args) -> str | None:
         return None
 
 
-CRITICAL = ["effective_robot_usd", "tape_pour17_v2", "scene_layout_pour17",
+CRITICAL = ["effective_robot_usd", "tape_pour17", "tape_pour17_v3", "scene_layout_pour17",
             "object_0_usd_cache", "object_1_usd_cache"]
 # ★ 2026-08-29 降级: criteria_pour17 / criteria_pour17_batch 曾被列为 CRITICAL, 已改回 WARN。
 #   理由不是"太吵", 是**机制不对**: 整文件哈希分不出"判定变了"与"记账变了"。

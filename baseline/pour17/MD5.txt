@@ -1,5 +1,5 @@
 419e9d386a1aacd153b9258a1aa5b133  ./docs/MISSING_FOR_RL_AGENT.md
-fd1093c33680b6a7d87a053aba13c149  ./evaluator/INTEGRATION.md
+d6bd67dd73bb590343620cc23f78372f  ./evaluator/INTEGRATION.md
 1c7ee9ac513dc3e1edb5eeb1da1d52c6  ./evaluator/progress_batch.py
 205f61b5baffffba6dfe40fab4a07ab9  ./evaluator/progress.py
 96159eab76e98312d8bb28e6b2e89a3f  ./evaluator/run_eval.py
@@ -10,7 +10,7 @@ b2182d7aed4cd938e6f0287b49558123  ./perception/make_pour17_perception.py
 0a9342a43f7c0bb6ee4fec2614f7f43b  ./perception/pour17_raw_video.mp4
 703d686bebb2eabc45105a0d04b2ac97  ./perception/recon_render_pour_17.mp4
 33d4cf8b54f0a90d7a3c11a6bf190e8c  ./perception/world_fused.npz
-a03f26a15725a511d03620b32e2abfb5  ./README.md
+6816f4f3bcafbb214d45ae607b7be5a6  ./README.md
 9f2dbeb63d26dabdd1189329e8cb93e6  ./reference/pour17_reference_v1__9f2dbeb6__515rows.npz
 2ed813586745e72d74cc1f0f04ec3b5d  ./reference/pour17_reference_v2__2ed81358__653rows.npz
 b95546e92e9f0d9b7faf91b6b3b59610  ./reference/pour17_reference_v2__b95546e9__543rows.npz
@@ -20,7 +20,7 @@ e1b09ea7bdaa1672d16c6fd30b00fb62  ./world/cache/config.yaml
 47945554b6fe5fffa26dd06dfc727d1c  ./world/cache/object_0.usd
 fa0b4d5f3e75f1ef948fdadbf6948154  ./world/cache/object_1.usd
 262e0561a91bcde95c065eb964853a6e  ./world/cache/Props/instanceable_meshes.usd
-cd6022ac6218d2e30d046a41ae28a660  ./world/canonical_reset_v1.json
+7614606771b8a1f3b4e6a646666f5b76  ./world/canonical_reset_v1.json
 85a928b5b00bfcf93e83ac13b012277c  ./world/DEXMATE_ARTICULATION_JOINTS__STALE_67line.txt
 a2df7e6ac04ce6b41f3f3dd86f17b0a4  ./world/DEXMATE_BODY_POSES.json
 ed5598d2104197b6b6d0755f042fb70c  ./world/DEXMATE_JOINTS.md
@@ -39,4 +39,4 @@ a28a294a395ffd67982f77e47e189f52  ./world/world_json_samples/E2EL_pour17_2026-08
 bdfe0f33ccf5ee2ce7719ce2442455e0  ./world/world_json_samples/P17v51_OBJ_s2.world.json
 bdfe0f33ccf5ee2ce7719ce2442455e0  ./world/world_json_samples/P17v52_OBJ_s2.world.json
 bdfe0f33ccf5ee2ce7719ce2442455e0  ./world/world_json_samples/P17v5_OBJ_s2.world.json
-d40a8062652733ca73f399683959bcd6  ./world/world_manifest.json
+9e1ce94c5b988fe4895972a6af4fb411  ./world/world_manifest.json

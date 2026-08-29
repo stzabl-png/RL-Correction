@@ -46,6 +46,18 @@ WATCHED_FILES = [
     ("object_1_usd", "datasets/pour17/objects/object_1.usd", "瓶 视觉/primary 版"),
     ("object_0_usd_cache", "datasets/pour17/cache/object_0.usd", "杯 烘焙物理版(aux 实际加载)"),
     ("object_1_usd_cache", "datasets/pour17/cache/object_1.usd", "瓶 烘焙物理版"),
+    # ★ 2026-08-29 补: 传感器/环境接线也是"世界"的一部分, 但它住在**代码**里不在资产里。
+    #   实证: D6 跨侧碰撞传感器的 filter 从未绑定(1源正则匹配9体 × 每个filter展开512,
+    #   PhysX 要求两者相等), pen6 在 5 条线 7900 万步里恒为 0 —— 不是"没有碰撞",
+    #   是"没在测"。这类改动不碰任何资产文件, 只盯资产的指纹**完全看不见**。
+    ("env_wiring_pour17", "tasks/Pour/17/C_Wiring/pour_env.py",
+     "Pour17 环境接线: 接触传感器配置/死线/认证机 —— 改它就是改世界"),
+    ("criteria_pour17", "tasks/Pour/17/A_Design/L3_Learning/progress.py",
+     "判据本体(G1-G4/死线阈值) —— 改它会改变成败判定"),
+    ("criteria_pour17_batch", "tasks/Pour/17/A_Design/L3_Learning/progress_batch.py",
+     "判据批量版"),
+    ("aux_spawn", "tasks/pregrasp/screw_assembly.py",
+     "副物体(aux) spawn —— activate_contact_sensors 等物理开关在此"),
 ]
 
 ENV_OVERRIDES = ["DEXMATE_FIXED_USD", "POUR_NO_D6", "POUR_HOLD_K", "POUR_VARIANT",
@@ -128,7 +140,10 @@ def _git(repo: Path, *args) -> str | None:
 
 
 CRITICAL = ["effective_robot_usd", "tape_pour17_v2", "scene_layout_pour17",
-            "object_0_usd_cache", "object_1_usd_cache"]
+            "object_0_usd_cache", "object_1_usd_cache",
+            "criteria_pour17", "criteria_pour17_batch"]   # 判据变=成败判定变
+# WARN 层: 改了会让世界不同, 但未必让 ckpt 立刻废 —— 报出来让人自己判
+# (env_wiring_pour17 / aux_spawn 在此: 传感器增减会改世界, 而此前指纹看不见)
 
 
 #: 期望指纹里必须存在的段 —— 缺任何一段都判"无法核对", 不是"通过"

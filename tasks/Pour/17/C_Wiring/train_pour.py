@@ -141,26 +141,24 @@ agent_cfg["algorithm"]["minibatch_size"] = min(
 
 log_dir = os.path.join("logs", args.name)
 os.makedirs(log_dir, exist_ok=True)
-# ---- 世界指纹 (ckpt绑定世界版本纪律 + L5-1: 母带世代进指纹) ----
-import hashlib, json
-# 世界USD: 记实际路径+md5, 不记"default" —— "default"只说明没覆写, 不说明用了哪份
-# (2026-08-29 重建侧发现: 旧 run 的 usd="default" 无法判断实际加载文件)
-from rl_rebuild.correction.env import dexmate_env_cfg as _dcfg
-_usd_path = getattr(_dcfg, "_FIXED_USD", os.environ.get("DEXMATE_FIXED_USD", "?"))
+# ---- 世界指纹 (完整版, L5-12): ckpt 只能在出生世界回放, 这里落"身份证" ----
+import hashlib  # noqa: E402
+import world_fingerprint as WF  # noqa: E402
 try:
-    _usd_md5 = hashlib.md5(open(_usd_path, "rb").read()).hexdigest()[:8]
+    _rmd5 = hashlib.md5(open(PE.MASTER, "rb").read()).hexdigest()
 except Exception:
-    _usd_md5 = "?"
-_wj = {"variant": os.environ.get("POUR_VARIANT", "HYB").upper(),
-       "beta_r": os.environ.get("POUR_BETA_R", "2.0"),
-       "beta_l": os.environ.get("POUR_BETA_L", "1.0"),
-       "ref_npz": PE.MASTER,
-       "ref_md5": hashlib.md5(open(PE.MASTER, "rb").read()).hexdigest()[:8],
-       "usd": _usd_path, "usd_md5": _usd_md5,
-       "obs_dim": PE.OBS_DIM, "act_dim": PE.ACT_DIM}
-with open(os.path.join(log_dir, "world.json"), "w") as _wf:
-    json.dump(_wj, _wf, indent=1, ensure_ascii=False)
-print(f"[train_pour] 世界指纹: ref_md5={_wj['ref_md5']} 变体={_wj['variant']}", flush=True)
+    _rmd5 = None
+WF.write(raw, os.path.join(log_dir, "world.json"), extra={
+    "reference": {"path": PE.MASTER, "md5": _rmd5},
+    "policy_io": {"obs_dim": PE.OBS_DIM, "act_dim": PE.ACT_DIM},
+    "sensors": {"pad_force_threshold_N": PE.PAD_FTH,
+                "pads_min_per_hand": PE.PADS_MIN},
+    "method": {"variant": os.environ.get("POUR_VARIANT", "HYB").upper(),
+               "beta_r": os.environ.get("POUR_BETA_R", "2.0"),
+               "beta_l": os.environ.get("POUR_BETA_L", "1.0"),
+               "name": args.name, "seed": args.seed},
+})
+
 agent = PourPPO(env, output_dir=log_dir,
                 full_config=ConfigWrapper(agent_cfg, {}), raw_env=raw)
 if args.load_path:

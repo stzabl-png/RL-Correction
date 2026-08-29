@@ -44,6 +44,16 @@ agent_cfg["algorithm"]["num_actors"] = args.num_envs
 agent = PPO(env, output_dir="/tmp/pour17_eval", full_config=ConfigWrapper(agent_cfg, {}, test=True),
             create_output_dir=False)
 agent.restore_test(args.checkpoint)
+import world_fingerprint as WF  # noqa: E402
+# ★世界核对硬闸 (L5-12): ckpt 的出生世界 = 它同目录的 world.json。
+# 不核对就回放 = 拿旧记忆在新几何上走位, 实测同类事故 0/64 且 obs 维度一字未变。
+_wj = os.path.join(os.path.dirname(os.path.dirname(
+    os.path.abspath(args.checkpoint))), "world.json")
+if not os.environ.get("POUR_IGNORE_WORLD"):
+    WF.assert_match(raw, _wj, strict=True)
+else:
+    print("[world] ⚠ POUR_IGNORE_WORLD=1 已跳过世界核对", flush=True)
+
 agent.set_eval()
 
 obs = env.reset()

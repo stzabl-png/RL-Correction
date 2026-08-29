@@ -126,7 +126,8 @@ class PourProgressBatch:
                      "clock": 0.0, "catt": 0, "cpass": 0,
                      "ep_t0": 0, "g1_t0": 0, "g2_t0": 0, "g3_t0": 0, "g4_t0": 0,
                      "cf_rise_bot": 0, "cf_rise_cup": 0, "cf_slip_r": 0,
-                     "cf_slip_l": 0, "cf_pads": 0}
+                     "cf_slip_l": 0, "cf_pads": 0, "term_any": 0,
+                     "term_D2pre": 0, "term_D1_drop": 0, "term_D3_dev": 0, "term_D8_disturb": 0, "term_D2_tilt": 0}
 
     def reset_idx(self, env_ids):
         n = len(env_ids)
@@ -203,11 +204,17 @@ class PourProgressBatch:
         # F: 认证失败分项占比 (分母=认证尝试数; 空分母同样发 NaN, 不发 0.0)
         for _k in ("rise_bot", "rise_cup", "slip_r", "slip_l", "pads"):
             out["cert_fail/" + _k] = _r(self._acc["cf_" + _k], _at)
+        # L5-23 死因分项 (分母=本窗判据侧死亡数; 空分母同样发 NaN)
+        _tn = self._acc["term_any"]
+        for _k in ("D2pre", "D1_drop", "D3_dev", "D8_disturb", "D2_tilt"):
+            out["term/" + _k] = _r(self._acc["term_" + _k], _tn)
+        out["n/term_judge"] = float(_tn)
         self._acc = {"ep": 0, "g1": 0, "g2": 0, "g3": 0, "g4": 0,
                      "clock": 0.0, "catt": 0, "cpass": 0,
                      "ep_t0": 0, "g1_t0": 0, "g2_t0": 0, "g3_t0": 0, "g4_t0": 0,
                      "cf_rise_bot": 0, "cf_rise_cup": 0, "cf_slip_r": 0,
-                     "cf_slip_l": 0, "cf_pads": 0}
+                     "cf_slip_l": 0, "cf_pads": 0, "term_any": 0,
+                     "term_D2pre": 0, "term_D1_drop": 0, "term_D3_dev": 0, "term_D8_disturb": 0, "term_D2_tilt": 0}
         return out
 
     def step(self, obj0, obj1, armq_r, armq_l, pads3, wrist_r, wrist_l,
@@ -367,22 +374,37 @@ class PourProgressBatch:
         self.done |= new4
         ms_r += new4.float() * MS_REWARD[4]
         # ---- 死线 D1/D2/D3/D8 (D2pre: G2前倾>60°) ----
-        fail = torch.zeros(self.Ne, dtype=torch.bool, device=self.dev)
+        # ★L5-23 死因分项: 原来五种死因 OR 进一个 fail, 死了却说不出为什么死。
+        # G4|G3 只有 0.10~0.31, 但"卡在放回还是撤退"无法回答 —— 因为 D8(撤退期扰动)
+        # 和 D1/D3(放回前) 混在同一个布尔里。分项后二者可分。
+        _cz = lambda: torch.zeros(self.Ne, dtype=torch.bool, device=self.dev)
+        _fc = {"D2pre": _cz(), "D1_drop": _cz(), "D3_dev": _cz(),
+               "D8_disturb": _cz(), "D2_tilt": _cz()}
         for oi, act in ((0, obj0), (1, obj1)):
             up_ = self.up if oi == 1 else self.upc
             tl = _tilt(act[:, 3:7], up_)
-            fail |= (~self.g2) & (tl > np.radians(60))
+            _fc["D2pre"] |= (~self.g2) & (tl > np.radians(60))
         for oi, act in ((0, obj0), (1, obj1)):
             up_ = self.up if oi == 1 else self.upc
-            fail |= (act[:, 2] < TABLE_Z - D1_DROP)
+            _fc["D1_drop"] |= (act[:, 2] < TABLE_Z - D1_DROP)
             ref = self.ref_obj[oi][k]
-            fail |= (~self.placed) & ((act[:, :3] - ref[:, :3]).norm(dim=1) > D3_DEV)
+            _fc["D3_dev"] |= (~self.placed) & (
+                (act[:, :3] - ref[:, :3]).norm(dim=1) > D3_DEV)
             sn = self.m3_snap[oi]
             tl = _tilt(act[:, 3:7], up_)
-            fail |= self.placed & (((act[:, :3] - sn[:, :3]).norm(dim=1)
-                                    > M4_DIST_POS) | (tl > M4_DIST_ROT))
-            fail |= self.placed & (tl > D2_TILT)
+            _fc["D8_disturb"] |= self.placed & (
+                ((act[:, :3] - sn[:, :3]).norm(dim=1) > M4_DIST_POS)
+                | (tl > M4_DIST_ROT))
+            _fc["D2_tilt"] |= self.placed & (tl > D2_TILT)
+        fail = _cz()
+        for _k, _v in _fc.items():
+            fail |= _v
         fail &= active
+        # 记账: fail 即刻置 done, 故 (因 & active) 恰好在终止那一步命中一次;
+        # 一次死亡可同时命中多因, 各自计数(占比之和可 >1, 判读时按此理解)。
+        for _k, _v in _fc.items():
+            self._acc["term_" + _k] += int((_v & active).sum())
+        self._acc["term_any"] += int(fail.sum())
         self.done |= fail
         return {"adv": adv, "leash": leash, "ms": ms_r, "wage": wage,
                 "w_obj": w_obj, "w_hand": self.WH[tier], "clock": self.k.clone(), "done": self.done.clone(),

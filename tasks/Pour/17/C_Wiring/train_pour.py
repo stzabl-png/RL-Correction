@@ -79,6 +79,8 @@ class PourPPO(PPO):
             self.writer.add_scalar(k, v, self.agent_steps)
         for k, v in raw.pop_racc().items():          # 逐项奖惩台账
             self.writer.add_scalar(k, v, self.agent_steps)
+        for k, v in raw.pop_term().items():          # L5-23 死因分项台账
+            self.writer.add_scalar(k, v, self.agent_steps)
         if getattr(raw, "KCAP", 0) > 0:              # LIFT 单科考主针
             for k, v in raw.pop_lift().items():
                 self.writer.add_scalar(k, v, self.agent_steps)

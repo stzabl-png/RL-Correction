@@ -319,9 +319,14 @@ class PourEnv(GraspTaskEnv):
         self.racc = {"adv": 0.0, "leash": 0.0, "ms": 0.0, "pen": 0.0,
                      "pen6": 0.0, "bonus": 0.0, "regrip": 0.0, "slope": 0.0,
                      "wage": 0.0, "shape": 0.0, "n": 0}
-        self.tb = {"term/D1": 0, "term/D2": 0, "term/D3": 0, "term/D4": 0,
-                   "term/D5": 0, "term/D7_timeout": 0, "term/D8": 0,
-                   "term/M4_success": 0, "d6_pen_sum": 0.0, "ep": 0}
+        # ★L5-23: 旧版这里是个"死骨架" —— D1~D8 键建了但从未被写过, 也没有任何
+        # 出口。若当初有人接上去, 会读到一串 0 并得出"没有死于 D1~D8"的假结论。
+        self.tb = {k: 0 for k in
+                   ("term/D1_pre", "term/D2_pre", "term/D3_pre", "term/D4_slip",
+                    "term/D5_table", "term/D7_timeout", "term/judge_fail",
+                    "term/M4_success")}
+        self.tb["d6_pen_sum"] = 0.0
+        self.tb["ep"] = 0
 
     def _rebuild_entries(self):
         """按已解锁 Gate 重建出生表 (渐进RSI)."""
@@ -456,10 +461,13 @@ class PourEnv(GraspTaskEnv):
                 * (self.PB.g2 & run_mask).float()
         self._prev_armq = torch.cat([armq_r, armq_l], dim=1).detach()
         # ---- env 侧死线 ----
-        fail_env = torch.zeros(N, dtype=torch.bool, device=dev)
+        # ★L5-23 死因分项(env 侧): 原来五种死因 OR 成一个布尔, 死了说不出为什么。
+        _ez = lambda: torch.zeros(N, dtype=torch.bool, device=dev)   # noqa: E731
+        _ec = {"D1_pre": _ez(), "D2_pre": _ez(), "D3_pre": _ez(),
+               "D4_slip": _ez(), "D5_table": _ez()}
         pre = self.row < self.IA0
         for _o, code in ((cup, "cup"), (bot, "bot")):
-            fail_env |= pre & (_o[:, 2] < TABLE_Z - 0.05)              # D1 机器段
+            _ec["D1_pre"] |= pre & (_o[:, 2] < TABLE_Z - 0.05)         # D1 机器段
         for oi, _o in ((0, cup), (1, bot)):                            # D2 机器段
             up = self.PB.up if oi == 1 else torch.tensor(
                 [0.0, 1.0, 0.0], device=dev)
@@ -467,9 +475,9 @@ class PourEnv(GraspTaskEnv):
             upw = quat_apply(qn, up.unsqueeze(0).expand(len(qn), 3))
             tilt = torch.acos((upw[:, 2] / upw.norm(dim=1).clamp(min=1e-9))
                               .clamp(-1, 1))
-            fail_env |= pre & (tilt > np.radians(30))
+            _ec["D2_pre"] |= pre & (tilt > np.radians(30))
             rest = self.rest_pose[oi]
-            fail_env |= pre & ((_o[:, :3] - rest[:3]).norm(dim=1) > 0.35)  # D3 机器段
+            _ec["D3_pre"] |= pre & ((_o[:, :3] - rest[:3]).norm(dim=1) > 0.35)
         # D4 滑移 (交互行, M1 后, 相对 M1 时刻基线)
         d_r = (self.hand.data.body_pos_w[:, self.wid["R"]]
                - self.object.data.root_pos_w).norm(dim=1)
@@ -482,7 +490,7 @@ class PourEnv(GraspTaskEnv):
         slip = in_ia & (~torch.isnan(self.grasp_d0[:, 0])) & (
             ((d_r - self.grasp_d0[:, 0]).abs() > D4_SLIP)
             | ((d_l - self.grasp_d0[:, 1]).abs() > D4_SLIP))
-        fail_env |= slip
+        _ec["D4_slip"] |= slip
         # ---- v5移植 (2026-08-28 拍板): 滑移量/滑速/垫压 → 反射奖+斜坡罚+观测块 ----
         d_now = torch.stack([d_r, d_l], dim=1)
         pf_now = torch.stack([f[:, :5].sum(dim=1), f[:, 5:].sum(dim=1)], dim=1)
@@ -509,10 +517,16 @@ class PourEnv(GraspTaskEnv):
         self._prev_pf = pf_now.detach().clone()
         # D5 撞桌: 手部体中心低于桌面
         hz = self.hand.data.body_pos_w[:, self.hand_bids, 2]
-        fail_env |= (hz < TABLE_Z - 0.005).any(dim=1)
+        _ec["D5_table"] |= (hz < TABLE_Z - 0.005).any(dim=1)
         # D7 超时 (纯终止零罚)
         timeout = self.episode_length_buf >= self.D7
+        fail_env = _ez()
+        for _v in _ec.values():
+            fail_env |= _v
         fail_env &= ~holding
+        # 一次死亡可同时命中多因, 各自计数(占比之和可 >1)
+        for _k, _v in _ec.items():
+            self.tb["term/" + _k] += int((_v & ~holding).sum())
         fail = out["fail"] | fail_env
         lift_new = torch.zeros(N, dtype=torch.bool, device=dev)
         if self.KCAP > 0:
@@ -522,6 +536,8 @@ class PourEnv(GraspTaskEnv):
             lift_new = (self.lift_hold >= 20) & ~self.lift_done
             self.lift_done |= lift_new
         terminated = fail | out["done"] | lift_new        # done 含成功终局
+        self.tb["term/D7_timeout"] += int((timeout & ~terminated).sum())
+        self.tb["term/judge_fail"] += int(out["fail"].sum())
         # ---- 行指针推进 (热身期冻结) ----
         self.row = torch.where(pre & ~holding, self.row + 1, self.row)
         ia = run_mask & (self.PB.k < self.PB.N_ROW - 1)
@@ -598,6 +614,19 @@ class PourEnv(GraspTaskEnv):
         ep = max(self._lift_acc["ep"], 1)
         out = {"sr/lift": self._lift_acc["succ"] / ep}
         self._lift_acc = {"ep": 0, "succ": 0}
+        return out
+
+    def pop_term(self):
+        """死因分项台账 (每 epoch 倾倒)。分母 = 本窗结算回合数;
+        空分母发 NaN 而非 0.0 —— 与 L5-17 同规矩, "没结算"不得冒充"没死"。"""
+        ep = self.tb["ep"]
+        nan = float("nan")
+        out = {k: ((v / ep) if ep > 0 else nan)
+               for k, v in self.tb.items() if k.startswith("term/")}
+        out["n/term_ep"] = float(ep)
+        out["term/d6_collide_sum"] = (self.tb["d6_pen_sum"] / ep) if ep > 0 else nan
+        for k in self.tb:
+            self.tb[k] = 0.0 if isinstance(self.tb[k], float) else 0
         return out
 
     def pop_racc(self):

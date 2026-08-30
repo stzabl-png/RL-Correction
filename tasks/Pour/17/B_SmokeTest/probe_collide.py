@@ -81,6 +81,20 @@ def sweep(tag, action_fn, steps):
         print(f"[probe]   {k:8s} 触发={acc[k]:5d}  最大力={mx[k]:.3f} N", flush=True)
     print(f"[probe]   [正对照] 手垫净接触力最大 = {mx['pad_net']:.3f} N "
           f"(抓着物体时必须 >0, 否则整条接触链路是死的)", flush=True)
+    # 逐垫报 净力 vs 对自物体的力 的差 —— pad 判据就是拿这个差和阈值比
+    PN = ["R_idx", "R_mid", "R_rng", "R_pky", "R_thb",
+          "L_idx", "L_mid", "L_rng", "L_pky", "L_thb", "R_palm", "L_palm"]
+    _ps = E._seg("pad_r") + E._seg("pad_l") + E._seg("palm")
+    if _ps:
+        print("[probe]   逐垫 净力/对自物体力/差 (差>1N 即判禁碰):", flush=True)
+        for _i, _sn in enumerate(_ps):
+            _nn = float(_sn.data.net_forces_w.reshape(E.num_envs, -1, 3)
+                        .nan_to_num(0.0).norm(dim=-1).max())
+            _ff = float(_sn.data.force_matrix_w.reshape(E.num_envs, -1, 3)
+                        .nan_to_num(0.0).norm(dim=-1).max())
+            _nm2 = PN[_i] if _i < len(PN) else f"pad{_i}"
+            print(f"[probe]     {_nm2:8s} 净={_nn:8.3f}N 对自物={_ff:8.3f}N "
+                  f"差={_nn-_ff:8.3f}N {'★判禁碰' if _nn-_ff>1.0 else ''}", flush=True)
     NAMES = ["R_arm_l5", "R_arm_l7", "R_arm_l8", "right_hand_C_MC",
              "L_arm_l5", "L_arm_l7", "L_arm_l8", "left_hand_C_MC"]
     print("[probe]   逐体分解 (到底是哪个体在碰):", flush=True)

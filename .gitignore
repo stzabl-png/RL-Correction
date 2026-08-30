@@ -1,5 +1,7 @@
 # ---- 训练/运行产物 ----
 logs/
+outputs_video/
+artifacts/
 # results/ 整体不入库, 但**冠军存档**例外 —— 让外部协作者能完整复现一条成功训练。
 # 例外目录用 `git add -f` 强制跟踪 (已跟踪的文件不再受 ignore 约束), 见
 # results/part2/basic_pick_place/3/Approach_Pick_冠军seed42/README.md
@@ -17,6 +19,7 @@ __pycache__/
 # ---- 数据 (体积大, 由上游流水线生成, 不入库) ----
 # TrainingData: stage_training_data.py 从 OCIR/Bi-V2AP 归置的四类源数据 (~100MB+)
 TrainingData/
+datasets/sweep_2_better/
 # data/: 消融曲线 npz、ocir 缓存等生成物
 data/
 # 物体 USD / retarget 缓存 (由 mesh 自动转换生成)

@@ -144,9 +144,27 @@ def main():
     if kin.get("collision_link_names"):
         kin["collision_link_names"] = [n for n in kin["collision_link_names"]
                                        if n in cs]
+    # 站姿亚毫米擦碰对 (RobotDebugger 实测: 肘弯 l5-l7 0.19mm + 相邻指节):
+    # 拟合球微突出的伪碰撞; 规划时手指锁死, 忽略无害
+    ig = {k: list(v) for k, v in (kin.get("self_collision_ignore") or {}).items()}
+    _pairs = [("R_arm_l5", "R_arm_l7"), ("L_arm_l5", "L_arm_l7")]
+    for _s in ("left", "right"):
+        _pairs += [(f"{_s}_index_MP", f"{_s}_middle_PP"),
+                   (f"{_s}_middle_PP", f"{_s}_ring_MP"),
+                   (f"{_s}_middle_MP", f"{_s}_ring_DP"),
+                   (f"{_s}_index_PP", f"{_s}_middle_MP"),
+                   (f"{_s}_ring_PP", f"{_s}_pinky_MP"),
+                   (f"{_s}_ring_MP", f"{_s}_pinky_PP")]
+    for _a, _b in _pairs:
+        ig.setdefault(_a, [])
+        if _b not in ig[_a]:
+            ig[_a].append(_b)
+    kin["self_collision_ignore"] = ig
     lj = dict(kin.get("lock_joints") or {})
+    cs_joints = set((kin.get("cspace") or {}).get("joint_names") or [])
     for n in LOCK_ZERO:
-        lj[n] = 0.0
+        if n in cs_joints:          # 猜名不许进 yml (F_wheel 不存在的教训)
+            lj[n] = 0.0
     kin["lock_joints"] = lj
     with open(OUT, "w") as f:
         f.write("# tools/make_vega1p_sharpa_curobo_yml.py 生成 (NVlabs curobo "

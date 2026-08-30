@@ -106,7 +106,29 @@ upright 投影 (U24a): 重建静置帧 ~20.5° FoundationPose 噪声 > 平底圆
 - **已知欠账③**: v1 交互 1 行=1 重建帧, 20Hz 播放 1.33× 实时 (Pour17 v1 同
   口径); 高速窗时间扩张留给 v2。
 
-### T1-3 cuRobo 机器段 —— ✅ 接线完毕 / ⬜ 本机缺包 (2026-08-29)
+### T1-3b cuRobo 本机自给自足 —— ✅ 收官 (2026-08-30)
+"MagicSim 定制版"之谜破案: `curobo.motion_planner` 这套 API 就是 **NVlabs/curobo
+新版主线** (v0.8+, warp 内核免编译) —— MagicSim 只是 vendor 了上游+加了机器人 yml。
+本机配置 (全程无 MagicSim):
+- 包: git clone NVlabs/curobo → ~/WorkSpace/curobo, pip -e (--no-deps) +
+  cuda-core[cu12] 内核后端进 isaac env。⚠ isaacsim 钉 packaging==23.0/
+  websockets==12.0, 装依赖时被拱过一次已还原; viser (websockets≥13) 只有
+  RobotBuilder/Debugger 用 —— **重跑 yml 生成器时临时升 websockets, 完事还原**。
+- 机器人配置: tools/make_vega1p_sharpa_curobo_yml.py 从仓库 URDF 自动生成
+  `datasets/vega_urdf/vega_1p_sharpa_curobo.yml` (254 球/76 links; MorphIt)。
+  臂/头网格自 github.com/luaiabuelsamen/vega_curobo (Dexmate 官方资产) 按名
+  补齐 —— link 系与网格原点与我们 URDF **逐位相同** (L_arm_l2/l4 实测);
+  躯干 = FK 推导手工球; 顺手修掉 meshes/vega_1p 指向他人机器的入库断符号链接。
+- 排障两笔 (都进了生成器): ①猜名关节 F_wheel 不存在 → lock 按 cspace 过滤;
+  ②站姿 5 对**亚毫米**伪碰撞 (肘弯 l5-l7 0.19mm + 相邻指节, 拟合球微突出) →
+  IK 收敛 1e-7 但 success=False 的病根, 忽略表并入 (规划时手指锁死, 无害)。
+- 冒烟 (tools/smoke_curobo_vega.py): 双臂 14 DoF / FK 合理 / 双工具位姿规划
+  1.7s / 终点误差 0.0mm ★全通。worker 默认配置链: CUROBO_ROBOT_YML → MagicSim
+  树 → 仓库自带生成品。
+- 与 MagicSim 人工调的球存在差异: 首次真实规划若"过保守/起点碰撞", 用
+  RobotBuilder.refit_link_spheres 排查 (登记为观察项, 不预修)。
+
+### T1-3 cuRobo 机器段 —— ✅ 接线完毕 (2026-08-29; 缺包问题已由 T1-3b 解决)
 - 链路: plan_machine_segs.py (Isaac 侧组 targets: 桌+双物障碍+新站姿躯干锁角
   40.52/73.66/0.39°) → curobo_plan_worker (干净子进程) → Approach.npz (双臂
   联合位姿规划到站位腕靶, obj_inflate 1cm) / Retreat.npz (cspace 直达站姿,

@@ -68,7 +68,9 @@ ks = P.compute_kinematics(cur)
 pr = ks.tool_poses.get_link_pose("right_hand_C_MC", make_contiguous=True)
 p0 = pr.position.view(-1)[:3].cpu().numpy()
 print(f"[smoke] B FK right_hand_C_MC (底座系) = {np.round(p0, 3).tolist()}")
-assert np.linalg.norm(p0) < 1.2 and p0[2] > 0, "FK 位置离谱, 查 base_link/锁角"
+# 合理域: 手在躯干右前方, 离地 0.7~1.5m (底座在地面, 桌面 0.87)
+assert 0.1 < p0[0] < 0.9 and -0.8 < p0[1] < 0.1 and 0.7 < p0[2] < 1.5, \
+    "FK 位置离谱, 查 base_link/锁角"
 
 tgt = p0 + np.array([0.05, 0.0, 0.0])
 pd = {}
@@ -90,9 +92,12 @@ assert ok, "空世界 5cm 平移都解不了 —— 查配置"
 p_ = r.js_solution.position
 while p_.dim() > 2:
     p_ = p_.squeeze(0)
+# worker._take 同款: js_solution 的关节序是全 cspace, 按名取回规划器 14 关节列
+nm = list(getattr(r.js_solution, "joint_names", None) or pj)
+idx = [nm.index(n) for n in pj]
+p_ = p_[:, idx]
 end = JointState.from_position(p_[-1:].contiguous().to(q0.device),
-                               joint_names=list(getattr(
-                                   r.js_solution, "joint_names", pj)))
+                               joint_names=pj)
 ke = P.compute_kinematics(end)
 pe = ke.tool_poses.get_link_pose("right_hand_C_MC", make_contiguous=True)
 err = np.linalg.norm(pe.position.view(-1)[:3].cpu().numpy() - tgt)

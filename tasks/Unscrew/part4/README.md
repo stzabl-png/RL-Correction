@@ -42,9 +42,10 @@ bash tasks/Unscrew/part4/C_Wiring/data_engine.sh 32     # 1-6 步自动 (probe_r
 
 ## 已知欠账 (先读 DECISIONS T1 节再动手)
 
-1. **本机无 MagicSim 定制版 cuRobo** (`curobo.motion_planner` fork, 非 PyPI):
-   装法 = 从有 MagicSim 的机器拷 `Third_Party/curobo` + pip install -e 进 isaac
-   解释器 + `MAGICSIM_ROOT=<路径>`。没装之前机器段是 smoothstep 占位 (只够冒烟)。
+1. ~~本机无 cuRobo~~ **已解决 (2026-08-30)**: `curobo.motion_planner` 就是
+   NVlabs/curobo 新版主线, 已装 (~/WorkSpace/curobo) + 机器人配置自动生成
+   (`datasets/vega_urdf/vega_1p_sharpa_curobo.yml`), 规划冒烟全通 —— 详见
+   DECISIONS T1-3b。跑 plan_machine_segs 即可出机器段。
 2. 离线右臂 IK 达标率低 (URDF 锚系统差): probe_rest 实测锚重跑可修一半,
    终解是 build_reference v2 (Isaac 内站位捕获)。
 3. βL=2.0 是抄 Pour17 的初值, 必须 probe_beta 复标。

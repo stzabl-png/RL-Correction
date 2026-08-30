@@ -76,5 +76,8 @@ Persistent training will use a unique task-owned tmux session after static, dete
   interrupted and no Isaac/GPU process will start until a slot is safely available.
 - Pure geometry/progress and Fixed Joint frame contracts are implemented and their
   CPU self-tests pass.
-- Next: build the resampled tool/arm reference and add physical scene wiring plus
-  one-environment reset/replay checks.
+- Sweep clip paths are now self-contained and the P-OBJ reference builder is
+  implemented with explicit 30 Hz source to 20 Hz control resampling.
+- Runtime reference generation is waiting for a safe GPU slot; no foreign process
+  will be interrupted. In parallel, physical scene wiring can be implemented and
+  statically checked.

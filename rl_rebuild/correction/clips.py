@@ -399,15 +399,18 @@ CLIPS["Pour17_cup"] = _pour17("cup")
 
 
 def _sweep2(primary: str):
-    base = os.path.join(_DATASETS, "sweep2")
-    rr = "/home/lyh/Project/Reconstruct_and_Retarget/results/sweep_2_better"
+    # Self-contained task dataset.  The former registration mixed a staged mesh
+    # directory with one developer's private reconstruction checkout, so it could
+    # not run on a fresh clone.
+    base = os.path.join(_DATASETS, "sweep_2_better")
+    rr = base
     dustpan = dict(
         oid="object_0", hand="left",
         label="dustpan (15.8x2.9x21.6cm, handle near ground)",
         mesh=os.path.join(base, "objects", "object_0", "object_mesh_scaled_final.obj"),
         usd=os.path.join(rr, "retarget", "object_0.usd"),
         usd_physics=os.path.join(base, "cache", "object_0.usd"),
-        semantics=ObjectSemantics(label="dustpan", mass_kg=0.15, friction=0.6,
+        semantics=ObjectSemantics(label="dustpan", mass_kg=0.10, friction=0.6,
                                   mass_range=(0.08, 0.30)),
     )
     broom = dict(
@@ -416,7 +419,7 @@ def _sweep2(primary: str):
         mesh=os.path.join(base, "objects", "object_1", "object_mesh_scaled_final.obj"),
         usd=os.path.join(rr, "retarget", "object_1.usd"),
         usd_physics=os.path.join(base, "cache", "object_1.usd"),
-        semantics=ObjectSemantics(label="hand broom", mass_kg=0.25, friction=0.6,
+        semantics=ObjectSemantics(label="hand broom", mass_kg=0.10, friction=0.6,
                                   mass_range=(0.12, 0.45)),
     )
     pri, sec = (broom, dustpan) if primary == "broom" else (dustpan, broom)

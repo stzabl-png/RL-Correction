@@ -37,3 +37,18 @@
   the authorized Isaac Python environment; `git diff --check` is clean.
 - Remaining: Wire these contracts into the Isaac scene and validate actual reset
   transforms/contact behavior before training.
+
+## 2026-08-30 — Self-contained Sweep clip and P-OBJ reference builder
+
+- Goal: Remove developer-specific data paths and turn the reconstruction into the
+  exact bimanual reference consumed by the new task.
+- Changes: Repointed both Sweep2 clip registrations to `datasets/sweep_2_better`,
+  used the dataset's stated 0.1 kg tool masses, and added an explicit 30-to-20 Hz
+  RTS resampler plus GraspPose-locked continuous arm IK builder.
+- Reasoning: A shared world transform preserves reconstructed broom/pan geometry;
+  solving hands from each tool's GraspPose keeps the physical attachment and
+  P-OBJ reference mutually consistent. Human finger motion is intentionally absent.
+- Validation: Python compilation and `git diff --check` pass. Runtime IK validation
+  is pending because both GPUs are actively occupied by other users.
+- Remaining: Run the builder at the first safe GPU slot, inspect its IK report, then
+  wire the generated reference into the physical scene.

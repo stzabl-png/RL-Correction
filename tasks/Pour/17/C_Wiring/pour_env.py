@@ -359,6 +359,27 @@ class PourEnv(GraspTaskEnv):
         _cnt = {t: int((_tm == t).sum()) for t in (2, 1, 0)}
         print(f"[PourEnv] 残差界按档: 绿{DEV_ARM_TIER[2]}({_cnt[2]}行) "
               f"黄{DEV_ARM_TIER[1]}({_cnt[1]}行) 红{DEV_ARM_TIER[0]}({_cnt[0]}行)")
+        # ★L5-31 轴对称假设 —— 把一个此前完全沉默的物体前提喊出来。
+        #   `_axis_only_R`(参考反解IK) 与 `_tilt`(皮筋rot/G3/placed/G4/死线) 全链
+        #   都丢弃"绕长轴的自转"。对瓶/杯正确(两者轴对称); 换非轴对称物体
+        #   (带把手的杯、勺、盒、壶嘴瓶) 则**判据静默失效**: 物体绕长轴转任意角度,
+        #   所有 Gate 照样全绿, 没有任何检查会红。
+        _ub = [round(float(x), 3) for x in self.PB.up.tolist()]
+        _uc = [round(float(x), 3) for x in self.PB.upc.tolist()]
+        print(f"[PourEnv] ★轴对称假设: 长轴 瓶={_ub} 杯={_uc}; "
+              f"绕长轴自转在 参考IK/皮筋/G3/placed/G4/死线 全链**不判**")
+        _mt = str(z["meta"]) if "meta" in z else ""
+        if "up_local=" in _mt:
+            _dec = _mt.split("up_local=")[1].split(";")[0]
+            _cur = ",".join(str(x) for x in _ub)
+            if _dec.replace(" ", "") != _cur:
+                raise SystemExit(
+                    f"[PourEnv] ★母带声明的长轴 up_local={_dec} 与判据在用的 {_cur} "
+                    f"不一致 —— 参考按一个轴反解IK、判据按另一个轴打分, 必然自相矛盾")
+            print(f"[PourEnv]   母带声明 up_local={_dec} —— 与判据一致 ✓")
+        else:
+            print("[PourEnv]   ⚠ 母带未声明 up_local —— 记为**未知**, "
+                  "不是'已核对'(2026-08-27 前的母带都没有这一项)")
         # 2026-08-28 用户裁定补全: "不改动原轨迹"含臂 —— Approach 段臂残差同冻
         # (规划已是带碰撞检查的可行解, ±2cm臂权限曾致撞杯; 撤退臂保留=D8躲避正业)
         arm_gate = torch.ones(self.T_ROW, device=dev)

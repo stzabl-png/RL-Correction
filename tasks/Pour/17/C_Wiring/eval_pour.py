@@ -17,6 +17,9 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--checkpoint", required=True)
 parser.add_argument("--num_envs", type=int, default=256)
 parser.add_argument("--episodes", type=int, default=512, help="总完成回合数(下限)")
+parser.add_argument("--entry", type=str, default="0",
+                    help="出生点(逗号分隔), 默认 0=全程t0(官方考试口径)。"
+                         "给多个则逐个考、出逐出生点分解表(诊断用)")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 
@@ -56,27 +59,92 @@ else:
 
 agent.set_eval()
 
-obs = env.reset()
 N = args.num_envs
-done_n = 0
-ms_cnt = {1: 0, 2: 0, 3: 0, 4: 0}
-fail_spec = {"timeout": 0, "fail": 0}
-with torch.no_grad():
-    while done_n < args.episodes:
-        inp = {"obs": agent.running_mean_std(obs["obs"]),
-               "priv_info": obs["priv_info"]}
-        mu = agent.model.act_inference(inp)
-        obs, rew, dones, infos = env.step(torch.clamp(mu, -1.0, 1.0))
-        d = dones.nonzero(as_tuple=False).squeeze(1)
-        if len(d):
-            # dones 时 PB 状态尚未被 reset 覆盖? reset 在 step 内已发生 —— 用 TB 口径
-            done_n += len(d)
-if hasattr(raw.PB, "pop_rates"):
-    # 评测期间 PB.reset_idx 已在 env 内累计逐关率
-    rates = raw.PB.pop_rates()
-    print(f"[eval] 完成回合≈{done_n} | " +
-          " ".join(f"{k}={v:.3f}" for k, v in rates.items()))
-print(f"[eval] ★Success(M4) = {rates['sr/gate4']:.3f}")
+ENTRIES = [int(x) for x in args.entry.split(",") if x.strip() != ""]
+
+
+def _run_one(k):
+    """把全部 env 钉在出生点 k 上考一轮, 返回 (干净 rates, 初始复位注入的假回合数)。
+
+    ★ 初始复位会污染分母: env.reset() 走 _reset_idx ⟹ PB.reset_idx 把当时全部 env
+    当成"结算的回合"计进 _acc (且四个 Gate 全 False)。旧版评测只 reset 一次就开跑,
+    这 N 个零成功假回合一直留在分母里 —— num_envs=256/episodes=512 时把成功率
+    压到真值的 512/768 = 0.667 倍。这里 reset 后先 pop 一次把它倒掉, 并把倒掉的
+    数量原样报出来, 让"旧口径"可复算、可对照。
+    """
+    raw.force_entry = [k]
+    obs = env.reset()
+    inject = float(raw.PB.pop_rates()["n/ep_done"])     # 倒掉初始复位注入的假回合
+    done_n = 0
+    batches = []            # ★ 每一步结算了几个回合
+    with torch.no_grad():
+        while done_n < args.episodes:
+            inp = {"obs": agent.running_mean_std(obs["obs"]),
+                   "priv_info": obs["priv_info"]}
+            mu = agent.model.act_inference(inp)
+            obs, rew, dones, infos = env.step(torch.clamp(mu, -1.0, 1.0))
+            nd = int(dones.sum())
+            if nd:
+                batches.append(nd)
+            done_n += nd
+    return raw.PB.pop_rates(), inject, batches
+
+
+def _report_batches(k, b):
+    """★ 有效样本量: `--episodes 512` 未必等于 512 个独立样本。
+
+    评测把 force_entry 钉死、obj_jitter_xy=0、策略取均值 ⟹ 全部 env 的初始状态
+    **逐位相同**, 于是它们会在几乎同一步同时结算。这样"512 个回合"其实是少数几
+    **批**同一件事的复现, 二项标准误 sqrt(p(1-p)/512) 完全不适用 —— 它会把不确定
+    度报小一个数量级, 让人以为 ±2 个点, 实测 run 间却晃 6 个点。
+
+    用逆辛普森指数量"等效批数": n_eff = (Σn)² / Σn²
+      · 全部一次结算完 -> n_eff = 1
+      · 均分成两批     -> n_eff = 2
+      · 一个一个陆续来 -> n_eff = 回合数 (才是真的 512 个独立样本)
+    """
+    tot = sum(b)
+    n_eff = (tot ** 2) / sum(x * x for x in b) if b else float("nan")
+    top = sorted(b, reverse=True)[:5]
+    print(f"[batch] 出生点 {k}: 共 {tot} 回合, 分 {len(b)} 步结算; "
+          f"最大的几批 ={top}; 前3批占 {100*sum(top[:3])/max(tot,1):.1f}%")
+    print(f"[batch]   ★等效独立批数 n_eff = {n_eff:.1f}  "
+          f"(理想=回合数 {tot}; =1~3 则'512回合'实为少数几批的复现)")
+    print(f"[batch]   按 n_eff 折算的成功率标准误 ≈ {50.0/max(n_eff,1)**0.5:.1f} 个点 "
+          f"(对比按 {tot} 回合的二项口径 {50.0/max(tot,1)**0.5:.1f} 个点)", flush=True)
+    return n_eff
+
+
+results = {}
+for _k in ENTRIES:
+    print(f"\n[eval] ===== 出生点 {_k} " +
+          ("(t0 = 从头做完整任务, 官方考试口径)" if _k == 0 else "(预置出生, 诊断口径)")
+          + " =====", flush=True)
+    _rr, _ij, _bt = _run_one(_k)
+    results[_k] = (_rr, _ij)
+    print("[eval] " + " ".join(f"{a}={b:.3f}" for a, b in _rr.items()), flush=True)
+    _report_batches(_k, _bt)
+
+print("\n" + "=" * 78)
+print("[eval] 逐出生点分解 (每格 = 该出生点下的通关率)")
+print("=" * 78)
+print(f"{'出生点':>6} {'回合':>6} {'G1':>7} {'G2':>7} {'G3':>7} {'G4':>7} {'认证':>7}"
+      f"   {'旧口径G4':>9}")
+for _k in ENTRIES:
+    _r, _inj = results[_k]
+    _n = _r["n/ep_done"]
+    _old = (_r["sr/gate4"] * _n / (_n + _inj)) if (_n + _inj) > 0 else float("nan")
+    print(f"{_k:>6} {_n:>6.0f} {_r['sr/gate1']:>7.3f} {_r['sr/gate2']:>7.3f}"
+          f" {_r['sr/gate3']:>7.3f} {_r['sr/gate4']:>7.3f}"
+          f" {_r['sr/cert_pass']:>7.3f}   {_old:>9.3f}")
+print("★ 旧口径 = 分母含初始复位注入的假回合(每轮 %d 个), 只为与历史数字对照, 不是真值"
+      % N)
+_r0 = results.get(0, (None, None))[0]
+if _r0 is not None:
+    print(f"\n[eval] ★Success(M4, t0 口径) = {_r0['sr/gate4']:.4f}"
+          f"   (t0 分母 {_r0['n/ep_done_t0']:.0f} 回合)")
+print("=" * 78, flush=True)
+
 try:
     _slot.release()
 except Exception:

@@ -31,6 +31,10 @@
 
 ```bash
 # 建议用 conda 隔离;python 必须 3.11
+# ★ 新版 conda 必须先接受频道服务条款,否则 conda create 直接失败(见下方坑③)
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+
 conda create -y -n isaac python=3.11
 PY=$HOME/miniconda3/envs/isaac/bin/python
 
@@ -48,10 +52,29 @@ OMNI_KIT_ACCEPT_EULA=YES $PY -c "import isaacsim, isaaclab, torch; \
   print(torch.__version__, torch.cuda.is_available(), torch.cuda.device_count())"
 ```
 
-⚠ 两个坑:
+⚠ 三个坑:
 - **必须 `OMNI_KIT_ACCEPT_EULA=YES`**,否则首次启动卡在交互式 EULA 询问(非交互环境直接 EOF 崩)。
 - 机器上若已有**旧版 IsaacLab(1.x)**:那是 `omni.isaac.lab` 命名空间 + Isaac Sim 4.x,
   与本项目的 `isaaclab` 2.x API **不兼容**。装在自己的 conda env 里,两者互不干扰。
+- **③ conda 频道服务条款(2026-08-30 部署 Denso 时踩到)**:新版 conda 在
+  `conda create` 前要求显式接受 `pkgs/main` 与 `pkgs/r` 的 ToS,非交互环境下
+  **直接报错退出**:
+
+  ```
+  CondaToSNonInteractiveError: Terms of Service have not been accepted for the
+  following channels. Please accept or remove them before proceeding:
+      - https://repo.anaconda.com/pkgs/main
+      - https://repo.anaconda.com/pkgs/r
+  ```
+
+  按上面 §1 开头那两行 `conda tos accept` 先接受即可。
+  ★ 本文档写于 conda 有这个要求之前,所以老机器上装过的人不会遇到 ——
+  **新机器一定会撞**。
+
+  ★ 顺带一条部署脚本的纪律:装机脚本**必须写 `set -e`**。Denso 这次就是靠它在
+  第 2 步停住的;没有它,后面 pip 会在一个不存在的 env 里继续跑,最后留下一个
+  "看起来装完了、其实什么都没装进去"的环境 —— 而那种环境的症状要到跑训练时
+  才暴露。
 
 ---
 
@@ -211,6 +234,7 @@ TensorBoard 在本机看:`tensorboard --logdir logs/<RunName>`
 
 | 现象 | 原因/处理 |
 |---|---|
+| `CondaToSNonInteractiveError: Terms of Service have not been accepted` | 新版 conda 要求先接受 `pkgs/main` / `pkgs/r` 的 ToS。跑 §1 开头那两行 `conda tos accept`。**老机器装过的人不会遇到,新机器一定撞** |
 | 卡在 `Do you accept the EULA?` | 没设 `OMNI_KIT_ACCEPT_EULA=YES` |
 | `ModuleNotFoundError: gym / tensorboardX` | 训练侧依赖没装齐(§1 最后一行);冒烟不走 PPO 所以不报 |
 | `No module named 'isaaclab'` 或 API 报错 | 装成了旧版 IsaacLab 1.x(`omni.isaac.lab`),按 §1 重装 |

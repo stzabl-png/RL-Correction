@@ -46,6 +46,14 @@ WARN = (
     # ★L5-25: 加/减接触传感器**会改世界**, 而此前指纹里没有任何一项能看见它 ——
     # 换了传感器配置的 ckpt 会静默"匹配"。至少让它在提示层可见。
     "sensors.count",
+    # ★L5-31: 轴对称假设。`_axis_only_R`(参考生成) 与 `_tilt`(G3/placed/G4/皮筋/死线)
+    # 全链都把"绕长轴的自转"当作不可观测而丢弃 —— 对瓶/杯成立, 换非轴对称物体
+    # (带把手的杯、勺、盒、壶嘴瓶) 则整条判据链静默失效: 策略把物体绕长轴转任意
+    # 角度, 所有 Gate 照样全绿。此前指纹里**没有任何一项能看见这个前提**。
+    # 现列为提示项而非关键项: 关键项会让四条在跑的线的 ckpt 立刻失效; 下次冻结
+    # 判据(改终止条件)时应提升为 CRITICAL。
+    "geometry.up_local_bot", "geometry.up_local_cup",
+    "geometry.axis_spin_ignored",
 )
 
 
@@ -143,6 +151,17 @@ def collect(env) -> dict:
     except Exception as e:                       # 读不到就记未知, 不记假值
         _crit = {"schema": None, "digest": None,
                  "items": None, "error": type(e).__name__}
+    # ★L5-31 轴对称假设: 从**活的 PB 实例**读实际在用的长轴, 不从常量抄 ——
+    # 抄常量只能证明"常量是多少", 证明不了"判据用的是哪个"。
+    try:
+        _pb = env.PB
+        _geom = {"up_local_bot": [_f(x) for x in _pb.up.tolist()],
+                 "up_local_cup": [_f(x) for x in _pb.upc.tolist()],
+                 "axis_spin_ignored": True,
+                 "note": "绕长轴自转在 参考IK/皮筋/G3/placed/G4/死线 全链不判"}
+    except Exception as e:                       # 读不到记 None, 不填假值
+        _geom = {"up_local_bot": None, "up_local_cup": None,
+                 "axis_spin_ignored": None, "error": type(e).__name__}
     ref = getattr(env, "_master_path", None) or os.environ.get("POUR_REF_NPZ")
     fp = {
         "reference": {"path": ref, "md5": _md5(ref) if ref else None},
@@ -150,6 +169,7 @@ def collect(env) -> dict:
                       "act_dim": int(getattr(cfg, "action_space", 0)) or None},
         "schema": "world_fingerprint_v1",
         "criteria": _crit,
+        "geometry": _geom,
         "time": {"physics_dt_s": _f(sim.get_physics_dt()),
                  "control_dt_s": _f(sim.get_physics_dt()
                                     * int(getattr(cfg, "decimation", 1))),

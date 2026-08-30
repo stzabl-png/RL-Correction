@@ -154,7 +154,7 @@ class PourProgressBatch:
         self.done = torch.zeros_like(self.g1)
         # TB 记账
         self._acc = {"ep": 0, "g1": 0, "g2": 0, "g3": 0, "g4": 0,
-                     "clock": 0.0, "catt": 0, "cpass": 0,
+                     "clock": 0.0, "catt": 0, "cpass": 0, "cdone": 0, "cdone_t0": 0,
                      "ep_t0": 0, "g1_t0": 0, "g2_t0": 0, "g3_t0": 0, "g4_t0": 0,
                      "cf_rise_bot": 0, "cf_rise_cup": 0, "cf_slip_r": 0,
                      "cf_slip_l": 0, "cf_pads": 0, "term_any": 0,
@@ -170,6 +170,13 @@ class PourProgressBatch:
             self._acc["g4"] += int(self.g4[env_ids].sum())
             self._acc["clock"] += float(self.k[env_ids].float().sum()) \
                 / max(self.N_ROW - 1, 1)
+            # ★ 纯记账: "物体跟着参考走完全程"的逐回合通过率。
+            #   clock_frac 是**平均走了多远**, 回答不了"有多少比例走完了" ——
+            #   两者在图上长得一样, 但 0.768 的平均可以由"全都走 77%"或
+            #   "77% 走完+23% 原地"产生, 判读完全不同。
+            _cdone = (self.k[env_ids] >= self.N_ROW - 1)
+            self._acc["cdone"] += int(_cdone.sum())
+            self._acc["cdone_t0"] += int((_cdone & self.born_t0[env_ids]).sum())
             # 药②: t0 出生口径 (预置出生不进分母, 消课程稀释偏差)
             t0m = self.born_t0[env_ids]
             self._acc["ep_t0"] += int(t0m.sum())
@@ -227,6 +234,8 @@ class PourProgressBatch:
                "sr_t0/gate4": _r(self._acc["g4_t0"], _ep0),
                "prog/ep_t0_frac": _r(self._acc["ep_t0"], _ep),
                "prog/clock_frac": _r(self._acc["clock"], _ep),
+               "sr/clock_done": _r(self._acc["cdone"], _ep),
+               "sr_t0/clock_done": _r(self._acc["cdone_t0"], _ep0),
                "sr/cert_pass": _r(self._acc["cpass"], _at),
                "prog/cert_att": _r(self._acc["catt"], _ep),
                "n/ep_done": float(_ep),          # ★分母本身: 判读前先看它
@@ -241,7 +250,7 @@ class PourProgressBatch:
             out["term/" + _k] = _r(self._acc["term_" + _k], _tn)
         out["n/term_judge"] = float(_tn)
         self._acc = {"ep": 0, "g1": 0, "g2": 0, "g3": 0, "g4": 0,
-                     "clock": 0.0, "catt": 0, "cpass": 0,
+                     "clock": 0.0, "catt": 0, "cpass": 0, "cdone": 0, "cdone_t0": 0,
                      "ep_t0": 0, "g1_t0": 0, "g2_t0": 0, "g3_t0": 0, "g4_t0": 0,
                      "cf_rise_bot": 0, "cf_rise_cup": 0, "cf_slip_r": 0,
                      "cf_slip_l": 0, "cf_pads": 0, "term_any": 0,

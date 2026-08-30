@@ -32,7 +32,7 @@ REFERENCE = os.environ.get("SWEEP_REF_NPZ") or os.path.join(
     _TASK, "A_Design", "L2_Reference", "sweep2_reference_v1.npz")
 ACT_DIM = 14
 OBS_DIM = 176
-PRIOR_BROOM = "tasks/pregrasp/priors/Sweep2_broom.npz"
+PRIOR_BROOM = "tasks/pregrasp/priors/Sweep2_broom_v2.npz"
 PRIOR_PAN = "tasks/pregrasp/priors/Sweep2_dustpan.npz"
 
 
@@ -57,7 +57,7 @@ def build_cfg(num_envs=1, reference=REFERENCE):
     cfg = GraspTaskCfg()
     clips.configure_cfg(cfg, "Sweep2_broom")
     cfg.approach_only = True
-    apply_grasp_prior(cfg, PRIOR_BROOM, 30.0, approach=True)
+    apply_grasp_prior(cfg, PRIOR_BROOM, 90.0, approach=True)
     cfg.scene.num_envs = int(num_envs)
     cfg.obj_jitter_xy = 0.0
     cfg.action_space = ACT_DIM

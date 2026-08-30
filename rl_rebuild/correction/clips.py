@@ -392,7 +392,8 @@ CLIPS["Pour17_cup"] = _pour17("cup")
 #     ③ semantics 质量为估计值 (簸箕/扫帚未称重)
 #   GraspPose = 用户钦点 (Dexonomy 功能池, demo_angle 口径):
 #     簸箕×左 fingertip_small__8_34 (64.2°, 4 接触; ⚠中指力仅 3%, Gate2 边界)
-#     扫帚×右 8_Prismatic_2_Finger__37_16 (30.0°, 5 接触, 力分配 29/28/23/20)
+#     扫帚×右 8_Prismatic_2_Finger__46_16 (46.5°, region=1.0, functional;
+#       2026-08-30 multi-start ArmIK screen selected for the Sweep robot workspace)。
 #   scene_layout 红旗: object_0(簸箕) 稳定姿态吸附判"倒置"(轴夹角 157.6°),
 #   GUI 首验必看摆放。
 # =============================================================================

@@ -66,6 +66,18 @@ Approved execution order (commands are code-complete but GPU validation is pendi
   resamples to the 20 Hz control clock instead of trusting that metadata silently.
 - `object_0` is the dustpan (left hand); `object_1` is the broom (right hand).
 - The tracked robot USD and both GraspPose prior blobs were hydrated and hash-checked.
+- The stale tracked broom prior was rejected by multi-start ArmIK. The selected
+  replacement is `Sweep2_broom_v2.npz`, sourced from the current functional-region
+  candidate `8_Prismatic_2_Finger__46_16` and placed at a 90 degree task yaw.
+- The validated 200-row reference preserves 100% of reconstructed position
+  increments and 8% of rotation increments after a rigid 120 degree recon-to-sim
+  world registration. Full rotation was proven infeasible for every tested world
+  yaw; 10% was reachable but exceeded the 8 degree/frame continuity gate.
+- Final reference SHA-256:
+  `3a3171625c84e42c92425f0c23ca20d0b3080471c3e3744e3e3d9ec1c35b6b6f`.
+  Right/left IK are both 200/200, with maximum position errors 4.91/4.77 mm and
+  maximum joint steps 7.89/1.93 degrees. The nominal brush-to-cube corridor miss is
+  1.45 cm, intentionally left for the expert residual (zero residual need not win).
 
 ## Historical failure evidence used by this implementation
 
@@ -94,6 +106,8 @@ Approved execution order (commands are code-complete but GPU validation is pendi
   tool attachments, frozen fingers, 14 arm actions, P-OBJ confidence bounds, and
   cube-grounded task reward/termination. Runtime construction contains a strict
   3 mm attachment/reset assertion.
-- Runtime reference generation is waiting for a safe GPU slot; no foreign process
-  will be interrupted. In parallel, physical scene wiring can be implemented and
-  statically checked.
+- Reference generation is complete and passed both CPU contract tests, compilation,
+  and whitespace checks. Physical Isaac construction/replay is the next gate.
+- Both A6000 GPUs remain occupied by foreign training/recording jobs at 98%/91%
+  utilization. No Isaac process, video, expert generation, or training has started;
+  those steps must resume only after a safe GPU slot is observed.

@@ -82,3 +82,26 @@
 - Validation: Every new entry point compiles and `git diff --check` passes. Video,
   expert, training, and evaluation paths are guarded to `outputs_video/` or `logs/`.
 - Remaining: Runtime validation and trajectory tuning at the first safe GPU slot.
+
+## 2026-08-30 — Validated Sweep GraspPose and robot-space reference
+
+- Goal: Replace the stale broom grasp and produce a reference that is jointly
+  reachable, continuous, task-aligned, and faithful to the reconstruction.
+- Changes: Selected the current functional-region broom candidate
+  `8_Prismatic_2_Finger__46_16`; added deterministic grasp/yaw and world-yaw
+  diagnostics; retained full reconstructed position increments and the maximum
+  rotation fraction that passes the continuity gate; replaced greedy IK restarts
+  with sparse multi-solution pools, global branch dynamic programming, PCHIP seeds,
+  and dense refinement. The validated reference is now generated only after every
+  hard assertion passes.
+- Reasoning: The old prior was unreachable by 22.3 cm, while full reconstructed
+  rotation made at least one key frame unreachable at every tested world yaw.
+  A 120 degree rigid world registration plus 8% rotation retention keeps the full
+  position curve, brings the broom within 1.45 cm of the easy cube, and leaves a
+  small, learnable downward/inward correction for actor BC and residual PPO.
+- Validation: Both arms are 200/200 IK-valid. Right/left maximum position errors are
+  4.91/4.77 mm and maximum joint steps are 7.89/1.93 degrees. The generated NPZ hash
+  is `3a3171625c84e42c92425f0c23ca20d0b3080471c3e3744e3e3d9ec1c35b6b6f`;
+  both CPU self-tests, Python compilation, and `git diff --check` pass.
+- Remaining: Run the 1-env physical reset/replay gate and record its video once a
+  foreign-job-free GPU is available, then generate the successful expert and train.

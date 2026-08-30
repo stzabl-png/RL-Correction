@@ -18,3 +18,29 @@ From noisy egocentric video reconstruction to high-quality sim-verified robot tr
 8. **High-Quality Sim-Verified Data** — `D_high-quality`, for robot policy training and dataset construction
 
 A trajectory quality reward (`+ contact + stability + progress + success − penetration − collision − joint-limit − jerk − deviation`) closes the loop, with a fidelity term keeping the corrected trajectory close to the original video intent.
+
+## Where the code lives
+
+This default branch (`main`) holds only the overview above. **The implementation lives on
+the per-stage branches** — pipeline step 4 (the RL correction itself) is on
+`Step4_RL_Correction`, together with the training code, the design ledger and the criteria.
+
+| Branch | Contents |
+|---|---|
+| `Step1_DataInput` | data ingestion |
+| `Step2_NoisyRecon` | video → noisy HOI reconstruction (pipeline step 2) |
+| `Step3_Dexonomy` | grasp pose generation (step 3b) |
+| **`Step4_RL_Correction`** | **RL correction — training code, design ledger, success criteria, self-tests** |
+
+```bash
+git clone git@github.com:stzabl-png/RL-Correction.git
+cd RL-Correction && git checkout Step4_RL_Correction
+git lfs pull      # reference trajectories / USD assets are LFS-tracked
+```
+
+**If you want to reuse our training design**, start here:
+[`docs/TRAINING_DESIGN_GUIDE.md`](https://github.com/stzabl-png/RL-Correction/blob/Step4_RL_Correction/docs/TRAINING_DESIGN_GUIDE.md)
+on `Step4_RL_Correction` — branch map, code layout, the five core training ideas
+(residual policy · four-gate phase machine · progressive RSI birth-point curriculum ·
+reliability-weighted reference channels · world fingerprint), how to launch a run,
+and the pitfalls that cost us whole training runs.

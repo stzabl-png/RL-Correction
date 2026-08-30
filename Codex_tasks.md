@@ -29,7 +29,14 @@ Verified input flow: Sweep2 video reconstruction provides dustpan (`object_0`) a
 
 ## Demo and validation commands
 
-Commands will be added after the remote environment and new entry points are verified.
+Pure CPU contracts (verified):
+
+```bash
+/home/msc-auto/miniconda3/envs/isaac/bin/python \
+  tasks/Sweep/2/A_Design/L3_Learning/selftest_fixed_joint.py
+/home/msc-auto/miniconda3/envs/isaac/bin/python \
+  tasks/Sweep/2/A_Design/L3_Learning/selftest_progress.py
+```
 
 ## Training, tmux, logs, and checkpoints
 
@@ -67,5 +74,7 @@ Persistent training will use a unique task-owned tmux session after static, dete
 - Repository, data, output directories, and task records are bootstrapped.
 - Both A6000 GPUs are currently owned by other users' active jobs; no job has been
   interrupted and no Isaac/GPU process will start until a slot is safely available.
-- Next: implement the pure geometry/progress contract and reference builder, then
-  add physical scene wiring and its one-environment replay checks.
+- Pure geometry/progress and Fixed Joint frame contracts are implemented and their
+  CPU self-tests pass.
+- Next: build the resampled tool/arm reference and add physical scene wiring plus
+  one-environment reset/replay checks.

@@ -22,3 +22,18 @@
   current GPU processes without changing them.
 - Remaining: Pure geometry tests, reference generation, physical replay, BC warmup,
   PPO training, and 512-episode deterministic evaluation.
+
+## 2026-08-30 — Sweep physical progress contract
+
+- Goal: Give Sweep2 one simulator-independent source of truth for progress, reward,
+  containment, stability, and Fixed Joint frames.
+- Changes: Added vectorized pan-frame geometry, four latched task gates, earn-only
+  cube progress reward, full-footprint containment, a 0.5-second stability terminal,
+  GraspPose-derived joint-frame math, and CPU self-tests.
+- Reasoning: Reference following and pan pose alone produced reward farming in the
+  predecessor. The new task contract cannot finish without real cube displacement
+  followed by stable physical containment.
+- Validation: Both `selftest_progress.py` and `selftest_fixed_joint.py` pass under
+  the authorized Isaac Python environment; `git diff --check` is clean.
+- Remaining: Wire these contracts into the Isaac scene and validate actual reset
+  transforms/contact behavior before training.

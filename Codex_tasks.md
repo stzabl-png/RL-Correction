@@ -42,6 +42,18 @@ Pure CPU contracts (verified):
 
 Persistent training will use a unique task-owned tmux session after static, deterministic, 1-env, multi-env, and short-training checks pass. The exact GPU, command, log, checkpoint path, and resume instructions will be recorded before launch.
 
+Approved execution order (commands are code-complete but GPU validation is pending):
+
+1. Build `tasks/Sweep/2/A_Design/L2_Reference/sweep2_reference_v1.npz`.
+2. Run `smoke_sweep.py` with one and eight environments, zero then small random actions.
+3. Record zero residual to `outputs_video/sweep2_zero_reference_v1.mp4`.
+4. Run `make_expert.py`; it saves data only after physical success to
+   `logs/expert/sweep2_success_v1.npz` and records its replay under `outputs_video/`.
+5. Launch `train_sweep.py` in a uniquely named tmux. It performs actor BC once,
+   saves `bc_warm.pth`, then switches permanently to pure on-policy PPO.
+6. Evaluate a selected checkpoint with `eval_sweep.py --num_envs 512`; acceptance is
+   exactly the emitted `success_rate >= 0.50` report under the run's `logs/` tree.
+
 ## Verified runtime and dataset state
 
 - Runtime: `/home/msc-auto/miniconda3/envs/isaac/bin/python` (Python 3.11,

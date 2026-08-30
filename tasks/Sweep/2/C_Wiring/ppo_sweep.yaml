@@ -1,0 +1,44 @@
+seed: 42
+algo: PPO
+device: cuda
+network:
+  mlp:
+    units: [256, 128]
+  priv_mlp:
+    units: [64, 32, 8]
+  separate_critic: true
+  actor_priv_dim: 8
+  sigma_floor: 0.02
+  sigma_init: 0.08
+  mu_init_scale: 0.01
+load_path: null
+algorithm:
+  experiment_name: Sweep2_fixed
+  normalize_input: true
+  normalize_value: true
+  value_bootstrap: true
+  num_actors: 512
+  normalize_advantage: true
+  gamma: 0.99
+  tau: 0.95
+  learning_rate: 0.0003
+  kl_threshold: 0.02
+  max_lr: 0.0003
+  min_lr: 0.00003
+  horizon_length: 32
+  minibatch_size: 8192
+  mini_epochs: 5
+  critic_warmup_iters: 10
+  clip_value: true
+  critic_coef: 1.0
+  entropy_coef: 0.001
+  e_clip: 0.2
+  bounds_loss_coef: 0.0001
+  truncate_grads: true
+  grad_norm: 1.0
+  save_best_after: 0
+  save_frequency: 40
+  max_agent_steps: 100000000
+  priv_info: true
+  priv_info_dim: 8
+  priv_info_embed_dim: 8

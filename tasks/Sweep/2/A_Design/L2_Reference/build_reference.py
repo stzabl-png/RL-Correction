@@ -145,14 +145,16 @@ for x in np.linspace(-0.04, 0.04, 9):
         p[2] = float(cfg.table_top_z) + 0.0055
         candidates.append(p)
 candidates = np.asarray(candidates)
-best = (float("inf"), None, None)
+best = (float("inf"), None, None, None)
 for ti in range(10, len(times_s) - 10):
     world = bv @ tool_T[1][ti, :3, :3].T + tool_T[1][ti, :3, 3]
-    d = np.linalg.norm(world[:, None, :] - candidates[None, :, :], axis=2).min(axis=0)
+    all_d = np.linalg.norm(world[:, None, :] - candidates[None, :, :], axis=2)
+    d = all_d.min(axis=0)
     ci = int(np.argmin(d))
-    if float(d[ci]) < best[0]: best = (float(d[ci]), ti, ci)
+    if float(d[ci]) < best[0]: best = (float(d[ci]), ti, ci, int(np.argmin(all_d[:, ci])))
 cube_start = candidates[best[2]]
 contact_row = int(best[1])
+brush_contact_local = bv[best[3]]
 print(f"[reference] easy cube={np.round(cube_start, 4).tolist()} | "
       f"nominal brush distance={best[0]*100:.2f}cm @ row {contact_row}")
 
@@ -184,6 +186,7 @@ out = {
     "cube_start_w": cube_start.astype(np.float32),
     "contact_row": np.int32(contact_row),
     "nominal_brush_cube_distance_m": np.float32(best[0]),
+    "brush_contact_local": brush_contact_local.astype(np.float32),
     "shared_world_transform": A,
     "meta": "Sweep2 P-OBJ v1; RTS tools at source 30Hz -> explicit 20Hz; shared SE3 scene map; GraspPose-locked tool-to-hand; fingers fixed",
 }

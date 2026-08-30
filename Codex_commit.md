@@ -68,3 +68,17 @@
   reject more than 3 mm tool/reference or attachment-frame error at construction.
 - Remaining: Generate the reference on a free GPU, run the physical reset audit,
   then tune the deterministic expert push and record zero-residual replay.
+
+## 2026-08-30 — Replay, expert-BC, PPO, and acceptance entry points
+
+- Goal: Make the approved learning sequence executable end to end with artifact
+  paths enforced in code.
+- Changes: Added zero/checkpoint video recording, a physically validated scripted
+  residual expert generator, one-shot actor-only BC warmup, pure on-policy PPO
+  training, finite smoke tests, and deterministic 512-episode evaluation.
+- Reasoning: Expert files are saved only after the simulator reaches the same stable
+  containment terminal used by evaluation. BC runs before PPO and is absent from all
+  rollout/update code, matching the approved simplification.
+- Validation: Every new entry point compiles and `git diff --check` passes. Video,
+  expert, training, and evaluation paths are guarded to `outputs_video/` or `logs/`.
+- Remaining: Runtime validation and trajectory tuning at the first safe GPU slot.

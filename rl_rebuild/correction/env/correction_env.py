@@ -381,7 +381,7 @@ class SharpaCorrectionEnv(DirectRLEnv):
             collision_props=sim_utils.CollisionPropertiesCfg(),
             physics_material=sim_utils.RigidBodyMaterialCfg(
                 static_friction=0.5, dynamic_friction=0.5),  # 物↔桌=3.0×0.5=1.5 (验证器)
-            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.4, 0.3, 0.2)),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 0.0, 0.0)),
         )
         table_cfg.func("/World/envs/env_.*/Table", table_cfg,
                        translation=(0.0, 0.0, self.cfg.table_top_z - sz / 2))
@@ -454,6 +454,11 @@ class SharpaCorrectionEnv(DirectRLEnv):
             sim_utils.bind_physics_material(p, "/World/Materials/LowGrip",
                                             stronger_than_descendants=False); n_low += 1
         for name in self.cfg.fingertip_bodies:                       # 指尖覆盖回 SuperGrip
+            for p in sim_utils.find_matching_prim_paths(f"/World/envs/env_.*/Robot/{name}"):
+                sim_utils.bind_physics_material(p, "/World/Materials/SuperGrip"); n_grip += 1
+        # 双臂 B 侧指垫 (2026-08-27): fingertip_bodies 只含交互侧, 另一只手的垫
+        # 从建仓起就是 LowGrip 0.2 —— 与交互侧差 15×. 这里补绑.
+        for name in getattr(self.cfg, "extra_supergrip_bodies", []) or []:
             for p in sim_utils.find_matching_prim_paths(f"/World/envs/env_.*/Robot/{name}"):
                 sim_utils.bind_physics_material(p, "/World/Materials/SuperGrip"); n_grip += 1
         print(f"[setup] 物体材质={object_material}×{n_object} "

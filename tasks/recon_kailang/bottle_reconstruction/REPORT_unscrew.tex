@@ -1,0 +1,443 @@
+% !TeX program = xelatex
+% 组会版：从视频重建到双臂物理闭环（16:9）
+% 编译：xelatex -interaction=nonstopmode -halt-on-error REPORT_unscrew.tex
+\documentclass[aspectratio=169,10pt]{ctexbeamer}
+
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{fontspec}
+\usepackage{xcolor}
+
+\setCJKsansfont{Noto Sans CJK SC}
+\setsansfont{Noto Sans}
+
+% ---------- 视觉系统 ----------
+\definecolor{Ink}{HTML}{172033}
+\definecolor{Muted}{HTML}{667085}
+\definecolor{DeepBlue}{HTML}{174A7E}
+\definecolor{Blue}{HTML}{2F75B5}
+\definecolor{Green}{HTML}{17805C}
+\definecolor{Amber}{HTML}{B66A00}
+\definecolor{Paper}{HTML}{F7F9FC}
+\definecolor{Rule}{HTML}{D9E1EC}
+
+\setbeamercolor{normal text}{fg=Ink,bg=white}
+\setbeamercolor{frametitle}{fg=DeepBlue,bg=white}
+\setbeamercolor{structure}{fg=Blue}
+\setbeamercolor{block title}{fg=white,bg=DeepBlue}
+\setbeamercolor{block body}{fg=Ink,bg=Paper}
+\setbeamercolor{block title alerted}{fg=white,bg=Amber}
+\setbeamercolor{block body alerted}{fg=Ink,bg=Amber!8}
+\setbeamercolor{metric}{fg=Ink,bg=Blue!7}
+\setbeamercolor{takeaway}{fg=Ink,bg=Green!9}
+
+\setbeamerfont{frametitle}{size=\large,series=\bfseries}
+\setbeamerfont{block title}{size=\small,series=\bfseries}
+\setbeamerfont{block body}{size=\footnotesize}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{headline}{}
+\setbeamertemplate{frametitle}{%
+  \vspace{0.05em}\insertframetitle\par
+  \vspace{-0.05em}\color{Rule}\rule{\textwidth}{0.5pt}}
+\setbeamertemplate{footline}{%
+  \leavevmode
+  \hbox{%
+    \begin{beamercolorbox}[wd=.82\paperwidth,ht=2.2ex,dp=0.7ex,leftskip=1.1em]{author in head/foot}%
+      \color{Muted}\tiny screw\_unscrew\_bottle\_cap/1 \;|\; Reference-Guided Residual RL
+    \end{beamercolorbox}%
+    \begin{beamercolorbox}[wd=.18\paperwidth,ht=2.2ex,dp=0.7ex,rightskip=1.1em plus1fil]{date in head/foot}%
+      \color{Muted}\tiny \insertframenumber/\inserttotalframenumber
+    \end{beamercolorbox}}}
+
+\setbeamersize{text margin left=0.6cm,text margin right=0.6cm}
+\setbeamertemplate{itemize item}{\raise0.15ex\hbox{\tiny$\blacktriangleright$}}
+\setbeamertemplate{itemize subitem}{\raise0.15ex\hbox{\tiny$\bullet$}}
+\setbeamertemplate{itemize/enumerate body begin}{\footnotesize}
+\setbeamertemplate{itemize/enumerate subbody begin}{\scriptsize}
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.10}
+
+\newcommand{\status}[2]{%
+  \begingroup\setlength{\fboxsep}{0.4ex}%
+  \colorbox{#1!12}{\textcolor{#1}{\bfseries\scriptsize #2}}%
+  \endgroup}
+
+\newcommand{\metricbox}[3]{%
+  \begin{beamercolorbox}[wd=\linewidth,rounded=true,sep=0.5ex,center]{metric}
+    {\large\bfseries\color{DeepBlue}#2}\par
+    {\footnotesize\bfseries #1}\par
+    {\tiny\color{Muted}#3}
+  \end{beamercolorbox}}
+
+\newcommand{\takeaway}[1]{%
+  \begin{beamercolorbox}[wd=\textwidth,rounded=true,sep=0.55ex]{takeaway}
+    \footnotesize\textcolor{Green}{\bfseries 结论：}\,#1
+  \end{beamercolorbox}}
+
+\newcommand{\evidence}[1]{\par\vspace{0.1em}{\tiny\color{Muted}证据口径：#1}}
+
+\begin{document}
+
+% ================================================================
+\begin{frame}[t]
+  {\Large\bfseries\color{DeepBlue} 从视频重建到双臂物理闭环}\par
+  \vspace{0.05em}
+  {\normalsize 拧瓶盖任务的设计、阶段结果与下一步}
+  \hfill\status{Amber}{阶段性结果}
+
+  \vspace{0.25em}
+  \begin{block}{一句话结论}
+    Reference 已提供完整任务顺序，Residual RL 也已学出\textbf{左手五指持瓶}并出现端到端成功；
+    但右手仍停在\textbf{单拇指局部最优}。下一步不是继续堆奖励，而是验证“三指接触是否真正带来更高螺纹驱动”。
+  \end{block}
+
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{0.235\textwidth}
+      \metricbox{Release}{31.2\%}{完整回合释放率}
+    \end{column}
+    \begin{column}{0.235\textwidth}
+      \metricbox{Place}{5.9\%}{严格落桌放置率}
+    \end{column}
+    \begin{column}{0.235\textwidth}
+      \metricbox{左手接触指}{4.155}{触瓶步平均根数}
+    \end{column}
+    \begin{column}{0.235\textwidth}
+      \metricbox{左手五指握持}{40.6\%}{active-step 占比}
+    \end{column}
+  \end{columns}
+
+  \vspace{0.25em}
+  \begin{alertblock}{当前瓶颈}
+    右手触盖时 \texttt{cap\_n\_triad}=\textbf{1.0}，双指接触率仍为 \textbf{0}：
+    已从“错指扒盖”纠正到拇指，但尚未形成拇/食/中精捏。
+  \end{alertblock}
+
+  \evidence{UnscrewDyn17 @ 8M；台账判读窗至少 32 个完整回合。回合率与 active-step 比例不可直接互换。}
+\end{frame}
+
+% ================================================================
+\begin{frame}[t]{1｜任务定义：Reference 给主干，RL 补物理闭环}
+  \begin{center}
+    \scriptsize
+    \status{Blue}{Reference Start}\;$\rightarrow$\;
+    \status{Blue}{Left Grasp}\;$\rightarrow$\;
+    \status{Blue}{Carry / Reorient}\;$\rightarrow$\;
+    \status{Green}{State Gate}\;$\rightarrow$\;
+    \status{Blue}{Unscrew}\;$\rightarrow$\;
+    \status{Blue}{Release / Place}
+  \end{center}
+
+  \vspace{-0.3em}
+  \[
+    q_t^{\mathrm{target}}=q_t^{\mathrm{ref}}+\Delta q_t^{\mathrm{RL}},
+    \qquad \Delta q_t^{\mathrm{RL}}\in\mathbb{R}^{58}
+    =\underbrace{29}_{\text{右：臂7+指22}}+\underbrace{29}_{\text{左：臂7+指22}}.
+  \]
+
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{0.49\textwidth}
+      \begin{block}{Reference 负责“做什么、往哪里走”}
+        \begin{itemize}
+          \item 物体轨迹锚定腕位置，重建姿态提供腕朝向
+          \item IK 得到关节参考；reset 进入首参考姿态
+          \item 给出抓取、搬运、横置、拧开、放盖的时序
+        \end{itemize}
+      \end{block}
+    \end{column}
+    \begin{column}{0.49\textwidth}
+      \begin{block}{Residual RL 负责“在物理里做成”}
+        \begin{itemize}
+          \item 修正重建误差和人手—机器人几何差异
+          \item 左手真实持住 $0.53$\,kg 瓶身并抗反扭矩
+          \item 完成接触、拧转、释放、放置的闭环
+        \end{itemize}
+      \end{block}
+    \end{column}
+  \end{columns}
+
+  \begin{block}{当前运行口径}
+    \status{Green}{Stage B：动态瓶}\quad 58 维动作，495 维观测，1024 env，20\,Hz。
+    Reference 有效长度 138 步；实际任务约 $20+137+220+40=417$ 步，即 20.9\,s，而非配置上限 30\,s。
+  \end{block}
+\end{frame}
+
+% ================================================================
+\begin{frame}[t]{2｜物态门与参考时钟：先把瓶送到位，再让右手工作}
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{0.49\textwidth}
+      \begin{block}{物态门：真实状态同时满足}
+        \[
+          d(\text{right tips},\text{real cap})<8\text{ cm}
+        \]
+        \[
+          \mathrm{tilt}>60^\circ,\qquad h_{\mathrm{body}}>5\text{ cm}
+        \]
+        \begin{itemize}
+          \item 除初始 20 步 settle 外，不依赖固定演示帧
+          \item 解锁前右手 29 维 residual 清零
+          \item 右侧任务奖励清零；腕参考跟随奖励保留
+        \end{itemize}
+      \end{block}
+    \end{column}
+
+    \begin{column}{0.49\textwidth}
+      \begin{block}{门控时钟：给换把留出 11 秒}
+        参考到源帧 48、瓶横平后冻结；Release 后继续播放回正与放盖段。
+        \begin{itemize}
+          \item 冻结预算：220 步 $\approx 11$\,s
+          \item 允许自由完成“拧—松—换把—再拧”
+          \item 不强迫机器人复现不可观测的拧转时长
+        \end{itemize}
+      \end{block}
+
+      \begin{alertblock}{旧固定帧 Gate 为什么失败}
+        旧 Gate 冻在源帧 35，把左手闭合/收腕参考一起冻死：
+        \texttt{gate\_unlocked}=0，左接触率退化到 0。
+      \end{alertblock}
+    \end{column}
+  \end{columns}
+
+  \takeaway{Gate 的硬条件只有真实盖距离、瓶倾角和高度；“左手 3 指+拇指”是目标握形，不是 Gate 条件。}
+\end{frame}
+
+% ================================================================
+\begin{frame}[t]{3｜接触与螺纹：连续接触才能拧，正确手指才能拧得快}
+  \begin{block}{GPU 解析螺旋约束}
+    \[
+      z=z_{\mathrm{closed}}+\frac{3.18\,\mathrm{mm}}{2\pi}\theta
+    \]
+    \begin{columns}[T,onlytextwidth]
+      \begin{column}{0.32\textwidth}
+        \textbf{静摩擦自锁}\par
+        无有效 triad 接触时，相对角速度清零且不积分。
+      \end{column}
+      \begin{column}{0.32\textwidth}
+        \textbf{粘滞阻尼}\par
+        每物理子步 $\omega_{\mathrm{rel}}\!\times\!0.9$，轻擦不会继续空转。
+      \end{column}
+      \begin{column}{0.32\textwidth}
+        \textbf{Triad 分级驱动}\par
+        拇/食/中触盖 1/2/3 根，对应 $1/3,2/3,1$ 倍速度。
+      \end{column}
+    \end{columns}
+  \end{block}
+
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{0.49\textwidth}
+      \begin{block}{左手：从靠近到五指包握}
+        \centering\scriptsize
+        贴近 $\rightarrow$ 1 指 $\rightarrow$ 2 指持续
+        $\rightarrow$ 3 指+拇指 $\rightarrow$ 五指
+        \par\vspace{0.35em}\raggedright
+        第 4/5 指各有独立边际，避免停在“拇指+2 指”。
+      \end{block}
+    \end{column}
+    \begin{column}{0.49\textwidth}
+      \begin{block}{右手：从靠近到拇食中精捏}
+        \centering\scriptsize
+        贴近 $\rightarrow$ 1 指 $\rightarrow$ 2 指持续
+        $\rightarrow$ Contact2 $\rightarrow$ Triad
+        \par\vspace{0.35em}\raggedright
+        环指、小指不计 triad 收益，也不产生螺纹驱动。
+      \end{block}
+    \end{column}
+  \end{columns}
+
+  \takeaway{这是适合大规模并行训练的解析抽象；它保证几何与驱动逻辑一致，但不等价于真实牙齿碰撞或开启力矩。}
+\end{frame}
+
+% ================================================================
+\begin{frame}[t]{4｜奖励设计：21 项信号，按 6 个功能理解}
+  \small
+  \begin{tabularx}{\textwidth}{@{}>{\bfseries}p{0.22\textwidth}Xc@{}}
+    \toprule
+    功能 & 信号与作用 & 数量\\
+    \midrule
+    Task Progress & Screw / Approach / Place potential & 3\\
+    Reference Tracking & 右腕位置；瓶身位置+姿态（$0.15$\,m/rad） & 3\\
+    Left Grasp Ladder & 贴近、触碰、持续、对握、五指包握 & 5\\
+    Right Pinch Ladder & 贴近、触碰、持续、Contact2、Triad & 5\\
+    Smoothness / Safety & 近接触相对速度、左动作变化率、失败罚 & 3\\
+    Milestones & Release $+20$；Place $+20$ & 2\\
+    \midrule
+    合计 & 每项均有独立 \texttt{diag/rew\_*} 账本 & \textbf{21}\\
+    \bottomrule
+  \end{tabularx}
+
+  \vspace{0.45em}
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{0.49\textwidth}
+      \begin{block}{为什么要阶梯奖励}
+        稀疏成功信号不足以覆盖“靠近—接触—持续—多指协同”的长链条；
+        阶梯只提供可学习的中间进度，不改变最终成功定义。
+      \end{block}
+    \end{column}
+    \begin{column}{0.49\textwidth}
+      \begin{alertblock}{怎么防止奖励被“挤奶”}
+        引导回报主导、而 Release/Place 不增长时，按局部最优处理；
+        看各项账本与物理里程碑，不用总回报代替成功率。
+      \end{alertblock}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+% ================================================================
+\begin{frame}[t]{5｜成功与失败：把“拧过了”和“真正放好了”分开}
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{0.49\textwidth}
+      \begin{block}{严格成功条件}
+        \begin{enumerate}
+          \item 拧转达到工程阈值 $270^\circ$
+          \item 解析螺纹脱开（Release）
+          \item 盖距目标 $<8$\,cm
+          \item 盖位于桌面上方 $<2.5$\,cm
+          \item 盖线速度 $<0.05$\,m/s（Place）
+        \end{enumerate}
+      \end{block}
+
+      \begin{block}{两个汇报指标}
+        \textbf{Release} 回答“是否拧脱”；\textbf{Place} 回答“是否稳定落到目标”。
+        Place 更严格，因此 5.9\% 不能被 31.2\% 的 Release 替代。
+      \end{block}
+    \end{column}
+
+    \begin{column}{0.49\textwidth}
+      \begin{alertblock}{关键失败保护}
+        \begin{itemize}
+          \item 瓶—参考误差 $>0.28$\,m
+          \item 瓶速 $>1$\,m/s；盖坠地
+          \item 落桌滞留 10 步
+          \item 右腕误差 $>12$\,cm 持续 20 步
+          \item 失败 $-6$；Timeout 不额外扣分
+        \end{itemize}
+      \end{alertblock}
+
+      \begin{block}{一个容易误读的细节}
+        左指尖相对速度罚作用于距瓶根 $<8$\,cm 的近接触窗口；
+        它不要求接触传感器已经触发。
+      \end{block}
+    \end{column}
+  \end{columns}
+
+  \takeaway{$270^\circ$ 是工程阈值，不是数据集中可直接观测的螺纹圈数真值。}
+\end{frame}
+
+% ================================================================
+\begin{frame}[t]{6｜实验结果：左手已改善，右手仍卡在单指局部最优}
+  \scriptsize
+  \begin{tabularx}{\textwidth}{@{}p{0.19\textwidth}p{0.28\textwidth}p{0.29\textwidth}X@{}}
+    \toprule
+    观测到的失败 & 证据签名 & 对应修正 & 当前状态\\
+    \midrule
+    轻擦后自由空转 & Release 41.5\%，任意触盖仅 2.7\% & 接触门控自锁 + 子步阻尼 & \status{Green}{已封死}\\
+    固定帧 Gate 停摆 & \texttt{gate\_unlocked}=0，左接触退化到 0 & 真实盖距离+瓶姿态/高度的物态门 & \status{Green}{已恢复}\\
+    左手只用部分手指 & 旧策略停在“拇指+2 指” & 第 4/5 指独立边际，奖励五指包握 & \status{Green}{4.155 指}\\
+    右手单拇指搓帽 & \texttt{cap\_n\_triad}=1，\texttt{contact2}=0 & Triad 分级驱动 + 降低角速度上限 & \status{Amber}{待验证}\\
+    \bottomrule
+  \end{tabularx}
+
+  \vspace{0.35em}
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{0.49\textwidth}
+      \begin{block}{已经得到的正结果}
+        \begin{itemize}
+          \item 左手接触指从约 2 根提升到 \textbf{4.155 根}
+          \item 五指握持率达到 \textbf{40.6\%}
+          \item Release \textbf{31.2\%}，Place \textbf{5.9\%}
+        \end{itemize}
+      \end{block}
+    \end{column}
+    \begin{column}{0.49\textwidth}
+      \begin{alertblock}{尚未解决的机制}
+        单指在当前任务定义下仍能产生有效螺纹进度；因此仅继续增加三指奖励，
+        未必能跨过“失去拇指接触”的收益山谷。
+      \end{alertblock}
+    \end{column}
+  \end{columns}
+
+  \takeaway{可以说“左手握持与端到端任务已点火”；不能说“完整双臂拧盖已经解决”。}
+  \evidence{LEDGER\_unscrew.md：Unscrew0、Dyn5、Dyn17 @ 8M 与 pk22。}
+\end{frame}
+
+% ================================================================
+\begin{frame}[t]{7｜下一轮实验：先验证“三指慢拧”是否可学}
+  \begin{block}{运行前先消除配置歧义}
+    当前函数目标角速度上限是 $2$\,rad/s，但任务入口仍覆盖为 $6$\,rad/s；
+    先统一有效值，再确认 \texttt{screw\_triad\_drive=True}，并完整记录 \texttt{screw\_gain}。
+  \end{block}
+
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{0.49\textwidth}
+      \begin{block}{里程碑 A｜$+6$M}
+        \begin{itemize}
+          \item \texttt{cap\_n\_triad}$>1.5$
+          \item \texttt{screw\_gain}$>0.5$
+          \item 同时检查左手五指握持不回退
+        \end{itemize}
+      \end{block}
+    \end{column}
+    \begin{column}{0.49\textwidth}
+      \begin{block}{里程碑 B｜$+12$M}
+        \begin{itemize}
+          \item 严格 Place 恢复到至少 $3\%$
+          \item Release 与 Place 同时报告
+          \item 用完整回合窗口，避免 active-step 指标冒充成功率
+        \end{itemize}
+      \end{block}
+    \end{column}
+  \end{columns}
+
+  \begin{alertblock}{止损条件}
+    若三指数仍 $\approx1$ 且拧角 $<50^\circ$：优先检查右腕 roll 与预抓姿，
+    不再继续提高三指 shaping 权重。
+  \end{alertblock}
+
+  \takeaway{下一轮第一成功标准不是总回报，而是三指接触数与实际驱动增益先发生变化。}
+\end{frame}
+
+% ================================================================
+\begin{frame}[t]{8｜边界与优先级：这份结果还不能回答什么}
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{0.58\textwidth}
+      \begin{alertblock}{三条必须主动声明的边界}
+        \begin{enumerate}
+          \item $270^\circ$ 来自演示相对运动，是\textbf{工程阈值}，不是可观测的螺纹圈数真值。
+          \item 置信度尚未进入奖励：瓶身仅 67/104 帧、瓶盖 86/104 帧被判可信。
+          \item 解析螺旋适合并行训练，但没有复现真实牙齿接触、摩擦波动与开启力矩。
+        \end{enumerate}
+      \end{alertblock}
+
+      \begin{block}{尚未接入}
+        cuRobo 无碰接近规划与可达性验证尚未进入当前闭环；
+        目前腕轨迹仍由数据位姿锚定与 IK 产生。
+      \end{block}
+    \end{column}
+
+    \begin{column}{0.40\textwidth}
+      \begin{block}{后续优先级}
+        \begin{enumerate}
+          \item \textbf{三指慢拧}\par
+          先修机制与配置，再跑 Dyn18
+          \item \textbf{Confidence-Aware Tracking}\par
+          低置信帧降低跟踪权重
+          \item \textbf{cuRobo 接近规划}\par
+          补无碰可达性与部署路径
+        \end{enumerate}
+      \end{block}
+
+      \begin{beamercolorbox}[wd=\linewidth,rounded=true,sep=0.8ex]{takeaway}
+        \small\bfseries\color{Green}
+        本轮真正的进展：\par
+        从“能转”推进到\par
+        “开始约束怎么转”。
+      \end{beamercolorbox}
+    \end{column}
+  \end{columns}
+
+  \evidence{代码：unscrew\_ref\_env.py、clips.py；数据：README、object\_valid\_measured.npz、poseqa。}
+\end{frame}
+
+\end{document}

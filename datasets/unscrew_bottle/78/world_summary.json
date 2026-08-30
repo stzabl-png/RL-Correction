@@ -1,0 +1,192 @@
+{
+  "schema_version": "recon_world_v5",
+  "dataset": "egodex_part4",
+  "video_id": "screw_unscrew_bottle_cap__78",
+  "num_frames": 125,
+  "object_track_frames": 125,
+  "world_npz": "world_fused.npz",
+  "object_mesh": "objects/object_0/object_mesh_scaled_final.obj",
+  "objects": [
+    {
+      "object_id": "object_0",
+      "mesh_filename": "objects/object_0/object_mesh_scaled_final.obj",
+      "track_frames": 125,
+      "visible_frames": 125,
+      "pose_valid_frames": 125
+    }
+  ],
+  "coordinate_frame": "gravity_z_up_world",
+  "source_coordinate_frame": "vipe_world",
+  "gravity_alignment": {
+    "T_gravity_z_up_from_vipe_world": [
+      [
+        -0.09512735018832912,
+        0.9954651110140159,
+        0.0,
+        0.0
+      ],
+      [
+        -0.9954651110140159,
+        -0.09512735018832912,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "gravity_direction_vipe_world": [
+      0.0,
+      0.0,
+      -1.0
+    ],
+    "up_direction_vipe_world": [
+      -0.0,
+      -0.0,
+      1.0
+    ],
+    "sample_frame_indices": [
+      0,
+      62,
+      124
+    ],
+    "world_xy_alignment": {
+      "mode": "middle_camera_forward_projected_xy",
+      "frame_index": 62,
+      "world_x_direction_vipe_world": [
+        -0.09512735018832912,
+        0.9954651110140159,
+        0.0
+      ],
+      "world_y_direction_vipe_world": [
+        -0.9954651110140159,
+        -0.09512735018832912,
+        0.0
+      ],
+      "world_z_direction_vipe_world": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "reference_camera_forward_vipe_world": [
+        -0.08376312696193937,
+        0.876543605124808,
+        -0.47397789703356724
+      ],
+      "reference_camera_forward_xy_norm": 0.8805367414955706,
+      "yaw_angle_rad": 1.6660677356573745
+    }
+  },
+  "camera": {
+    "K": [
+      [
+        736.6339111328125,
+        0.0,
+        960.0
+      ],
+      [
+        0.0,
+        736.6339111328125,
+        540.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "c2w_shape": [
+      125,
+      4,
+      4
+    ],
+    "vipe_focal_flip_applied": false
+  },
+  "hands_included": true,
+  "masks": {
+    "schema_version": "final_2d_masks_v1",
+    "dataset": "egodex_part4",
+    "video_id": "screw_unscrew_bottle_cap__78",
+    "root": "masks",
+    "object_masks": {
+      "present": true,
+      "source": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/interim/egodex_part4/screw_unscrew_bottle_cap__78/sam2_object/video_segmentation/masks",
+      "path": "masks/objects/frames",
+      "num_frame_dirs": 125,
+      "num_png_files": 125,
+      "object_ids": [
+        "object_0"
+      ],
+      "mask_files": {
+        "object_0": "masks/objects/frames/frame_{frame_idx:06d}_masks/object_0.png"
+      },
+      "label_prompt": "masks/objects/label_prompt.json",
+      "completion": "masks/objects/sam2_object_complete.json"
+    },
+    "hand_masks": {
+      "present": true,
+      "source": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/interim/egodex_part4/screw_unscrew_bottle_cap__78/sam3_hands/screw_unscrew_bottle_cap__78/video_segmentation/masks",
+      "path": "masks/hands/frames",
+      "num_frame_dirs": 125,
+      "num_png_files": 250,
+      "mask_files": {
+        "left": "masks/hands/frames/frame_{frame_idx:06d}_masks/left_hand_0.png",
+        "right": "masks/hands/frames/frame_{frame_idx:06d}_masks/right_hand_0.png"
+      },
+      "completion": "masks/hands/hand_masks_complete.json",
+      "step_completion": "masks/hands/sam3_hands_complete.json"
+    },
+    "manifest": "masks/masks_manifest.json"
+  },
+  "hand_param_shapes": {
+    "hand_trans": [
+      2,
+      125,
+      3
+    ],
+    "hand_rot": [
+      2,
+      125,
+      3
+    ],
+    "hand_pose": [
+      2,
+      125,
+      45
+    ],
+    "hand_betas": [
+      2,
+      125,
+      10
+    ],
+    "hand_valid": [
+      2,
+      125
+    ],
+    "hand_trans_hawor_world": [
+      2,
+      125,
+      3
+    ],
+    "hand_rot_hawor_world": [
+      2,
+      125,
+      3
+    ],
+    "hand_root_offset_mano": [
+      2,
+      3
+    ],
+    "hand_coordinate_frame": [],
+    "hand_source_coordinate_frame": []
+  }
+}

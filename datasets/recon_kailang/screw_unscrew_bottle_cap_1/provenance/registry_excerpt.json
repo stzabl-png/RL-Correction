@@ -1,0 +1,35 @@
+{
+  "note": "资产库中本任务的分件 CAD 条目(节选)",
+  "entry": {
+    "description": "金属/塑料水瓶 + 螺纹瓶盖",
+    "source": "手工 CAD (原在 Output/.../27_cad2, 2026-08-13 收进资产库)",
+    "matched_by": "task_name",
+    "parts": [
+      {
+        "name": "bottle_body",
+        "mesh": "ego_pipeline/Retargeting/assets/retrieval/screw_unscrew_bottle_cap/bottle_body.obj",
+        "extent_cm": [
+          6.5,
+          6.5,
+          19.7
+        ]
+      },
+      {
+        "name": "bottle_cap",
+        "mesh": "ego_pipeline/Retargeting/assets/retrieval/screw_unscrew_bottle_cap/bottle_cap.obj",
+        "extent_cm": [
+          3.5,
+          3.5,
+          1.7
+        ]
+      }
+    ],
+    "size_caveat": "★ 2026-08-22 实测: 这套 CAD 的**绝对尺寸不可信**, 而 retrieval 的设计前提是'CAD 本身米制, 无需尺度估计' —— 于是把尺寸错的模型直接交给 fp_pose, 位姿拟合不上且全程零报错。clip 27(细长金属瓶) 上瓶身要放大 x1.28 才对: 库里标称 19.7cm, 深度+内参实测该瓶约 26.5cm, CAD 缩放扫描峰值也落在 25.2cm (IoU 0.385 -> 0.617, conf_pos 50 -> 65)。⚠ 瓶盖相反: 放大到 5.1cm 虽让 IoU 0.53->0.60, 但 conf_rot 从 58.5 崩到 17.5(盘面越大越对称, 转角越不可辨) —— 拧盖要的正是转角, 所以盖保持原尺寸。⇒ 正确的修法是让 retrieval 按 mask+深度实测物体尺寸再缩放 CAD, 而不是假定 CAD 是准的; 在那之前, 逐 clip 的缩放写在各自 frame_plan 的 fp_source 里。",
+    "per_clip_scale_measured": {
+      "egodex_auto/screw_unscrew_bottle_cap/27": {
+        "bottle_body": 1.28,
+        "bottle_cap": 1.0
+      }
+    }
+  }
+}

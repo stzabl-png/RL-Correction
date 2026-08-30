@@ -1,0 +1,165 @@
+{
+ "schema_version": "contact_fingers_v1",
+ "tau_m": 0.035,
+ "vote": 0.3,
+ "align": false,
+ "hands": {
+  "left": {
+   "objects": {
+    "object_0": {
+     "status": "ok",
+     "n_frames": 96,
+     "fingers": [
+      "thumb",
+      "index",
+      "middle",
+      "ring",
+      "pinky"
+     ],
+     "n_fingers": 5,
+     "palm": true,
+     "tau_rule": {
+      "method": "vote_fallback",
+      "thr_mm": 35.0
+     },
+     "quality": {
+      "hand_confidence": 1.0,
+      "reliable": true
+     },
+     "contact_frac": {
+      "thumb": 0.323,
+      "index": 0.969,
+      "middle": 1.0,
+      "ring": 1.0,
+      "pinky": 1.0,
+      "palm": 0.49
+     },
+     "median_dist_mm": {
+      "thumb": 53.4,
+      "index": 4.4,
+      "middle": 0.4,
+      "ring": 0.6,
+      "pinky": 0.4,
+      "palm": 35.6
+     },
+     "grasp_core_frames": [
+      8,
+      103
+     ],
+     "grasp_established_frame": 8,
+     "offset_mm": {
+      "median": 0.0,
+      "p90": 0.0
+     },
+     "depth_frac": 0.506,
+     "depth_class": "full"
+    },
+    "object_1": {
+     "status": "no_grasp_core",
+     "n_frames": 96,
+     "max_regions": 0
+    }
+   },
+   "primary": "object_0"
+  },
+  "right": {
+   "objects": {
+    "object_0": {
+     "status": "ok",
+     "n_frames": 29,
+     "fingers": [
+      "index",
+      "middle",
+      "ring",
+      "pinky"
+     ],
+     "n_fingers": 4,
+     "palm": false,
+     "tau_rule": {
+      "method": "vote_fallback",
+      "thr_mm": 35.0
+     },
+     "quality": {
+      "hand_confidence": 1.0,
+      "reliable": true
+     },
+     "contact_frac": {
+      "thumb": 0.0,
+      "index": 0.773,
+      "middle": 0.864,
+      "ring": 1.0,
+      "pinky": 0.818,
+      "palm": 0.0
+     },
+     "median_dist_mm": {
+      "thumb": 55.6,
+      "index": 22.5,
+      "middle": 18.1,
+      "ring": 19.1,
+      "pinky": 23.4,
+      "palm": 67.0
+     },
+     "grasp_core_frames": [
+      33,
+      54
+     ],
+     "grasp_established_frame": 33,
+     "offset_mm": {
+      "median": 0.0,
+      "p90": 0.0
+     },
+     "depth_frac": 0.271,
+     "depth_class": "pad"
+    },
+    "object_1": {
+     "status": "ok",
+     "n_frames": 64,
+     "fingers": [
+      "index",
+      "middle",
+      "ring",
+      "pinky"
+     ],
+     "n_fingers": 4,
+     "palm": false,
+     "tau_rule": {
+      "method": "vote_fallback",
+      "thr_mm": 35.0
+     },
+     "quality": {
+      "hand_confidence": 1.0,
+      "reliable": true
+     },
+     "contact_frac": {
+      "thumb": 0.0,
+      "index": 0.667,
+      "middle": 0.81,
+      "ring": 1.0,
+      "pinky": 1.0,
+      "palm": 0.0
+     },
+     "median_dist_mm": {
+      "thumb": 177.8,
+      "index": 221.2,
+      "middle": 224.5,
+      "ring": 204.6,
+      "pinky": 183.6,
+      "palm": 167.4
+     },
+     "grasp_core_frames": [
+      33,
+      53
+     ],
+     "grasp_established_frame": 33,
+     "offset_mm": {
+      "median": 0.0,
+      "p90": 0.0
+     },
+     "depth_frac": 0.308,
+     "depth_class": "pad"
+    }
+   },
+   "primary": "object_1"
+  }
+ }
+}

@@ -1,0 +1,95 @@
+{
+ "video_id": "screw_unscrew_bottle_cap__37",
+ "rot_min": 30,
+ "rot_safe": 45,
+ "objects": {
+  "object_0": {
+   "recon": 103,
+   "fp": 22,
+   "best": {
+    "conf_pos": 83.0,
+    "conf_rot": 68.0,
+    "refuted": 0,
+    "status": "active",
+    "usable": true,
+    "n": 105
+   },
+   "best_median": null,
+   "trials": [
+    {
+     "stage": 0,
+     "recon": 103,
+     "fp": 22,
+     "conf_pos": 83.0,
+     "conf_rot": 59.0,
+     "refuted": 0,
+     "status": "active",
+     "usable": true,
+     "n": 105
+    },
+    {
+     "stage": "confirm",
+     "recon": 103,
+     "fp": 22,
+     "conf_pos": 83.0,
+     "conf_rot": 68.0,
+     "refuted": 0,
+     "status": "active",
+     "usable": true,
+     "n": 105
+    }
+   ],
+   "pass": true,
+   "confirmed": true
+  },
+  "object_1": {
+   "recon": 91,
+   "fp": 43,
+   "best": {
+    "conf_pos": 60.0,
+    "conf_rot": 27.0,
+    "refuted": 34,
+    "status": "active",
+    "usable": false,
+    "n": 105
+   },
+   "best_median": null,
+   "trials": [
+    {
+     "stage": 0,
+     "recon": 91,
+     "fp": 22,
+     "conf_pos": 58.0,
+     "conf_rot": 20.0,
+     "refuted": 37,
+     "status": "active",
+     "usable": false,
+     "n": 105
+    },
+    {
+     "stage": 2,
+     "recon": 91,
+     "fp": 43,
+     "conf_pos": 60.0,
+     "conf_rot": 27.0,
+     "refuted": 34,
+     "status": "active",
+     "usable": false,
+     "n": 105
+    },
+    {
+     "stage": 2,
+     "recon": 91,
+     "fp": 32,
+     "conf_pos": 58.0,
+     "conf_rot": 20.0,
+     "refuted": 37,
+     "status": "active",
+     "usable": false,
+     "n": 105
+    }
+   ],
+   "pass": false
+  }
+ }
+}

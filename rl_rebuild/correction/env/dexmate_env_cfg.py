@@ -30,8 +30,15 @@ _MAGICSIM_USD = os.path.join(
 # 躯干/底盘/头换成 fixed joint —— 它们在这个任务里全程不动, 与其和求解器较劲
 # (实测驱动顶不住、关节限位也没被强制执行, 每回合前 60 步手臂基座漂 10.55cm),
 # 不如直接从自由度里去掉. 文件不在就回退到原资产.
-_FIXED_USD = os.path.abspath(os.path.join(
-    os.path.dirname(__file__), "../../../assets", "vega_1p_sharpa_fixedtorso.usd"))
+# 站姿是**"世界版本"**: 维度不变而语义变的一族 —— 旧站姿训出的权重只能在旧站姿
+# USD 里回放, 换站姿等价于换任务. 所以这里**不让同一个文件名装两种站姿**
+# (同名不同物正是跨机漂移事故的根因), 每个站姿一个显式文件名:
+#   stancePour0826 : 2026-08-26 新场景站姿 (torso 40.52/73.66/0.39 度), 配 87cm 黑桌
+#   stance0803     : 旧站姿 (torso 45/90/0 度), 配 85cm 棕桌 —— UnscrewDyn* 全系用它
+# 逃生阀: DEXMATE_FIXED_USD=<绝对路径> 覆盖默认值 (回放旧权重时用).
+_STANCE_USD = "vega_1p_sharpa_fixedtorso_stancePour0826.usd"
+_FIXED_USD = os.path.abspath(os.environ.get("DEXMATE_FIXED_USD") or os.path.join(
+    os.path.dirname(__file__), "../../../assets", _STANCE_USD))
 _DEXMATE_USD = _FIXED_USD if os.path.exists(_FIXED_USD) else _MAGICSIM_USD
 if _DEXMATE_USD is _MAGICSIM_USD:
     # 静默回退会得到**完全不同的物理**: 躯干会塌(手臂基座每回合漂 10.5cm)、手臂无碰撞
@@ -151,7 +158,7 @@ class DexmateCorrectionEnvCfg(SharpaCorrectionEnvCfg):
     dexmate_joints = ({"L_arm_j1": 45.0, "R_arm_j1": -45.0,
                        "L_arm_j4": -90.0, "R_arm_j4": -90.0}
                       if TORSO_FIXED else
-                      {"torso_j1": 45.0, "torso_j2": 90.0, "torso_j3": 0.0,
+                      {"torso_j1": 40.5196, "torso_j2": 73.6595, "torso_j3": 0.3896,
                        "L_arm_j1": 45.0, "R_arm_j1": -45.0,
                        "L_arm_j4": -90.0, "R_arm_j4": -90.0})
     # 增益模式:

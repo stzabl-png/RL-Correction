@@ -150,9 +150,11 @@ class SharpaCorrectionEnvCfg(DirectRLEnvCfg):
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, 0.0, 0.97)),  # 占位
     )
-    # ---- 桌子: 静态碰撞体, 桌面 z=0.85 (与数据对齐约定一致) ----
-    table_size = (1.2, 1.2, 0.04)
-    table_top_z = 0.85
+    # ---- 桌子: 静态碰撞体 (2026-08-26 新场景: 黑色 6ft x 4ft, 桌面 87cm) ----
+    # 旧值 (1.2,1.2,0.04)/0.85 —— 换场景后**所有按桌面标定的量都跟着抬 2cm**,
+    # 任务侧一律读 cfg.table_top_z (相对写法), 不要再出现裸 0.85/0.87.
+    table_size = (1.2192, 1.8288, 0.04)   # 深4ft x 宽6ft: 长边横在机器人面前, 机器人位于长边中点
+    table_top_z = 0.87
     # ---- DexMate(Vega) 视觉参考 ----
     # 只为在 GUI 里核对工作区尺度 (飞手 MVP 的腕位必须落在 Vega 够得到的范围内,
     # 见 docs/DEXMATE_WORKSPACE.md). **不参与控制、不参与训练**: 挂在 /World/Dexmate,
@@ -182,10 +184,11 @@ class SharpaCorrectionEnvCfg(DirectRLEnvCfg):
     head_anchor = "vega_1p_head_l3"
     # 默认姿势: 关节名 -> **度** (prismatic 关节则是米). 建场景时就摆好 (InitialStateCfg),
     # 所以查看器重建后姿态不会丢. 全部可控名见 DEXMATE_JOINTS.md (67 个).
-    # 2026-07-25 手调的对称站姿:
+    # 2026-08-26 新场景站姿 (与 dexmate_env_cfg 的锁死 USD 对齐; 旧值 45/90/0):
     dexmate_joints = {
-        "torso_j1": 45.0,
-        "torso_j2": 90.0,
+        "torso_j1": 40.5196,
+        "torso_j2": 73.6595,
+        "torso_j3": 0.3896,
         "L_arm_j1": 45.0,  "R_arm_j1": -45.0,     # 肩 pitch, 左右对称
         "L_arm_j2": 0.0,   "R_arm_j2": 0.0,
         "L_arm_j3": 0.0,   "R_arm_j3": 0.0,
@@ -201,6 +204,11 @@ class SharpaCorrectionEnvCfg(DirectRLEnvCfg):
     fingertip_bodies = ["right_thumb_elastomer", "right_index_elastomer",
                         "right_middle_elastomer", "right_ring_elastomer",
                         "right_pinky_elastomer"]
+    # 非交互侧指垫补 SuperGrip 的名单. 材质绑定是"整手先 LowGrip(0.2), 再把
+    # fingertip_bodies 覆盖回 SuperGrip(3.0)" —— 而 fingertip_bodies 只含交互侧,
+    # 双臂任务里**另一只手的指垫会静默停在 0.2**, 与交互侧差 15×.
+    # 默认空 = 单手任务行为完全不变; 双臂任务在自己的 cfg 里填左侧 elastomer 名单.
+    extra_supergrip_bodies = []
     contact_sensors = [
         ContactSensorCfg(
             prim_path=f"/World/envs/env_.*/Robot/{name}",

@@ -1,0 +1,132 @@
+{
+  "status": "complete",
+  "step": "sam2_object",
+  "dataset": "egodex_auto",
+  "video_id": "screw_unscrew_bottle_cap__1",
+  "num_frames": 104,
+  "detected_frames": 104,
+  "prompt_frame_idx": 95,
+  "backend": "sam2",
+  "object_id": "object_0",
+  "mask_filename": "object_0.png",
+  "frame_idx": 95,
+  "points": [
+    [
+      958.0,
+      420.0
+    ],
+    [
+      968.0,
+      530.0
+    ],
+    [
+      962.0,
+      690.0
+    ],
+    [
+      875.0,
+      600.0
+    ],
+    [
+      838.0,
+      668.0
+    ],
+    [
+      880.0,
+      730.0
+    ]
+  ],
+  "labels": [
+    1,
+    1,
+    1,
+    0,
+    0,
+    0
+  ],
+  "num_points": 6,
+  "num_positive_points": 3,
+  "locked": true,
+  "name": null,
+  "schema_version": "sam2_object_prompt_v2",
+  "num_objects": 2,
+  "object_ids": [
+    "object_0",
+    "object_1"
+  ],
+  "objects": [
+    {
+      "num_frames": 104,
+      "detected_frames": 104,
+      "prompt_frame_idx": 95,
+      "backend": "sam2",
+      "object_id": "object_0",
+      "mask_filename": "object_0.png",
+      "frame_idx": 95,
+      "points": [
+        [
+          958.0,
+          420.0
+        ],
+        [
+          968.0,
+          530.0
+        ],
+        [
+          962.0,
+          690.0
+        ],
+        [
+          875.0,
+          600.0
+        ],
+        [
+          838.0,
+          668.0
+        ],
+        [
+          880.0,
+          730.0
+        ]
+      ],
+      "labels": [
+        1,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "num_points": 6,
+      "num_positive_points": 3,
+      "locked": true,
+      "name": null
+    },
+    {
+      "num_frames": 104,
+      "detected_frames": 104,
+      "prompt_frame_idx": 95,
+      "backend": "sam2",
+      "object_id": "object_1",
+      "mask_filename": "object_1.png",
+      "frame_idx": 95,
+      "points": [
+        [
+          1227.0,
+          855.0
+        ]
+      ],
+      "labels": [
+        1
+      ],
+      "num_points": 1,
+      "num_positive_points": 1,
+      "locked": true,
+      "name": null
+    }
+  ],
+  "object_mask_id": "object_0",
+  "masks_dir": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/interim/egodex_auto/screw_unscrew_bottle_cap__1/sam2_object/video_segmentation/masks",
+  "sam2_checkpoint": "/home/yanghong/Reconstruct_and_Retarget/third_party/sam2/checkpoints/sam2.1_hiera_large.pt",
+  "sam2_model_cfg": "configs/sam2.1/sam2.1_hiera_l.yaml"
+}

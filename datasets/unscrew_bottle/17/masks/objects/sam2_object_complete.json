@@ -1,0 +1,82 @@
+{
+  "status": "complete",
+  "step": "sam2_object",
+  "dataset": "egodex_part4",
+  "video_id": "screw_unscrew_bottle_cap__17",
+  "num_frames": 101,
+  "detected_frames": 101,
+  "prompt_frame_idx": 9,
+  "backend": "sam2",
+  "object_id": "object_0",
+  "mask_filename": "object_0.png",
+  "frame_idx": 9,
+  "points": [
+    [
+      1002.0,
+      597.0
+    ]
+  ],
+  "labels": [
+    1
+  ],
+  "num_points": 1,
+  "num_positive_points": 1,
+  "locked": true,
+  "name": null,
+  "schema_version": "sam2_object_prompt_v2",
+  "num_objects": 2,
+  "object_ids": [
+    "object_0",
+    "object_1"
+  ],
+  "objects": [
+    {
+      "num_frames": 101,
+      "detected_frames": 101,
+      "prompt_frame_idx": 9,
+      "backend": "sam2",
+      "object_id": "object_0",
+      "mask_filename": "object_0.png",
+      "frame_idx": 9,
+      "points": [
+        [
+          1002.0,
+          597.0
+        ]
+      ],
+      "labels": [
+        1
+      ],
+      "num_points": 1,
+      "num_positive_points": 1,
+      "locked": true,
+      "name": null
+    },
+    {
+      "num_frames": 101,
+      "detected_frames": 101,
+      "prompt_frame_idx": 84,
+      "backend": "sam2",
+      "object_id": "object_1",
+      "mask_filename": "object_1.png",
+      "frame_idx": 84,
+      "points": [
+        [
+          1241.0,
+          915.0
+        ]
+      ],
+      "labels": [
+        1
+      ],
+      "num_points": 1,
+      "num_positive_points": 1,
+      "locked": true,
+      "name": null
+    }
+  ],
+  "object_mask_id": "object_0",
+  "masks_dir": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/interim/egodex_part4/screw_unscrew_bottle_cap__17/sam2_object/video_segmentation/masks",
+  "sam2_checkpoint": "/home/yanghong/Reconstruct_and_Retarget/third_party/sam2/checkpoints/sam2.1_hiera_large.pt",
+  "sam2_model_cfg": "configs/sam2.1/sam2.1_hiera_l.yaml"
+}

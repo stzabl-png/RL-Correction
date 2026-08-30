@@ -55,9 +55,13 @@ def load(npz_path, mesh_path, usd_path="", clip_id="", hand="right",
     if quat_order == "xyzw":
         obj_q = F.quat_xyzw_to_wxyz(obj_q)
 
-    # 离线 retarget 产物 (export_qpos.py), 与源同帧率
+    # 离线 retarget 产物 (export_qpos.py), 与源同帧率.
+    # 双手 bundle (如 screw_unscrew_bottle_cap_1) 按手拆成 ref_qpos_{left,right}.npz,
+    # 单手 bundle 只有 ref_qpos.npz —— 先按手找, 没有再回落 (旧数据行为不变).
     finger, finger_names = None, None
-    qpos_path = Path(npz_path).parent / "ref_qpos.npz"
+    qpos_path = Path(npz_path).parent / f"ref_qpos_{hand}.npz"
+    if not qpos_path.exists():
+        qpos_path = Path(npz_path).parent / "ref_qpos.npz"
     if qpos_path.exists():
         q = np.load(qpos_path, allow_pickle=True)
         assert len(q["finger_qpos"]) == T, "ref_qpos 与 replay 帧数不一致, 请重新导出"

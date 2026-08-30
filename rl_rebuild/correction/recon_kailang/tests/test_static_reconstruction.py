@@ -148,6 +148,37 @@ class StaticReconstructionPlacementTest(unittest.TestCase):
                 target_hz=None,
             )
 
+    def test_upright_projection_keeps_only_yaw(self):
+        # 全程在手 clip (screw_unscrew_cap1) 用: 30° 倾角 + 90° yaw 的 FoundationPose,
+        # upright=True 应剥掉倾角只保留 yaw, 且落桌几何合同不变.
+        tilt30_x = np.array([np.cos(np.pi / 12), np.sin(np.pi / 12), 0.0, 0.0])
+        yaw90 = np.array([np.sqrt(0.5), 0.0, 0.0, np.sqrt(0.5)])
+        q_total = F.quat_mul(yaw90, tilt30_x)
+        with np.load(self.replay, allow_pickle=True) as data:
+            payload = {key: data[key] for key in data.files}
+        pose = payload["obj_pose"].copy()
+        pose[:, 3:7] = q_total.astype(np.float32)
+        payload["obj_pose"] = pose
+        tilted = Path(self.tmp.name) / "tilted.npz"
+        np.savez_compressed(tilted, **payload)
+
+        data_unit, placement = load_static_reconstruction(
+            str(tilted), str(self.mesh), upright=True,
+            target_hz=None, return_placement=True,
+        )
+        np.testing.assert_allclose(
+            data_unit.object_init_pose[3:], yaw90, atol=1e-6)
+        np.testing.assert_allclose(
+            placement.center_xy, placement.wrist_xy, atol=1e-6)
+        self.assertAlmostEqual(placement.bottom_gap_m, 0.002, places=6)
+
+        # 默认 (upright=False) 仍保留原四元数 — 旧 clip 行为不变.
+        preserved, _ = load_static_reconstruction(
+            str(tilted), str(self.mesh), target_hz=None, return_placement=True,
+        )
+        np.testing.assert_allclose(
+            preserved.object_init_pose[3:], q_total, atol=1e-5)
+
     def test_clip_semantics_override_placeholder_cfg_mass(self):
         cfg = SimpleNamespace(
             clip_name="",

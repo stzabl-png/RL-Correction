@@ -1,0 +1,55 @@
+{
+  "status": "complete",
+  "step": "sam3_hands",
+  "dataset": "egodex_part4",
+  "video_id": "screw_unscrew_bottle_cap__98",
+  "hands": {
+    "left_hand_0": {
+      "obj_id": "left_hand_0",
+      "text_prompt": "left hand",
+      "num_frames": 136,
+      "detected": true,
+      "detected_frames": 136,
+      "output_prob_thresh": 0.5,
+      "prompt_score": 0.7538461089134216,
+      "tracked_video": null,
+      "prompt_used": "left hand",
+      "prompts_tried": [
+        "left hand"
+      ]
+    },
+    "right_hand_0": {
+      "obj_id": "right_hand_0",
+      "text_prompt": "right hand",
+      "num_frames": 136,
+      "detected": true,
+      "detected_frames": 136,
+      "output_prob_thresh": 0.5,
+      "prompt_score": 0.9139785170555115,
+      "tracked_video": null,
+      "prompt_used": "right hand",
+      "prompts_tried": [
+        "right hand"
+      ]
+    }
+  },
+  "masks_dir": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/interim/egodex_part4/screw_unscrew_bottle_cap__98/sam3_hands/screw_unscrew_bottle_cap__98/video_segmentation/masks",
+  "sam3_version": "sam3",
+  "sam3_requested_version": "sam3",
+  "sam3_version_fallback": {
+    "requested_version": "sam3",
+    "effective_version": "sam3",
+    "blackwell_detected": false,
+    "auto_blackwell_fallback": true,
+    "device": {
+      "available": true,
+      "index": 0,
+      "name": "NVIDIA RTX A6000",
+      "capability": [
+        8,
+        6
+      ]
+    },
+    "reason": null
+  }
+}

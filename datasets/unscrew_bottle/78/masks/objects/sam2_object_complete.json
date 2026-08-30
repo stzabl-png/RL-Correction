@@ -1,0 +1,59 @@
+{
+  "status": "complete",
+  "step": "sam2_object",
+  "dataset": "egodex_part4",
+  "video_id": "screw_unscrew_bottle_cap__78",
+  "num_frames": 125,
+  "detected_frames": 125,
+  "prompt_frame_idx": 13,
+  "backend": "sam2",
+  "object_id": "object_0",
+  "mask_filename": "object_0.png",
+  "frame_idx": 13,
+  "points": [
+    [
+      969.0,
+      578.0
+    ]
+  ],
+  "labels": [
+    1
+  ],
+  "num_points": 1,
+  "num_positive_points": 1,
+  "locked": true,
+  "name": "object",
+  "schema_version": "sam2_object_prompt_v2",
+  "num_objects": 1,
+  "object_ids": [
+    "object_0"
+  ],
+  "objects": [
+    {
+      "num_frames": 125,
+      "detected_frames": 125,
+      "prompt_frame_idx": 13,
+      "backend": "sam2",
+      "object_id": "object_0",
+      "mask_filename": "object_0.png",
+      "frame_idx": 13,
+      "points": [
+        [
+          969.0,
+          578.0
+        ]
+      ],
+      "labels": [
+        1
+      ],
+      "num_points": 1,
+      "num_positive_points": 1,
+      "locked": true,
+      "name": "object"
+    }
+  ],
+  "object_mask_id": "object_0",
+  "masks_dir": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/interim/egodex_part4/screw_unscrew_bottle_cap__78/sam2_object/video_segmentation/masks",
+  "sam2_checkpoint": "/home/yanghong/Reconstruct_and_Retarget/third_party/sam2/checkpoints/sam2.1_hiera_large.pt",
+  "sam2_model_cfg": "configs/sam2.1/sam2.1_hiera_l.yaml"
+}

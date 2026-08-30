@@ -1,0 +1,92 @@
+{
+  "schema_version": "screw_unscrew_bottle_cap_step4_snapshot_v1",
+  "dataset": "egodex_auto",
+  "task": "screw_unscrew_bottle_cap",
+  "take": 1,
+  "video_id": "screw_unscrew_bottle_cap__1",
+  "source_clip": "egodex_auto/screw_unscrew_bottle_cap/1.mp4",
+  "source_archive": {
+    "filename": "screw_1_isaac_bundle_20260824.tar.gz",
+    "sha256": "3e9ecd121062cc81d4e13ab4bcd2b2c37851c411b3db0893701f95bd7c62c79c"
+  },
+  "source_video_frames": 104,
+  "source_video_fps": 30.0,
+  "retarget_frames": 104,
+  "retarget_fps_metadata": 15.0,
+  "retarget_clock_status": "unresolved_source_30fps_vs_replay_metadata_15fps",
+  "coordinate_frame": "gravity_z_up_world",
+  "units": "metres",
+  "source": "multi_object_reconstruction",
+  "objects": {
+    "object_0": {
+      "label": "bottle_body",
+      "hand": "left",
+      "mesh": "reconstruction/objects/object_0/object_mesh_scaled_final.obj",
+      "usd": "retarget/object_0.usd",
+      "extent_cm": [6.5, 6.5, 19.7],
+      "conf_pos_median": 84.0,
+      "conf_rot_median": 70.5,
+      "position_grade": "good",
+      "refuted_frames": 0,
+      "trustworthy_frames": 67,
+      "rotation_free_axes": [2]
+    },
+    "object_1": {
+      "label": "bottle_cap",
+      "hand": "right",
+      "mesh": "reconstruction/objects/object_1/object_mesh_scaled_final.obj",
+      "usd": "retarget/object_1.usd",
+      "extent_cm": [3.5, 3.5, 1.7],
+      "conf_pos_median": 92.0,
+      "conf_rot_median": 48.5,
+      "position_grade": "good",
+      "refuted_frames": 3,
+      "trustworthy_frames": 86,
+      "axial_rotation_status": "not_usable_as_turn_count_ground_truth"
+    }
+  },
+  "retarget": {
+    "replay": "retarget/replay_world.npz",
+    "left_qpos": "retarget/ref_qpos_left.npz",
+    "right_qpos": "retarget/ref_qpos_right.npz",
+    "loader_qpos_alias": "retarget/ref_qpos.npz",
+    "loader_qpos_alias_hand": "right"
+  },
+  "quality": {
+    "per_frame_validity": "reconstruction/object_valid_measured.npz",
+    "confidence_summary": "reconstruction/confidence_complete.json",
+    "poseqa": "reconstruction/poseqa",
+    "contact_summary": "reconstruction/contact/contact_v2_summary.json",
+    "masks": "reconstruction/masks"
+  },
+  "manifest": {
+    "reconstruction": [
+      "world_fused.npz",
+      "world_summary.json",
+      "reconstruction_complete.json",
+      "object_mesh_scaled_final.obj",
+      "object_valid_measured.npz",
+      "objects",
+      "masks",
+      "contact",
+      "poseqa"
+    ],
+    "retarget": [
+      "replay_world.npz",
+      "ref_qpos.npz",
+      "ref_qpos_left.npz",
+      "ref_qpos_right.npz",
+      "object_0.usd",
+      "object_1.usd"
+    ]
+  },
+  "integration": {
+    "status": "data_staged_not_registered",
+    "reason": "two_object_task_adapter_and_replay_clock_policy_required",
+    "existing_clip_entries_untouched": [
+      "water_bottle_twist_static",
+      "water_bottle_twist_assembled",
+      "water_bottle_twist_screw_on"
+    ]
+  }
+}

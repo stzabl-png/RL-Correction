@@ -184,13 +184,26 @@ class BottleReconstructionEnv(DexmateCorrectionEnv):
             self.screw_has_depth[ids] = preengaged
 
     def apply_screw_constraint(
-            self, extra_cap_torque_local=None, *, integrate_angle: bool = True):
+            self, extra_cap_torque_local=None, *, integrate_angle: bool = True,
+            drive_mask=None, omega_damping=None):
         """Capture and enforce the helical relation with GPU tensor writes.
 
         ``integrate_angle=False`` performs the final projection after the last
         physics substep without advancing the screw coordinate a second time.
         IsaacLab exposes no dedicated post-substep callback, so this keeps the
         state consumed by rewards and observations exactly on the helix.
+
+        ``drive_mask`` (N,) bool **or float in [0,1]**: thread-stiction
+        abstraction for training.  It is applied multiplicatively, so a float
+        gain grades the drive speed (see ``screw_triad_drive``: rate scales
+        with how many of thumb/index/middle actually touch the cap).
+        tasks.  Where False, the cap's relative angular velocity is treated as
+        zero — it neither advances the screw coordinate nor survives the
+        constraint's velocity write.  A real PCO thread is self-locking under
+        static friction; without this, one glancing sub-threshold touch spins
+        the frictionless analytic coordinate through both turns for free
+        (measured: 41% spurious "release" at near-random policy).  ``None``
+        keeps the original free-coordinate behaviour for the physics audits.
         """
 
         if self.screw_spec is None:
@@ -272,6 +285,12 @@ class BottleReconstructionEnv(DexmateCorrectionEnv):
             -self.screw_spec.max_angular_velocity_rad_s,
             self.screw_spec.max_angular_velocity_rad_s,
         )
+        if drive_mask is not None:
+            angular_velocity = angular_velocity * drive_mask.float()
+        if omega_damping is not None:
+            # 螺纹粘滞摩擦抽象 (训练任务用): 相对角速度每子步衰减, 轻弹的惯性
+            # 立刻消散, 只有持续接触驱动才能维持转动. None = 审计原行为.
+            angular_velocity = angular_velocity * float(omega_damping)
         active = self.screw_engaged
         angle_step = (
             angular_velocity * float(self.cfg.sim.dt)

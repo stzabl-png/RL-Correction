@@ -30,6 +30,9 @@ from pxr import Usd, UsdPhysics  # noqa: E402
 
 from rl_rebuild.correction import clips, frames as F  # noqa: E402
 from rl_rebuild.correction.env.dexmate_env_cfg import DexmateCorrectionEnvCfg  # noqa: E402
+from rl_rebuild.correction.recon_kailang.static_reconstruction import (  # noqa: E402
+    first_interaction,
+)
 from tasks.recon_kailang.bottle_reconstruction.env import (  # noqa: E402
     BottleReconstructionEnv,
 )
@@ -124,7 +127,10 @@ def main() -> int:
         initial_cap = _geometry(env, env.cap, secondary["mesh"])
         physics_body = _physics(env.object, "/World/envs/env_0/Object")
         physics_cap = _physics(env.cap, "/World/envs/env_0/Cap")
-        source_length = int(np.load(entry["npz"], allow_pickle=True)["frames"].size)
+        with np.load(entry["npz"], allow_pickle=True) as replay:
+            source_length = int(replay["frames"].size)
+            body_interaction = first_interaction(replay, entry.get("hand"))[1]
+            cap_interaction = first_interaction(replay, secondary["hand"])[1]
         body_frame, body_wrist, body_error = _placement_error(
             initial_body["aabb_center_m"][:2], env.du.ref.track_wrist,
             entry["placement_frame"], source_length,
@@ -198,14 +204,14 @@ def main() -> int:
             "steps": args.steps,
             "placement": {
                 "body": {
-                    "interaction_source_frame": 15,
+                    "interaction_source_frame": body_interaction,
                     "placement_source_frame": entry["placement_frame"],
                     "placement_aligned_frame": body_frame,
                     "wrist_xy_m": body_wrist,
                     "error_mm": body_error,
                 },
                 "cap": {
-                    "interaction_source_frame": 13,
+                    "interaction_source_frame": cap_interaction,
                     "placement_source_frame": secondary["placement_frame"],
                     "placement_aligned_frame": cap_frame,
                     "wrist_xy_m": cap_wrist,

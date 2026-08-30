@@ -1,0 +1,127 @@
+{
+ "manifest_version": "outputs_manifest_v1_20260826",
+ "generated_at": "2026-08-29T00:50:40Z",
+ "take_dir": "../../../Output/ReconstructOutput/egodex_part4/screw_unscrew_bottle_cap/67",
+ "schema_version": "recon_world_v5",
+ "num_frames": 137,
+ "object_ids": [
+  "object_0",
+  "object_1"
+ ],
+ "hand_source_key": "hand_sample_source",
+ "files": {
+  "world_fused.npz": {
+   "bytes": 291342,
+   "mtime": 1787909000
+  },
+  "world_summary.json": {
+   "bytes": 4568,
+   "mtime": 1787909000
+  },
+  "replay_world.npz": {
+   "bytes": 2393102,
+   "mtime": 1787908736
+  },
+  "reconstruction_complete.json": {
+   "bytes": 671,
+   "mtime": 1787962102
+  },
+  "confidence_complete.json": {
+   "bytes": 1604,
+   "mtime": 1787909075
+  },
+  "contact_complete.json": {
+   "bytes": 1099,
+   "mtime": 1787908769
+  },
+  "hand_confidence.npz": {
+   "bytes": 62187,
+   "mtime": 1787909066
+  },
+  "hand_confidence.json": {
+   "bytes": 683,
+   "mtime": 1787909066
+  },
+  "object_valid_measured.npz": {
+   "bytes": 3205,
+   "mtime": 1787909074
+  },
+  "ref_qpos_left.npz": {
+   "bytes": 20512,
+   "mtime": 1787964309
+  },
+  "ref_qpos_right.npz": {
+   "bytes": 20604,
+   "mtime": 1787964311
+  },
+  "contact_auto.json": {
+   "bytes": 3192,
+   "mtime": 1787908746
+  },
+  "PROVENANCE.md": {
+   "bytes": 2431,
+   "mtime": 1787962103
+  },
+  "framescan.json": {
+   "bytes": 1602,
+   "mtime": 1787909075
+  },
+  "conf_screw_unscrew_bottle_cap_67.mp4": {
+   "bytes": 3591411,
+   "mtime": 1787964611
+  },
+  "recon_render_screw_unscrew_bottle_cap_67.mp4": {
+   "bytes": 2179044,
+   "mtime": 1787964507
+  },
+  "contact_auto_object_0.json": {
+   "bytes": 3108,
+   "mtime": 1787908753
+  },
+  "contact_auto_object_1.json": {
+   "bytes": 2814,
+   "mtime": 1787908761
+  }
+ },
+ "criteria_versions": {
+  "hand_conf": "hand_conf_v1_arctic55_20260825",
+  "object_valid_measured": "ovm_v1_20260826"
+ },
+ "capabilities": {
+  "object_masks_frames": 137,
+  "hand_masks": true,
+  "hand_confidence": true,
+  "object_valid_measured": true,
+  "replay_fresh_vs_world_fused": false,
+  "ref_qpos": {
+   "left": true,
+   "right": true
+  },
+  "conf_video": "conf_screw_unscrew_bottle_cap_67.mp4",
+  "recon_render_video": "recon_render_screw_unscrew_bottle_cap_67.mp4",
+  "affordance_figs": [
+   "affordance_object_0_left.png",
+   "affordance_object_0_right.png",
+   "affordance_object_1_right.png"
+  ],
+  "poseqa_mirror": true,
+  "retarget_usd": [],
+  "contact_routes": {
+   "c1_mano": true,
+   "align_heatmap": false,
+   "v2_legacy": true
+  }
+ },
+ "meshes": {
+  "object_0": {
+   "file": "objects/object_0/object_mesh_scaled_final.obj",
+   "bytes": 5073039,
+   "mtime": 1786690471
+  },
+  "object_1": {
+   "file": "objects/object_1/object_mesh_scaled_final.obj",
+   "bytes": 121991,
+   "mtime": 1786690471
+  }
+ }
+}

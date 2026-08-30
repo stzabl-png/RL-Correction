@@ -107,6 +107,72 @@ def _water_bottle_static(screw_mode: str | None = None):
     return entry
 
 
+def _screw_unscrew_cap1(screw_mode: str | None = None):
+    """EgoDex screw_unscrew_bottle_cap/1 快照 (左手持瓶身, 右手拧盖放桌).
+
+    CAD 与 water_bottle_twist_static 的两个 mesh **字节相同** (sha256 已核对),
+    故螺纹参数 (pitch/turns/closed_offset/捕获阈值) 与质量/摩擦假设整段复用
+    (本快照 meta.json 未提供实测质量). 摆放帧依据 replay 相位:
+      body: 左手从帧 0 起持续接触 (phase_left[0-67]=1) 且 valid → 0;
+      cap : 帧 35 起被右手拧, 帧 81 是留在桌面的最后接触帧 (phase_right[78-81]=1)
+            → 取 81 (视频里盖子**终点**在桌上, 与水瓶 clip 的"起点在桌上"相反).
+            实测右腕 [35..82] XY 几乎不动, 与 body 摆放点距 29.4cm, 无重叠.
+    ⚠ replay fps 元数据=15 而源视频 30 帧率 (meta.json retarget_clock_status
+      =unresolved); 静态摆放/螺纹审计不受影响, 但接时间相关奖励前必须先定口径.
+    ⚠ 盖子绕螺轴的视觉转角不可作圈数真值 (README §limitations 1)."""
+    base = os.path.join(_DATASETS, "recon_kailang", "screw_unscrew_bottle_cap_1")
+    entry = dict(
+        source="static_reconstruction",
+        npz=os.path.join(base, "retarget", "replay_world.npz"),
+        mesh=os.path.join(base, "reconstruction", "objects", "object_0",
+                          "object_mesh_scaled_final.obj"),
+        usd=os.path.join(base, "cache", "bottle_body.usd"),
+        runtime_object_physics=False,
+        override_cfg_mass=True,
+        flatten_converted_usd=True,
+        place_mode="object_only",
+        hand="left",
+        placement_frame=0,
+        # 视频里瓶身全程在左手里, 没有任何桌面静置帧: FoundationPose 倾角 ≥19.9°,
+        # 超过平底圆柱的倾倒阈值 (~18.3°), 保留原样会在 settle 阶段倒瓶 (实测倒下
+        # 滚出 10cm). 只保留 yaw, 竖直落桌.
+        upright=True,
+        semantics=ObjectSemantics(
+            label="PCO-1810 filled bottle body", mass_kg=0.53, friction=0.5),
+        secondary=dict(
+            label="PCO-1810 cap",
+            mesh=os.path.join(base, "reconstruction", "objects", "object_1",
+                              "object_mesh_scaled_final.obj"),
+            usd=os.path.join(base, "cache", "bottle_cap.usd"),
+            hand="right",
+            placement_frame=81,
+            semantics=ObjectSemantics(
+                label="PCO-1810 cap", mass_kg=0.003, friction=0.4),
+        ),
+    )
+    if screw_mode is not None:
+        entry["secondary"]["assembly"] = dict(
+            pitch_m=0.00318,
+            # U30b (2026-08-27 用户裁定+实测): 不硬性要求 720°. 演示实测盖相对
+            # 瓶的在瓶拧转 ≈ -266° 后分离 (f0-54 单调累积, f54-60 轴向 21→6cm
+            # 脱离). 原 2.0 转是 PCO-1810 标准件假设, 比演示难 2.7 倍.
+            turns=0.75,
+            closed_offset_m=0.180,
+            direction=1,
+            mode=screw_mode,
+            capture_radial_m=0.003,
+            capture_axial_m=0.003,
+            capture_tilt_deg=10.0,
+            capture_yaw_deg=30.0,
+            # U34 (2026-08-27 用户裁定 "不要太快的拧"): 20 rad/s = 1146°/s,
+            # 270° 五六个控制步就拧完 —— 既不像人手, 也让"单指戳一下"足以
+            # 拧完全程 (拇指戳局部最优的制度性根源, 见 pk22 取证).
+            # 2.0 rad/s 下拧满 270° 需持续驱动 ~2.6s, 接近人手实际速度.
+            max_angular_velocity_rad_s=2.0,
+        )
+    return entry
+
+
 # =============================================================================
 # 设定 A — RL 学习 **GraspPose 能处理**的物体 (普遍偏大, 可整手包络)
 #   骨干 = cuRobo 规划的 close 轨迹, RL 只做残差修正. 详见 docs/TRAINING_SETUPS_A_B.md
@@ -125,7 +191,17 @@ CLIPS = {
     "water_bottle_twist_static": _water_bottle_static(),
     "water_bottle_twist_assembled": _water_bottle_static("preengaged"),
     "water_bottle_twist_screw_on": _water_bottle_static("capture"),
+    # EgoDex screw_unscrew_bottle_cap/1 (真实视频重建; 见 _screw_unscrew_cap1 注释)
+    "screw_unscrew_cap1_static": _screw_unscrew_cap1(),
+    "screw_unscrew_cap1_assembled": _screw_unscrew_cap1("preengaged"),
 }
+# 扭盖 RL 任务入口: 场景 = assembled, 但**机器人侧**用右手 (瓶身摆放仍按左手相位).
+# robot_hand 只影响 interact_hand 的判定和 loader 给 du 的手侧, 不影响物体摆放.
+CLIPS["screw_unscrew_cap1_task"] = dict(
+    _screw_unscrew_cap1("preengaged"), robot_hand="right")
+# 任务口径的螺旋角速度上限: 指尖驱动的真实量级 (~5-10 rad/s), 不是审计用的 20.
+# 20 rad/s 下 0.63s 就能转完 2 圈, 轻弹即成 —— 训练学到的是"搓帽"不是"拧帽".
+CLIPS["screw_unscrew_cap1_task"]["secondary"]["assembly"]["max_angular_velocity_rad_s"] = 6.0
 CLIPS["pp0_anchor"] = dict(CLIPS["pp0_human"], variant="anchor")
 CLIPS["pp55_anchor"] = dict(CLIPS["pp55_human"], variant="anchor")
 
@@ -299,6 +375,9 @@ def ensure_mesh_usd(mesh: str, usd: str, semantics: ObjectSemantics):
 def interact_hand(clip_name: str, default: str = "right") -> str:
     """从 phase_left/phase_right 判定这条 clip 是哪只手在交互."""
     e = CLIPS.get(clip_name, {})
+    # 双物体任务可显式指定机器人侧 (如扭盖: 瓶身按左手相位摆放, 但任务手是右手).
+    if e.get("robot_hand"):
+        return e["robot_hand"]
     if not e.get("npz"):
         return default
     if e.get("source") == "static_reconstruction":
@@ -331,6 +410,8 @@ def load_data_unit(cfg) -> DataUnit:
         return load_static_reconstruction(
             e["npz"], e["mesh"], usd_path=e["usd"], clip_id=cfg.clip_name,
             hand=e.get("hand"), placement_frame=e.get("placement_frame"),
+            upright=e.get("upright", False),
+            robot_hand=e.get("robot_hand"),
             target_hz=cfg.target_hz,
             table_height=cfg.table_top_z,
             table_half=min(cfg.table_size[0], cfg.table_size[1]) / 2.0,

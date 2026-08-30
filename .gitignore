@@ -37,6 +37,9 @@ videos_compare/
 *.mp4
 *.avi
 
+# ---- 本地上游导入包（解包后的规范化快照在 datasets/） ----
+/screw_1_isaac_bundle_20260824.tar.gz
+
 # ---- 杂项 ----
 .DS_Store
 *.swp
@@ -51,3 +54,6 @@ media/
 
 # ---- 本机 Claude Code 配置 ----
 .claude/settings.local.json
+
+# ---- note ----
+NOTE.md

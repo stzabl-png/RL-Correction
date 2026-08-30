@@ -1,0 +1,38 @@
+{
+  "criteria_version": "hand_conf_v1_arctic55_20260825",
+  "num_frames": 137,
+  "mask_frames_missing": 0,
+  "fit_residuals_used": false,
+  "left": {
+    "frames_scored": 137,
+    "conf_pos_median": 99.9,
+    "conf_rot_median": 85.6,
+    "conf_fingers_median": [
+      0.1,
+      23.8,
+      92.0,
+      96.6,
+      99.9
+    ],
+    "pred_err_mm_median": 20.0,
+    "source_counts": {
+      "1": 137
+    }
+  },
+  "right": {
+    "frames_scored": 137,
+    "conf_pos_median": 90.5,
+    "conf_rot_median": 90.5,
+    "conf_fingers_median": [
+      0.0,
+      96.6,
+      98.6,
+      100.0,
+      100.0
+    ],
+    "pred_err_mm_median": 14.0,
+    "source_counts": {
+      "1": 137
+    }
+  }
+}

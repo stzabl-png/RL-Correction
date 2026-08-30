@@ -1,0 +1,37 @@
+{
+  "schema_version": "final_2d_masks_v1",
+  "dataset": "egodex_part4",
+  "video_id": "screw_unscrew_bottle_cap__83",
+  "root": "masks",
+  "object_masks": {
+    "present": true,
+    "source": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/interim/egodex_part4/screw_unscrew_bottle_cap__83/sam2_object/video_segmentation/masks",
+    "path": "masks/objects/frames",
+    "num_frame_dirs": 82,
+    "num_png_files": 164,
+    "object_ids": [
+      "object_0",
+      "object_1"
+    ],
+    "mask_files": {
+      "object_0": "masks/objects/frames/frame_{frame_idx:06d}_masks/object_0.png",
+      "object_1": "masks/objects/frames/frame_{frame_idx:06d}_masks/object_1.png"
+    },
+    "label_prompt": "masks/objects/label_prompt.json",
+    "completion": "masks/objects/sam2_object_complete.json"
+  },
+  "hand_masks": {
+    "present": true,
+    "source": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/interim/egodex_part4/screw_unscrew_bottle_cap__83/sam3_hands/screw_unscrew_bottle_cap__83/video_segmentation/masks",
+    "path": "masks/hands/frames",
+    "num_frame_dirs": 82,
+    "num_png_files": 164,
+    "mask_files": {
+      "left": "masks/hands/frames/frame_{frame_idx:06d}_masks/left_hand_0.png",
+      "right": "masks/hands/frames/frame_{frame_idx:06d}_masks/right_hand_0.png"
+    },
+    "completion": "masks/hands/hand_masks_complete.json",
+    "step_completion": "masks/hands/sam3_hands_complete.json"
+  },
+  "manifest": "masks/masks_manifest.json"
+}

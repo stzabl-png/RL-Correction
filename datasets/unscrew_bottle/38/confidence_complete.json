@@ -1,0 +1,72 @@
+{
+  "status": "complete",
+  "step": "confidence",
+  "dataset": "egodex_part4",
+  "video_id": "screw_unscrew_bottle_cap__38",
+  "poseqa_root": "/home/yanghong/Reconstruct_and_Retarget/Data/VideoPrior/poseqa",
+  "poseqa_mirror": {
+    "files": 6,
+    "audit_records": 2
+  },
+  "object_valid_measured": {
+    "objects_with_audit": 2,
+    "trustworthy_frames": [
+      68,
+      55
+    ],
+    "criteria": "ovm_v1_20260826"
+  },
+  "hands": {
+    "left": {
+      "conf_pos_median": 90.5,
+      "conf_rot_median": 83.3,
+      "conf_fingers_median": [
+        0.0,
+        25.7,
+        83.3,
+        96.4,
+        99.7
+      ],
+      "pred_err_mm_median": 20.2
+    },
+    "right": {
+      "conf_pos_median": 85.7,
+      "conf_rot_median": 85.7,
+      "conf_fingers_median": [
+        0.0,
+        96.3,
+        98.4,
+        99.5,
+        98.6
+      ],
+      "pred_err_mm_median": 14.1
+    }
+  },
+  "hand_conf_version": "hand_conf_v1_arctic55_20260825",
+  "objects": {
+    "object_0": {
+      "conf_pos_median": 85.5,
+      "conf_rot_median": 59.5,
+      "position_grade": "good",
+      "rotation_usable": true,
+      "refuted_frames": 0,
+      "manifest_status": "active"
+    },
+    "object_1": {
+      "conf_pos_median": 59.0,
+      "conf_rot_median": 28.5,
+      "position_grade": "mixed",
+      "rotation_usable": false,
+      "refuted_frames": 18,
+      "manifest_status": "active"
+    }
+  },
+  "manifest_status": "active",
+  "summary_object": "object_0",
+  "n_objects": 2,
+  "conf_pos_median": 85.5,
+  "conf_rot_median": 59.5,
+  "position_grade": "good",
+  "rotation_usable": true,
+  "refuted_frames": 0
+}

@@ -1,0 +1,122 @@
+{
+ "schema_version": "contact_fingers_v1",
+ "tau_m": 0.035,
+ "vote": 0.3,
+ "align": false,
+ "hands": {
+  "left": {
+   "objects": {
+    "object_0": {
+     "status": "ok",
+     "n_frames": 97,
+     "fingers": [
+      "thumb",
+      "index",
+      "middle",
+      "ring",
+      "pinky"
+     ],
+     "n_fingers": 5,
+     "palm": true,
+     "tau_rule": {
+      "method": "vote_fallback",
+      "thr_mm": 35.0
+     },
+     "quality": {
+      "hand_confidence": 1.0,
+      "reliable": true
+     },
+     "contact_frac": {
+      "thumb": 0.371,
+      "index": 1.0,
+      "middle": 1.0,
+      "ring": 1.0,
+      "pinky": 0.979,
+      "palm": 0.784
+     },
+     "median_dist_mm": {
+      "thumb": 54.8,
+      "index": 10.9,
+      "middle": 0.5,
+      "ring": 0.5,
+      "pinky": 0.4,
+      "palm": 29.0
+     },
+     "grasp_core_frames": [
+      13,
+      109
+     ],
+     "grasp_established_frame": 13,
+     "offset_mm": {
+      "median": 0.0,
+      "p90": 0.0
+     },
+     "depth_frac": 0.512,
+     "depth_class": "full"
+    },
+    "object_1": {
+     "status": "no_grasp_core",
+     "n_frames": 97,
+     "max_regions": 0
+    }
+   },
+   "primary": "object_0"
+  },
+  "right": {
+   "objects": {
+    "object_0": {
+     "status": "ok",
+     "n_frames": 26,
+     "fingers": [
+      "index",
+      "middle",
+      "ring"
+     ],
+     "n_fingers": 3,
+     "palm": false,
+     "tau_rule": {
+      "method": "vote_fallback",
+      "thr_mm": 35.0
+     },
+     "quality": {
+      "hand_confidence": 1.0,
+      "reliable": true
+     },
+     "contact_frac": {
+      "thumb": 0.0,
+      "index": 0.545,
+      "middle": 0.727,
+      "ring": 1.0,
+      "pinky": 0.0,
+      "palm": 0.0
+     },
+     "median_dist_mm": {
+      "thumb": 81.7,
+      "index": 36.5,
+      "middle": 30.8,
+      "ring": 27.0,
+      "pinky": 39.6,
+      "palm": 81.1
+     },
+     "grasp_core_frames": [
+      45,
+      55
+     ],
+     "grasp_established_frame": 45,
+     "offset_mm": {
+      "median": 0.0,
+      "p90": 0.0
+     },
+     "depth_frac": 0.053,
+     "depth_class": "tip"
+    },
+    "object_1": {
+     "status": "no_grasp_core",
+     "n_frames": 55,
+     "max_regions": 1
+    }
+   },
+   "primary": "object_0"
+  }
+ }
+}

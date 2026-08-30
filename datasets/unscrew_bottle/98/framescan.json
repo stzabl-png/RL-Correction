@@ -1,0 +1,68 @@
+{
+ "video_id": "screw_unscrew_bottle_cap__98",
+ "rot_min": 30,
+ "rot_safe": 45,
+ "objects": {
+  "object_0": {
+   "recon": 108,
+   "fp": 15,
+   "best": {
+    "conf_pos": 90.0,
+    "conf_rot": 49.0,
+    "refuted": 0,
+    "status": "active",
+    "usable": true,
+    "n": 136
+   },
+   "best_median": null,
+   "trials": [
+    {
+     "stage": 0,
+     "recon": 108,
+     "fp": 15,
+     "conf_pos": 90.0,
+     "conf_rot": 49.0,
+     "refuted": 0,
+     "status": "active",
+     "usable": true,
+     "n": 136
+    }
+   ],
+   "pass": true,
+   "finalize_failed": true
+  },
+  "object_1": {
+   "recon": 93,
+   "fp": 29,
+   "best": {
+    "conf_pos": 35.0,
+    "conf_rot": 24.0,
+    "refuted": 26,
+    "status": "active",
+    "usable": false,
+    "n": 136
+   },
+   "best_median": {
+    "conf_rot": 24.0,
+    "refuted": 26,
+    "status": "active",
+    "conf_pos": 35.0
+   },
+   "trials": [
+    {
+     "stage": 0,
+     "recon": 93,
+     "fp": 29,
+     "conf_pos": 35.0,
+     "conf_rot": 24.0,
+     "refuted": 26,
+     "status": "active",
+     "usable": false,
+     "n": 136
+    }
+   ],
+   "pass": false,
+   "finalize_failed": true
+  }
+ }
+}

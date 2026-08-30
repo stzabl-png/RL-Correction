@@ -90,10 +90,20 @@ def compute_static_placement(
     table_half: float = 0.6,
     scene_rot: str = "identity",
     quat_order: str = "wxyz",
+    upright: bool = False,
     reach_origins: np.ndarray | None = None,
     arm_reach: float = 0.755,
 ) -> StaticPlacement:
-    """Compute and validate the initial pose for a static reconstructed mesh."""
+    """Compute and validate the initial pose for a static reconstructed mesh.
+
+    ``upright=True`` keeps only the yaw component of the FoundationPose
+    quaternion.  Use it for clips whose object never rests on the table in the
+    source video (e.g. held in a hand the whole take): the preserved in-hand
+    tilt would otherwise topple a flat-bottomed object as soon as physics
+    starts.  For such objects this equals the nearest stable pose without
+    computing trimesh stable poses inside the Isaac process (segfault risk,
+    see datasets/README.md).
+    """
 
     side, source_frame = first_interaction(replay, hand)
     source_length = len(replay["obj_pose"])
@@ -135,6 +145,15 @@ def compute_static_placement(
     if not np.isfinite(norm) or norm < 1e-8:
         raise ValueError(f"invalid FoundationPose quaternion at frame {source_frame}")
     q_fp = q_fp / norm
+    if upright:
+        # 只保留绕世界竖轴的 yaw (物体 x 轴的水平朝向), 倾角归零.
+        fwd = F.rot_apply(q_fp[None], np.array([[1.0, 0.0, 0.0]]))[0]
+        yaw_offset = 0.0
+        if np.hypot(fwd[0], fwd[1]) < 1e-6:      # x 轴近竖直, 改用 y 轴定 yaw
+            fwd = F.rot_apply(q_fp[None], np.array([[0.0, 1.0, 0.0]]))[0]
+            yaw_offset = -np.pi / 2.0
+        yaw = float(np.arctan2(fwd[1], fwd[0])) + yaw_offset
+        q_fp = np.array([np.cos(yaw / 2.0), 0.0, 0.0, np.sin(yaw / 2.0)])
 
     vertices = F.load_obj_verts(mesh_path)
     if len(vertices) == 0 or not np.isfinite(vertices).all():
@@ -215,12 +234,21 @@ def load_static_reconstruction(
     table_half: float = 0.6,
     scene_rot: str = "identity",
     quat_order: str = "wxyz",
+    upright: bool = False,
+    robot_hand: str | None = None,
     target_hz: float | None = None,
     semantics: ObjectSemantics | None = None,
     verbose: bool = False,
     return_placement: bool = False,
 ) -> DataUnit | tuple[DataUnit, StaticPlacement]:
-    """Load replay data and replace only its initial object placement."""
+    """Load replay data and replace only its initial object placement.
+
+    ``robot_hand``: 机器人交互侧与摆放手不同的双物体任务用 (扭盖: 瓶身按**左手**
+    相位摆放, 任务手是**右手**). 摆放仍用 ``hand``; 只把 ref 的 finger_names 前缀
+    换成机器人侧, 让 correction_env 的按名映射通过. ⚠ 前提是 place_mode=object_only
+    (env 会把 ref 手指/腕参考整体覆盖成默认站姿, 这份数据不会被真用) —— 任何要真用
+    ref 手指/腕轨迹的模式都不能走这条路, 消费方必须自行断言.
+    """
 
     with np.load(npz_path, allow_pickle=True) as replay:
         side, _ = first_interaction(replay, hand)
@@ -250,7 +278,15 @@ def load_static_reconstruction(
             table_half=table_half,
             scene_rot=scene_rot,
             quat_order=quat_order,
+            upright=upright,
         )
+    if robot_hand not in (None, "left", "right"):
+        raise ValueError(f"robot_hand must be left/right/None, got {robot_hand!r}")
+    if robot_hand and robot_hand != side and data_unit.ref.finger_names:
+        data_unit.ref.finger_names = [
+            name.replace(f"{side}_", f"{robot_hand}_", 1)
+            for name in data_unit.ref.finger_names
+        ]
     data_unit.object_init_pose = placement.pose
     # The generic replay loader estimates interaction from hand/mesh distance.
     # Static placement is defined by phase_left/right instead, so expose that

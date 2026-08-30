@@ -552,6 +552,52 @@ for _n, _d, _pm in (("screw0_cap", f"{_RR_OUT}/egodex_auto/screw_unscrew_bottle_
         pass
 
 
+# ── egodex_part4 拧瓶盖 18 条 (datasets/unscrew_bottle/<n>, 2026-08-29 入库) ──
+# take 目录是**自包含**的 (replay_world.npz 与重建产物同目录, 不走 RR Output 双树),
+# 所以不能直接用 _screw_from_layout 的 ReconstructOutput→RetargetOutput 路径置换,
+# 包一层把 npz 指回 take 目录自己。其余全部走既有 secondary 双物体螺旋通路。
+#
+# CAD 已核对 (md5): 17/18 条的瓶身+瓶盖与 water_bottle_twist_static **字节相同**
+# (bottle_body c9d18519 / bottle_cap c755e07c) —— 螺纹参数/质量/摩擦整段沿用
+# 已验证配方, 不重标。78 号只注册到 1 个物体, 不注册 (README 已知缺口)。
+#
+# 任务口径三处覆写 (承旧台账 tasks/recon_kailang LEDGER_unscrew, 用户裁定):
+#   turns=0.75            U30b: 演示实测拧 ~266° 即分离, 2.0 圈是标准件假设 (难 2.7×)
+#   max_ang_vel=2.0 rad/s U34:  "不要太快的拧" —— 20 rad/s 下单指轻弹 5 步拧完,
+#                               是"拇指戳"局部最优的制度性根源 (pk22)
+#   mode=preengaged       拧开任务: 盖起始装在瓶上 (VLM part_change 不用猜)
+# 角色拍板 (2026-08-29): screw_primary="body" —— 瓶身=env.object (置于桌面, 听
+# 左手相位摆放 + upright 投影: 重建静置帧带 ~21° FoundationPose 噪声 > 平底圆柱
+# 18.3° 倾倒极限, 旧台账 U24 的总根因, 必须投直); 盖=env.aux, 由 reset_screw 按
+# closed_offset 合拢在瓶顶 —— preengaged 的物理正确开局. 若反过来 primary=cap,
+# 主体摆放机制会把盖摆到它自己的桌面锚点 (f32 时盖还在倾斜的瓶顶 25cm 空中),
+# 瓶身再被反推到斜下方 —— 开局即错.
+def _unscrew_take(take_dir: str):
+    entry = _screw_from_layout(take_dir, screw_primary="body",
+                               robot_hand="left")
+    entry["npz"] = os.path.join(os.path.abspath(take_dir), "replay_world.npz")
+    entry["upright"] = True
+    entry["resting_pose_json"] = os.path.join(
+        os.path.abspath(take_dir), "resting_pose.json")
+    asm = entry["secondary"]["assembly"]
+    asm["mode"] = "preengaged"
+    asm["turns"] = 0.75
+    asm["max_angular_velocity_rad_s"] = 2.0
+    return entry
+
+
+_UNSCREW_DIR = os.path.join(_DATASETS, "unscrew_bottle")
+if os.path.isdir(_UNSCREW_DIR):
+    for _c in sorted(os.listdir(_UNSCREW_DIR)):
+        _d = os.path.join(_UNSCREW_DIR, _c)
+        if not os.path.isfile(os.path.join(_d, "scene_layout.json")):
+            continue               # 78 号单物体 / 未跑 layout 的目录: 静默跳过
+        try:
+            CLIPS[f"unscrew{_c}_task"] = _unscrew_take(_d)
+        except Exception as _e:    # 单条坏数据不该让模块导入失败
+            print(f"[clips] ⚠ unscrew{_c}_task 注册失败: {_e}")
+
+
 def configure_cfg(cfg, name: str):
     """把 clip 的资产路径写进 env cfg (在 env 构建之前调用)."""
     e = clip_entry(name)
@@ -764,6 +810,8 @@ def load_data_unit(cfg) -> DataUnit:
         return load_static_reconstruction(
             e["npz"], e["mesh"], usd_path=e["usd"], clip_id=cfg.clip_name,
             hand=e.get("hand"), placement_frame=e.get("placement_frame"),
+            upright=e.get("upright", False),
+            robot_hand=e.get("robot_hand"),
             target_hz=cfg.target_hz,
             table_height=cfg.table_top_z,
             table_half=min(cfg.table_size[0], cfg.table_size[1]) / 2.0,

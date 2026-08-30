@@ -335,6 +335,20 @@ def apply_screw(env, *, integrate_angle: bool = True):
     angular_velocity = torch.where(angular_velocity.abs() < 0.1,
                                    torch.zeros_like(angular_velocity),
                                    angular_velocity)
+    # ---- 训练任务可选钩子 (2026-08-29, 自 recon_kailang 扭盖任务移植; 默认 None
+    #      = 行为与既有任务逐位相同, 审计入口不受影响) ----
+    # screw_drive_gain (N,) float∈[0,1] 或 bool: 螺纹静摩擦/分级驱动抽象.
+    #   0 = 指尖无接触时相对角速度不积分也不存留 (解析螺旋无摩擦, 亚阈值轻擦
+    #   会免费空转到释放 —— 旧台账实测近随机策略 41% 假 release);
+    #   分数 = U34 三指分级慢拧 (拇/食/中 1 指 1/3 速, 3 指全速, 无悬崖).
+    # screw_omega_damping float: 螺纹粘滞摩擦, 相对角速度逐子步衰减 —— 轻弹的
+    #   惯性立刻消散, 只有持续接触驱动才维持转动.
+    _gain = getattr(env, "screw_drive_gain", None)
+    if _gain is not None:
+        angular_velocity = angular_velocity * _gain.float()
+    _damp = getattr(env, "screw_omega_damping", None)
+    if _damp is not None:
+        angular_velocity = angular_velocity * float(_damp)
     active = env.screw_engaged
     angle_step = (angular_velocity * float(env.cfg.sim.dt)
                   if integrate_angle else torch.zeros_like(angular_velocity))
@@ -343,8 +357,14 @@ def apply_screw(env, *, integrate_angle: bool = True):
     env.screw_angle[active] = proposed[active].clamp(0.0, max_angle)
     env.screw_has_depth |= active & (env.screw_angle < max_angle - 0.25 * np.pi)
 
-    detach = (active & env.screw_has_depth
-              & (proposed >= max_angle) & (angular_velocity > 0.0))
+    # 可选钩子: 拧满即脱开 (默认 False = 原行为). 原条件要求"顶满时仍有 ω>0"
+    # (最后一推), 但确定性策略拧到顶就停手, drive_gain 下 ω 归零 → 永卡在
+    # 释放门前 (旧台账 UnscrewRef1 实锤). 训练任务置 env.screw_detach_at_full=True.
+    if getattr(env, "screw_detach_at_full", False):
+        detach = active & env.screw_has_depth & (env.screw_angle >= max_angle - 1e-4)
+    else:
+        detach = (active & env.screw_has_depth
+                  & (proposed >= max_angle) & (angular_velocity > 0.0))
     env.screw_engaged[detach] = False
     active = env.screw_engaged
     if active.any():

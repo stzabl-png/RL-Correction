@@ -31,14 +31,21 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 
 import numpy as np
 import torch
 import yaml
 
-ROBOT_YML = ("/home/lyh/luhr/MagicSim/Third_Party/curobo/curobo/content/"
-             "configs/robot/magicsim_vega1p_sharpa.yml")
+# 机器人配置随 MagicSim 定制版 cuRobo 走 (curobo.motion_planner 这套 API 是
+# MagicSim Third_Party fork, 不是 PyPI 的 nvidia curobo)。跨机部署:
+#   MAGICSIM_ROOT=<MagicSim检出路径>  或  CUROBO_ROBOT_YML=<yml绝对路径>
+# (2026-08-29 增量: 旧硬编码 /home/lyh 只在原机有效)
+ROBOT_YML = os.environ.get("CUROBO_ROBOT_YML") or os.path.join(
+    os.environ.get("MAGICSIM_ROOT", "/home/lyh/luhr/MagicSim"),
+    "Third_Party", "curobo", "curobo", "content", "configs", "robot",
+    "magicsim_vega1p_sharpa.yml")
 
 
 def _quat_to_R(q):

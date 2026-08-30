@@ -42,10 +42,28 @@ import yaml
 # MagicSim Third_Party fork, 不是 PyPI 的 nvidia curobo)。跨机部署:
 #   MAGICSIM_ROOT=<MagicSim检出路径>  或  CUROBO_ROBOT_YML=<yml绝对路径>
 # (2026-08-29 增量: 旧硬编码 /home/lyh 只在原机有效)
-ROBOT_YML = os.environ.get("CUROBO_ROBOT_YML") or os.path.join(
-    os.environ.get("MAGICSIM_ROOT", "/home/lyh/luhr/MagicSim"),
-    "Third_Party", "curobo", "curobo", "content", "configs", "robot",
-    "magicsim_vega1p_sharpa.yml")
+def _robot_yml() -> str:
+    """CUROBO_ROBOT_YML > MagicSim 树 > 仓库自带生成品 (跨机自给自足)。
+
+    2026-08-30 起 cuRobo 不再依赖 MagicSim: `curobo.motion_planner` 这套 API 就是
+    NVlabs/curobo 新版主线 (v0.8+, warp 内核), 机器人配置可由
+    tools/make_vega1p_sharpa_curobo_yml.py 从仓库 URDF 自动生成。
+    """
+    env = os.environ.get("CUROBO_ROBOT_YML")
+    if env:
+        return env
+    mag = os.path.join(
+        os.environ.get("MAGICSIM_ROOT", "/home/lyh/luhr/MagicSim"),
+        "Third_Party", "curobo", "curobo", "content", "configs", "robot",
+        "magicsim_vega1p_sharpa.yml")
+    if os.path.isfile(mag):
+        return mag
+    return os.path.abspath(os.path.join(
+        os.path.dirname(__file__), "..", "..", "datasets", "vega_urdf",
+        "vega_1p_sharpa_curobo.yml"))
+
+
+ROBOT_YML = _robot_yml()
 
 
 def _quat_to_R(q):

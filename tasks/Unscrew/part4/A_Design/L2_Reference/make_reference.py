@@ -18,12 +18,13 @@ obj 列约定: obj_0=瓶身(env.object,左手) obj_1=盖(env.aux,右手) —— 
    FoundationPose 噪声 > 平底圆柱 18.3° 倾倒极限, 不投则瓶必自倒 (旧台账总根因)
 4. 盖行: 脱离前由瓶推导 (瓶行+closed_offset·螺轴, 合拢期盖自身轨迹更噪且冗余);
    脱离帧从数据测 (盖轨迹与装配位偏离首超 4cm); 脱离后接盖自身重建轨迹 (连续拼接)
-5. 腕参考从**物体轨迹推导** (v2.1 数据发现: 上游腕平移是静态填充死数据, 本批
-   复测 clip32 位移 <0.6cm 而盖走 66cm —— 病没修):
-   右腕 = 盖心 + reach·螺轴, 姿态 = 活四元数流 + U35 掌轴对准 (hand_z→-螺轴);
-   左腕 = 瓶∘静态握位偏移 (静态填充点=首帧真实握位, grasp_prompt 接触区佐证),
-   姿态 = 活四元数流。ArmIK 逐行解臂 (anchor 用 env_rest.json 的实测 arm_center,
-   没有就退回 URDF 推导 —— 有 ~cm 级系统差, v2 重铸时被增量空间锚消掉)
+5. 腕参考**死通道零依赖** (2026-08-30 拍板: 上游腕平移是静态填充死数据,
+   clip32 复测腕 <0.6cm 而盖走 66cm —— 一律不用):
+   右腕 = 盖心 + reach·螺轴 (活物体轨迹), 姿态 = 活四元数流 + U35 掌轴对准;
+   左腕 = Screw27_body GraspPose **镜像**锚在瓶行上 (同 CAD 字节相同,
+   绕瓶轴方位角 ArmIK 可达率扫描), 指形 = prior 抓形模板 + env squeeze 加压。
+   ArmIK 逐行解臂 (anchor 用 env_rest.json 实测 arm_center, 缺省退 URDF 推导
+   —— 有 ~cm 级系统差, v2 重铸时被增量空间锚消掉)
 6. 机器段: 有 Motion_Planning/<clip>/{Approach,Retreat}.npz (cuRobo 产物,
    plan_machine_segs.py) 就剪规划行; 没有退回关节 smoothstep 占位 (⚠ 无碰撞
    背书, 只够冒烟)。缝1/缝2 永远做焊接斜坡桥接两套解的分支差。
@@ -254,8 +255,10 @@ def main():
     cap_q = smooth_quats(cap_q, 1.5)
 
     # ---- 腕参考 (交互窗) ----
+    # ⚠ 死通道零依赖 (2026-08-30): ref_qpos 的 wrist_pos 是上游静态填充的
+    # 死数据 (clip32 腕 <0.6cm/盖 66cm), 本构建器只消费**活通道**:
+    # 右腕四元数流 / 右手指流 / 物体轨迹+conf / 人手逐帧置信度。
     qr = np.load(os.path.join(take, "ref_qpos_right.npz"), allow_pickle=True)
-    ql = np.load(os.path.join(take, "ref_qpos_left.npz"), allow_pickle=True)
     fin_names = [str(n) for n in qr["joint_names"]]
     assert all(n.startswith("right_") for n in fin_names), fin_names[:3]
 
@@ -276,12 +279,51 @@ def main():
     wr_Q = qmul(fixq, wr_Q)
     wr_Q /= np.linalg.norm(wr_Q, axis=1, keepdims=True)
 
-    # 左腕: 瓶锚定固定握位 (静态填充点=首帧真实握位) + 活姿态流
-    wl0 = np.asarray(ql["wrist_pos"], float)[w0]
-    r_rel = (quat_to_R(bq_proj[w0]).T @ (wl0 - body_raw_p[w0]))
-    wl_P = body_p + qrot(body_q, np.tile(r_rel, (N, 1)))
-    wl_P[:, 2] = np.maximum(wl_P[:, 2], TABLE_Z + 0.02)
-    wl_Q = smooth_quats(np.asarray(ql["wrist_quat_wxyz"], float)[w0:w1 + 1])
+    # 左腕: GraspPose prior 镜像锚定 (2026-08-30 拍板: **零死数据依赖**)。
+    # 旧法取静态腕点当握位偏移 —— 那正是死通道 (上游腕平移静态填充), 且"静态点
+    # =首帧真实握位"只在旧 clip 验证过。换成: Screw27_body prior (与本批 CAD
+    # 字节相同, screw27 任务实证) 的抓取位姿, 镜像到左手 (q'=(w,-x,y,-z),
+    # p'=(x,-y,z), 指模板由 env 按名镜像), 锚在瓶行上随瓶走 —— 手物相对位姿
+    # by construction 恒定 (框架 v2 的同一哲学)。绕瓶轴方位角是自由参数
+    # (旋转体), 用 ArmIK 可达率扫出来 (Pour17 best_yaw 同源)。
+    zp = np.load(TC.PRIOR_AUX)
+    gp = np.asarray(zp["grasp"], np.float64)[:3]
+    gq = np.asarray(zp["grasp"], np.float64)[3:7]
+    gp_m = np.array([gp[0], -gp[1], gp[2]])
+    gq_m = np.array([gq[0], -gq[1], gq[2], -gq[3]])
+    gq_m /= np.linalg.norm(gq_m)
+
+    def _left_track(yaw):
+        qy = np.array([np.cos(yaw / 2), 0.0, 0.0, np.sin(yaw / 2)])
+        pl = (quat_to_R(qy) @ gp_m)
+        qlg = qmul(qy[None], gq_m[None])[0]
+        P = body_p + qrot(body_q, np.tile(pl, (N, 1)))
+        Q = qmul(body_q, np.tile(qlg, (N, 1)))
+        Q /= np.linalg.norm(Q, axis=1, keepdims=True)
+        P[:, 2] = np.maximum(P[:, 2], TABLE_Z + 0.02)
+        return P, Q
+
+    def _mk_ik(side):
+        if rest and rest.get(f"anchor_T_{side}"):
+            return ArmIK(side, anchor_link="arm_center",
+                         anchor_T=np.asarray(rest[f"anchor_T_{side}"], float))
+        return ArmIK(side, torso_deg={"torso_j1": 40.5196, "torso_j2": 73.6595,
+                                      "torso_j3": 0.3896})
+
+    ik_l = _mk_ik("left")
+    best = None
+    for ydeg in range(0, 360, 30):
+        P, Q = _left_track(np.radians(ydeg))
+        sols = ik_l.solve_traj(P[::4], Q[::4], w_rot=0.25, n_restart=2)
+        pe = np.array([sv["pos_err"] for sv in sols])
+        score = float((pe < 0.02).mean())
+        med = float(np.median(pe))
+        if best is None or (score, -med) > (best[1], -best[2]):
+            best = (ydeg, score, med)
+    yaw_l = np.radians(best[0])
+    print(f"[v1] 左抓方位扫描: yaw*={best[0]}° 可达率 {best[1] * 100:.0f}% "
+          f"中位 {best[2] * 100:.2f}cm (prior=Screw27_body 镜像)")
+    wl_P, wl_Q = _left_track(yaw_l)
 
     # ---- ArmIK ----
     def solve_side(side, P, Q):
@@ -314,9 +356,15 @@ def main():
     q_r = smooth(q_r, 1.5)
     q_l = smooth(q_l, 1.5)
 
-    # 手指行: 活流原样 (β squeeze 由 env 前馈山丘剖面负责合拢加压)
+    # 手指行: 右手 = 活的人手流 (拧盖手法, 本批实证活通道, P-HYB 形状指引同源);
+    # 左手 = prior 抓形模板 (与镜像腕位姿配套 —— 人手指流描述的是**人的**握法,
+    # 锚在死腕点上, 与 prior 握位几何不配; β squeeze 由 env 前馈负责加压)
     f_r = smooth(np.asarray(qr["finger_qpos"], float)[w0:w1 + 1], 2.0)
-    f_l = smooth(np.asarray(ql["finger_qpos"], float)[w0:w1 + 1], 2.0)
+    from rl_rebuild.correction.ref_builders.replay_grasp import (
+        GENERIC_JOINT_ORDER)
+    gfin = np.asarray(zp["grasp"], np.float64)[7:29]
+    perm = [GENERIC_JOINT_ORDER.index(n) for n in fin_names]
+    f_l = np.tile(gfin[perm], (N, 1))
 
     # ---- 机器段 (占位: 关节 smoothstep; 正式训练前换规划轨迹, 见 docstring) ----
     if rest and rest.get("stance_arm14") is not None:
@@ -430,6 +478,9 @@ def main():
         "gen": "make_reference_v1_20260829",
         "windows": {"w0": w0, "w1": w1, "sep_src": sep_src, "k_sep": k_sep},
         "rest_source": "probe" if rest else "offline_estimate",
+        "left_grasp": {"prior": TC.PRIOR_AUX, "mirror": "xz-plane",
+                       "yaw_deg": float(np.degrees(yaw_l))},
+        "dead_channel_free": "wrist_pos 静态填充死数据零依赖 (2026-08-30 拍板)",
         "ik_ok": {"right": ok_r, "left": ok_l},
         "obj_map": {"obj_0": f"{BODY_ID} (bottle, left hand, env.object)",
                     "obj_1": f"{CAP_ID} (cap, right hand, env.aux)"},

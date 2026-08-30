@@ -35,8 +35,37 @@ Commands will be added after the remote environment and new entry points are ver
 
 Persistent training will use a unique task-owned tmux session after static, deterministic, 1-env, multi-env, and short-training checks pass. The exact GPU, command, log, checkpoint path, and resume instructions will be recorded before launch.
 
+## Verified runtime and dataset state
+
+- Runtime: `/home/msc-auto/miniconda3/envs/isaac/bin/python` (Python 3.11,
+  PyTorch 2.7.0+cu128) with Isaac Lab from `/home/msc-auto/MagicSim_IsaacLab`.
+- The repository-local launch comments and `env_a6000.sh` contain stale paths;
+  Sweep launchers must set their own project root and interpreter explicitly.
+- Sweep2 was copied into `datasets/sweep_2_better` (4,982 files, about 136 MB).
+- Source video is 300 frames at 30 fps (10 seconds). The retarget NPZ says 15 fps;
+  reference construction therefore preserves source frame indices and explicitly
+  resamples to the 20 Hz control clock instead of trusting that metadata silently.
+- `object_0` is the dustpan (left hand); `object_1` is the broom (right hand).
+- The tracked robot USD and both GraspPose prior blobs were hydrated and hash-checked.
+
+## Historical failure evidence used by this implementation
+
+- The deleted predecessor's fixed joints snapped each tool by 20.8--21.1 cm on
+  reset. New joints must be derived from the GraspPose hand-in-object transform,
+  and an executable reset-offset assertion must reject millimetre-scale mismatch.
+- Its zero-residual broom missed the 1 cm cube by at least 2.4 cm and never produced
+  particle entry/success. The new fixed cube location is derived from the actual
+  broom corridor and pan mouth, not copied from that task.
+- It accumulated high pan/reference shaping reward while true success remained zero.
+  New task progress and clock advancement are tied to cube motion and containment.
+- One old branch ran without GraspPose and with an inconsistent seven-dimensional
+  active action path. Sweep2 fixes both fingers from validated priors and exposes
+  exactly 14 arm residuals to both policy and trainer.
+
 ## Current status and next checks
 
-- Requirements and implementation plan approved.
-- Repository bootstrap in progress.
-- Next: import and verify Sweep2 data and resolve runtime environment/assets.
+- Repository, data, output directories, and task records are bootstrapped.
+- Both A6000 GPUs are currently owned by other users' active jobs; no job has been
+  interrupted and no Isaac/GPU process will start until a slot is safely available.
+- Next: implement the pure geometry/progress contract and reference builder, then
+  add physical scene wiring and its one-environment replay checks.

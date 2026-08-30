@@ -7,3 +7,18 @@
 - Reasoning: Videos, training outputs, datasets, and generated artifacts must remain outside Git history while source and design records remain reviewable.
 - Validation: Baseline branch `Step4_RL_Correction` resolved to `4b1daa75ea0625dff10e387f41cfd7320c191d96`; the new branch started from a clean worktree.
 - Remaining: Import Sweep2 data, build the scene/reference, validate replay, implement the tracker and training path.
+
+## 2026-08-30 — Evidence gate before environment implementation
+
+- Goal: Freeze the facts that the new implementation must satisfy before reusing
+  any predecessor design.
+- Changes: Recorded the verified interpreter, dataset timebase discrepancy, asset
+  hydration state, GPU ownership, and the measurable failure modes of the deleted
+  Sweep prototype.
+- Reasoning: The predecessor's shaped reward looked healthy while physical success
+  was zero, so implementation gates must be expressed in cube/tool geometry and
+  Fixed Joint consistency rather than reward magnitude.
+- Validation: Read actual NPZ/video metadata and predecessor trace summaries; checked
+  current GPU processes without changing them.
+- Remaining: Pure geometry tests, reference generation, physical replay, BC warmup,
+  PPO training, and 512-episode deterministic evaluation.

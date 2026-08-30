@@ -52,3 +52,19 @@
   is pending because both GPUs are actively occupied by other users.
 - Remaining: Run the builder at the first safe GPU slot, inspect its IK report, then
   wire the generated reference into the physical scene.
+
+## 2026-08-30 — Physical Sweep environment wiring (static gate)
+
+- Goal: Implement the fixed-start scene and 14-D residual control path without
+  inheriting Pour's task-specific success machinery.
+- Changes: Added a Sweep environment with a 1 cm/1 g cube, physical broom/right-hand
+  and pan/left-hand FixedJoints, own-hand collision filtering, frozen GraspPose
+  fingers, confidence-dependent asymmetric arm residual bounds, exact cube/tool
+  policy observations, and immediate stable-containment termination.
+- Reasoning: Starting every body in a constraint-consistent row-zero pose prevents
+  FixedJoint snap. The task clock plays open-loop only up to nominal brush contact;
+  after that it requires real brush proximity or cube displacement.
+- Validation: Python compilation and whitespace checks pass. Runtime assertions will
+  reject more than 3 mm tool/reference or attachment-frame error at construction.
+- Remaining: Generate the reference on a free GPU, run the physical reset audit,
+  then tune the deterministic expert push and record zero-residual replay.

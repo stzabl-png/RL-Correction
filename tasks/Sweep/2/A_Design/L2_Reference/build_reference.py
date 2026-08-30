@@ -127,6 +127,35 @@ times_s = np.arange(0.0, duration + 1e-9, 1.0 / args.control_hz)
 source_times = times_s * args.source_fps
 tool_T = {i: np.einsum("ab,tbc->tac", A, interp_T(raw[i], source_times)) for i in (0, 1)}
 
+# Fixed easy cube placement is selected from a conservative grid just outside the
+# initial pan lip.  It is still fixed across all episodes; this search merely makes
+# the reconstructed broom pass through the cube instead of repeating the old 2.4 cm
+# miss.  Only the broad brush-head half of the mesh participates.
+import trimesh  # noqa: E402
+bm = trimesh.load(os.path.join(DATA, "objects", "object_1",
+                               "object_mesh_scaled_final.obj"), force="mesh")
+bv = np.asarray(bm.vertices, np.float64)
+bv = bv[bv[:, 2] > 0.04]
+bv = bv[np.random.RandomState(0).choice(len(bv), min(600, len(bv)), replace=False)]
+pan0 = tool_T[0][0]
+candidates = []
+for x in np.linspace(-0.04, 0.04, 9):
+    for zloc in np.linspace(0.110, 0.140, 7):
+        p = (pan0 @ np.array([x, 0.0, zloc, 1.0]))[:3]
+        p[2] = float(cfg.table_top_z) + 0.0055
+        candidates.append(p)
+candidates = np.asarray(candidates)
+best = (float("inf"), None, None)
+for ti in range(10, len(times_s) - 10):
+    world = bv @ tool_T[1][ti, :3, :3].T + tool_T[1][ti, :3, 3]
+    d = np.linalg.norm(world[:, None, :] - candidates[None, :, :], axis=2).min(axis=0)
+    ci = int(np.argmin(d))
+    if float(d[ci]) < best[0]: best = (float(d[ci]), ti, ci)
+cube_start = candidates[best[2]]
+contact_row = int(best[1])
+print(f"[reference] easy cube={np.round(cube_start, 4).tolist()} | "
+      f"nominal brush distance={best[0]*100:.2f}cm @ row {contact_row}")
+
 priors = {"right": np.load(args.broom_prior), "left": np.load(args.pan_prior)}
 oid = {"right": 1, "left": 0}
 arm_q, ik_report = {}, {}
@@ -152,6 +181,9 @@ out = {
     "fin_names": np.array(GENERIC_JOINT_ORDER, dtype=object),
     "source_frame": source_times.astype(np.float32),
     "control_hz": np.float32(args.control_hz),
+    "cube_start_w": cube_start.astype(np.float32),
+    "contact_row": np.int32(contact_row),
+    "nominal_brush_cube_distance_m": np.float32(best[0]),
     "shared_world_transform": A,
     "meta": "Sweep2 P-OBJ v1; RTS tools at source 30Hz -> explicit 20Hz; shared SE3 scene map; GraspPose-locked tool-to-hand; fingers fixed",
 }
@@ -167,6 +199,7 @@ np.savez(args.output, **out)
 print(f"[reference] wrote {args.output}: rows={len(times_s)}, duration={times_s[-1]:.3f}s")
 assert min(v["ok_ratio"] for v in ik_report.values()) >= 0.99, ik_report
 assert max(v["pos_max_cm"] for v in ik_report.values()) <= 0.5, ik_report
+assert best[0] <= 0.012, f"reconstructed brush misses every easy cube candidate: {best[0]:.4f}m"
 try: _slot.release()
 except Exception: pass
 app.close()

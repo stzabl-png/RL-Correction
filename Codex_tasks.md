@@ -78,6 +78,10 @@ Persistent training will use a unique task-owned tmux session after static, dete
   CPU self-tests pass.
 - Sweep clip paths are now self-contained and the P-OBJ reference builder is
   implemented with explicit 30 Hz source to 20 Hz control resampling.
+- The physical environment is statically implemented: one fixed cube, two physical
+  tool attachments, frozen fingers, 14 arm actions, P-OBJ confidence bounds, and
+  cube-grounded task reward/termination. Runtime construction contains a strict
+  3 mm attachment/reset assertion.
 - Runtime reference generation is waiting for a safe GPU slot; no foreign process
   will be interrupted. In parallel, physical scene wiring can be implemented and
   statically checked.

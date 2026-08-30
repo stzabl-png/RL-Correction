@@ -978,6 +978,20 @@ if args.place:
     # grasp_only 时代把 gs 后的腕参考冻结 (物体钉桌上, 腕飘走=抓空气); place 的物体
     # 是真实物理且就该被搬走 —— 解冻, 参考播完整的 靠近→抓住→搬运→放置 (ref builder 注释)
     env_cfg.freeze_wrist = False
+def _fatal_cfg(msg):
+    """旗参数致命错误 —— 必须用 os._exit。
+
+    ★ 2026-08-29 (RL 会话实测教训): AppLauncher(第 386 行) 之后 `raise SystemExit`
+    **会被 Isaac 吞掉** —— 退出码变 0 且训练照常跑下去, 等于拿着错配置白跑一整轮。
+    "报了警却照样跑" 比不设闸更危险 (看日志的人会以为闸放行了)。
+    """
+    import sys as _s
+    print("=" * 78, flush=True)
+    print(f"[FATAL] {msg}", flush=True)
+    print("=" * 78, flush=True)
+    _s.stdout.flush(); _s.stderr.flush()
+    os._exit(2)
+
 _prior = args.prior_npz or (os.path.join(_HERE, "priors", f"{args.clip}.npz")
                             if args.grasp_prior else None)
 if _prior:
@@ -1358,19 +1372,19 @@ if _prior:
         env_cfg.pregrasp29 = True
     apply_grasp_prior(env_cfg, _prior, args.prior_yaw, approach=args.approach)
 elif args.approach:
-    raise SystemExit("--approach 必须配 prior (对齐势的终点来自 GraspPose)")
+    _fatal_cfg("--approach 必须配 prior (对齐势的终点来自 GraspPose)")
 if args.retract and not args.approach_only:
     # 完整任务 + 退避起点族: 仍然要抓要抬, 只是起点换成"从 GraspPose 沿 radial 退 d"。
     # 动作空间保持 13 (抓握需要手指通道), 判据保持抓稳+微抬升。
     if not args.approach:
-        raise SystemExit("--retract 必须同时给 --approach")
+        _fatal_cfg("--retract 必须同时给 --approach")
     env_cfg.retract_start = True
     env_cfg.retract_ratio = 0.0        # 训练从最简单端起 (与 approach_only 同一套语义)
     env_cfg.stance_prob = 0.0
     print("[retract] 完整任务(接近+抓握)改用退避式起点族; 动作空间保持 13 维")
 if args.approach_only:
     if not args.approach:
-        raise SystemExit("--approach_only 必须同时给 --approach (要接近段的相位机)")
+        _fatal_cfg("--approach_only 必须同时给 --approach (要接近段的相位机)")
     env_cfg.retract_start = True
     # ★ **训练**的课程初值 = 最简单端。cfg 里的默认 1.0/1.0 是**评测口径**
     #   (全部从站姿起步), 训练必须从 0 起, 由 sr_slow 逐步拉满。
@@ -1414,34 +1428,10 @@ if args.load_path is not None:
 log_dir = os.path.join("logs", args.name, datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
 
 # ---- 世界指纹 (2026-08-28, AAG-F 0/64 回放事故后加) ----
-# 站姿 USD = **世界版本**。旧站姿权重在新站姿世界里回放会全员超时, 而
-# **obs 维度一个字节都不变**(348 不变、语义变) ⟹ 维度闸拦不住, 与
-# RL_FC_PLAY_REF 同族。ckpt 本身不带世界信息, 所以把指纹落在 run 目录里,
-# 让"这个 ckpt 出生在哪个世界"随 ckpt 一起存档、事后可对账。
-def _world_fingerprint():
-    import hashlib
-    try:
-        from rl_rebuild.correction.env.dexmate_env_cfg import _DEXMATE_USD as _u
-    except Exception as _e:
-        return {"error": f"{type(_e).__name__}: {_e}"}
-    try:
-        with open(_u, "rb") as _f:
-            _h = hashlib.md5(_f.read()).hexdigest()
-        return {"usd": _u, "md5": _h, "bytes": os.path.getsize(_u),
-                "mtime": datetime.fromtimestamp(os.path.getmtime(_u)).isoformat(timespec="seconds"),
-                "env_override": os.environ.get("DEXMATE_FIXED_USD", "")}
-    except Exception as _e:
-        return {"usd": _u, "error": f"{type(_e).__name__}: {_e}"}
-
-_WORLD = _world_fingerprint()
-print(f"[world] 站姿USD md5={_WORLD.get('md5','?')} "
-      f"mtime={_WORLD.get('mtime','?')} "
-      f"{'(DEXMATE_FIXED_USD 覆写)' if _WORLD.get('env_override') else ''}")
-print("[world] ★ ckpt 只能在同 md5 的世界里回放 —— 换了站姿 USD 维度不变但语义变, "
-      "回放会全员超时且无任何报错")
-os.makedirs(log_dir, exist_ok=True)
-with open(os.path.join(log_dir, "world.json"), "w") as _wf:
-    json.dump(_WORLD, _wf, indent=2, ensure_ascii=False)
+# 站姿 USD = **世界版本**。旧站姿权重在新站姿世界里回放会全员超时, 而 obs 维度
+# 一个字节都不变 ⟹ 维度闸拦不住。实现统一在 world_id.py (回放侧 check 同源)。
+from tasks.pregrasp import world_id as _wid   # noqa: E402
+_wid.write(log_dir)
 
 print(f"[train] log_dir={log_dir}  clip={args.clip}  envs={args.num_envs}  "
       f"obj_jitter={env_cfg.obj_jitter_xy*1000:.0f}mm  "
@@ -1758,10 +1748,23 @@ if int(getattr(args, "preflight", 0)) > 0:
         env_raw.cfg.carry_lost_m = 0.20
         print("[preflight] 零动作口径: carry_lost_m 临时放宽至 20cm (训练态仍 5cm)")
 
+    # ★ 2026-08-29 (与 RL 会话会诊): _chk 曾被同时当"断言"和"回显"用
+    #   (`_chk(True, "observation_space", ...)` 只是把 cfg 复读一遍)。
+    #   混用之后**读日志的人无法区分哪些行是断言、哪些只是回显**。
+    #   现在分成两个函数, 并对断言计数 —— 计数让"检查静默消失"变得可见:
+    #   一个 section 打了标题却零断言, 正是 ⑥c 空表那种病的长相。
+    _nassert = [0, 0]      # [硬, 软]
+
     def _chk(ok, name, detail, hard=True):
+        """断言 —— 必须能说出"什么情况下会红"。说不出的, 用 _show。"""
+        _nassert[0 if hard else 1] += 1
         print(f"  [{'OK' if ok else 'XX'}] {name}: {detail}", flush=True)
         if not ok:
             (_fail if hard else _warn).append(name)
+
+    def _show(name, detail):
+        """回显 —— 只是打印一个值/事实, **不做任何判断**, 不计入断言数。"""
+        print(f"  [ii] {name}: {detail}", flush=True)
 
     print("\n" + "=" * 78)
     print(f"[preflight] 起飞前自检 — 零动作 {_N} 步 | 验行为不验配置")
@@ -1800,8 +1803,27 @@ if int(getattr(args, "preflight", 0)) > 0:
 
     # ---- ③ 观测/动作维度 ----
     print("\n③ 维度")
-    _chk(True, "action_space", f"{env_cfg.action_space}")
-    _chk(True, "observation_space", f"{env_cfg.observation_space}")
+    # ★ 2026-08-29: 原来这两行是 `_chk(True, ...)` —— 字面上的恒真断言。
+    #   它印 [OK] 让人以为验过了, 其实只是把 cfg 的值复读一遍 (自己验自己)。
+    #   判别法: 说不出"什么情况下会红"的检查 = 恒真断言。
+    #   真正的外部对账对象是 ckpt 里的归一化器形状 —— 它记录了训练时的真实 obs 维。
+    _lp = getattr(args, "load_path", None)
+    if _lp and os.path.exists(_lp):
+        try:
+            import torch as _t9
+            _ck = _t9.load(_lp, map_location="cpu", weights_only=False)
+            _od = int(_ck["running_mean_std"]["running_mean"].shape[0])
+            _chk(_od == int(env_cfg.observation_space),
+                 "observation_space vs ckpt",
+                 f"cfg {env_cfg.observation_space} vs ckpt {_od}"
+                 + ("" if _od == int(env_cfg.observation_space) else
+                    "  ⟹ 旗集与该 ckpt 不配套, restore 会形状不匹配"))
+        except Exception as _e9:
+            _chk(False, "observation_space vs ckpt",
+                 f"读 ckpt 失败: {type(_e9).__name__}: {_e9} —— 未验, 不是通过", hard=False)
+    else:
+        _show("维度", f"action={env_cfg.action_space} obs={env_cfg.observation_space}"
+              f"  —— 无 --load_path, **未与任何外部基准对账**")
     print(f"  [ii] 录像/回放必须用同样的旗产出同样的维度, 否则 state_dict 尺寸不匹配")
 
     # ---- ④ 零动作 rollout ----
@@ -2108,7 +2130,7 @@ if int(getattr(args, "preflight", 0)) > 0:
                  f"最大偏差 {_qerr[_nm3]:.4f}°  (仅 PREGRASP 相位 {_nctrl[_nm3]} env; 零动作下必须 ~0)")
             _chk(_absdev[_nm3] < 1e-6, f"{_nm3} arm_res",
                  f"最大 {_absdev[_nm3]:.6f}°  (零动作下必须恒 0)")
-        _chk(True, "ff/ff_pull", "绝对模式下差分前馈与回拉锚均不参与计算")
+        _show("ff/ff_pull", "绝对模式下差分前馈与回拉锚均不参与计算 (结构事实, 非检查)")
     else:
         _chk(False, "arm_abs_res", "未开启 —— 走的是差分积分器老路", hard=False)
 
@@ -2125,7 +2147,9 @@ if int(getattr(args, "preflight", 0)) > 0:
             with _BM3.use_side(env_raw, _sd3):
                 _ptab[_nm3] = [int(x) for x in env_raw.phase_timeout_t.tolist()]
         _vals = list(_ptab.values())
-        _chk(len(_vals) < 2 or _vals[0] == _vals[1],
+        # ★ 原条件是 `len(_vals) < 2 or ...` —— 采不到两侧时**短路成通过**,
+        #   正是"没数据长得像通过"。缺侧本身就是故障, 必须红。
+        _chk(len(_vals) == 2 and _vals[0] == _vals[1],
              "两侧 phase_timeout_t 逐项相等",
              " | ".join(f"{k}={v}" for k, v in _ptab.items()) +
              "  (不等 ⟹ 构造期两次写落到了不同侧, 短的那侧钟先响, "
@@ -2714,6 +2738,8 @@ if int(getattr(args, "preflight", 0)) > 0:
              f"松手成功 {_sr10} 次 (放稳后零动作跑斜坡 ⟹ 物体必须保持静置)",
              hard=_hard10)
     print("\n" + "=" * 78)
+    print(f"[preflight] 本次共执行 {_nassert[0]} 项硬断言 + {_nassert[1]} 项软断言"
+          f"  (断言数骤降 = 有检查因缺数据被静默跳过, 值得追)", flush=True)
     if _fail:
         print(f"[preflight] ❌ 硬失败 {len(_fail)} 项: {_fail}")
     else:

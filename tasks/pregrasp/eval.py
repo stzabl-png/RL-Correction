@@ -15,6 +15,8 @@ from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--checkpoint", type=str, required=True)
+parser.add_argument("--allow_world_mismatch", action="store_true",
+                    help="ckpt 与当前世界指纹不符时仍然跑 (结果不可信)")
 parser.add_argument("--clip", type=str, default="Grasp2")
 parser.add_argument("--grasp_prior", type=str, default="", help="prior npz 路径 (B 组)")
 parser.add_argument("--prior_yaw", type=float, default=-1.0,
@@ -83,6 +85,9 @@ agent = PPO(env, output_dir="/tmp/_eval_tmp",
             full_config=ConfigWrapper(agent_cfg, env_cfg, test=True),
             create_output_dir=False)
 print(f"[eval] loading {args.checkpoint}")
+# ★ 世界对账: ckpt 只能在出生世界回放 (AAG-F 0/64 前科, 维度闸拦不住)
+from tasks.pregrasp import world_id as _wid   # noqa: E402
+_wid.check(args.checkpoint, args.allow_world_mismatch)
 agent.restore_test(args.checkpoint)
 agent.set_eval()
 

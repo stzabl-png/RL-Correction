@@ -13,6 +13,8 @@ from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--checkpoint", type=str, required=True)
+parser.add_argument("--allow_world_mismatch", action="store_true",
+                    help="ckpt 与当前世界指纹不符时仍然跑 (结果不可信)")
 parser.add_argument("--clip", type=str, default="Grasp2")
 parser.add_argument("--grasp_prior", type=str, default="", help="prior npz 路径 (B 组)")
 parser.add_argument("--prior_yaw", type=float, default=-1.0,
@@ -499,6 +501,9 @@ if getattr(args, "zero_res", False):
     print("[record] 0残差模式: 不加载策略, 动作恒零")
 else:
     print(f"[record] loading {ckpt}")
+    # ★ 世界对账 (同 eval.py)
+    from tasks.pregrasp import world_id as _wid
+    _wid.check(ckpt, args.allow_world_mismatch)
     agent.restore_test(ckpt)
 agent.set_eval()
 

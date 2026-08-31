@@ -128,21 +128,26 @@ for _k in ENTRIES:
 print("\n" + "=" * 78)
 print("[eval] 逐出生点分解 (每格 = 该出生点下的通关率)")
 print("=" * 78)
-print(f"{'出生点':>6} {'回合':>6} {'G1':>7} {'G2':>7} {'G3':>7} {'G4':>7} {'认证':>7}"
-      f"   {'旧口径G4':>9}")
+print(f"{'出生点':>6} {'回合':>6} {'G1':>7} {'G2':>7} {'G3倒水':>7} {'放回':>7}"
+      f" {'★成功':>7} {'G4':>7} {'认证':>7}   {'G3松':>7}")
 for _k in ENTRIES:
     _r, _inj = results[_k]
     _n = _r["n/ep_done"]
-    _old = (_r["sr/gate4"] * _n / (_n + _inj)) if (_n + _inj) > 0 else float("nan")
     print(f"{_k:>6} {_n:>6.0f} {_r['sr/gate1']:>7.3f} {_r['sr/gate2']:>7.3f}"
-          f" {_r['sr/gate3']:>7.3f} {_r['sr/gate4']:>7.3f}"
-          f" {_r['sr/cert_pass']:>7.3f}   {_old:>9.3f}")
-print("★ 旧口径 = 分母含初始复位注入的假回合(每轮 %d 个), 只为与历史数字对照, 不是真值"
-      % N)
+          f" {_r['sr/gate3']:>7.3f} {_r['sr/placed']:>7.3f}"
+          f" {_r['sr/success']:>7.3f} {_r['sr/gate4']:>7.3f}"
+          f" {_r['sr/cert_pass']:>7.3f}   {_r['sr/g3_loose']:>7.3f}")
+print("★ 主判据 = ★成功 = G3倒水 ∧ 放回 (L5-32, 2026-08-31)。两项都是绝对量,")
+print("  不读参考轨迹形状 ⟹ 六条臂用的是同一把尺, 可以直接横向比。")
+print("★ G3松 = 旧口径(3D距<=12cm, 不分上下)的影子。**G3松 − G3倒水 = 旧口径里")
+print("  被'横杵在杯子旁边'刷出来的那部分** —— 差得越多, 该 ckpt 的历史数字越虚。")
 _r0 = results.get(0, (None, None))[0]
 if _r0 is not None:
-    print(f"\n[eval] ★Success(M4, t0 口径) = {_r0['sr/gate4']:.4f}"
+    print(f"\n[eval] ★Success(G3_pour ∧ placed, t0 口径) = {_r0['sr_t0/success']:.4f}"
           f"   (t0 分母 {_r0['n/ep_done_t0']:.0f} 回合)")
+    print(f"[eval]   分解: G3倒水 {_r0['sr_t0/gate3']:.4f} · 放回 {_r0['sr_t0/placed']:.4f}"
+          f" · G3松 {_r0['sr_t0/g3_loose']:.4f} · 走完时钟 {_r0['sr_t0/clock_done']:.4f}")
+    print(f"[eval]   撤离 G4 {_r0['sr_t0/gate4']:.4f} (**不在主判据内**, 用户 2026-08-30 裁定不做撤离)")
 print("=" * 78, flush=True)
 
 try:

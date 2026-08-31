@@ -19,6 +19,12 @@ cd RL-Correction && git checkout Step4_RL_Correction
 git lfs pull        # 母带/USD/资产走 LFS,不拉就只有指针文件
 ```
 
+## 想直接套用消融设定?
+
+**`docs/ABLATION_SETTINGS.md`** —— 当前批次全部七条臂的开关表、绝对判据设计、
+earn-only 奖励整形、带噪母带生成(方案C)、以及**换任务迁移清单**。照第 7 节
+的六步走就能在别的任务上跑同一套消融。
+
 ## 先读哪三份
 
 1. **`CLAUDE.md`**(仓库根)—— 会立刻犯的错(解释器路径、`--headless`、`SHARPA_WANDB=0`、显存上限)

@@ -34,7 +34,10 @@ BASE = {"schema": "world_fingerprint_v1",
         # 与 L5-27 加 criteria.digest 时同理: 它进 CRITICAL 后, 没有这个键的
         # 旧指纹会被判"无法核对" —— 那是设计意图, 不是 bug。
         "switches": {"conf_flat": False, "arm_ref_free": False,
-                     "arm_free_scale": 1.0}}
+                     "arm_free_scale": 1.0, "goal_only": False,
+                     "place_shape": False, "mouth_bonus": False},
+        # ★L5-32: VARIANT 是本轮消融的主变量, 2026-08-31 前世界门看不见它。
+        "method": {"variant": "HYB"}}
 
 
 def run(tag, mut):
@@ -68,6 +71,19 @@ reds = [
         lambda d: d["switches"].__setitem__("arm_ref_free", True)),
     run("⑩ arm_free_scale 变了",
         lambda d: d["switches"].__setitem__("arm_free_scale", 10.0)),
+    # ★⑪ L5-32: HYB(物轨+人手) ↔ OBJ(纯物轨)。它改 W_OBJ/W_HAND → 改时钟门 →
+    #   改时钟推进 → 改 ff 取母带哪一行。obs_dim 两边**相同**(hand_dh 只进奖励),
+    #   所以维度检查拦不住 —— 必须靠这一项。
+    run("⑪ variant 变了 (HYB↔OBJ)",
+        lambda d: d["method"].__setitem__("variant", "OBJ")),
+    # ★⑫ L5-32 goal 臂: 冻时钟 ⟹ 前馈恒取 IA0 行, 环境动力学与其它臂完全不同。
+    run("⑫ goal_only 旗变了",
+        lambda d: d["switches"].__setitem__("goal_only", True)),
+    # ★⑬⑭ L5-33: 两个 earn-only 整形旗都改奖励地形, 跨旗回放无意义
+    run("⑬ place_shape 旗变了",
+        lambda d: d["switches"].__setitem__("place_shape", True)),
+    run("⑭ mouth_bonus 旗变了",
+        lambda d: d["switches"].__setitem__("mouth_bonus", True)),
 ]
 print("缺数据的输入(必须标为'无法核对', 不得静默通过):")
 u1 = run("⑥ 关键项键缺失", lambda d: d["robot"].pop("usd_md5"))

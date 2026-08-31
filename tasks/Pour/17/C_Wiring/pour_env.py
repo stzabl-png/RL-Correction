@@ -229,6 +229,14 @@ class PourEnv(GraspTaskEnv):
         # ---- 进度机 (判据单一来源) ----
         mb = _mouth_local(z, rows_h, 1, 0.087)
         mc = _mouth_local(z, rows_h, 0, 0.066)
+        # ★L5-32 `goal` 臂 (★必须放在 self.arm_free 赋值之后 ——
+        #   第一版放在了前面, 断言直接 AttributeError: 'PourEnv' object
+        #   has no attribute 'arm_free'。断言本身是对的、也确实拦住了,
+        #   但拦的理由是错的; 纯文本自检查不出顺序, 见第十八件 ⑥ 的补丁): 只有目标、没有轨迹。它与 straight 的分界 ——
+        #   straight **保留**物体逐行跟踪(adv/leash 稠密), 只去掉臂参考;
+        #   goal 连物体轨迹一起去掉, 只剩里程碑。所以 goal 必须同时开 ARM_FREE
+        #   (没有物体轨迹就无从解 IK), 下面会断言这一点。
+        self.goal_only = os.environ.get("POUR_GOAL_ONLY") == "1"
         self.KCAP = int(os.environ.get("POUR_KCAP", "0"))   # LIFT 单科考: >0 生效
         self._variant = os.environ.get("POUR_VARIANT", "HYB").upper()
         assert self._variant in ("HYB", "OBJ"), self._variant
@@ -237,9 +245,13 @@ class PourEnv(GraspTaskEnv):
             mouth_local_bot=mb, mouth_local_cup=mc,
             leash_rot_tilt=os.environ.get("POUR_LEASH_ROT_TILT") == "1",
             kcap=self.KCAP if self.KCAP > 0 else None,
-            no_hand_ref=(self._variant == "OBJ"))
+            no_hand_ref=(self._variant == "OBJ"),
+            goal_only=self.goal_only)
         _ps = PourProgress(MASTER, mouth_local_bot=mb, mouth_local_cup=mc,
                            no_hand_ref=(self._variant == "OBJ"))
+        if self.goal_only:
+            print("[PourEnv] ★GOAL_ONLY: 无物体轨迹跟踪(adv/leash=0)、无人手形状"
+                  "指引(r_shape=0)、无离参考死线(D3)、时钟冻结(row恒=IA0)", flush=True)
         print(f"[PourEnv] 变体={self._variant} "
               f"({'纯物轨消融' if self._variant == 'OBJ' else '置信门控双参考+形状指引'})")
         # RSI 进入点表 (#11 自动推导), env 级: (全链行, 交互行, ms预置, 物体源)
@@ -252,6 +264,12 @@ class PourEnv(GraspTaskEnv):
         # C线消融: POUR_BONUS_NOW=1 → 贴实奖金开局即发 (拍板点3的实验分支)
         self.phase_b = os.environ.get("POUR_BONUS_NOW") == "1"
         self.pad_pot_max = torch.zeros(N, 2, device=dev)  # 相B垫贴实势 earn-only 棘轮
+        # ★L5-33 出水口入接水口 (旗控): earn-only 棘轮 on 瓶口↔杯口水平距。
+        #   "不碰撞"落地为 gate: 瓶杯有接触(_col[objobj])那一步棘轮冻结不付钱,
+        #   现有 collide_objobj 罚照扣。由来: 母带自身水平距中位 5.5cm > 杯口半径
+        #   4.1cm(32.21), 判据收到 6.75cm(圆盘相交)后需要一个把对位往里拉的梯度。
+        self.mouth_bonus = os.environ.get("POUR_MOUTH_BONUS") == "1"
+        self.mouth_pot = torch.zeros(N, device=dev)
         self.lift_hold = torch.zeros(N, dtype=torch.long, device=dev)
         self.lift_done = torch.zeros(N, dtype=torch.bool, device=dev)
         self._lift_acc = {"ep": 0, "succ": 0}
@@ -274,14 +292,30 @@ class PourEnv(GraspTaskEnv):
         #     **只放大不改形状**, 让 dev_arm 随 conf 变化的结构保留下来 ⟹
         #     straight 与 base_oh 之间仍然只差"有没有臂前馈"这一件事。
         self.arm_free = os.environ.get("POUR_ARM_FREE") == "1"
+        if self.goal_only:
+            assert self.arm_free, (
+                "POUR_GOAL_ONLY=1 必须同时 POUR_ARM_FREE=1 —— 没有物体轨迹就没有\n"
+                "可解的 IK, 臂前馈不冻等于'去掉了轨迹却还在用它算出来的臂参考'。")
         _afs = float(os.environ.get("POUR_ARM_FREE_SCALE", "20.0"))
         arm_step = to(self.cfg.arm_residual_max) * float(self.cfg.arm_step_scale)
-        if self.arm_free:
-            # 每步界定在 0.05 rad(2.9°): 参考逐行增量 P95=0.029 rad 的约 1.7 倍;
-            # 累积到 2.0 rad 需 40 步, 而交互段有 273 行 —— 走得到位又不会一步跨过。
-            arm_step = torch.full_like(arm_step, 0.05)
         fin_step = to(self.cfg.finger_residual_max) * float(self.cfg.finger_step_scale)
         self.step_bound = torch.cat([arm_step, arm_step, fin_step, fin_step])
+        # ★★L5-31 第三版 (用户裁定, 2026-08-30): **按阶段切分, 不按行切分**。
+        #   前两版我都在问"哪一行要豁免", 而正确的问题是"**这个消融从哪个阶段
+        #   开始生效**"。用户的原话: 抓稳抬升之前用的是 cuRobo 规划, 所有臂都一样,
+        #   等抓稳之后才接入轨迹参考。
+        #   ⟹ **G2 之前: 六条臂完全一致(基线前馈 + 基线界);
+        #      G2 之后: straight 才冻前馈、放大界。**
+        #   这同时天然解决了前两版的毛病: 认证可**重试 3 次、跨很多步**, 按行豁免
+        #   只盖住 IA0 那一行的累计界, 盖不住重试过程; 按阶段切分全覆盖。
+        #   而且时钟本来就是 G2 之后才走(`can = ok & (k<cap) & g2`), 所以
+        #   "G2 之前"与"还没进入轨迹跟踪"本来就是同一件事。
+        #   ★每步界改成**基线向量 × afs**(不是我前两版拍的 0.05 恒定) ——
+        #     保留逐关节标定形状(j5 力臂大所以界大), 与累计界"只放大不改形状"同一原则。
+        #     基线 [0.0038,0.0053,0.0045,0.0050,0.0219,0.0125,0.0194] ×20
+        #        = [0.077, 0.105, 0.089, 0.100, 0.437, 0.251, 0.388]
+        self.step_bound_free = torch.cat(
+            [arm_step * _afs, arm_step * _afs, fin_step, fin_step])
         fin_dev = to(self.cfg.finger_residual_max) * float(self.cfg.finger_dev_scale)
         self.dev_fin = torch.cat([fin_dev, fin_dev])     # (44,)
         self.cum_res = torch.zeros(N, ACT_DIM, device=dev)
@@ -375,38 +409,27 @@ class PourEnv(GraspTaskEnv):
         dev_rows = torch.full((self.T_ROW,), DEV_ARM_MACHINE, device=dev)
         _tm = self.PB.tmix.detach().cpu().numpy()
         for _k in range(self.PB.N_ROW):
-            dev_rows[self.IA0 + _k] = DEV_ARM_TIER[int(_tm[_k])] \
-                * (_afs if self.arm_free else 1.0)
+            dev_rows[self.IA0 + _k] = DEV_ARM_TIER[int(_tm[_k])]
             # ★只放大**交互段**: 机器行(Approach/Retreat)保持 DEV_ARM_MACHINE。
             #   整体乘会把接近段的臂权限也放大 20 倍 —— 那段是 cuRobo 带碰撞检查
             #   的可行规划, 放大权限曾致撞杯(2026-08-28 用户裁定"接近段臂残差同冻")。
+        # ★放大表(G2 之后才用): 只放大交互段, 机器行不动。
+        dev_rows_free = dev_rows.clone()
         if self.arm_free:
-            # ★★L5-31 认证行豁免 (2026-08-30 实测后补): **认证那一行不放大**。
-            #   实测 straight 两条跑到 2M 步 cert_pass 恒 0, 死因分项给出铁证:
-            #     rise_bot 0.999 / rise_cup 0.63~0.75   ← 99.9% 是"瓶子没升到 5mm"
-            #     slip_r/l 0.19~0.24                    ← 与 base(0.17~0.20)相当, **抓得住**
-            #     cert_att 3.1~3.4 次/回合(顶到 3 次上限), base 仅 0.97~1.11
-            #   机制: G2 认证靠把臂参考插值向"+5mm 抬升行", 而 5mm 换算到关节只有
-            #   零点几度; straight 把权限从 ±3° 放大到 ±115°, **认证信号被自己的
-            #   动作幅度淹没** —— 像量身高时被测的人在原地蹦跳: 尺子没问题、刻度
-            #   没问题, 是被晃动盖住了。
-            #   ★不是"抓不稳"(滑移正常), 是"抬"这个微动作测不出来。
-            #   解: 认证恒发生在 `r == IA0`(见 _ff_row 的 `a * (r == IA0)`), 把那一行
-            #   的界钉回基线值 ⟹ **straight 与 base 在认证行用完全相同的限额**,
-            #   反而更可比。物理理由: 认证是"静止测稳定", 本就不需要大权限;
-            #   需要大权限的是倒水那一段。
-            dev_rows[self.IA0] = DEV_ARM_TIER[int(_tm[0])]
-            print(f"[PourEnv]   ★认证行(交互首行)界豁免放大, 保持 "
-                  f"{DEV_ARM_TIER[int(_tm[0])]} —— 否则 5mm 抬升信号被动作幅度淹没",
-                  flush=True)
+            dev_rows_free[self.IA0:self.IA1 + 1] *= _afs
+        self.dev_arm_rows_free = dev_rows_free
         self.dev_arm_rows = dev_rows
         _cnt = {t: int((_tm == t).sum()) for t in (2, 1, 0)}
-        _sc = _afs if self.arm_free else 1.0
-        print(f"[PourEnv] 残差界按档: 绿{DEV_ARM_TIER[2]*_sc:.3g}({_cnt[2]}行) "
-              f"黄{DEV_ARM_TIER[1]*_sc:.3g}({_cnt[1]}行) 红{DEV_ARM_TIER[0]*_sc:.3g}({_cnt[0]}行)")
+        print(f"[PourEnv] 残差界按档: 绿{DEV_ARM_TIER[2]}({_cnt[2]}行) "
+              f"黄{DEV_ARM_TIER[1]}({_cnt[1]}行) 红{DEV_ARM_TIER[0]}({_cnt[0]}行)")
         if self.arm_free:
-            print(f"[PourEnv] ★POUR_ARM_FREE=1 (straight 臂): 臂前馈**冻结在交互段首行**, "
-                  f"手指前馈不动; 累计界×{_afs:g}, 每步界 0.05rad(2.9°)", flush=True)
+            print(f"[PourEnv] ★POUR_ARM_FREE=1 (straight 臂) —— **按阶段切分**:", flush=True)
+            print(f"[PourEnv]   G2 之前: 与 base 完全一致(基线前馈 + 基线界) "
+                  f"—— 抓稳靠 cuRobo 规划+认证机, 所有臂共用", flush=True)
+            print(f"[PourEnv]   G2 之后: 臂前馈**冻结在交互段首行**(手指不动), "
+                  f"累计界×{_afs:g} → 绿{DEV_ARM_TIER[2]*_afs:.3g}/"
+                  f"黄{DEV_ARM_TIER[1]*_afs:.3g}/红{DEV_ARM_TIER[0]*_afs:.3g}, "
+                  f"每步界同乘{_afs:g}(保留逐关节标定形状)", flush=True)
             print(f"[PourEnv]   物体侧不变 —— adv/leash/时钟/G3 只看物体, 稠密奖励照常。",
                   flush=True)
         # ★L5-31 轴对称假设 —— 把一个此前完全沉默的物体前提喊出来。
@@ -458,7 +481,7 @@ class PourEnv(GraspTaskEnv):
         # TB 计数
         self.racc = {"adv": 0.0, "leash": 0.0, "ms": 0.0, "pen": 0.0,
                      "pen6": 0.0, "bonus": 0.0, "regrip": 0.0, "slope": 0.0,
-                     "wage": 0.0, "shape": 0.0, "n": 0}
+                     "wage": 0.0, "shape": 0.0, "place": 0.0, "mouth": 0.0, "n": 0}
         # ★L5-23: 旧版这里是个"死骨架" —— D1~D8 键建了但从未被写过, 也没有任何
         # 出口。若当初有人接上去, 会读到一串 0 并得出"没有死于 D1~D8"的假结论。
         self.tb = {k: 0 for k in
@@ -493,12 +516,22 @@ class PourEnv(GraspTaskEnv):
         a = actions.clamp(-1.0, 1.0)
         self.last_act = a.clone()
         r0 = self.row.clamp(max=self.T_ROW - 1)
-        delta = a * self.step_bound
+        if getattr(self, "arm_free", False) and hasattr(self, "PB"):
+            _g2 = self.PB.g2.unsqueeze(1).float()              # 逐 env, G2 后才放开
+            delta = a * (self.step_bound * (1 - _g2)
+                         + self.step_bound_free * _g2)
+        else:
+            delta = a * self.step_bound
         delta[:, :14] *= self.arm_gate_rows[r0].unsqueeze(1)   # Approach臂冻(照谱)
         delta[:, 14:] *= self.fin_gate_rows[r0].unsqueeze(1)   # 相A手指门(硬冻)
         self.cum_res = self.cum_res + delta
         r = self.row.clamp(max=self.T_ROW - 1)
-        dev_arm = self.dev_arm_rows[r].unsqueeze(1)
+        if getattr(self, "arm_free", False) and hasattr(self, "PB"):
+            _g2b = self.PB.g2.float().unsqueeze(1)
+            dev_arm = (self.dev_arm_rows[r].unsqueeze(1) * (1 - _g2b)
+                       + self.dev_arm_rows_free[r].unsqueeze(1) * _g2b)
+        else:
+            dev_arm = self.dev_arm_rows[r].unsqueeze(1)
         self.cum_res[:, :14] = torch.maximum(
             torch.minimum(self.cum_res[:, :14], dev_arm), -dev_arm)
         self.cum_res[:, 14:] = torch.maximum(
@@ -520,7 +553,10 @@ class PourEnv(GraspTaskEnv):
             #   可行规划, 冻掉它机器人会从第 0 步就往抓握姿势走, 整个接近段被毁;
             #   Retreat 段同理。本消融问的是"交互段要不要臂参考", 不是"全程"。
             #   (第一版写成无条件冻结, 会静默毁掉 Approach —— 这里改掉。)
-            _in_ia = ((r >= self.IA0) & (r <= self.IA1)).unsqueeze(1).float()
+            # ★按阶段切分: G2 之前不冻(抓稳阶段所有臂一致)
+            _g2f = self.PB.g2.float() if hasattr(self, "PB") else torch.ones_like(r).float()
+            _in_ia = (((r >= self.IA0) & (r <= self.IA1)).float()
+                      * _g2f).unsqueeze(1)
             ff = ff.clone()
             ff[:, :14] = (ff[:, :14] * (1 - _in_ia)
                           + self.ref58[self.IA0][:14].unsqueeze(0) * _in_ia)
@@ -638,7 +674,7 @@ class PourEnv(GraspTaskEnv):
         # ---- 形状指引 (P-HYB, L5-6 档位化): 0.2×W_HAND(绿0/黄0.5/红0.8)×cos+
         #      人手行只给"怎么动"的形状糖, 不打鞭、不做绝对位姿参考 ----
         r_shape = torch.zeros(N, device=dev)
-        if self.hand_dh is not None:
+        if self.hand_dh is not None and not self.goal_only:
             ki_s = self.PB.k.clamp(max=self.PB.N_ROW - 1)
             dq_act = torch.cat([armq_r, armq_l], dim=1) - self._prev_armq
             cs = torch.nn.functional.cosine_similarity(
@@ -756,8 +792,30 @@ class PourEnv(GraspTaskEnv):
                 torch.zeros(N, device=dev))
         self.d6_acc += pen6
         self.tb["d6_pen_sum"] += float(-pen6.sum())
+        # ---- ★L5-33 出水口入接水口 (earn-only 棘轮) ----
+        r_mouth = torch.zeros(N, device=dev)
+        if self.mouth_bonus:
+            _mb = bot[:, :3] + quat_apply(bot[:, 3:7],
+                                          self.PB.mb.unsqueeze(0).expand(N, 3))
+            _mc = cup[:, :3] + quat_apply(cup[:, 3:7],
+                                          self.PB.mc.unsqueeze(0).expand(N, 3))
+            _hz = (_mb[:, :2] - _mc[:, :2]).norm(dim=1)
+            _upw = quat_apply(bot[:, 3:7], self.PB.up.unsqueeze(0).expand(N, 3))
+            _tl = torch.acos((_upw[:, 2] / _upw.norm(dim=1).clamp(min=1e-9))
+                             .clamp(-1, 1))
+            _psi = 1.0 - (_hz / 0.12).clamp(0, 1)
+            _gm = (self.PB.g2 & (~self.PB.done) & (~holding)
+                   & (~_col["objobj"]) & (_tl >= np.radians(45.0)))
+            _sd = _gm & (self.mouth_pot <= 0)      # 播种不付钱 (与 place 同款)
+            self.mouth_pot = torch.where(_sd, _psi, self.mouth_pot)
+            r_mouth = 4.0 * (_psi - self.mouth_pot).clamp(min=0) \
+                * (_gm & ~_sd).float()
+            self.mouth_pot = torch.where(_gm,
+                                         torch.maximum(self.mouth_pot, _psi),
+                                         self.mouth_pot)
         rew = (out["adv"] + out["leash"] + out["ms"] + out["wage"] + pen
-               + r_reflex + pen_slope + r_shape + 15.0 * lift_new.float()) \
+               + r_reflex + pen_slope + r_shape + out["place"] + r_mouth
+               + 15.0 * lift_new.float()) \
             * (~holding).float() + pen6
         bonus = torch.zeros(N, device=dev)
         # 相B赏钱 (#13 拍板3, 轻量同族实现): 垫贴实势 earn-only 棘轮, 合拢→缝2 窗内
@@ -799,6 +857,8 @@ class PourEnv(GraspTaskEnv):
         self.racc["bonus"] += float(bonus.sum())
         self.racc["wage"] += float((out["wage"] * nh).sum())
         self.racc["shape"] += float((r_shape * nh).sum())
+        self.racc["place"] += float((out["place"] * nh).sum())
+        self.racc["mouth"] += float((r_mouth * nh).sum())
         self.racc["n"] += N
         # TB
         succ = self.PB.g4
@@ -835,7 +895,7 @@ class PourEnv(GraspTaskEnv):
         out = {f"ep_rew/{k}": v / n for k, v in self.racc.items() if k != "n"}
         self.racc = {"adv": 0.0, "leash": 0.0, "ms": 0.0, "pen": 0.0,
                      "pen6": 0.0, "bonus": 0.0, "regrip": 0.0, "slope": 0.0,
-                     "wage": 0.0, "shape": 0.0, "n": 0}
+                     "wage": 0.0, "shape": 0.0, "place": 0.0, "mouth": 0.0, "n": 0}
         return out
 
     # ================= 观测 (#12 定稿, 495 维, 变维攒一次) =================
@@ -1051,6 +1111,7 @@ class PourEnv(GraspTaskEnv):
         self._prev_armq[env_ids] = self.ref58[rows_env_t][:, :14]
         self.d6_acc[env_ids] = 0.0
         self.pad_pot_max[env_ids] = 0.0
+        self.mouth_pot[env_ids] = 0.0
         self.lift_hold[env_ids] = 0
         self.lift_done[env_ids] = False
         self._prev_d[env_ids] = 0.0

@@ -29,7 +29,31 @@ GATE_POS, GATE_ROT = 0.05, np.radians(45)
 RED_GATE_POS = 0.08          # P-OBJ 红档宽物门 (无手接管时的口径)
 MS_REWARD = {1: 5.0, 2: 8.0, 3: 10.0, 4: 15.0}   # G1/G2/G3/G4(=Success终局)
 M2_TILT = np.radians(90)
+# ★L5-31 (2026-08-31 用户裁定) 严格倒水几何 —— **诊断口径, 刻意不进 criteria_items**。
+#   由来: 用户看录像发现"更多是瓶子倾倒后与杯子差不多高度的**左右关系**, 而不是倒水的
+#   **上下关系**"。查判据坐实: `m2_now` 用的是 ‖瓶口−杯口‖ 的 **3D 欧氏距离**,
+#   **完全不区分上下** —— 瓶口在杯口正上方/正下方/正左边 10cm, 判据眼里一模一样。
+#   ⟹ 策略可以学出"把瓶子横过来杵在杯子旁边": 倾角 90°✓ 距离 6cm✓ 保持 25 步✓,
+#     判据全绿而水一滴进不去。
+#   阈值取自母带实测(必须保证**参考自己做得到**, 否则重蹈 L5-27 的 G4 封顶):
+#     v3      倾角>=90° 共 42 行, dz +2.92~+6.22cm, 水平 <=5.89cm
+#     v3noconf 同 108 行,        dz −3.58~+4.62cm, 水平 <=7.51cm
+#     水平<=8 且 dz∈[0,8] ⟹ v3 连续 42 行 / v3noconf 连续 89 行, 均 >> M2_HOLD(25) ✅
+#     ★而 dz<=3 那一档 v3 只有 2 行满足 —— 差一点就把判据定到参考自己做不到的地方。
+#   **本轮只用于评测**: 不改 m2_now、不进 digest ⟹ 在跑的四条线 ckpt 不失效。
+M2_STRICT_HORIZ = 0.0675      # m, ★L5-33 圆盘相交口径 = R杯4.1 + R瓶2.65cm
+                              #   (scene_layout.json 实测 extent; 物理含义: 瓶口圆盘与
+                              #   杯口圆盘相交 = 瓶沿出水落点在杯口内)。可达性已验:
+                              #   v3=42 v3noconf=87 noise1x=41 noise3x=34 行连续 (需25)。
+                              #   旧值 0.08 是"母带能过"的妥协, 用户 2026-08-31 裁定收紧
+M2_STRICT_DZ_LO = 0.0         # m, 瓶口必须在杯口**上方**
+M2_STRICT_DZ_HI = 0.08        # m, 但不能高得离谱
 M2_HOLD = 25          # G3 hold: 重建实测倒水2.2s(33帧)的~75%, 留余量
+# ★L5-33 placed 绝对整形 (奖励权重, **不进 criteria_items** —— 它决定"给多少分",
+#   不决定"算不算成功"; digest 的该静测试正是拿这类量验的)
+PLACE_SHAPE_K = 6.0           # earn-only 棘轮全程封顶 (低于 G3 的 10, 不喧宾夺主)
+PLACE_SHAPE_D0 = 0.35         # m, 距离归一 (= D3_DEV, 离参考死线)
+PLACE_SHAPE_T0 = np.radians(90)   # 倾角归一
 M3_POS, M3_ROT, M3_HOLD = 0.03, np.radians(15), 15   # placed 判据 (原M3)
 M4_ARM, M4_HOLD = np.radians(10), 15          # G4 双臂贴站姿逐关节<10°, hold15
 M4_DIST_POS, M4_DIST_ROT = 0.05, np.radians(30)   # 撤退期物体相对placed快照扰动上限
@@ -113,6 +137,9 @@ def criteria_items():
         "CERT_RISE": CERT_RISE, "CERT_SLIP": CERT_SLIP,
         "CERT_WAIT": CERT_WAIT, "CERT_TRIES": CERT_TRIES,
         "M2_TILT": M2_TILT, "M2_HOLD": M2_HOLD,
+        "M2_STRICT_HORIZ": M2_STRICT_HORIZ,
+        "M2_STRICT_DZ_LO": M2_STRICT_DZ_LO,
+        "M2_STRICT_DZ_HI": M2_STRICT_DZ_HI,
         "M3_POS": M3_POS, "M3_ROT": M3_ROT, "M3_HOLD": M3_HOLD,
         "M4_ARM": M4_ARM, "M4_HOLD": M4_HOLD,
         "M4_DIST_POS": M4_DIST_POS, "M4_DIST_ROT": M4_DIST_ROT,
@@ -404,7 +431,12 @@ class PourProgress:
                            [2*(x2*y2+w2*z2), 1-2*(x2*x2+z2*z2), 2*(y2*z2-w2*x2)],
                            [2*(x2*z2-w2*y2), 2*(y2*z2+w2*x2), 1-2*(x2*x2+y2*y2)]])
             mc = np.asarray(obj0[:3]) + Rc @ self.mouth_c
-            if tilt >= M2_TILT and np.linalg.norm(mb - mc) <= self.mouth_gate:
+            # ★L5-32: G3 = 倒水**几何**, 不再是不分上下的 3D 欧氏距 (见 progress_batch 注释)
+            _dg = np.asarray(mb, np.float64) - np.asarray(mc, np.float64)
+            _hz = float(np.linalg.norm(_dg[:2]))
+            _dz = float(_dg[2])
+            if (tilt >= M2_TILT and _hz <= M2_STRICT_HORIZ
+                    and M2_STRICT_DZ_LO <= _dz <= M2_STRICT_DZ_HI):
                 self.m2_run += 1                       # hold: 持续倒水才算真倒
                 if self.m2_run >= M2_HOLD:
                     self.g[3] = True

@@ -93,7 +93,24 @@ for i in range(4):
           f"maxrow={int(maxrow[i])} maxK={int(maxk[i])} "
           f"G链={sorted(ms_at[i], key=str)} 累计奖励={float(rew_sum[i]):.1f}")
 print(f"机器段死线误触 = {pre_fail} (铁则: 0)")
-ok = pre_fail == 0
+# ★L5-32: 新主判据的接线检查。零动作**不该**通关(参考只是前馈, 抓握靠策略),
+#   这里要的不是"过没过", 而是"这几个量算得出来、不抛异常、语义对得上"。
+try:
+    _rt = E.PB.pop_rates()
+    print("[零动作] 主判据接线: " + " ".join(
+        f"{k}={_rt[k]:.3f}" for k in ("sr/gate3", "sr/placed", "sr/success",
+                                      "sr/g3_loose", "sr/clock_done")
+        if k in _rt))
+    _need = {"sr/gate3", "sr/placed", "sr/success", "sr/g3_loose",
+             "sr_t0/success", "sr_t0/gate3", "sr_t0/placed"}
+    _miss = _need - set(_rt)
+    print(f"[零动作] 主判据键齐全 = {not _miss}"
+          + (f"  ★缺 {sorted(_miss)}" if _miss else ""))
+    ok_keys = not _miss
+except Exception as _e:
+    print(f"[零动作] ❌ 主判据读数抛异常: {type(_e).__name__}: {_e}")
+    ok_keys = False
+ok = pre_fail == 0 and ok_keys
 print("✅ 预检骨架通过 (M链/时钟为实录数据)" if ok else "❌ 机器段死线误触")
 try:
     _slot.release()

@@ -187,8 +187,15 @@ try:
 except Exception as e:
     chk(False, "switches.conf_flat 在 CRITICAL 里",
         f"读不到 world_fingerprint: {type(e).__name__}: {e}")
+# ★钉值随判据一起走: L5-32 把倒水几何三常量并入白名单, digest
+#   547163e4c6f98ec5 -> d2025c0b6f10b923。本自检钉的是"**本旗**不改 digest",
+#   所以判据换代时更钉值是对的; 但每次更之前必须确认变化来自判据改动本身,
+#   而不是"哪里悄悄动了却没人知道" —— 这一条红过一次(2026-08-31), 原因确认
+#   为主判据换成 G3_pour ∧ placed, 属预期。
 _d0 = criteria_digest()[1]
-chk(_d0 == "547163e4c6f98ec5", "criteria.digest 未被本旗改动",
+# ★L5-33 (2026-08-31): 水平门 0.08→0.0675 (圆盘相交, 用户裁定), digest 再变。
+#   来源确认: 判据常量改动本身, 属预期。
+chk(_d0 == "95b11e5dd755c8e0", "criteria.digest 未被本旗改动",
     f"{_d0[:16]} —— 旗改的是'每行用哪一档', 常量一个没变, "
     f"所以 digest **必须**不变(这正是它抓不到 conf_flat、必须单列的理由)")
 

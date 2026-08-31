@@ -27,10 +27,13 @@ ok &= same
 print(f"  {'✅' if same else '★✗'} 连算 5 次结果一致(确定性)")
 
 # ② ★该红: 逐个阈值扰动, 每一个都必须让 digest 变
-CONSTS = ["GATE_POS", "GATE_ROT", "RED_GATE_POS", "G1_HOLD", "CERT_RISE",
-          "CERT_SLIP", "CERT_TRIES", "M2_TILT", "M2_HOLD", "M3_POS",
-          "M4_DIST_POS", "M4_DIST_ROT", "D1_DROP", "D2_TILT", "D3_DEV",
-          "TABLE_Z"]
+# ★L5-32: 从白名单**自动派生**, 不再手写。
+#   手写清单在 2026-08-31 被抓到漏了 8 项(M3_ROT/M3_HOLD/M4_ARM/M4_HOLD/
+#   CERT_RAMP/CERT_HOLD/CERT_RET/CERT_WAIT), 而当天新加的倒水几何三常量
+#   也没进去 —— 也就是说"逐个阈值都该红"这句话过去只对**一半**阈值成立。
+#   派生之后, 任何进白名单的新阈值自动被扫, 清单不可能再追不掉队。
+CONSTS = [k for k, v in P.criteria_items().items()
+          if not isinstance(v, dict) and v is not None]
 bad = []
 for c in CONSTS:
     old = getattr(P, c)

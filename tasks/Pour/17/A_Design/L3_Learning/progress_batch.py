@@ -12,7 +12,9 @@ import os
 import numpy as np
 import torch
 
-from progress import (LEASH_POS, LEASH_ROT, GATE_POS, GATE_ROT, RED_GATE_POS,
+from progress import (M2_STRICT_HORIZ, M2_STRICT_DZ_LO, M2_STRICT_DZ_HI,
+                      PLACE_SHAPE_K, PLACE_SHAPE_D0, PLACE_SHAPE_T0,
+                      LEASH_POS, LEASH_ROT, GATE_POS, GATE_ROT, RED_GATE_POS,
                       MS_REWARD, M2_TILT, M2_HOLD, M3_POS, M3_ROT, M3_HOLD,
                       M4_ARM, M4_HOLD, M4_DIST_POS, M4_DIST_ROT, W_OBJ, W_HAND,
                       _tier,
@@ -78,7 +80,8 @@ class PourProgressBatch:
     def __init__(self, npz_path, num_envs, device,
                  mouth_local_bot, mouth_local_cup,
                  up_local_bot=(0.0, 1.0, 0.0), mouth_gate=0.12,
-                 leash_rot_tilt=False, kcap=None, no_hand_ref=False):
+                 leash_rot_tilt=False, kcap=None, no_hand_ref=False,
+                 goal_only=False):
         z = np.load(npz_path, allow_pickle=True)
         rows = np.where(np.asarray(z["source"]) == 1)[0]
         self.N_ROW = len(rows)
@@ -122,6 +125,14 @@ class PourProgressBatch:
                                 LEASH_ROT[1], LEASH_ROT[2]], device=device)
         self.rot_ban = torch.tensor([True, False, False], device=device)  # 红档rot禁
         self.no_hand_ref = bool(no_hand_ref)
+        # ★L5-32 `goal` 臂 (只有目标, 没有轨迹): 去掉**一切读参考轨迹形状**的
+        #   奖励与死线, 并**冻结时钟** —— 时钟决定 `row = IA0 + k`, 即前馈取母带
+        #   哪一行; 不冻它, "没有轨迹"就是假的(策略仍在按母带的时间表拿前馈)。
+        #   保留的: ms(里程碑, 绝对量) · wage(抓握维持费, 不读参考) ·
+        #           pen/pen_slope/r_reflex/pen6/bonus/lift(接触与物理, 绝对量)
+        #   去掉的: adv(时钟推进奖) · leash(离参考罚) · D3_dev(离参考死线)
+        #           + env 侧 r_shape(人手形状指引, 读人手参考)
+        self.goal_only = bool(goal_only)
         if self.no_hand_ref:
             self.WO = torch.ones(3, device=device)          # P-OBJ: w_obj 恒 1
             self.WH = torch.zeros(3, device=device)
@@ -160,6 +171,14 @@ class PourProgressBatch:
         self.cert_rel0 = {s: torch.zeros(num_envs, 3, device=device)
                           for s in ("right", "left")}
         self.m2_run = torch.zeros(num_envs, dtype=torch.long, device=device)
+        self.m2l_run = torch.zeros_like(self.m2_run)   # ★旧松判据影子(诊断)
+        # ★L5-33 placed 绝对整形 (旗控, 关旗时行为与基线逐位一致):
+        #   earn-only 棘轮 —— 只为"新高"付钱, 来回晃不挣钱(复用相B赏钱的已验证机制)。
+        #   由来: AB2 终表 placed 仅 base_o 0.061, 其余全 0; placed 此前一分钱不付,
+        #   唯一支付路径是 G4 的 +15 且还要求双臂回站姿 —— 极稀疏长链。
+        self.place_shape = os.environ.get("POUR_PLACE_SHAPE") == "1"
+        self.place_pot = torch.zeros(num_envs, device=device)
+        self.g3_loose = torch.zeros(num_envs, dtype=torch.bool, device=device)
         self.m3_run = torch.zeros_like(self.m2_run)
         self.m4_run = torch.zeros_like(self.m2_run)
         self.m3_snap = {oi: torch.zeros(num_envs, 7, device=device) for oi in (0, 1)}
@@ -174,6 +193,7 @@ class PourProgressBatch:
         # TB 记账
         self._acc = {"ep": 0, "g1": 0, "g2": 0, "g3": 0, "g4": 0,
                      "clock": 0.0, "catt": 0, "cpass": 0, "cdone": 0, "cdone_t0": 0, "cge90": 0, "succ": 0, "succ_t0": 0,
+                     "g3l": 0, "g3l_t0": 0, "plc": 0, "plc_t0": 0,
                      "ep_t0": 0, "g1_t0": 0, "g2_t0": 0, "g3_t0": 0, "g4_t0": 0,
                      "cf_rise_bot": 0, "cf_rise_cup": 0, "cf_slip_r": 0,
                      "cf_slip_l": 0, "cf_pads": 0, "term_any": 0,
@@ -187,6 +207,8 @@ class PourProgressBatch:
             self._acc["g2"] += int((self.g2 & ~self.pre2)[env_ids].sum())
             self._acc["g3"] += int((self.g3 & ~self.pre3)[env_ids].sum())
             self._acc["g4"] += int(self.g4[env_ids].sum())
+            _gl = self.g3_loose[env_ids] & (~self.pre3[env_ids])
+            self._acc["g3l"] += int(_gl.sum())
             self._acc["clock"] += float(self.k[env_ids].float().sum()) \
                 / max(self.N_ROW - 1, 1)
             # ★ 纯记账: "物体跟着参考走完全程"的逐回合通过率。
@@ -202,18 +224,28 @@ class PourProgressBatch:
             #   判读: ge90 ≈ cdone 正常; **ge90 ≫ cdone = 大量回合停在末尾几行不走完**。
             _ge90 = (self.k[env_ids].float() >= 0.90 * (self.N_ROW - 1))
             self._acc["cge90"] += int(_ge90.sum())
-            # ★L5-31 主判据 = G3 ∧ clock_done (用户裁定)。
-            #   单看 clock_done 会被**红档**刷: 时钟推进只要位置在 gp 内, 而
-            #   `gp = where(tier>0, 5cm, 8cm)` 且 `rot_ok` 在红档**根本不判**;
-            #   偏偏"倾角>60°的 71 个真在倒水的行"里绿档 0 行、黄 34、红 37。
-            #   ⟹ 端着瓶子平移过整个倒水段, clock_done 照样满分。
-            #   铁证 (同一条线的时间趋势, 无 seed 混淆):
-            #     P17v6_OBJ_s14   9M 步: G3 0.73 / clock_done 0.19
-            #                    28M 步: G3 0.49 / clock_done 0.95
-            #   越训越会走轨迹, 越训越不倒水。
-            _succ = self.g3[env_ids] & _cdone
+            # ★L5-32 主判据 = **G3_pour ∧ placed** (用户裁定 2026-08-31)。
+            #   两项都是**纯绝对量**: 只读瓶位姿/杯位姿/rest(=母带第0帧), 一个字
+            #   都不读参考轨迹的形状。这是换掉 clock_done 的根本理由 ——
+            #   clock 的门是**逐行按置信档取的**: `gp = where(tier>0, 5cm, 8cm)`,
+            #   且 `rot_ok` 在红档**根本不判**。base 有红档、flat 没有, straight/goal
+            #   又是另一套 ⟹ 六条臂用的不是同一把尺, 跨臂比较从根上不成立。
+            #   (旧铁证仍然成立且已归档: P17v6_OBJ_s14 9M 步 G3 0.73/clock 0.19,
+            #    28M 步 G3 0.49/clock 0.95 —— 越训越会走轨迹, 越训越不倒水。)
+            #   rest 已核实在 v3 与 v3noconf 两条母带上**逐位相同**:
+            #     瓶 (-0.1279,+0.0011,+0.9568) · 杯 (-0.1401,+0.1646,+0.9360)
+            #   ⟹ 新判据跨母带、跨臂同尺, 六条臂第一次可以直接放一起比。
+            #   可达性已核 (防 L5-27"判据比参考自身还严"重演):
+            #     G3_pour 母带连续满足 v3=42行 / v3noconf=89行 (需 M2_HOLD=25) ✓
+            #     placed  母带末态精确等于第0帧 ✓
+            #   clock_done 降级为诊断量, 仍在 sr/clock_done 报。
+            _plc = self.placed[env_ids]
+            self._acc["plc"] += int(_plc.sum())
+            self._acc["plc_t0"] += int((_plc & self.born_t0[env_ids]).sum())
+            _succ = self.g3[env_ids] & _plc
             self._acc["succ"] += int(_succ.sum())
             self._acc["succ_t0"] += int((_succ & self.born_t0[env_ids]).sum())
+            self._acc["g3l_t0"] += int((_gl & self.born_t0[env_ids]).sum())
             # 药②: t0 出生口径 (预置出生不进分母, 消课程稀释偏差)
             t0m = self.born_t0[env_ids]
             self._acc["ep_t0"] += int(t0m.sum())
@@ -221,7 +253,7 @@ class PourProgressBatch:
                            ("g3_t0", self.g3), ("g4_t0", self.g4)):
                 self._acc[gk] += int((gt[env_ids] & t0m).sum())
         for t_ in (self.g1, self.g2, self.g3, self.g4, self.placed, self.done,
-                   self.pre1, self.pre2, self.pre3, self.lb_set,
+                   self.pre1, self.pre2, self.pre3, self.lb_set, self.g3_loose,
                    self.cert_pending):
             t_[env_ids] = False
         for oi in (0, 1):
@@ -229,7 +261,8 @@ class PourProgressBatch:
         self.cert_z0[env_ids] = 0.0
         for s in ("right", "left"):
             self.cert_rel0[s][env_ids] = 0.0
-        for t_ in (self.k, self.g1_run, self.m2_run, self.m3_run, self.m4_run,
+        self.place_pot[env_ids] = 0.0
+        for t_ in (self.k, self.g1_run, self.m2_run, self.m2l_run, self.m3_run, self.m4_run,
                    self.cert_phase, self.cert_t, self.cert_try, self.cert_wait):
             t_[env_ids] = 0
         self.wage_paid[env_ids] = 0.0
@@ -242,6 +275,7 @@ class PourProgressBatch:
         self.g1[env_ids] = g1
         self.g2[env_ids] = g2
         self.g3[env_ids] = g3
+        self.g3_loose[env_ids] = g3       # 预置出生点: 与 g3 同步, 免得口径不齐
         self.placed[env_ids] = placed
         self.pre1[env_ids] = g1
         self.pre2[env_ids] = g2
@@ -277,6 +311,11 @@ class PourProgressBatch:
                # ★主判据
                "sr/success": _r(self._acc["succ"], _ep),
                "sr_t0/success": _r(self._acc["succ_t0"], _ep0),
+               # ★严格几何(诊断口径, 不进 criteria.digest)
+               "sr/placed": _r(self._acc["plc"], _ep),
+               "sr_t0/placed": _r(self._acc["plc_t0"], _ep0),
+               "sr/g3_loose": _r(self._acc["g3l"], _ep),
+               "sr_t0/g3_loose": _r(self._acc["g3l_t0"], _ep0),
                "sr/cert_pass": _r(self._acc["cpass"], _at),
                "prog/cert_att": _r(self._acc["catt"], _ep),
                "n/ep_done": float(_ep),          # ★分母本身: 判读前先看它
@@ -292,6 +331,7 @@ class PourProgressBatch:
         out["n/term_judge"] = float(_tn)
         self._acc = {"ep": 0, "g1": 0, "g2": 0, "g3": 0, "g4": 0,
                      "clock": 0.0, "catt": 0, "cpass": 0, "cdone": 0, "cdone_t0": 0, "cge90": 0, "succ": 0, "succ_t0": 0,
+                     "g3l": 0, "g3l_t0": 0, "plc": 0, "plc_t0": 0,
                      "ep_t0": 0, "g1_t0": 0, "g2_t0": 0, "g3_t0": 0, "g4_t0": 0,
                      "cf_rise_bot": 0, "cf_rise_cup": 0, "cf_slip_r": 0,
                      "cf_slip_l": 0, "cf_pads": 0, "term_any": 0,
@@ -334,6 +374,8 @@ class PourProgressBatch:
                                         torch.zeros_like(pen), pen)
         earning = (self.k < self.N_ROW - 1)
         leash = leash.clamp(min=-3.0) * active.float() * earning.float()
+        if self.goal_only:
+            leash = torch.zeros_like(leash)
         # ---- 时钟门 (L5-6: 双变体统一; 红档=宽松物门) ----
         ok_obj = torch.ones(self.Ne, dtype=torch.bool, device=self.dev)
         gp = torch.where(tier > 0,
@@ -350,6 +392,8 @@ class PourProgressBatch:
         # 时钟: G2 前不走
         _cap = self.N_ROW - 1 if self.kcap is None else min(self.kcap, self.N_ROW - 1)
         can = ok & (self.k < _cap) & self.g2
+        if self.goal_only:
+            can = torch.zeros_like(can)      # ★时钟冻死: row 恒为 IA0(抓握姿势)
         self.k = self.k + can.long()
         adv = can.float()
         ms_r = torch.zeros(self.Ne, device=self.dev)
@@ -419,11 +463,31 @@ class PourProgressBatch:
         mb_w = obj1[:, :3] + torch.einsum("nij,j->ni", R1, self.mb)
         R0 = _q2R(obj0[:, 3:7])
         mc_w = obj0[:, :3] + torch.einsum("nij,j->ni", R0, self.mc)
-        m2_now = (tilt >= M2_TILT) & ((mb_w - mc_w).norm(dim=1) <= self.mgate)
+        # ★L5-32 (用户裁定 2026-08-31): G3 = **倒水几何**, 不再是 3D 欧氏距。
+        #   旧口径 `‖瓶口−杯口‖ <= mgate(12cm)` **完全不分上下** —— 瓶口在杯口
+        #   正上方 10cm / 正下方 10cm / 正左边 10cm, 判据眼里一模一样。
+        #   实测 (probe_pour_geometry, 11M 步 ckpt):
+        #     base_oh  dz>0 仅 56.4%, 倾角 P10=90.2° 卡在门槛上  ⟸ 擦边过关
+        #     flat_oh  dz>0   79.8%   母带 100% · 人类原始重建 84.8%
+        #   而 **G3 是付奖的 (MS_REWARD[3]=10.0)** ⟹ 旧判据不只是记账松, 它在
+        #   真金白银地奖励"把瓶子横杵在杯子旁边"。这就是必须换判据的理由。
+        _d = mb_w - mc_w
+        _hz = _d[:, :2].norm(dim=1)
+        _dz = _d[:, 2]
+        m2_now = ((tilt >= M2_TILT) & (_hz <= M2_STRICT_HORIZ)
+                  & (_dz >= M2_STRICT_DZ_LO) & (_dz <= M2_STRICT_DZ_HI))
         gate3 = self.g2 & (~self.g3) & active
         self.m2_run = torch.where(gate3 & m2_now, self.m2_run + 1,
                                   torch.zeros_like(self.m2_run))
         new3 = gate3 & (self.m2_run >= M2_HOLD)
+        # ★旧松判据**降级为诊断影子** sr/g3_loose (不付奖, 不进主判据)。
+        #   保留它是为了让新旧口径在**同一条 run** 上可比: g3_loose − gate3
+        #   就是"旧口径里有多少是横杵刷出来的"。没有它, 所有历史数字都失去参照。
+        m2l_now = (tilt >= M2_TILT) & (_d.norm(dim=1) <= self.mgate)
+        _gl = self.g2 & (~self.g3_loose) & active
+        self.m2l_run = torch.where(_gl & m2l_now, self.m2l_run + 1,
+                                   torch.zeros_like(self.m2l_run))
+        self.g3_loose |= _gl & (self.m2l_run >= M2_HOLD)
         self.g3 |= new3
         ms_r += new3.float() * MS_REWARD[3]
         # ---- placed (不付奖) ----
@@ -437,6 +501,26 @@ class PourProgressBatch:
                                   torch.zeros_like(self.m3_run))
         newp = gatep & (self.m3_run >= M3_HOLD)
         self.placed |= newp
+        # ---- ★L5-33 placed 绝对整形 (earn-only 棘轮) ----
+        #   φ 只读瓶位姿与 rest —— 与 placed 判据同源的**绝对量**, 不读参考轨迹。
+        #   只按瓶算(杯在正常回合里不动; placed 判据本身仍判双物)。
+        #   全程支付上限 = PLACE_SHAPE_K × (1−φ@G3达成) ≤ 6.0。
+        r_place = torch.zeros(self.Ne, device=self.dev)
+        if self.place_shape:
+            _db = (obj1[:, :3] - self.rest[1][:3]).norm(dim=1)
+            _tl = _tilt(obj1[:, 3:7], self.up)
+            _phi = (0.5 * (1.0 - (_db / PLACE_SHAPE_D0).clamp(0, 1))
+                    + 0.5 * (1.0 - (_tl / PLACE_SHAPE_T0).clamp(0, 1)))
+            _gp = self.g3 & (~self.placed) & active
+            # ★首个受管步只**播种**不付钱: 否则 G3 达成那一刻会白送 K×φ(约1.8) ——
+            #   那份 φ 是达成 G3 前就有的, 不是"往回放"的进步。g3 预置出生同理。
+            _seed = _gp & (self.place_pot <= 0)
+            self.place_pot = torch.where(_seed, _phi, self.place_pot)
+            r_place = PLACE_SHAPE_K * (_phi - self.place_pot).clamp(min=0) \
+                * (_gp & ~_seed).float()
+            self.place_pot = torch.where(_gp,
+                                         torch.maximum(self.place_pot, _phi),
+                                         self.place_pot)
         for oi, act in ((0, obj0), (1, obj1)):
             self.m3_snap[oi][newp] = act[newp]
         # ---- G4 = Success ----
@@ -469,8 +553,9 @@ class PourProgressBatch:
             up_ = self.up if oi == 1 else self.upc
             _fc["D1_drop"] |= (act[:, 2] < TABLE_Z - D1_DROP)
             ref = self.ref_obj[oi][k]
-            _fc["D3_dev"] |= (~self.placed) & (
-                (act[:, :3] - ref[:, :3]).norm(dim=1) > D3_DEV)
+            if not self.goal_only:      # ★D3 读参考轨迹, goal 臂必须关掉
+                _fc["D3_dev"] |= (~self.placed) & (
+                    (act[:, :3] - ref[:, :3]).norm(dim=1) > D3_DEV)
             sn = self.m3_snap[oi]
             tl = _tilt(act[:, 3:7], up_)
             _fc["D8_disturb"] |= self.placed & (
@@ -488,6 +573,7 @@ class PourProgressBatch:
         self._acc["term_any"] += int(fail.sum())
         self.done |= fail
         return {"adv": adv, "leash": leash, "ms": ms_r, "wage": wage,
+                "place": r_place,
                 "w_obj": w_obj, "w_hand": self.WH[tier], "clock": self.k.clone(), "done": self.done.clone(),
                 "tier": tier, "fail": fail,
                 "cert_phase": self.cert_phase.clone(),

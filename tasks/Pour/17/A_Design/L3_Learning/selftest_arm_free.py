@@ -43,20 +43,22 @@ T_ROW, IA0, N_ROW = 653, 190, 273
 IA1 = IA0 + N_ROW - 1
 
 
-def build_dev_rows(arm_free, scale=20.0, tmix=None):
+def build_dev_rows(arm_free, scale=20.0, tmix=None, g2=True):
+    """★第三版: **按阶段切分**。g2=False(抓稳前) 时与基线完全一致。"""
     dev = torch.full((T_ROW,), DEV_ARM_MACHINE)
     for k in range(N_ROW):
-        dev[IA0 + k] = DEV_ARM_TIER[int(tmix[k])] * (scale if arm_free else 1.0)
-    if arm_free:
-        dev[IA0] = DEV_ARM_TIER[int(tmix[0])]     # ★认证行豁免放大
+        dev[IA0 + k] = DEV_ARM_TIER[int(tmix[k])]
+    if arm_free and g2:
+        dev[IA0:IA1 + 1] *= scale
     return dev
 
 
-def ff_arm(rows, ref58, arm_free):
-    """返回给定行的臂列前馈 (N,14)。"""
+def ff_arm(rows, ref58, arm_free, g2=True):
+    """返回给定行的臂列前馈 (N,14)。g2=False(抓稳前) 时不冻。"""
     ff = ref58[rows].clone()
     if arm_free:
-        in_ia = ((rows >= IA0) & (rows <= IA1)).unsqueeze(1).float()
+        in_ia = (((rows >= IA0) & (rows <= IA1)).float()
+                 * (1.0 if g2 else 0.0)).unsqueeze(1)
         ff[:, :14] = ff[:, :14] * (1 - in_ia) + ref58[IA0][:14].unsqueeze(0) * in_ia
     return ff
 
@@ -114,20 +116,21 @@ ia = torch.arange(IA0 + 1, IA1 + 1)     # ★跳过认证行(它被豁免)
 ratio = (d_on[ia] / d_off[ia])
 chk(float((ratio - 20.0).abs().max()) < 1e-5, "交互行界恰好放大 20 倍",
     f"比值范围 [{float(ratio.min()):.4f}, {float(ratio.max()):.4f}]")
-# ---- ★认证行豁免 (2026-08-30 实测后补) ----
-print("\n★ 认证行(交互首行)必须豁免放大")
-chk(abs(float(d_on[IA0]) - DEV_ARM_TIER[int(tmix[0])]) < 1e-6,
-    "认证行界 = 基线值(未放大)",
-    f"实测 {float(d_on[IA0]):.4f}, 基线 {DEV_ARM_TIER[int(tmix[0])]} —— "
-    f"实测铁证: straight 跑到 2M 步 cert_pass 恒 0, 死因 rise_bot=0.999"
-    f"(瓶子没升到 5mm), 而 slip 与 base 相当(抓得住) ⟹ "
-    f"5mm 抬升信号被 ±115° 的动作幅度淹没, 不是抓不稳")
-chk(abs(float(d_on[IA0]) - float(d_off[IA0])) < 1e-6,
-    "★认证行 straight 与 base 用**完全相同**的限额",
-    f"straight {float(d_on[IA0]):.4f} vs base {float(d_off[IA0]):.4f} —— 这反而更可比")
-chk(float(d_on[IA0 + 1:IA1 + 1].max()) > 0.5,
-    "但其余交互行仍然放大(否则 straight 做不出倒水)",
-    f"其余行最大 {float(d_on[IA0 + 1:IA1 + 1].max()):.2f} rad")
+# ---- ★★按阶段切分: G2 之前必须与 base 完全一致 ----
+print("\n★★ G2 之前(抓稳阶段)必须与 base 逐位一致")
+d_pre = build_dev_rows(True, 20.0, tmix, g2=False)
+chk(float((d_pre - d_off).abs().max()) < 1e-9,
+    "抓稳前的累计界 = 基线, **全行逐位相同**",
+    f"最大差 {float((d_pre - d_off).abs().max()):.2e} —— 抓稳靠 cuRobo 规划 + 认证机, "
+    f"六条臂共用, 消融不该碰它")
+f_pre = ff_arm(ia_rows, ref58, True, g2=False)[:, :14]
+chk(float((f_pre - f_off).abs().max()) < 1e-9,
+    "抓稳前的臂前馈 = 基线, **逐位相同**",
+    f"最大差 {float((f_pre - f_off).abs().max()):.2e}")
+print("  [ii] 由来: 前两版按**行**豁免(先 IA0 累计界、后每步界), 都只盖住一部分 ——")
+print("       认证可重试 3 次、跨很多步, 按行盖不住重试过程。按**阶段**切分天然全覆盖。")
+print("       实测教训: 第一版 cert_pass 0.0000; 第二版 slip/pads 好转但 rise_bot")
+print("       仍 0.975(每步界没跟着豁免, 策略每步能甩 0.05rad 而整个抬升只有 0.021rad)。")
 
 uniq_on = sorted({round(float(x), 4) for x in d_on[torch.arange(IA0 + 1, IA1 + 1)]})
 chk(len(uniq_on) == 3, "★放大后仍是**三档**(只放大不改形状)",
@@ -146,11 +149,12 @@ try:
     ok_flag = 'os.environ.get("POUR_ARM_FREE") == "1"' in src
     ok_scale = '"POUR_ARM_FREE_SCALE", "20.0"' in src
     ok_ia = "(r >= self.IA0) & (r <= self.IA1)" in src
-    ok_cert = "dev_rows[self.IA0] = DEV_ARM_TIER" in src
+    ok_cert = ("self.dev_arm_rows_free" in src and "step_bound_free" in src
+               and "self.PB.g2" in src)
     chk(ok_t and ok_m and ok_flag and ok_scale and ok_ia and ok_cert,
-        "真源含同名常量/旗/交互段判据/认证行豁免",
+        "真源含同名常量/旗/交互段判据/**按G2切分**",
         f"DEV_ARM_TIER={ok_t} MACHINE={ok_m} 旗={ok_flag} "
-        f"默认scale={ok_scale} 交互段限定={ok_ia} 认证行豁免={ok_cert}")
+        f"默认scale={ok_scale} 交互段限定={ok_ia} 按G2切分={ok_cert}")
 except Exception as e:
     chk(False, "真源含同名常量/旗/交互段判据",
         f"读不到 pour_env.py: {type(e).__name__}: {e} —— **未验, 不是通过**")

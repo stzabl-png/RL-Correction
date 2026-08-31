@@ -37,6 +37,20 @@ NOCONF = os.environ.get("POUR_REF_NOCONF") == "1"
 #   等于没做这个消融。POUR_REF_ALLOW_JUMP=1 只放行**连续性**这一道, 其余三道
 #   (峰值保全 / IK 精度 / 末态-判据一致性)照常把关。
 ALLOW_JUMP = os.environ.get("POUR_REF_ALLOW_JUMP") == "1"
+# ★L5-32 噪声消融 (2026-08-31): 往物体**朝向**注入噪声, 模拟"重建质量更差"。
+#   为什么只注朝向、不注位置 —— 实测 v1 真重建段(source=1, 135帧)的高频残差:
+#     位置  RMS 0.01~0.36mm (随平滑窗)   朝向  瓶 7.03° / 杯 5.16°
+#   位置轨迹在上游**已经被平滑过**, 它的残差量不到的是"感知噪声"而是"平滑残余",
+#   拿它当基准会低估好几个数量级。朝向的残差才是真的 —— 而且整套 conf 机制
+#   (conf_rot / CONF_TRUST=40 / _smooth_quat) 本来就**只管朝向**, 说明设计者
+#   当初也是这么判断的。所以噪声消融定为**纯朝向**, 并在台账里写明这个限制。
+#   档位: 1× = 7°(实测) · 3× = 21°。注在 _smooth_quat **之前** —— 让置信度机制
+#   有机会把它清掉, 这样"1× 被吸收 / 3× 吸收不掉"本身就是一个结果。
+NOISE_MULT = float(os.environ.get("POUR_REF_NOISE_MULT", "0"))
+NOISE_SEED = int(os.environ.get("POUR_REF_NOISE_SEED", "17"))
+# 实测: v1 真重建段(source=1, 135帧) 朝向的高频残差 RMS (Savitzky-Golay 窗9)
+NOISE_BASE_DEG = {1: 7.03, 0: 5.16}      # 1=瓶 0=杯
+ALLOW_FEATLOSS = os.environ.get("POUR_REF_ALLOW_FEATLOSS") == "1"
 if NOCONF:
     print("[v5] " + "=" * 66, flush=True)
     print("[v5] ★POUR_REF_NOCONF=1: 不用置信度做任何朝向平滑 —— 原始重建直接进 IK",
@@ -256,6 +270,37 @@ _feat_bad = 0
 for oi, nm in ((0, "杯"), (1, "瓶")):
     _cf = np.asarray(_z1[f"conf_rot_{oi}"], np.float64)[_rows1]
     _before = _task_features(ref_obj_raw[oi][:, :3], ref_obj_raw[oi][:, 3:7], oi)
+    if NOISE_MULT > 0:
+        # ★注入点必须在 `_before` **之后**、平滑之前:
+        #   在 _before 之前注 → 出厂检查比的是"加噪 vs 加噪+平滑", 量的是**平滑器
+        #   清掉了多少**, 而不是任务退化了多少。我第一版就写错在这, 表现为杯子的
+        #   倾角峰值从本该的 ~0° 变成 66°, 检查当场红。
+        #   在 _before 之后注 → 比的是"干净 vs 加噪后", 正是我们要报的量。
+        # ★第 0 行绝不加噪: 它就是 PourProgressBatch 的 `rest`, 是 placed 判据的
+        #   唯一参照。动了它, 噪声母带与 v3 就不是同一把尺, 本轮"换成纯绝对判据
+        #   以便跨臂比较"的全部意义当场作废。(末行由 _home_end 强制等于首行。)
+        _sig = NOISE_MULT * NOISE_BASE_DEG[oi]
+        _rng = np.random.default_rng(NOISE_SEED + oi)
+        _n = len(ref_obj_raw[oi])
+        _ax = _rng.normal(size=(_n, 3))
+        _ax /= np.linalg.norm(_ax, axis=1, keepdims=True)
+        _an = np.radians(_rng.normal(0.0, _sig, _n))
+        _an[0] = 0.0
+        _h = _an / 2.0
+        _dq = np.concatenate([np.cos(_h)[:, None], _ax * np.sin(_h)[:, None]], 1)
+        _q = ref_obj_raw[oi][:, 3:7]
+        _w1, _v1 = _q[:, :1], _q[:, 1:]
+        _w2, _v2 = _dq[:, :1], _dq[:, 1:]
+        _nw = _w1 * _w2 - (_v1 * _v2).sum(1, keepdims=True)
+        _nv = _w1 * _v2 + _w2 * _v1 + np.cross(_v1, _v2)
+        _qn = np.concatenate([_nw, _nv], 1)
+        _qn /= np.linalg.norm(_qn, axis=1, keepdims=True)
+        _dev = np.degrees([_qang(_q[i], _qn[i]) for i in range(_n)])
+        ref_obj_raw[oi][:, 3:7] = _qn
+        print(f"[v5] ★{nm} 注入朝向噪声 {NOISE_MULT:.0f}× = sigma {_sig:.2f}° "
+              f"(实测该物体的重建高频残差 {NOISE_BASE_DEG[oi]:.2f}°) seed={NOISE_SEED + oi}: "
+              f"实际偏离 中位 {np.median(_dev):.2f}° 最大 {_dev.max():.2f}° "
+              f"| 第0行偏离 {_dev[0]:.4f}° (必须 0, 它是 placed 的 rest)", flush=True)
     if NOCONF:
         _rt = np.array([_qang(ref_obj_raw[oi][i, 3:7], ref_obj_raw[oi][i + 1, 3:7])
                         for i in range(len(ref_obj_raw[oi]) - 1)])
@@ -286,10 +331,23 @@ for oi, nm in ((0, "杯"), (1, "瓶")):
             _feat_bad += 1
     print(f"[v5] {nm} 关键特征对账: " + " | ".join(_msg), flush=True)
 if _feat_bad:
-    print(f"[v5] ★峰值保全检查未过: {_feat_bad} 项关键特征损失 >{FEAT_TOL*100:.0f}% "
-          f"—— 平滑改掉了任务本身, 不写母带", flush=True)
-    raise SystemExit(3)
-print("[v5] ✅ 峰值保全检查通过", flush=True)
+    if ALLOW_FEATLOSS:
+        # ★噪声母带的**预期结果**, 不是故障: 注了噪声, 任务特征本来就会退化。
+        #   这道检查原本是防"平滑顺手把任务改坏"的意外; 这里退化是**处理本身**。
+        #   但必须把实际损失记进 meta 和台账 —— 它是这条消融"到底注了多重"的
+        #   真实量度, 比 sigma 更有意义(sigma 是输入, 特征损失是输出)。
+        print(f"[v5] ⚠★POUR_REF_ALLOW_FEATLOSS=1: {_feat_bad} 项关键特征损失 "
+              f">{FEAT_TOL*100:.0f}%, **只报不拦**。", flush=True)
+        print("[v5]   噪声消融的预期结果。判读时必须用上面的'关键特征对账'说明"
+              "这条母带的任务被改到什么程度。", flush=True)
+        print("[v5]   ★但仍须单独核验: 加噪后的母带自身还能不能满足 G3_pour "
+              "连续 25 行 —— 过不了就是 L5-27 重演(判据比参考自身还严)。", flush=True)
+    else:
+        print(f"[v5] ★峰值保全检查未过: {_feat_bad} 项关键特征损失 "
+              f">{FEAT_TOL*100:.0f}% —— 平滑改掉了任务本身, 不写母带", flush=True)
+        raise SystemExit(3)
+else:
+    print("[v5] ✅ 峰值保全检查通过", flush=True)
 
 ref_obj = {oi: _lerp_track(ref_obj_raw[oi]) for oi in (0, 1)}
 floor_map = np.floor(frac_rows).astype(int)          # 新交互行 -> 原交互行
@@ -398,6 +456,54 @@ for k in range(Nrow):
         q_seed[s] = np.asarray(r["q"], np.float64)
 print(f"[v5] IK 细分总次数={sub_tot} (0=全部一次过)", flush=True)
 
+# ---- ★L5-33 方案C (用户裁定): IK 之后平滑**关节**, 物体轨迹保持带噪 ----
+#   由来: 噪声母带 v1 版把噪声一路带进关节, 抓握段逐行跳变 65% 超残差界(32.21),
+#   测的变成"参考跳变超出残差能力"而不是"参考有噪声能不能修" —— 问错了问题。
+#   正确建模: 重建噪声在**物体轨迹**里(策略看到的参考、皮筋、时钟都吃它),
+#   而关节前馈本来就该平滑(真实管线也会这么做)。
+#   ★只平滑 IK 关节列; obj_pos/obj_quat 一个字不动 —— 那是消融的本体。
+JOINT_SMOOTH = os.environ.get("POUR_REF_JOINT_SMOOTH") == "1"
+if JOINT_SMOOTH:
+    from scipy.signal import savgol_filter as _sg
+    for s_ in ("right", "left"):
+        _before_js = q_ik[s_].copy()
+        _light = _sg(q_ik[s_], 9, 2, axis=0)
+        # ★抓握段(前 40 行)加重平滑并交叉融接。理由: 那一段人手几乎不动,
+        #   行间"运动"基本全是噪声→IK 的产物, 重平滑不伤任务; 而倒水段有真运动,
+        #   只能用轻窗。首版单一窗9 实测右臂抓握段 P95 5.63° 仍超线(4.58°),
+        #   第五道检查当场拒写 —— 检查干了它该干的事。
+        _q = _light.copy()
+        for _w in (21, 31, 45):
+            _heavy = _sg(q_ik[s_], _w, 2, axis=0)
+            _q = _light.copy()
+            _q[:40] = _heavy[:40]
+            _fade = np.linspace(1.0, 0.0, 10)[:, None]        # 行40~49 交叉融接
+            _q[40:50] = _fade * _heavy[40:50] + (1 - _fade) * _light[40:50]
+            _dg = np.degrees(np.abs(np.diff(_q[:40], axis=0))).max(axis=1)
+            if np.percentile(_dg, 95) <= np.degrees(0.08):
+                print(f"[v5] ★{s_} 抓握段重平滑收敛于窗{_w}", flush=True)
+                break
+        q_ik[s_][:] = _q
+        _dev_js = np.degrees(np.abs(q_ik[s_] - _before_js)).max()
+        print(f"[v5] ★{s_} 关节列已平滑 (轻窗9 + 抓握段重窗): 与未平滑最大偏 "
+              f"{_dev_js:.2f}°", flush=True)
+    print("[v5] ★方案C: 物体轨迹列**保持带噪**, 仅关节列平滑", flush=True)
+
+# ---- ★L5-33 第五道出厂检查: 抓握段逐行跳变 (这次就是漏了它才白跑两条线) ----
+#   抓握/认证发生在交互段最前面(约前 40 行), 那里的跳变超残差界 = 策略结构上
+#   跟不上 = G2 永远过不去 = 后面全部白搭。P95 <= 0.08 rad(黄档界)。
+_g_bad = 0
+for s_ in ("right", "left"):
+    _dg = np.degrees(np.abs(np.diff(q_ik[s_][:40], axis=0))).max(axis=1)
+    _p95, _mx = np.percentile(_dg, 95), _dg.max()
+    ok_g = _p95 <= np.degrees(0.08)
+    print(f"[v5] 第五道·抓握段跳变 {s_}: P95 {_p95:.2f}° 最大 {_mx:.2f}° "
+          f"(线 {np.degrees(0.08):.2f}°) {'✅' if ok_g else '❌'}", flush=True)
+    _g_bad += 0 if ok_g else 1
+if _g_bad:
+    print("[v5] ★第五道出厂检查未过: 抓握段跳变超残差界 —— 不写母带", flush=True)
+    raise SystemExit(5)
+
 # ★生成后硬闸: 关节连续性 (v2 母带就是死在这里没查)
 _bad = 0
 for s in ("right", "left"):
@@ -501,8 +607,12 @@ out.update(obj_cols, source=src_new, frame_of_row=fr_new,
            meta_v5=np.array([f"gen=L5-1;parent_v1_md5={parent_md5};betaR={BR};betaL={BL};"
                              f"obj_rest_z=0.959;ik=delta_space;date=2026-08-27;"
                              f"up_local=0.0,1.0,0.0;"
+                             f"noise_mult={NOISE_MULT};noise_seed={NOISE_SEED};"
+                             f"noise_base_deg={NOISE_BASE_DEG};"
+                             f"featloss_allowed={int(ALLOW_FEATLOSS)};"
                              f"conf_smooth={'off' if NOCONF else 'on'};"
-                             f"continuity_gate={'bypassed' if ALLOW_JUMP else 'passed'}"]))
+                             f"continuity_gate={'bypassed' if ALLOW_JUMP else 'passed'};"
+                             f"joint_smooth={int(JOINT_SMOOTH)}"]))
 # ═══ ★第四道出厂检查 (L5-27): 末态-判据一致性 ═══
 import sys as _sys                                                    # noqa: E402
 _sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),

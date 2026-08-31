@@ -41,6 +41,17 @@ CRITICAL = (
     # ★L5-31 straight 臂: 冻结臂前馈 + 放大残差界。它不改判据, 但**彻底改变动作
     # 的含义** —— 大界训出的 ckpt 拿到小界环境里回放, 每一步都会被钳住。
     "switches.arm_ref_free", "switches.arm_free_scale",
+    "switches.goal_only",
+    "switches.place_shape", "switches.mouth_bonus",
+    # ★L5-32 (2026-08-31): VARIANT (HYB=物轨+人手 / OBJ=纯物轨) —— 本轮消融的
+    # **主变量**, 而在此之前世界门里一项都看不见它(它只被写进 world.json 的
+    # method.variant, 没人拿它比对)。
+    # 排查过的具体后果链: variant → no_hand_ref → W_OBJ/W_HAND → 时钟门 `ok` →
+    # 时钟 `k` 推进快慢 → `ff` 取母带哪一行。**前馈的时间对齐是变的**, 所以
+    # HYB 的 ckpt 放进 OBJ 环境跑, 它每一步拿到的参考行都和训练时不一样。
+    # (顺带查清: hand_dh 只进奖励 r_shape, **不进观测** —— obs_dim 两边相同,
+    #  所以维度检查这一关也拦不住, 必须显式列关键项。)
+    "method.variant",
     "time.control_dt_s", "time.decimation",
     "table.table_top_z_m",
     "objects.object_1.mass_kg", "objects.object_1.static_friction",
@@ -206,6 +217,16 @@ def collect(env) -> dict:
                      "conf_flat": bool(getattr(env.PB, "conf_flat", False))
                      if hasattr(env, "PB") else None,
                      "arm_ref_free": bool(getattr(env, "arm_free", False)),
+                     # ★L5-32 `goal` 臂: 去掉 adv/leash/r_shape/D3 并**冻结时钟**。
+                     #   冻时钟 = 前馈恒取 IA0 行 —— 环境动力学与其它臂完全不同,
+                     #   ckpt 互放就是胡来。criteria.digest 抓不到(常量没变)。
+                     "goal_only": bool(getattr(env, "goal_only", False)),
+                     # ★L5-33 两个 earn-only 整形旗: 都改奖励地形(placed 从零梯度
+                     #   变有梯度 / 对位从无梯度变有梯度), ckpt 跨旗回放没有意义。
+                     #   digest 抓不到(判据常量没变 —— 它们是奖励, 该静里正该静)。
+                     "place_shape": bool(getattr(env.PB, "place_shape", False))
+                     if hasattr(env, "PB") else None,
+                     "mouth_bonus": bool(getattr(env, "mouth_bonus", False)),
                      # ★关旗时写 1.0 而不是 None: None 在闸里意味着"**读不到 /
                      # 无法核对**", 用它表示"不适用"会让每一份指纹都变成不可核对。
                      # 关旗时实际生效的缩放就是 1.0, 如实写。

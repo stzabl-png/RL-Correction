@@ -33,7 +33,27 @@ PY=/home/lyh/luhr/MagicSim/.venv/bin/python    # 唯一带 isaacsim+isaaclab 的
 4. **`ppo.py` 里那几个 `.detach()` 别删**（§6.4），删了立刻泄漏几个 GB 直至 OOM。
 5. **杀 Isaac 进程后要复查**：可能训练循环停了但卡在关闭流程里仍占显存，需要 `kill -9`；
    杀完**等 10 秒**再起下一个，否则触发 carb mutex 崩溃。
+   **5b. 起过的 Isaac 进程也要回头看它退没退**（2026-08-31 补）。上面这条只覆盖
+   "我主动杀之后"，不覆盖"起完就不管"。一次性脚本（`build_ref_v5` / `probe_*` /
+   `eval_pour` / `smoke_*`）跑完常卡在 Isaac 关闭流程里**不退**，继续占显存和
+   `gpu_guard` 的 flock。当晚一次踩到：`build_ref_v5` 正常 10 分钟的活挂了
+   **9 小时 48 分**，一直占着本机 GPU，害我误判"造带很慢"。同一晚在 taitan 和
+   Denso 也各遇到一次。**判据：非训练的 Isaac 进程 `etimes > 1800` 一律当僵尸清。**
+   守夜脚本 `scratchpad/watchdog.sh` 已内置这条巡检。
 6. **`ls | tail` 是字典序**（`ep_900` 排 `ep_3000` 后），取最新 ckpt 用 `last.pth`。
+   没有 `last.pth` 时用 **`ls ep_*.pth | sort -V | tail -1`**（`sort -V` 按版本号排）。
+   实测：`ls|tail -1` 在 10 个 ckpt 里取到的是 **2M** 那个，不是 13M 那个。
+   **6b. `pgrep -f` / `ps|grep <模式>` 会匹配到"提到这个模式的进程"，不只是目标进程**
+   （2026-08-31 一夜踩了 **5 次**，其中 2 次杀掉了我自己的 ssh 会话，退出码 255）。
+   四种变体都遇到过：① 命令匹配自己 ② 父 shell 的命令行里含着子进程要 grep 的字符串
+   ③ 写脚本的 heredoc 里含着脚本自己要 grep 的模式 ④ **远端 shell 的命令行里含着
+   目标名**（`ssh host 'ps|grep probe_placed'` —— 这条 ssh 自己就叫 probe_placed）。
+   `[p]robe` 方括号技巧**只防①**，防不住②③④。
+   **可靠写法：按 `comm` 过滤，bash 永远匹配不上：**
+   ```bash
+   ps -u $USER -o pid=,comm=,cmd= | awk '$2 ~ /^python/ && /train_pour\.py/ {print $1}'
+   ```
+   或者干脆记下 PID 按 PID 操作。
 7. **训练必须加 `--headless`**。`train.py` 不会自己设（不像 `dexmate_baseline.py` 那些脚本），
    漏了就加载 `isaaclab.python.kit` 而不是 `.headless.kit`，1024 env 开渲染会在建场景阶段
    被 OOM killer 杀掉（退出码 137，日志停在 `[setup] object 刚体化`，run 目录都来不及建）。

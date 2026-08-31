@@ -342,14 +342,26 @@ def _thread_friction_step(env, relative_ang, axis_w, integrate_angle):
         return env.screw_omega          # 子步末投影调用: 不重复推进状态
     cap = env.aux if env._screw_primary == "body" else env.object
     dt = float(env.cfg.sim.dt)
-    omega_phys = (relative_ang * axis_w).sum(dim=1)
+    # U44 (2026-08-31, 老方法线 5f35f844 同步): 上面三条防幻影只保护了**力矩
+    # 估计**, **转动积分**当年原样用着有毒的 relative_ang (盖ω−瓶ω), 且真值门
+    # 管不到它。盖是自由刚体、螺旋约束靠每子步"写回"事后施加, 子步内并不随瓶身
+    # 加速 => 读到的相对 ω 混入 −Δ瓶ω, 被逐步累加成螺纹转速。瓶身抖动
+    # (老线实测 ±0.5 rad/s) 即燃料, 实测能把盖顶到 4 rad/s 安全夹, 1 秒转 172°。
+    # 老线实测铁证: 拧角推进期**每个**接触采样点的滑移 (盖面切向速度 − 指尖
+    # 切向速度) 都 > 0 —— 盖始终跑在手指前面, 摩擦全程在刹车, 却仍在加速。
+    # 修法: 转动与力矩同源, 都用"接触注入的角速度增量" dw ——
+    #   dw = (盖ω − 上一子步写入矢量)·当前轴   (写入矢量含写时瓶ω, 故瓶身加速
+    #                                          自动抵消: 盖同样没跟随它)
+    #   ω_phys = 上一子步写入的螺纹转速 + dw
     cap_tau = 10.0 * spec.breakaway_torque_nm
-    tau_in = (spec.inertia_eff_kgm2 * ((
-        cap.data.root_ang_vel_w - env._screw_capw_vec) * axis_w
-    ).sum(dim=1) / dt).clamp(-cap_tau, cap_tau)
+    dw_max = cap_tau * dt / spec.inertia_eff_kgm2
+    dw = ((cap.data.root_ang_vel_w - env._screw_capw_vec) * axis_w
+          ).sum(dim=1).clamp(-dw_max, dw_max)
     _gate = getattr(env, "_screw_cap_contact_n", None)
     if _gate is not None and getattr(env, "_thread_tau_contact_gate", True):
-        tau_in = tau_in * (_gate() > 0).float()
+        dw = dw * (_gate() > 0).float()
+    tau_in = spec.inertia_eff_kgm2 * dw / dt
+    omega_phys = env.screw_omega + dw
     alpha = dt / max(spec.torque_ema_s, dt)
     env.screw_tau_ema += alpha * (tau_in - env.screw_tau_ema)
     above = env.screw_tau_ema.abs() > spec.breakaway_torque_nm

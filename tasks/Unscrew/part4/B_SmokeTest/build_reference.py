@@ -71,7 +71,7 @@ for r in range(0, APP):
     drive(r, 0.0)
 seam1 = IA0 - APP
 for i, r in enumerate(range(APP, IA0)):
-    drive(r, (i + 1) / max(seam1, 1))
+    drive(r, float(TC.seam_squeeze_profile((i + 1) / max(seam1, 1))))
 for _ in range(30):
     drive(IA0, 1.0)
 f = E._pads_f().norm(dim=-1)[0]
@@ -82,6 +82,15 @@ ik = {side: ArmIK(side, anchor_link="arm_center",
                   anchor_T=TC.rest_anchor_T(side)) for side in ("right", "left")}
 ref_obj = {oi: E.PB.ref_obj[oi].cpu().numpy() for oi in (0, 1)}
 side_obj = {"right": 1, "left": 0}      # [TASK] 右手跟盖, 左手跟瓶
+# 增量来源 (2026-08-31 改): 用 **v1 腕轨迹自己的增量**, 不再用物体增量。
+# v2 的本意是"把腕参考重锚到 Isaac 实测站位"(消掉离线锚的系统差), 增量应当
+# 忠实复现 v1 的腕几何。物体增量只有在"腕与物体刚性固连"时才等价, 而 v1 的
+# 右腕口径是"手在盖正上方 reach·螺轴"(不随盖自转走) —— 盖的自转规范漂移
+# (±140°) 会被物体增量当成刚体旋转, 把腕目标甩上一个 23.5cm 半径的大圆弧,
+# 实测右臂 95/103 行解不出来 (v1 同一条轨迹是 77% 达标)。
+_z1 = np.load(TC.REF_V1, allow_pickle=True)
+wt_v1 = {"right": np.asarray(_z1["wrist_tgt_r"], np.float64),
+         "left": np.asarray(_z1["wrist_tgt_l"], np.float64)}
 q_ik = {s: np.zeros((Nrow, 7)) for s in ("right", "left")}
 cert, q_seed, w0 = {}, {}, {}
 for s in ("right", "left"):
@@ -114,12 +123,11 @@ frozen = {"right": 0, "left": 0}
 _rngb = np.random.default_rng(23)
 for k in range(Nrow):
     for s in ("right", "left"):
-        oi = side_obj[s]
-        p0, q0_ = ref_obj[oi][0][:3], ref_obj[oi][0][3:7]
-        pk, qk_ = ref_obj[oi][k][:3], ref_obj[oi][k][3:7]
+        p0, q0_ = wt_v1[s][0][:3], wt_v1[s][0][3:7]
+        pk, qk_ = wt_v1[s][k][:3], wt_v1[s][k][3:7]
         Rk = quat_to_R(qk_) @ quat_to_R(q0_).T
-        tp = pk - Rk @ p0
-        tgt_p, tgt_R = Rk @ w0[s][0] + tp, Rk @ w0[s][1]
+        tgt_p = w0[s][0] + (pk - p0)          # 平移增量原样搬到实测站位
+        tgt_R = Rk @ w0[s][1]                 # 姿态增量左乘 (世界系)
         seeds = [q_seed[s], None]
         if k % 12 == 0:
             seeds += [_rngb.uniform(ik[s].lower, ik[s].upper) for _ in range(2)]
@@ -189,7 +197,7 @@ out.update(right_q=v2r, left_q=v2l,
            human_left_f=np.asarray(d1["left_f"], np.float64).copy(),
            cert_arm7_right=cert["right"], cert_arm7_left=cert["left"],
            meta_v2=np.array(f"gen=unscrew_v2;parent_v1_md5={parent_md5};"
-                            f"betaL={BL};betaR={BR};ik=delta_space;"
+                            f"betaL={BL};betaR={BR};ik=wrist_delta;"
                             f"fail_pos_gt_1cm={fail_pos};fail_rot_gt_10deg={fail_rot};"
                             f"critical_bad={critical_bad};pos_max_cm={pos_max*100:.3f};"
                             f"rot_max_deg={np.degrees(rot_max):.3f};"

@@ -55,7 +55,11 @@ AFFORDANCE_CAP = os.path.join(TAKE_DIR, "contact", "expected_area_object_1_right
 # β=1/1.5/2/3 均未通过零动作持握；这里取 β=1，恰好回放 prior 自身的 squeeze，
 # 不使用 >1 的关节外推。接触/穿模由策略在有界残差内修正。
 BETA_R = 0.0     # [TASK] 右手盖: 无 squeeze prior (三指精捏交给人手指流+残差)
-BETA_L = 1.0     # [TASK] 左手瓶: 回放 Screw27_body 原始 squeeze，不做剂量外推
+BETA_L = 1.0     # [TASK] 左手瓶: 2026-08-31 实测定档 —— 锚点/进刀/预张开修好后
+                 #        β=1.0 站位行 **4 垫接触** (G1 只要 3), 瓶全程不倒;
+                 #        β=0.6 反而掉到 2 垫 (拇指 30N、其余脱开)。拇指偏硬
+                 #        (45N, 右手 prior 按名镜像到左手时拇指最不对称) 是**已知
+                 #        瑕疵**, 交给 RL 残差修 —— 这正是 correction 的职责。
 
 # ---- 交互段持瓶朝向重定向 (U35c 逐 clip 标定; make_reference 消费) ----
 # 人举瓶的朝向对人顺手, 对机器人肘几何常常不可达 —— 绕世界 z 转一个角度,
@@ -80,6 +84,27 @@ CAP_HALF_H = 0.0085              # 盖半高 (1.7cm/2)
 UP_LOCAL_BOTTLE = (0.0, 0.0, 1.0)   # 瓶局部竖直轴 = z (螺轴, 与 screw_assembly 一致)
 UP_LOCAL_CAP = (0.0, 0.0, 1.0)
 CAP_RADIUS = 0.0175              # 盖半径 (贴近奖/判据几何)
+# 右腕锚的"腕→指尖垂距": 决定手停在盖上方多高。0.203 是旧值, 与本手当前指形
+# 不符 —— 2026-08-31 用 probe_grasp 在站位行实测: 五指垫在腕下方 9.8~16.6cm,
+# 中位 15.7cm; 用 0.203 会把手停高 ~5cm, 指尖悬在盖顶上方 6cm, 右手全程零接触
+# (真实螺纹副下 = 扭矩传不进去, 拧不动)。改动前后都要用 probe_grasp 复测。
+HAND_DROP = 0.157
+# 缝1 的"先到位再合手"分点: 前 SEAM_MOVE_FRAC 手臂进刀 + 手保持张开, 之后手臂
+# 停住只合手指并加 squeeze。母带 (make_reference) 与 env/探针的加压曲线必须用
+# 同一个分点, 否则手还在路上就被压上去 —— 实测那样会把 0.53kg 的瓶推倒。
+SEAM_MOVE_FRAC = 0.7
+# 左抓锚的径向微调 (向瓶轴收): prior 记录的接触点在半径 3.2~3.6cm 的瓶面上,
+# 而镜像锚照搬过来后指垫实测落在 4.2~5.6cm —— 差这 1~2cm, 手指就不是"环抱"
+# 而是"斜推", 且推点在瓶身上部 (+15cm) 力臂长, 0.53kg 的自由瓶一推就倒。
+# 用 probe_grasp --pin_bottle 量出来的差值回填 (换 clip/换手都要复测)。
+PRIOR_RADIAL_TRIM = 0.007
+
+
+def seam_squeeze_profile(u):
+    """u∈[0,1] 沿缝1 的进度 -> squeeze 系数 (前段 0, 后段线性到 1)。"""
+    import numpy as _np
+    return _np.clip((_np.asarray(u, float) - SEAM_MOVE_FRAC)
+                    / max(1.0 - SEAM_MOVE_FRAC, 1e-6), 0.0, 1.0)
 
 # ---- 螺纹口径 (数据引擎逐条可覆写; 默认承旧台账用户裁定) ----
 # turns=0.75 (U30b: 演示实测 ~266° 分离; 2.0 圈是标准件假设, 难 2.7×)
@@ -140,7 +165,12 @@ def reference_planning_digest(path):
 
     import numpy as np
 
-    with np.load(path, allow_pickle=True) as z:
+    if isinstance(path, dict):          # 就地校验: 直接吃内存里的数组
+        import contextlib
+        ctx = contextlib.nullcontext(path)
+    else:
+        ctx = np.load(path, allow_pickle=True)
+    with ctx as z:
         src = np.asarray(z["source"], dtype=np.int8)
         rows = np.flatnonzero(src == 1)
         if not len(rows):
@@ -152,7 +182,8 @@ def reference_planning_digest(path):
                 # cspace 机器段的真实规划目标 (2026-08-30 起); 旧母带无此键
                 *((("machine_pre_q_r", z["machine_pre_q_r"]),
                    ("machine_pre_q_l", z["machine_pre_q_l"]))
-                  if "machine_pre_q_r" in z.files else ()),
+                  if "machine_pre_q_r" in (z.files if hasattr(z, "files") else z)
+                  else ()),
                 # Retreat 世界的障碍: 交互末行的瓶/盖落点
                 ("obj_pos_0_end", z["obj_pos_0"][end]),
                 ("obj_pos_1_end", z["obj_pos_1"][end])):

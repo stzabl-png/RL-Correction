@@ -207,6 +207,51 @@ for _k in range(n_alt):
         break
     print(f"[plan] 候选 #{_k} 失败: {payload.get('failed_frame')}"
           f"{' —— 换下一档净空' if _k + 1 < n_alt else ''}", flush=True)
+if plan_payload is None and args.retreat:
+    # 反向兜底: 同一个世界里改规划"站姿 -> pregrasp", 再**时间翻转**。
+    # cspace 路径是几何量, 翻转后依然合法; 实测 Retreat 方向 (pregrasp -> 站姿)
+    # 连空世界都解不出来, 而反方向 (Approach 用的就是这一对构型) 一次就通 ——
+    # 是求解方向的问题, 不是碰撞问题 (两端微动探针都 ✅)。
+    print("[plan] Retreat 正向失败 -> 反向规划 + 时间翻转 兜底", flush=True)
+    _fwd_start = dict(T["start_joints"])
+    _fwd_goal = dict(T["cspace_goal"])
+    T["start_joints"] = dict(_fwd_start)
+    for _k, _v in _fwd_goal.items():
+        T["start_joints"][_k] = _v          # 起点 = 站姿
+    T["cspace_goal"] = {_k: float(_fwd_start[_k]) for _k in _fwd_goal}
+    with open(_tgt, "w") as f:
+        json.dump(T, f)
+    started_ns = time.time_ns()
+    run = subprocess.run(cmd, cwd=os.getcwd(),
+                         env=dict(os.environ, PYTHONPATH=os.getcwd()),
+                         timeout=2400)
+    if run.returncode == 0 and os.path.isfile(out_npz) \
+            and os.stat(out_npz).st_mtime_ns >= started_ns:
+        with np.load(out_npz, allow_pickle=True) as _z:
+            _pl = {key: _z[key] for key in _z.files}
+        if bool(_pl["ok"]):
+            _pl["traj"] = np.ascontiguousarray(
+                np.asarray(_pl["traj"], np.float64)[::-1])
+            _pl["reversed_plan"] = np.array(True)
+            plan_payload, pre_idx = _pl, 0
+            print("[plan] ✅ 反向兜底成功 (轨迹已时间翻转)", flush=True)
+if plan_payload is None and args.retreat and os.path.isfile(TC.APPROACH_NPZ):
+    # 末级兜底: 直接复用 Approach 的路径**倒放**。
+    # 两段的世界只差"盖已放到桌上", 而撤退是从 pregrasp 向上/向后离开, 与桌面
+    # 上的盖不在同一空间; Approach 那条路已带满障碍碰撞背书 (含瓶)。cuRobo 在
+    # pregrasp->站姿 这个方向上正反都解不出来 (空世界也失败 = 求解问题不是碰撞),
+    # 与其退回无背书的 smoothstep 占位, 不如复用有背书的反向路径 —— 但**如实
+    # 标注来源** (derived_from=approach_reversed), 指纹/凭据里看得见。
+    with np.load(TC.APPROACH_NPZ, allow_pickle=True) as _za:
+        _ap = {key: _za[key] for key in _za.files}
+    if bool(_ap.get("ok", False)):
+        _ap["traj"] = np.ascontiguousarray(
+            np.asarray(_ap["traj"], np.float64)[::-1])
+        _ap["derived_from"] = np.array("approach_reversed")
+        plan_payload = _ap
+        pre_idx = int(_ap.get("pre_idx", 0))
+        print("[plan] ⚠ 复用 Approach 路径倒放作为 Retreat "
+              "(来源已标注; 撤退世界少了桌上的盖这一项障碍)", flush=True)
 if plan_payload is None:
     print(f"[plan] ❌ {n_alt} 档净空全部失败", flush=True)
     try:

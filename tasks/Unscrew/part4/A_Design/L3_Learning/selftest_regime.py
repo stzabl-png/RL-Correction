@@ -172,7 +172,7 @@ with tempfile.TemporaryDirectory() as td:
     np.savez(parent_path, meta=np.array(json.dumps(meta)), **arrays)
     parent_md5 = TC.file_md5(parent_path)[:8]
     meta_v2 = (f"gen=unscrew_v2;parent_v1_md5={parent_md5};"
-               f"betaL={TC.BETA_L};betaR={TC.BETA_R};ik=delta_space;critical_bad=7;"
+               f"betaL={TC.BETA_L};betaR={TC.BETA_R};ik=wrist_delta;critical_bad=7;"
                f"clip={TC.CLIP_ID}")
     np.savez(good_path, meta=np.array(json.dumps(meta)),
              meta_v2=np.array(meta_v2), **arrays)

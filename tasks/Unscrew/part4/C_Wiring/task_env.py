@@ -224,6 +224,8 @@ class UnscrewEnv(GraspTaskEnv):
         self.prev_screw = torch.zeros(N, device=dev)     # [TASK] 拧转势差分
         self.screw_detach_at_full = True                 # [TASK] 拧满即脱开
         self.screw_drive_gain = torch.zeros(N, device=dev)
+        self._n_cap_any = torch.zeros(N, dtype=torch.long, device=dev)
+        self._n_triad = torch.zeros(N, device=dev)
         # [TASK] U40 真实螺纹副: 接触门/ω 阻尼这两个假摩擦替身退役 (clip 带
         # breakaway_torque_nm 时 screw_assembly 自动走摩擦支路)。drive_gain 仍
         # 逐步计算 —— 它是观测里的接触特征 (obs 507 维不变), 只是不再乘进角速度。
@@ -289,7 +291,11 @@ class UnscrewEnv(GraspTaskEnv):
         if self._sq_delta is not None:
             prof = torch.zeros(self.T_ROW, device=dev)
             r1 = torch.arange(self.APP_END, self.IA0, device=dev)
-            prof[r1] = (r1 - self.APP_END).float() / max(self.IA0 - self.APP_END, 1)
+            # 与母带的"先到位再合手"同一个分点 (TC.SEAM_MOVE_FRAC): 手还在
+            # 进刀途中就加压 = 用指力推倒瓶 (2026-08-31 逐行实测)
+            _u = (r1 - self.APP_END).float() / max(self.IA0 - self.APP_END, 1)
+            prof[r1] = ((_u - TC.SEAM_MOVE_FRAC)
+                        / max(1.0 - TC.SEAM_MOVE_FRAC, 1e-6)).clamp(0.0, 1.0)
             prof[self.IA0:self.IA1 + 1] = 1.0
             r2 = torch.arange(self.IA1 + 1, self.RETREAT0, device=dev)
             prof[r2] = 1.0 - (r2 - self.IA1).float() / max(
@@ -336,10 +342,12 @@ class UnscrewEnv(GraspTaskEnv):
     def _screw_cap_contact_n(self):
         """U40d 真值门: 右指尖 vs 盖的接触指数 —— 零接触 = 物理上没有外力矩。
 
-        每物理子步被 screw_assembly 调用; 力矩估计乘上它, 封死一切数值泄漏
-        (老方法线三次尸检: 手离盖 11cm 仍读出 68mN·m 幻影扭矩并白解锁)。
+        力矩估计乘上它, 封死一切数值泄漏 (老方法线三次尸检: 手离盖 11cm 仍
+        读出 68mN·m 幻影扭矩并白解锁)。用**每控制步**算好的缓存值: 每子步重读
+        10 个接触传感器是 12× 的白开销, 而接触状态在一个控制步内不会有意义地
+        翻转 (真要翻转, 下一步就跟上了)。
         """
-        return (self._pads_f().norm(dim=-1)[:, 5:] > SCREW_CONTACT_FTH).sum(dim=1)
+        return self._n_cap_any
 
     def _pre_physics_step(self, actions):
         a = actions.clamp(-1.0, 1.0)

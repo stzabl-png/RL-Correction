@@ -99,7 +99,7 @@ def drive(row, sL):
 for r in range(0, APP):
     drive(r, 0.0)
 for i, r in enumerate(range(APP, E.IA0)):
-    drive(r, (i + 1) / max(E.IA0 - APP, 1))
+    drive(r, float(TC.seam_squeeze_profile((i + 1) / max(E.IA0 - APP, 1))))
 for _ in range(30):
     drive(E.IA0, 1.0)
 dL0 = (E.hand.data.body_pos_w[:, E.wid["L"]]

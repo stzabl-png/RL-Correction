@@ -50,7 +50,8 @@ from rl_rebuild.correction.kinematics import ArmIK, R_to_quat, quat_to_R  # noqa
 TABLE_Z = 0.87
 OBJ_GAP = 0.01
 APP_ROWS, SEAM1, SEAM2, RET_ROWS = 60, 25, 25, 60
-CAP_CLEARANCE, HAND_DROP = 0.015, 0.203     # U35b: 盖顶净空 + 腕-指尖垂距(实测)
+CAP_CLEARANCE = 0.015                       # U35b: 盖顶净空
+HAND_DROP = TC.HAND_DROP                    # 腕-指尖垂距 (probe_grasp 实测, 逐手)
 SEP_THRESH = 0.04                           # 盖脱离帧: 与装配位偏差首超 4cm
 
 
@@ -185,6 +186,7 @@ def main():
     # 后 79.7%→100%)。幅度随倾角权重渐入 (静置 0, 深倾斜满额), 位置不动;
     # 所有下游几何 (螺轴/盖行/腕锚/左握位) 从同一 body_q 派生, 自动一致。
     # 每条 clip 用 UNSCREW_HOLD_YAW 覆写 (probe_ikcheck 出数后定, 默认 0)。
+    import trimesh                       # 物体系对齐要用 mesh bbox
     hold_yaw = TC.HOLD_YAW_DEG          # 逐 clip 标定值 (UNSCREW_HOLD_YAW 可覆写)
     if hold_yaw:
         wmix = np.clip((tilt - 22.0) / 18.0, 0.0, 1.0)
@@ -208,7 +210,6 @@ def main():
                 f"(expected 0.1800), radial={rest_radial:.4f}m; "
                 "rerun C_Wiring/probe_rest.py")
     else:
-        import trimesh
         mesh_b = trimesh.load(objs[BODY_ID]["mesh"], process=False, force="mesh")
         Vb = np.asarray(mesh_b.vertices)
         q0 = bq_proj[w0]
@@ -444,13 +445,31 @@ def main():
     zp = np.load(TC.PRIOR_AUX)
     gp = np.asarray(zp["grasp"], np.float64)[:3]
     gq = np.asarray(zp["grasp"], np.float64)[3:7]
-    gp_m = np.array([gp[0], -gp[1], gp[2]])
+    # ★ 坐标系原点错配 (2026-08-31 实测揪出, 一直卡着 G1 的真凶):
+    #   数据集的瓶 mesh z∈[0,0.197] —— 刚体原点在**瓶底**;
+    #   prior 来自 Dexonomy (bottle_body/scale010), 它的物体系是**居中**的
+    #   —— 抓取锚点 z=-2.0cm、接触点 -2.0~+7.1cm, 只有在瓶心系里才讲得通。
+    #   直接搬过来 = 把左手锚在桌面以下 2cm; 贴桌钳位抬到桌上 2cm 后手掌仍
+    #   插在桌里, 物理把整条手臂顶高 10cm -> 手在瓶顶上方抓空, 站位垫 0/5,
+    #   G1 永远不成形 (旧验收凭据里"左垫 1 个接触"同一个病)。
+    #   偏移从**本 clip 自己的 mesh** 现算 (bbox 中心), 换 clip 自动适配。
+    _mb = trimesh.load(objs[BODY_ID]["mesh"], process=False, force="mesh")
+    _zb = np.asarray(_mb.vertices)[:, 2]
+    _frame_dz = float(0.5 * (_zb.min() + _zb.max()) - _zb.min())
+    print(f"[v1] prior 物体系对齐: 瓶 mesh z∈[{_zb.min():.3f},{_zb.max():.3f}] "
+          f"(原点在底), prior 居中 -> 锚点 z 补 {_frame_dz * 100:+.2f}cm")
+    gp_m = np.array([gp[0], -gp[1], gp[2] + _frame_dz])
     gq_m = np.array([gq[0], -gq[1], gq[2], -gq[3]])
     gq_m /= np.linalg.norm(gq_m)
 
     def _left_track(yaw):
         qy = np.array([np.cos(yaw / 2), 0.0, 0.0, np.sin(yaw / 2)])
         pl = (quat_to_R(qy) @ gp_m)
+        # 径向收紧 TC.PRIOR_RADIAL_TRIM: 让指尖真正落在瓶面上 (见 task_config)
+        _rh = np.array([pl[0], pl[1], 0.0])
+        _rn = float(np.linalg.norm(_rh))
+        if _rn > 1e-6:
+            pl = pl - (TC.PRIOR_RADIAL_TRIM / _rn) * _rh
         qlg = qmul(qy[None], gq_m[None])[0]
         P = body_p + qrot(body_q, np.tile(pl, (N, 1)))
         Q = qmul(body_q, np.tile(qlg, (N, 1)))
@@ -665,10 +684,21 @@ def main():
             return False
         return True
 
+    # ⚠ 摘要必须按**本次要写出的**几何算, 不能读磁盘上的旧 v1: 否则改了站位/
+    # pregrasp 之后, 旧规划会被照旧剪进新母带 (两者已经对不上), 而流程要等到
+    # 下一次重建才发现 —— 2026-08-31 实测踩到 (左抓锚修正 10cm 那次)。
+    _basis_now = {                      # 只喂交互段 (摘要本来就只取交互行)
+        "source": np.ones(N, np.int8),
+        "station_wr": np.r_[wr_P[0], wr_Q[0]],
+        "station_wl": np.r_[wl_P[0], wl_Q[0]],
+        "machine_pre_q_r": machine_pre["right"],
+        "machine_pre_q_l": machine_pre["left"],
+        "obj_pos_0": body_p, "obj_pos_1": cap_p,
+    }
     have_approach = _plan_usable(TC.APPROACH_NPZ)
     have_retreat = _plan_usable(TC.RETREAT_NPZ)
     have_machine_plan = have_approach or have_retreat
-    planning_basis = (TC.reference_planning_digest(TC.REF_V1)
+    planning_basis = (TC.reference_planning_digest(_basis_now)
                       if have_machine_plan else None)
     rest_md5 = TC.file_md5(args.rest_json)
 
@@ -702,15 +732,108 @@ def main():
         app_r = ramp(st_r, q_r[0], APP_ROWS)
         app_l = ramp(st_l, q_l[0], APP_ROWS)
         n_app = APP_ROWS
-    # 手指: approach 前 70% 保持站姿张开, 后 30% 合到交互首行 (合拢斜坡)
-    k70 = int(n_app * 0.7)
-    app_fr = np.concatenate([np.tile(sf_r, (k70, 1)),
-                             ramp(sf_r, f_r[0], n_app - k70)])
-    app_fl = np.concatenate([np.tile(sf_l, (k70, 1)),
-                             ramp(sf_l, f_l[0], n_app - k70)])
-    # 缝1 = 焊接斜坡: 规划终帧构型 -> 离线 IK 交互首行 (两套解不同分支时在此桥接)
-    s1_r, s1_l = ramp(app_r[-1], q_r[0], SEAM1), ramp(app_l[-1], q_l[0], SEAM1)
-    s1_fr, s1_fl = np.tile(f_r[0], (SEAM1, 1)), np.tile(f_l[0], (SEAM1, 1))
+    # 手指时序 (2026-08-31 修, 冒烟实测 D2瓶倒):
+    #   机器段**全程保持站姿指形** —— cuRobo 规划机器段时手指就锁在这一组,
+    #   原来"approach 后 30% 先合拢"与规划的避障假设自相矛盾;
+    #   合拢挪到缝1 的**后段**: 缝1 是从 pregrasp 净空横扫到抓握位的那 25 行,
+    #   闭合的手一路扫过去会把瓶推倒 (净空从 5cm 提到 20cm 后必现)。
+    #   现在: 缝1 前 40% 保持张开 (完成靠近), 后 60% 才合到抓握形 (人到位再合手)。
+    app_fr = np.tile(sf_r, (n_app, 1))
+    app_fl = np.tile(sf_l, (n_app, 1))
+    # 缝1 = 从 pregrasp 净空**沿笛卡尔直线**进刀到抓握位姿 (2026-08-31 改)。
+    # 原来是关节空间直线插值 —— 关节直线 ≠ 笛卡尔直线, 手在合拢途中划弧**扫穿
+    # 瓶身**, 实测把瓶直接扫倒 (站位时瓶倾角 90°)。左抓锚还偏高 10cm 时反而
+    # "躲开"了, 锚一修对就撞上。腕位姿线性插值 + 逐行 IK = 标准的沿抓取轴进刀。
+    def _seam_cartesian(side, q_from, q_to, K):
+        ik = _mk_ik(side)
+        p0v, R0v = ik.fk(q_from)
+        p1v, R1v = ik.fk(q_to)
+        q0v, q1v = R_to_quat(R0v), R_to_quat(R1v)
+        if float(np.dot(q0v, q1v)) < 0:
+            q1v = -q1v
+        # 两段进刀 (2026-08-31 实测定稿): 直线斜插会让**掌部**掠过瓶顶把瓶扫倒
+        # (逐行探针: row96 起倾, 而此时指垫 0 接触、指力 0N —— 撞的是连杆不是指尖)。
+        # 先在径向外侧降到抓握高度, 再**纯径向**平进 —— 标准 pregrasp 进刀。
+        # 右手那种"正上方下压"的情形自动退化成单段垂直下降 (水平分量≈0)。
+        _d = p0v - p1v
+        _pm = p1v + np.array([_d[0], _d[1], 0.0])
+        _leg1 = max(1, int(round(K * 0.4)))
+        out = np.zeros((K, 7))
+        seed = np.asarray(q_from, float)
+        nbad = 0
+        for i in range(K):
+            a = (i + 1) / (K + 1)
+            if i < _leg1:               # 第一段: 对高度 (径向不动)
+                b = (i + 1) / _leg1
+                pt = (1 - b) * p0v + b * _pm
+            else:                       # 第二段: 纯径向平进
+                b = (i + 1 - _leg1) / max(K - _leg1, 1)
+                pt = (1 - b) * _pm + b * p1v
+            qt = (1 - a) * q0v + a * q1v
+            qt = qt / np.linalg.norm(qt)
+            r = ik.solve(pt, quat_to_R(qt), q0=seed, iters=200, w_rot=0.25)
+            if (r["pos_err"] < 0.02 and r["rot_err"] < np.radians(12)
+                    and np.abs(np.asarray(r["q"], float) - seed).max()
+                    < np.radians(25)):
+                out[i] = r["q"]
+                seed = np.asarray(r["q"], float)
+            else:                       # 解不出来就退回关节直线的那一格
+                out[i] = (1 - a) * np.asarray(q_from, float) + a * np.asarray(q_to, float)
+                seed = out[i]
+                nbad += 1
+        print(f"[v1] 缝1 {side}: 笛卡尔进刀 {K} 行 (退回关节插值 {nbad} 行)")
+        return out
+
+    # 缝1 分两段 (2026-08-31 实测定稿): **先到位, 再合手**。
+    #   前 70%: 笛卡尔进刀, 手保持站姿张开;
+    #   后 30%: 手臂**停住**在抓握位姿, 只合手指 (含 β squeeze 渐入)。
+    # 原来"边移动边合拢"实测在缝1 第 100 行起把瓶推倒 (105 行时左垫已 3 个、
+    # 左指峰值 12N —— 手是抓上了, 但那是**推**不是**握**): 0.53kg 的自由瓶
+    # 受一侧指力就倒。到位后再合, 指力才是对称的。
+    # 两只手的抓法不同, 合手时序也必须不同 (2026-08-31 逐行实测定稿):
+    #   左手 = 侧向环抱瓶身 -> **先径向进刀 (手张开), 到位后再合手**;
+    #     边走边合会用一侧指力把 0.53kg 的自由瓶推倒 (实测 105 行左指峰值 12N)。
+    #   右手 = 自上而下捏盖 -> **先在高处预合成捏握手型, 再下降** (pre-shape);
+    #     张开手掌心朝下时"腕→指尖"约 20cm (旧 HAND_DROP=0.203 正是这个数),
+    #     捏握时只有 15.7cm —— 张着手下降, 伸出的指尖正好压在盖顶上把瓶推倒
+    #     (实测 row86 起倾而指垫 0 接触: 撞的是指节不是指腹)。
+    def _sf_of(side):
+        return sf_l if side == "left" else sf_r
+
+    _kpre = max(1, int(SEAM1 * 0.28))  # ① 预张开 (手臂原地不动)
+    _kclose = max(1, int(SEAM1 * 0.28))  # ③ 合拢 (手臂到位不动)
+    _kmov = SEAM1 - _kpre - _kclose    # ② 进刀行数
+    # 顺序照 prior 自己的配方: **先预合成 grasp 杯状手型 (手臂不动) -> 杯状手
+    # 进刀 -> 到位后才加 squeeze**。
+    #   prior 的 pregrasp 阶梯就是"同一手型沿进刀轴后退 2cm", 指值与 grasp 只差
+    #   0.5~5°, 从不摊平; 而站姿手型是全 0° 的**平手**, 比 grasp 大一圈 ——
+    #   张着平手进刀, 伸出的指节会扫穿瓶身/压在盖顶上 (实测两只手各倒一次:
+    #   右手 row86 压盖、左手 row99 扫瓶, 两次都是指垫 0 接触 = 撞的是指节)。
+    #   squeeze 留到到位之后 (TC.SEAM_MOVE_FRAC), 边走边压会把自由瓶推倒。
+    # 预张开手型 = 抓握手型沿**合拢方向**反向外推 (逐关节封顶 25°):
+    # 杯口比物体粗一圈才进得去。用站姿(全 0° 平手)当预张开是不行的 —— 平手比
+    # 抓握手型大得多, 右手会用伸直的指节压在盖顶上 (实测 row86 起瓶就倒)。
+    _OPEN_K, _OPEN_CAP = 2.0, np.radians(25.0)
+    _sqz_l = np.asarray(zp["squeeze"], np.float64)[7:29][perm]   # 左手合拢方向
+    for _side, _qa, _qb, _ff in (("left", app_l[-1], q_l[0], f_l[0]),
+                                 ("right", app_r[-1], q_r[0], f_r[0])):
+        if _side == "left":     # 有 squeeze prior: 沿合拢方向反向外推
+            _open = _ff - np.clip(_OPEN_K * (_sqz_l - _ff), -_OPEN_CAP, _OPEN_CAP)
+        else:                   # 右手无 squeeze prior: 朝站姿(张手)方向退 35%
+            _open = _ff + 0.35 * (sf_r - _ff)
+        _arm = np.concatenate([np.tile(_qa, (_kpre, 1)),
+                               _seam_cartesian(_side, _qa, _qb, _kmov),
+                               np.tile(_qb, (_kclose, 1))])
+        _fin = np.concatenate([ramp(_sf_of(_side), _open, _kpre),
+                               np.tile(_open, (_kmov, 1)),
+                               ramp(_open, _ff, _kclose)])
+        print(f"[v1] 缝1 {_side}: 预张开 {_kpre} 行 (张开量中位 "
+              f"{np.degrees(np.abs(_open - _ff)).mean():.1f}°) -> 进刀 {_kmov} 行 "
+              f"-> 合拢 {_kclose} 行")
+        if _side == "left":
+            s1_l, s1_fl = _arm, _fin
+        else:
+            s1_r, s1_fr = _arm, _fin
     # Retreat: cuRobo cspace 规划产物优先 (物体已在终位, 躲避着回站姿)
     if have_retreat:
         ret_r, ret_l = _load_plan(TC.RETREAT_NPZ, "retreat")

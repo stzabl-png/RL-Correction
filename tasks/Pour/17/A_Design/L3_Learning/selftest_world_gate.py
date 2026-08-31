@@ -33,7 +33,8 @@ BASE = {"schema": "world_fingerprint_v1",
         # 变的是"每一行用哪一档"。所以必须单列。
         # 与 L5-27 加 criteria.digest 时同理: 它进 CRITICAL 后, 没有这个键的
         # 旧指纹会被判"无法核对" —— 那是设计意图, 不是 bug。
-        "switches": {"conf_flat": False}}
+        "switches": {"conf_flat": False, "arm_ref_free": False,
+                     "arm_free_scale": 1.0}}
 
 
 def run(tag, mut):
@@ -62,6 +63,11 @@ reds = [
     # ★L5-31 新增: 拿 flat 训的 ckpt 在 base 环境评测必须被拒
     run("⑧ conf_flat 旗变了",
         lambda d: d["switches"].__setitem__("conf_flat", True)),
+    # ★L5-31: 大残差界训出的 ckpt 拿到小界环境回放, 每步都会被钳住 —— 必须拒
+    run("⑨ arm_ref_free 旗变了",
+        lambda d: d["switches"].__setitem__("arm_ref_free", True)),
+    run("⑩ arm_free_scale 变了",
+        lambda d: d["switches"].__setitem__("arm_free_scale", 10.0)),
 ]
 print("缺数据的输入(必须标为'无法核对', 不得静默通过):")
 u1 = run("⑥ 关键项键缺失", lambda d: d["robot"].pop("usd_md5"))

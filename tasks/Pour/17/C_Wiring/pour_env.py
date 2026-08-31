@@ -258,7 +258,28 @@ class PourEnv(GraspTaskEnv):
         self.force_entry = None                          # 冒烟用: 指定各env进入点序号
         # ---- 残差机械 (#13) ----
         to = lambda a: torch.tensor(np.asarray(a), dtype=torch.float32, device=dev)
+        # ★L5-31 消融旗 POUR_ARM_FREE: `straight` 臂 —— **不把参考翻译到关节空间**。
+        #   由来(用户裁定, 读法B): "物体轨迹直接当目标, 不解算 IK 变成臂参考"。
+        #   但动作是 q_tgt = ff + cum_res, 而 ff **必须**是 58 维关节角 —— 物体的
+        #   7 维位姿和关节角不是同一个空间, 中间必须有一次转换, 那次转换就是 IK。
+        #   所以"去掉 IK"落地为: **臂列的 ff 冻结在交互段首行(抓握姿势)**,
+        #   策略只能靠残差自己走出整个倒水动作。
+        #   ★手指列不冻 —— 冻它会混进第二个变量(手指前馈是另一件事)。
+        #   ★物体侧完全不动: adv/leash/时钟/G3 只看物体, 不看臂 ⟹ **稠密奖励照常**。
+        #     这正是 straight 与 goal 的分界: straight 保留物体逐行跟踪, goal 才去掉。
+        #   ★残差界必须同时放开, 否则结构上做不到: 参考自身相对冻结姿势的最大偏离
+        #     是 R_j5 的 1.954 rad(112°), 而现行累计界只有 0.05~0.10 rad(3~6°)。
+        #     两者不可分割 —— 判读时必须写明 straight 与 base 相差**两项**。
+        #   ★按比例放大而非拍平: 现行 0.05/0.08/0.10 同乘 20 → 1.0/1.6/2.0 rad,
+        #     **只放大不改形状**, 让 dev_arm 随 conf 变化的结构保留下来 ⟹
+        #     straight 与 base_oh 之间仍然只差"有没有臂前馈"这一件事。
+        self.arm_free = os.environ.get("POUR_ARM_FREE") == "1"
+        _afs = float(os.environ.get("POUR_ARM_FREE_SCALE", "20.0"))
         arm_step = to(self.cfg.arm_residual_max) * float(self.cfg.arm_step_scale)
+        if self.arm_free:
+            # 每步界定在 0.05 rad(2.9°): 参考逐行增量 P95=0.029 rad 的约 1.7 倍;
+            # 累积到 2.0 rad 需 40 步, 而交互段有 273 行 —— 走得到位又不会一步跨过。
+            arm_step = torch.full_like(arm_step, 0.05)
         fin_step = to(self.cfg.finger_residual_max) * float(self.cfg.finger_step_scale)
         self.step_bound = torch.cat([arm_step, arm_step, fin_step, fin_step])
         fin_dev = to(self.cfg.finger_residual_max) * float(self.cfg.finger_dev_scale)
@@ -354,11 +375,21 @@ class PourEnv(GraspTaskEnv):
         dev_rows = torch.full((self.T_ROW,), DEV_ARM_MACHINE, device=dev)
         _tm = self.PB.tmix.detach().cpu().numpy()
         for _k in range(self.PB.N_ROW):
-            dev_rows[self.IA0 + _k] = DEV_ARM_TIER[int(_tm[_k])]
+            dev_rows[self.IA0 + _k] = DEV_ARM_TIER[int(_tm[_k])] \
+                * (_afs if self.arm_free else 1.0)
+            # ★只放大**交互段**: 机器行(Approach/Retreat)保持 DEV_ARM_MACHINE。
+            #   整体乘会把接近段的臂权限也放大 20 倍 —— 那段是 cuRobo 带碰撞检查
+            #   的可行规划, 放大权限曾致撞杯(2026-08-28 用户裁定"接近段臂残差同冻")。
         self.dev_arm_rows = dev_rows
         _cnt = {t: int((_tm == t).sum()) for t in (2, 1, 0)}
-        print(f"[PourEnv] 残差界按档: 绿{DEV_ARM_TIER[2]}({_cnt[2]}行) "
-              f"黄{DEV_ARM_TIER[1]}({_cnt[1]}行) 红{DEV_ARM_TIER[0]}({_cnt[0]}行)")
+        _sc = _afs if self.arm_free else 1.0
+        print(f"[PourEnv] 残差界按档: 绿{DEV_ARM_TIER[2]*_sc:.3g}({_cnt[2]}行) "
+              f"黄{DEV_ARM_TIER[1]*_sc:.3g}({_cnt[1]}行) 红{DEV_ARM_TIER[0]*_sc:.3g}({_cnt[0]}行)")
+        if self.arm_free:
+            print(f"[PourEnv] ★POUR_ARM_FREE=1 (straight 臂): 臂前馈**冻结在交互段首行**, "
+                  f"手指前馈不动; 累计界×{_afs:g}, 每步界 0.05rad(2.9°)", flush=True)
+            print(f"[PourEnv]   物体侧不变 —— adv/leash/时钟/G3 只看物体, 稠密奖励照常。",
+                  flush=True)
         # ★L5-31 轴对称假设 —— 把一个此前完全沉默的物体前提喊出来。
         #   `_axis_only_R`(参考反解IK) 与 `_tilt`(皮筋rot/G3/placed/G4/死线) 全链
         #   都丢弃"绕长轴的自转"。对瓶/杯正确(两者轴对称); 换非轴对称物体
@@ -464,6 +495,16 @@ class PourEnv(GraspTaskEnv):
 
     def _ff_row(self, r):
         ff = self.ref58[r]
+        if getattr(self, "arm_free", False):
+            # 臂列冻结在交互段首行; 手指列保持逐行(它不是本消融的对象)。
+            # ★只冻**交互段** [IA0, IA1]: Approach 段的臂参考是 cuRobo 带碰撞检查的
+            #   可行规划, 冻掉它机器人会从第 0 步就往抓握姿势走, 整个接近段被毁;
+            #   Retreat 段同理。本消融问的是"交互段要不要臂参考", 不是"全程"。
+            #   (第一版写成无条件冻结, 会静默毁掉 Approach —— 这里改掉。)
+            _in_ia = ((r >= self.IA0) & (r <= self.IA1)).unsqueeze(1).float()
+            ff = ff.clone()
+            ff[:, :14] = (ff[:, :14] * (1 - _in_ia)
+                          + self.ref58[self.IA0][:14].unsqueeze(0) * _in_ia)
         if self.sq_add is not None:
             ff = ff.clone()
             ff[:, 14:] += self.sq_add[r]

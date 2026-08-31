@@ -38,6 +38,9 @@ CRITICAL = (
     # 不列关键项的具体风险: 拿 flat 训的 ckpt 在 base 环境评测, 世界闸会放行,
     # 而判据其实不一样 —— 正是本项目反复踩的"静默匹配"。
     "switches.conf_flat",
+    # ★L5-31 straight 臂: 冻结臂前馈 + 放大残差界。它不改判据, 但**彻底改变动作
+    # 的含义** —— 大界训出的 ckpt 拿到小界环境里回放, 每一步都会被钳住。
+    "switches.arm_ref_free", "switches.arm_free_scale",
     "time.control_dt_s", "time.decimation",
     "table.table_top_z_m",
     "objects.object_1.mass_kg", "objects.object_1.static_friction",
@@ -202,6 +205,13 @@ def collect(env) -> dict:
                      "obj_jitter_xy": _f(getattr(cfg, "obj_jitter_xy", None)),
                      "conf_flat": bool(getattr(env.PB, "conf_flat", False))
                      if hasattr(env, "PB") else None,
+                     "arm_ref_free": bool(getattr(env, "arm_free", False)),
+                     # ★关旗时写 1.0 而不是 None: None 在闸里意味着"**读不到 /
+                     # 无法核对**", 用它表示"不适用"会让每一份指纹都变成不可核对。
+                     # 关旗时实际生效的缩放就是 1.0, 如实写。
+                     "arm_free_scale": _f(float(os.environ.get(
+                         "POUR_ARM_FREE_SCALE", "20.0"))
+                         if getattr(env, "arm_free", False) else 1.0),
                      "friction_curriculum": bool(
                          getattr(cfg, "friction_curriculum", False))},
     }

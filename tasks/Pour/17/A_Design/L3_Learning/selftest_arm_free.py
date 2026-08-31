@@ -47,6 +47,8 @@ def build_dev_rows(arm_free, scale=20.0, tmix=None):
     dev = torch.full((T_ROW,), DEV_ARM_MACHINE)
     for k in range(N_ROW):
         dev[IA0 + k] = DEV_ARM_TIER[int(tmix[k])] * (scale if arm_free else 1.0)
+    if arm_free:
+        dev[IA0] = DEV_ARM_TIER[int(tmix[0])]     # ★认证行豁免放大
     return dev
 
 
@@ -108,11 +110,26 @@ chk(float((d_on[mach] - d_off[mach]).abs().max()) < 1e-9,
     "机器行(Approach/Retreat)界**未被放大**",
     f"最大差 {float((d_on[mach] - d_off[mach]).abs().max()):.2e}; "
     f"整体乘会给接近段 20 倍权限 —— 2026-08-28 裁定过接近段臂残差同冻(曾致撞杯)")
-ia = torch.arange(IA0, IA1 + 1)
+ia = torch.arange(IA0 + 1, IA1 + 1)     # ★跳过认证行(它被豁免)
 ratio = (d_on[ia] / d_off[ia])
 chk(float((ratio - 20.0).abs().max()) < 1e-5, "交互行界恰好放大 20 倍",
     f"比值范围 [{float(ratio.min()):.4f}, {float(ratio.max()):.4f}]")
-uniq_on = sorted({round(float(x), 4) for x in d_on[ia]})
+# ---- ★认证行豁免 (2026-08-30 实测后补) ----
+print("\n★ 认证行(交互首行)必须豁免放大")
+chk(abs(float(d_on[IA0]) - DEV_ARM_TIER[int(tmix[0])]) < 1e-6,
+    "认证行界 = 基线值(未放大)",
+    f"实测 {float(d_on[IA0]):.4f}, 基线 {DEV_ARM_TIER[int(tmix[0])]} —— "
+    f"实测铁证: straight 跑到 2M 步 cert_pass 恒 0, 死因 rise_bot=0.999"
+    f"(瓶子没升到 5mm), 而 slip 与 base 相当(抓得住) ⟹ "
+    f"5mm 抬升信号被 ±115° 的动作幅度淹没, 不是抓不稳")
+chk(abs(float(d_on[IA0]) - float(d_off[IA0])) < 1e-6,
+    "★认证行 straight 与 base 用**完全相同**的限额",
+    f"straight {float(d_on[IA0]):.4f} vs base {float(d_off[IA0]):.4f} —— 这反而更可比")
+chk(float(d_on[IA0 + 1:IA1 + 1].max()) > 0.5,
+    "但其余交互行仍然放大(否则 straight 做不出倒水)",
+    f"其余行最大 {float(d_on[IA0 + 1:IA1 + 1].max()):.2f} rad")
+
+uniq_on = sorted({round(float(x), 4) for x in d_on[torch.arange(IA0 + 1, IA1 + 1)]})
 chk(len(uniq_on) == 3, "★放大后仍是**三档**(只放大不改形状)",
     f"档位 {uniq_on} —— 拍平会让 straight 与 base 多差一个变量")
 chk(abs(uniq_on[-1] - 2.0) < 1e-4, "最大档 = 2.0 rad",
@@ -129,10 +146,11 @@ try:
     ok_flag = 'os.environ.get("POUR_ARM_FREE") == "1"' in src
     ok_scale = '"POUR_ARM_FREE_SCALE", "20.0"' in src
     ok_ia = "(r >= self.IA0) & (r <= self.IA1)" in src
-    chk(ok_t and ok_m and ok_flag and ok_scale and ok_ia,
-        "真源含同名常量/旗/交互段判据",
+    ok_cert = "dev_rows[self.IA0] = DEV_ARM_TIER" in src
+    chk(ok_t and ok_m and ok_flag and ok_scale and ok_ia and ok_cert,
+        "真源含同名常量/旗/交互段判据/认证行豁免",
         f"DEV_ARM_TIER={ok_t} MACHINE={ok_m} 旗={ok_flag} "
-        f"默认scale={ok_scale} 交互段限定={ok_ia}")
+        f"默认scale={ok_scale} 交互段限定={ok_ia} 认证行豁免={ok_cert}")
 except Exception as e:
     chk(False, "真源含同名常量/旗/交互段判据",
         f"读不到 pour_env.py: {type(e).__name__}: {e} —— **未验, 不是通过**")

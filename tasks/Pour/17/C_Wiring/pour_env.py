@@ -380,6 +380,25 @@ class PourEnv(GraspTaskEnv):
             # ★只放大**交互段**: 机器行(Approach/Retreat)保持 DEV_ARM_MACHINE。
             #   整体乘会把接近段的臂权限也放大 20 倍 —— 那段是 cuRobo 带碰撞检查
             #   的可行规划, 放大权限曾致撞杯(2026-08-28 用户裁定"接近段臂残差同冻")。
+        if self.arm_free:
+            # ★★L5-31 认证行豁免 (2026-08-30 实测后补): **认证那一行不放大**。
+            #   实测 straight 两条跑到 2M 步 cert_pass 恒 0, 死因分项给出铁证:
+            #     rise_bot 0.999 / rise_cup 0.63~0.75   ← 99.9% 是"瓶子没升到 5mm"
+            #     slip_r/l 0.19~0.24                    ← 与 base(0.17~0.20)相当, **抓得住**
+            #     cert_att 3.1~3.4 次/回合(顶到 3 次上限), base 仅 0.97~1.11
+            #   机制: G2 认证靠把臂参考插值向"+5mm 抬升行", 而 5mm 换算到关节只有
+            #   零点几度; straight 把权限从 ±3° 放大到 ±115°, **认证信号被自己的
+            #   动作幅度淹没** —— 像量身高时被测的人在原地蹦跳: 尺子没问题、刻度
+            #   没问题, 是被晃动盖住了。
+            #   ★不是"抓不稳"(滑移正常), 是"抬"这个微动作测不出来。
+            #   解: 认证恒发生在 `r == IA0`(见 _ff_row 的 `a * (r == IA0)`), 把那一行
+            #   的界钉回基线值 ⟹ **straight 与 base 在认证行用完全相同的限额**,
+            #   反而更可比。物理理由: 认证是"静止测稳定", 本就不需要大权限;
+            #   需要大权限的是倒水那一段。
+            dev_rows[self.IA0] = DEV_ARM_TIER[int(_tm[0])]
+            print(f"[PourEnv]   ★认证行(交互首行)界豁免放大, 保持 "
+                  f"{DEV_ARM_TIER[int(_tm[0])]} —— 否则 5mm 抬升信号被动作幅度淹没",
+                  flush=True)
         self.dev_arm_rows = dev_rows
         _cnt = {t: int((_tm == t).sum()) for t in (2, 1, 0)}
         _sc = _afs if self.arm_free else 1.0

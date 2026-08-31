@@ -132,6 +132,15 @@ start.update({"torso_j1": float(np.radians(40.5196)),
 lock = (["torso_j1", "torso_j2", "torso_j3", "head_j1", "head_j2", "head_j3"]
         + [n for n in jn if n.startswith(("right_", "left_"))])
 
+# 操作位置 = 母带交互首行的双臂关节角 (机器段真正的终点 —— 见下方两腿说明)
+_rows_ia = np.flatnonzero(np.asarray(z1["source"], np.int8) == 1)
+_station_r = np.asarray(z1["right_q"], np.float64)[_rows_ia[0]]
+_station_l = np.asarray(z1["left_q"], np.float64)[_rows_ia[0]]
+STATION_GOAL = {}
+for i in range(1, 8):
+    STATION_GOAL[f"R_arm_j{i}"] = float(_station_r[i - 1])
+    STATION_GOAL[f"L_arm_j{i}"] = float(_station_l[i - 1])
+
 T = {"table_pose": [float(-_root_p[0]), float(-_root_p[1]),
                     float(cfg.table_top_z - _sz / 2 - _root_p[2])],
      "table_dims": [float(_sx), float(_sy), float(_sz)],
@@ -259,7 +268,69 @@ if plan_payload is None:
     except Exception:
         pass
     os._exit(1)
+# ================= 第二腿: 净空点 <-> 操作位置 =================
+# 用户拍板的四段结构是"初始位置 -> cuRobo 到**操作位置** -> 操作 -> cuRobo 回
+# 初始位置"。cuRobo 之所以只到净空点, 是因为操作位置就是手指贴在瓶面上的抓握
+# 位形, 把目标物体留在碰撞世界里必被判 goal in collision。最后这一腿本来就是
+# "故意去贴物体", 所以排除两个目标物体 (桌子仍是障碍) 单独规划, 再与第一腿拼接
+# —— 机器段这才真正结束在操作位置, 原先手写的 25 行进刀 (所有碰倒瓶的来源) 退役。
+_leg2_ok = False
+if not bool(np.asarray(plan_payload.get("derived_from", ""))
+            == "approach_reversed"):
+    _T2 = dict(T)
+    if args.retreat:      # 操作位置 -> 净空点 (撤退的第一腿)
+        _s2 = dict(T["start_joints"])
+        _s2.update(STATION_GOAL)
+        _T2["start_joints"] = _s2
+        _T2["cspace_goal"] = {}
+        for i in range(1, 8):
+            _T2["cspace_goal"][f"R_arm_j{i}"] = float(_qpre_r[i - 1])
+            _T2["cspace_goal"][f"L_arm_j{i}"] = float(_qpre_l[i - 1])
+    else:                 # 净空点 -> 操作位置 (接近的第二腿)
+        _s2 = dict(T["start_joints"])
+        for i in range(1, 8):
+            _s2[f"R_arm_j{i}"] = float(alts_r[pre_idx][i - 1])
+            _s2[f"L_arm_j{i}"] = float(alts_l[pre_idx][i - 1])
+        _T2["start_joints"] = _s2
+        _T2["cspace_goal"] = dict(STATION_GOAL)
+    _tgt2 = os.path.join(_tmp, "targets_leg2.json")
+    with open(_tgt2, "w") as f:
+        json.dump(_T2, f)
+    _out2 = out_npz + ".leg2.npz"
+    _cmd2 = [sys.executable, "-u", "-m", "tasks.pregrasp.curobo_plan_worker",
+             "--targets", _tgt2, "--out", _out2,
+             "--act_dist", str(args.act_dist), "--attempts", str(args.attempts),
+             # 物体**收缩** 1.2cm 而不是排除: 贴着抓的目标位形合法, 但路径仍会
+             # 绕开物体本体 (整个排除 = 这一腿完全没有避障, 等于退回手写进刀)。
+             # 桌面单独排除: 操作位置离桌只有 ~8cm, cuRobo 的手部碰撞球比实物
+             # 保守会把目标判碰, 而这一腿只在站位高度附近平移。
+             "--obj_inflate", "-0.012", "--exclude_table", "1"]
+    print(f"[plan] === 第二腿: {'操作位置->净空点' if args.retreat else '净空点->操作位置'}"
+          f" (目标物体排除出碰撞世界, 桌子仍是障碍) ===", flush=True)
+    _r2 = subprocess.run(_cmd2, cwd=os.getcwd(),
+                         env=dict(os.environ, PYTHONPATH=os.getcwd()),
+                         timeout=2400)
+    if _r2.returncode == 0 and os.path.isfile(_out2):
+        with np.load(_out2, allow_pickle=True) as _z2:
+            _p2 = {k: _z2[k] for k in _z2.files}
+        if bool(_p2["ok"]):
+            _t1 = np.asarray(plan_payload["traj"], np.float64)
+            _t2 = np.asarray(_p2["traj"], np.float64)
+            plan_payload["traj"] = np.ascontiguousarray(
+                np.concatenate([_t1, _t2[1:]] if not args.retreat
+                               else [_t2, _t1[1:]], axis=0))
+            plan_payload["leg2_rows"] = np.array(len(_t2) - 1)
+            _leg2_ok = True
+            print(f"[plan] ✅ 第二腿 {len(_t2)} 行, 拼接后共 "
+                  f"{len(plan_payload['traj'])} 行 —— 机器段终点=操作位置",
+                  flush=True)
+        else:
+            print(f"[plan] ⚠ 第二腿失败 ({_p2.get('failed_frame')}): "
+                  f"机器段仍只到净空点, 剩余由缝1 桥接", flush=True)
+    else:
+        print("[plan] ⚠ 第二腿 worker 未产出, 机器段仍只到净空点", flush=True)
 plan_payload.update(
+    leg2_ok=np.array(_leg2_ok),
     pre_idx=np.array(pre_idx),
     plan_clip=np.array(TC.CLIP_ID), plan_segment=np.array(segment_name),
     planning_basis_digest=np.array(planning_basis),

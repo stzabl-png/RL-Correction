@@ -816,6 +816,15 @@ def main():
     # 预张开手型 = 抓握手型沿**合拢方向**反向外推 (逐关节封顶 25°):
     # 杯口比物体粗一圈才进得去。用站姿(全 0° 平手)当预张开是不行的 —— 平手比
     # 抓握手型大得多, 右手会用伸直的指节压在盖顶上 (实测 row86 起瓶就倒)。
+    # 机器段是否已经把臂送到**操作位置**? (2026-08-31 用户拍板的四段结构:
+    # 初始位置 -> cuRobo 到操作位置 -> 操作 -> cuRobo 回初始位置)
+    # cuRobo 的第二腿 (排除目标物体) 成功时, app_*[-1] 就是站位构型 —— 缝1
+    # 于是退化成"手臂不动、只合手指", 手写的笛卡尔进刀 (碰倒瓶的来源) 退役。
+    _at_station = (float(np.abs(app_r[-1] - q_r[0]).max()) < np.radians(2.0)
+                   and float(np.abs(app_l[-1] - q_l[0]).max()) < np.radians(2.0))
+    print(f"[v1] 机器段终点 {'= 操作位置 (缝1 只合手指)' if _at_station else '= 净空点 (缝1 需进刀)'}"
+          f" | 距站位 R{np.degrees(np.abs(app_r[-1] - q_r[0]).max()):.1f}° "
+          f"L{np.degrees(np.abs(app_l[-1] - q_l[0]).max()):.1f}°")
     _OPEN_K, _OPEN_CAP = 2.0, np.radians(25.0)
     _sqz_l = np.asarray(zp["squeeze"], np.float64)[7:29][perm]   # 左手合拢方向
     for _side, _qa, _qb, _ff in (("left", app_l[-1], q_l[0], f_l[0]),
@@ -824,15 +833,25 @@ def main():
             _open = _ff - np.clip(_OPEN_K * (_sqz_l - _ff), -_OPEN_CAP, _OPEN_CAP)
         else:                   # 右手无 squeeze prior: 朝站姿(张手)方向退 35%
             _open = _ff + 0.35 * (sf_r - _ff)
-        _arm = np.concatenate([np.tile(_qa, (_kpre, 1)),
-                               _seam_cartesian(_side, _qa, _qb, _kmov),
-                               np.tile(_qb, (_kclose, 1))])
-        _fin = np.concatenate([ramp(_sf_of(_side), _open, _kpre),
-                               np.tile(_open, (_kmov, 1)),
-                               ramp(_open, _ff, _kclose)])
-        print(f"[v1] 缝1 {_side}: 预张开 {_kpre} 行 (张开量中位 "
-              f"{np.degrees(np.abs(_open - _ff)).mean():.1f}°) -> 进刀 {_kmov} 行 "
-              f"-> 合拢 {_kclose} 行")
+        if _at_station:
+            # 臂已在操作位置: 全程不动, 手指 先张开(短) -> 合拢(长)
+            _kop = max(1, int(SEAM1 * 0.25))
+            _arm = np.tile(_qb, (SEAM1, 1))
+            _fin = np.concatenate([ramp(_sf_of(_side), _open, _kop),
+                                   ramp(_open, _ff, SEAM1 - _kop)])
+        else:
+            _arm = np.concatenate([np.tile(_qa, (_kpre, 1)),
+                                   _seam_cartesian(_side, _qa, _qb, _kmov),
+                                   np.tile(_qb, (_kclose, 1))])
+            _fin = np.concatenate([ramp(_sf_of(_side), _open, _kpre),
+                                   np.tile(_open, (_kmov, 1)),
+                                   ramp(_open, _ff, _kclose)])
+        print(f"[v1] 缝1 {_side}: " + (
+            f"臂不动, 手指 张开 {np.degrees(np.abs(_open - _ff)).mean():.1f}° "
+            f"-> 合拢 (共 {SEAM1} 行)" if _at_station else
+            f"预张开 {_kpre} 行 (张开量中位 "
+            f"{np.degrees(np.abs(_open - _ff)).mean():.1f}°) -> 进刀 {_kmov} 行 "
+            f"-> 合拢 {_kclose} 行"))
         if _side == "left":
             s1_l, s1_fl = _arm, _fin
         else:

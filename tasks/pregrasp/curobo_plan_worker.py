@@ -152,6 +152,10 @@ def main():
                     help="物体障碍充气 (m, 2026-08-20 用户裁定): 碰撞世界里把物体网格沿"
                          "顶点法线外推这么多再规划 (实际物体不变) —— 规划自动多留净空。"
                          "建议 0.01; 只作用于 objects, 桌面不充")
+    ap.add_argument("--exclude_table", type=int, default=0,
+                    help="1=把桌面排除出碰撞世界 (贴物短腿专用: 抓握位形离桌只有"
+                         "几厘米, cuRobo 的手部碰撞球比实物保守会把目标判碰; "
+                         "该腿只在站位高度附近平移, 撞桌风险为零)")
     ap.add_argument("--exclude_objects", type=int, default=0,
                     help="1=joint 模式把两个目标物体排除出碰撞世界 (接触短腿专用: "
                          "PreGrasp→GraspPose 本来就要贴物, 桌子仍是障碍)")
@@ -184,9 +188,17 @@ def main():
 
     _inflated = {}
     def _mesh_path(o):
-        """--obj_inflate>0: 顶点沿法线外推 inflate 米, 存临时文件 (实际物体不变)。"""
-        if a.obj_inflate <= 0.0:
-            return o["mesh"]
+        """顶点沿法线推 inflate 米 (>0 充气 / <0 收缩), 存临时文件; 实物不变。
+
+        收缩 (<0) 的用处: "贴着抓" 的目标位形若把原尺寸物体留在世界里必被判碰,
+        而整个排除物体又会让这一腿完全失去避障 —— 收缩 1cm 量级两头兼顾:
+        目标位形合法, 路径仍绕开物体本体。
+        """
+        if a.obj_inflate == 0.0:
+            # 必须给**绝对路径**: 相对路径会被 cuRobo 当成它自己 content 目录下的
+            # 资产 (报 "string is not a file: .../curobo/content/assets/<相对路径>")。
+            # 充气>0 时走临时文件天然是绝对路径, 所以这条坑只在 inflate=0 时暴露。
+            return os.path.abspath(o["mesh"])
         p = o["mesh"]
         if p not in _inflated:
             import tempfile
@@ -196,14 +208,18 @@ def main():
             fp = tempfile.NamedTemporaryFile(
                 suffix="_inf.obj", delete=False).name
             m.export(fp)
-            print(f"[inflate] {p} 充气 {a.obj_inflate*1000:.0f}mm -> {fp}")
+            print(f"[inflate] {p} "
+                  f"{'充气' if a.obj_inflate > 0 else '收缩'} "
+                  f"{abs(a.obj_inflate)*1000:.0f}mm -> {fp}")
             _inflated[p] = fp
         return _inflated[p]
 
     def _scene_dict(exclude=(), no_world=False):
         if no_world:
             return {"cuboid": {}, "mesh": {}}
-        d = {"cuboid": {"table": {"pose": [*tp, 1.0, 0.0, 0.0, 0.0], "dims": td}},
+        d = {"cuboid": ({} if int(a.exclude_table)
+                        else {"table": {"pose": [*tp, 1.0, 0.0, 0.0, 0.0],
+                                        "dims": td}}),
              "mesh": {}}
         for nm, o in objects.items():
             if nm in exclude:
@@ -354,9 +370,18 @@ def main():
                 goal_q[_i] = float(CS[_n])
         _gst = JointState.from_position(goal_q.unsqueeze(0), joint_names=pj)
         _cur = JointState.from_position(q0.clone().unsqueeze(0), joint_names=pj)
-        print("[worker] === cspace: 关节空间直达目标 ===", flush=True)
+        # --exclude_objects 在 cspace 模式下同样生效 (2026-08-31): 机器段的
+        # **最后一腿**是"净空点 -> 操作位置", 那一段本来就是要去贴物体, 把两个
+        # 目标物体留在碰撞世界里 => 目标位形必被判碰 (goal in collision), 规划
+        # 无解。桌子仍是障碍。这条口子原来只接在 joint/pose 模式上。
+        _csp = (base if not int(a.exclude_objects)
+                else _get_planner(exclude=set(objects.keys()),
+                                  tag="cspace:排除目标物体"))
+        print(f"[worker] === cspace: 关节空间直达目标"
+              f"{' (目标物体已排除出碰撞世界)' if int(a.exclude_objects) else ''}"
+              f" ===", flush=True)
         _t0 = time.time()
-        _r = base.plan_cspace(_gst, _cur, max_attempts=int(a.attempts),
+        _r = _csp.plan_cspace(_gst, _cur, max_attempts=int(a.attempts),
                               enable_graph_attempt=2)
         _dt = time.time() - _t0
         _ok = _r is not None and bool(
@@ -364,7 +389,7 @@ def main():
         if not _ok:
             print("[worker] ❌ cspace 规划失败 —— 启动分诊", flush=True)
             try:
-                _lo = base.kinematics.get_joint_limits() if hasattr(base, "kinematics") else None
+                _lo = _csp.kinematics.get_joint_limits() if hasattr(_csp, "kinematics") else None
             except Exception:
                 _lo = None
             print(f"[cspace诊] success={getattr(_r,'success',None)} "

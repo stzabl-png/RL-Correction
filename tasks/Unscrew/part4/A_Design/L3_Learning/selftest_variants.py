@@ -73,29 +73,35 @@ def run(off_scale=0.0, feed_released=True, cap_end_off=0.0, max_t=1500,
         if escort == "hold":
             prc = 3
         elif escort in ("drop", "slowdrop"):
-            prc = 0
-            if P.g[3]:
-                # 释放后盖脱手: xy 直接到终点, z 逐步下沉至终点高度。
-                # drop = 2.5cm/步 (过带判据抓得到); slowdrop = 0.5cm/步
-                # (<ESCORT_FALL, 过带抓不到 —— 该由 U41② 持盖步数拦下)
-                step = 0.025 if escort == "drop" else 0.005
+            prc = 0                      # 释放后全程无右垫接触
+            _top = TABLE_Z + 0.03 + 0.005
+            if P.g[3] and P.k < P.N - 1 and escort == "slowdrop":
+                # 时钟走完前把盖托在**带顶之上**: 否则母带自己的末段下落 (每步
+                # 可能 >ESCORT_FALL) 就会触发过带判据, ⑥ 要测的"慢沉"命题落空。
+                o1[2] = max(float(o1[2]), _top)
+            elif P.g[3] and P.k >= P.N - 1:
+                # 释放后盖脱手: xy 到终点, z 逐步下沉。drop = 2.5cm/步 (过带
+                # 抓得到); slowdrop = 4mm/步 (<ESCORT_FALL, 过带抓不到 ——
+                # 该由 U41② 持盖步数拦下)
+                step = 0.025 if escort == "drop" else 0.004
                 if drop_z is None:
-                    drop_z = float(o1[2])
+                    drop_z = (float(o1[2]) if escort == "drop"
+                              else max(float(o1[2]), _top))
                 drop_z = max(drop_z - step, float(P.end[1][2]))
                 o1 = P.end[1].copy()
                 o1[2] = drop_z
         elif escort == "toss":
             prc = 3          # 手一直在盖上 (过带/持盖两件都满足)
             if P.g[3]:
-                # 目标点上方 12cm 起, 6cm/步 坠到桌面 (>PLACE_FALL=4cm/步) ——
-                # 手全程在盖上, 过带/持盖两件都满足, 只该被 U41③ 否决。
-                # 抬高幅度必须留在 D3 偏离死线内, 否则测的是死线不是判据。
-                floor = float(P.end[1][2])
+                # **在 placed 锁存之前**就把盖举高再摔 6cm/步 (>PLACE_FALL=4cm)。
+                # 用相对母带位置的高度偏置 (不瞬移到终点): 瞬移会先立 placed,
+                # 之后的坠落就变成"扰动已放好的物体"(D8), 测的不是本命题了;
+                # 偏置 12cm 也远在 D3(35cm) 之内。
                 if drop_z is None:
-                    drop_z = floor + 0.12
-                o1 = P.end[1].copy()
-                o1[2] = drop_z
-                drop_z = max(drop_z - 0.06, floor)
+                    drop_z = 0.12
+                o1 = o1.copy()
+                o1[2] += drop_z
+                drop_z = max(drop_z - 0.06, 0.0)
         # 腕漂 ±2mm: 认证滑移线 8mm, 两帧独立 ±5mm 噪声最坏差 17mm 会误伤
         r = P.step(o0, o1, ar, al, True,
                    o1[:3] + WOFF + rng.uniform(-0.002, 0.002, 3),

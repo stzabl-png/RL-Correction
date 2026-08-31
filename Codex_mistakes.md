@@ -22,3 +22,328 @@
 - Prevention/check: After interrupting a remote long-running command, always inspect
   the exact command line and ownership before relaunching. Use task-owned tmux for
   persistent work and exact PID targeting for cleanup; never use broad process kills.
+
+## Geometry optimization replaced the reconstructed Sweep task
+
+- Context/symptom: The first zero-residual Sweep video had both hands visibly
+  intersecting their tools and the broom in an orientation absent from both the ego
+  video and the accepted Dexonomy replay.
+- Incorrect assumption or action: I optimized IK reachability and cube-path geometry
+  by adding a 90-degree broom yaw, changing the global world yaw, suppressing most
+  reconstructed rotation, smoothing translation, shifting the pan, and finally
+  freezing the pan.
+- Root cause: Reset-frame and geometry assertions were treated as sufficient gates,
+  while source-video/GraspPose visual fidelity was not made a prerequisite. The
+  resulting checks proved only that a self-consistent altered scene could reset.
+- Correction: Reject the generated reference/video and rebuild from the Pour rule:
+  object 6DoF trajectory drives GraspPose-locked wrist IK; human wrists contribute
+  aligned motion shape only at reduced object confidence. Permit only a small,
+  explicit shared initial scene registration.
+- Prevention/check: Before physical smoke or reward tuning, compare frame zero and
+  several motion frames against the ego video, the selected GraspPose render, and the
+  accepted task replay. Any per-tool yaw, frozen object track, or reduced trajectory
+  component requires explicit user approval and a recorded falsification test.
+
+## Long CPU diagnostics must write durable output
+
+- Context/symptom: A multi-start raw-trajectory IK audit outlived its non-interactive
+  SSH client, and its buffered stdout was lost even though the exact task-owned child
+  completed normally.
+- Incorrect assumption or action: I treated a many-row, multi-seed IK sweep as a
+  short foreground diagnostic.
+- Root cause: Runtime was underestimated and stdout was not redirected to the
+  project log tree before launch.
+- Correction: Discard the result as non-auditable; rerun with a unique task-owned
+  tmux session and a log under `logs/reference/`.
+- Prevention/check: Any remote diagnostic expected to exceed one minute must have a
+  durable log and named task-owned session before launch, even when it is CPU-only.
+
+## Fixed-attached tasks must preserve their reconstructed object pose
+
+- Context/symptom: The corrected Sweep reference passed offline IK, but physical
+  initialization reported 27.8 cm grasp IK error before the Sweep reset ran.
+- Incorrect assumption or action: The fixed-attached Sweep config still allowed the
+  inherited pregrasp loader to replace the task-provided first-frame object pose
+  with a generic Dexonomy canonical resting pose.
+- Root cause: The parent loader was designed for approach/grasp tasks where it owns
+  object placement; fixed-attached trajectory tasks already own that placement.
+- Correction: When `fixed_attached_tools` is set, retain `object_cfg.init_state` and
+  use GraspPose only as the physical object-hand transform. The resulting IK error
+  is 0.07 cm without weakening the 2 cm reachability assertion.
+- Prevention/check: Physical smoke logs must show the explicit reconstructed-pose
+  preservation message and a passing grasp IK audit before attachment assertions.
+## Never transform source OBJ vertices as if they were USD rigid-root vertices
+
+- Context/symptom: offline analysis first reported the dustpan 19.6 mm above the
+  table, while a runtime probe later reported penetration.
+- Incorrect assumption or action: source OBJ vertices were multiplied directly by
+  the simulated `Aux` rigid-root pose.
+- Root cause: MeshConverter inserts an internal transform below the USD rigid root;
+  OBJ local coordinates and rigid-root local coordinates are not identical.
+- Correction: recover mesh points from the live USD stage using the complete
+  `mesh local -> world -> Aux root` transform chain before measuring placement.
+- Prevention/check: every mesh-to-world physical assertion must name and verify its
+  coordinate owner; use the live USD hierarchy for converted assets.
+
+## Runtime task clocks must consume the reference's measured contact row
+
+- Context/symptom: physical traces reached Gate 2 around step 50--60, but the task
+  and experts treated rows 300--425 as nominal contact.
+- Incorrect assumption or action: `SweepEnv` replaced NPZ `contact_row=54` with a
+  hand-authored constant 425 and rebuilt the cube start from that row.
+- Root cause: a later geometry experiment was allowed to override authoritative
+  reference metadata without a consistency assertion.
+- Correction: load `contact_row` and `cube_start_w` directly from the reference NPZ.
+- Prevention/check: assert that runtime phase boundaries originate from serialized
+  reference metadata; never duplicate them as constants in environment wiring.
+
+## Probe success must be captured before vector-environment auto reset
+
+- Context/symptom: the v7 dustpan probe showed the cube inside and stable in the
+  video/trace, but saved `entry_ok=False` from a later outside state.
+- Incorrect assumption or action: the probe ignored `done`, continued stepping,
+  and evaluated only the final raw simulator state.
+- Root cause: the environment wrapper automatically reset immediately after Gate4;
+  the final raw state belonged to the next episode, not the successful rollout.
+- Correction: read the environment tick's pre-reset `success`, gates, cube-in-pan,
+  and stable-run values on every step; stop immediately on termination.
+- Prevention/check: every physical probe and expert must pair state with the same
+  transition and treat any post-reset state as a new episode.
+
+## World-table height must not overwrite a pan-frame placement component
+
+- Context/symptom: the row313 v8 probe requested pan-local z=125 mm but measured
+  about 191 mm after the first transition, and the low-speed cube never reached the
+  mouth.
+- Incorrect assumption or action: code transformed a pan-local point to world,
+  then overwrote its world z coordinate to put the cube on the table.
+- Root cause: the dustpan is tilted, so changing world z also changes pan-local y
+  and z; the requested pan-local mouth coordinate was destroyed.
+- Correction: keep pan-local x/z fixed and solve pan-local y from the desired world
+  table height using the pan's world up-axis component.
+- Prevention/check: every fixed start must assert its measured pan-local x/z after
+  the first physics transition before interpreting any contact result.
+
+## Collision clearance must use the oriented footprint
+
+- Context/symptom: after fixing the coordinate transform, v9 started at the exact
+  requested pan-local z=125 mm but immediately reached 2.64 m/s and flew outward.
+- Incorrect assumption or action: clearance was estimated from the scalar 12.5 mm
+  cube half-size as if the cube axes and tilted pan axes were aligned.
+- Root cause: the world-axis cube projects about 18.3 mm onto pan-local z, so its
+  inner face initially overlapped the ramp front by several millimetres.
+- Correction: place the fixed centre at z=140 mm, beyond the complete projected
+  footprint, before applying the low-speed entry command.
+- Prevention/check: calculate or measure oriented bounding-box separation in the
+  collision owner's frame and assert a positive first-frame gap before interpreting
+  forces, friction, or controller quality.
+
+## A global mesh minimum does not prove the entire pan mouth is grounded
+
+- Context/symptom: v10 had a measured 1.03 mm pan-mesh/table minimum and a stable
+  basin, yet the cube stopped at the first entrance contact.
+- Incorrect assumption or action: vertical translation was treated as sufficient
+  table alignment while retaining the reconstructed pan's roll and pitch.
+- Root cause: only one low mesh corner was near the table; the working mouth and
+  central collision ramp remained raised, and the short ramp exposed a vertical
+  leading face above the cube's support plane.
+- Correction: preserve source yaw but align the work-plane normal to world up, then
+  connect the measured local mesh underside to the basin with a longer ramp.
+- Prevention/check: report mouth-edge height across its full width and continuity
+  to the basin; never substitute a single global-minimum gap for that assertion.
+
+## Working-pose colliders must not be active during an incompatible spawn pose
+
+- Context/symptom: v11 stopped during environment construction with a 16.36 mm
+  left-tool registration shift before the level-pan probe ran.
+- Incorrect assumption or action: the grounded ramp was enabled immediately even
+  though generic environment construction still begins at tilted source row zero.
+- Root cause: a collider designed for the later table-aligned expert pose contacted
+  the table during the transient spawn and pushed the FixedJoint/arm system.
+- Correction: spawn that ramp disabled and enable it only after reaching and
+  settling the table-aligned task pose.
+- Prevention/check: validate collision-free initialization separately from the
+  working pose, and explicitly stage pose-specific collision geometry activation.
+
+## Deterministic scene registration is not a policy residual
+
+- Context/symptom: v12 found a precise, joint-valid level-pan GraspPose IK but
+  rejected it at 1.238 times the old left-arm residual envelope.
+- Incorrect assumption or action: the probe represented the fixed task setup as a
+  residual from the reconstructed row and applied actor exploration limits to it.
+- Root cause: feed-forward task-reference construction and learnable correction
+  were conflated.
+- Correction: install the level-pan IK as the fixed left-arm task reference and
+  retain zero actor residual; record the source delta only as provenance.
+- Prevention/check: every offset must declare whether it belongs to registration,
+  feed-forward reference, or policy action before any bound is applied.
+
+## A thin ramp can still expose an unclimbable rigid leading face
+
+- Context/symptom: v13 passed pan leveling and basin support, but the outside cube
+  stopped at z=138.66 mm against a nominally 1 mm-thick entry ramp.
+- Incorrect assumption or action: reducing the ramp thickness was treated as
+  equivalent to making its surface continuous with the table.
+- Root cause: any above-table box front remains a sharp vertical collision edge;
+  low-speed rigid contact need not climb it even when the edge is visually tiny.
+- Correction: extend the ramp surface below the table, filter only the ramp--table
+  collision pair, and keep its front farther than the combined contact offsets from
+  the table-supported cube.
+- Prevention/check: verify the height field and contact-offset envelope seen along
+  the cube approach path, not just collider thickness or visual appearance.
+
+## Do not interpret a rollout endpoint without checking its slope and reachability
+
+- Context/symptom: v15 ended at z=151.11 mm and was initially described as another
+  ramp stop.
+- Incorrect assumption or action: the final state was interpreted without checking
+  per-step displacement or whether the rollout had reached the ramp at all.
+- Root cause: the nominal velocity is written once per environment step and table
+  friction acts during substeps; effective progress was only 0.0435 mm/step.
+- Correction: inspect the full trace derivative, calculate the required horizon,
+  and make pan-only Gate1/2 explicit preconditions when the broom is disabled.
+- Prevention/check: before diagnosing contact, prove that the tested geometry was
+  reached and that every prerequisite gate is attainable in the isolated setup.
+
+## A once-per-control-step velocity write is not a persistent contact push
+
+- Context/symptom: v16 climbed the ramp to y=9.1 mm and then remained near
+  z=104.6 mm despite rewriting a nominal inward velocity each environment step.
+- Incorrect assumption or action: root velocity assignment was treated as an
+  actuator that applies through all physics substeps.
+- Root cause: ramp normal and friction cancel the assigned velocity after the first
+  substep; no sustained force remains for the rest of the control interval.
+- Correction: use a bounded persistent force for the isolated topology probe and
+  clear it immediately on containment.
+- Prevention/check: specify whether a diagnostic command is state assignment,
+  impulse, force, or closed-loop actuator, and validate its substep persistence.
+
+## Pan-only probes must not be presented as expert-trajectory progress
+
+- Context/symptom: the user observed that v16 showed a static right hand and a cube
+  being reset directly into the pan, unlike the requested expert sweep.
+- Incorrect assumption or action: topology validation was allowed to dominate the
+  iteration sequence and its videos were discussed alongside expert progress.
+- Root cause: a useful internal gate (support/ramp debugging) was confused with the
+  user-facing deliverable (continuous reconstructed right-hand sweep).
+- Correction: stop v17, return to the near-success
+  `closed_loop_cube_pan_servo_v1` controller, and use pan-probe results only as scene
+  setup underneath a real broom rollout.
+- Prevention/check: every reported video must state whether the cube is reset and
+  whether the broom collision/controller is active; only continuous Gate1--4 broom
+  rollouts may be called expert candidates.
+
+## Preserve a collision-free interval for the source outward preparation
+
+- Context/symptom: expert v3 immediately earned proximity and moved the cube outward
+  from z=160 to roughly 254 mm during rows300--313.
+- Incorrect assumption or action: the cube was placed at the ramp-probe start without
+  checking clearance from the broom at the start of the selected source segment.
+- Root cause: row300's bristles were already within 15.4 mm, so the intended
+  no-contact outward setup became an outward push.
+- Correction: place the fixed cube at z=195 mm so row313 reaches its outside face
+  before the inward segment starts.
+- Prevention/check: assert broom--cube clearance at the first expert row and contact
+  proximity at the inward-sweep boundary as separate preconditions.
+
+## Do not infer 3D bristle clearance from a scalar pan-z offset
+
+- Context/symptom: moving the cube from z=160 to 195 mm reduced actual row300
+  broom distance from 15.4 to 12.5 mm and produced a roughly 9 m/s launch.
+- Incorrect assumption or action: clearance was estimated from the nominal sweep
+  direction without evaluating the oriented, extended bristle work face.
+- Root cause: the live bristle cloud spans x/y/z; another point became the nearest
+  collider after the z-only move.
+- Correction: search the full transformed point cloud at both row300 and row313 and
+  assert the live reset distance before stepping physics.
+- Prevention/check: use minimum distance to the collision-owned work face for all
+  initial placement decisions.
+
+## Every expert attempt needs a unique failure-artifact tag
+
+- Context/symptom: v4 saved under the v3 controller tag and overwrote v3's failed
+  NPZ/video.
+- Incorrect assumption or action: the failure filename was tied only to controller
+  family, not attempt version/configuration.
+- Root cause: output identity omitted task geometry and run version.
+- Correction: v5 and later attempts use unique versioned tags; the v3 numeric result
+  remains in its durable run log, but its overwritten video is not recoverable
+  without a rerun.
+- Prevention/check: assert destination nonexistence or include the run version in
+  every log, NPZ, checkpoint, and video basename before launch.
+
+## Use the correct transformed axis when auditing a tool quaternion
+
+- Context/symptom: an initial read of the v1 trace described the dustpan as nearly
+  vertical (95--103 degrees) even though the frames and row313 probe showed a mostly
+  level work plane.
+- Incorrect assumption or action: the world-y component of transformed local +y
+  was used as though it were its world-z component.
+- Root cause: for scalar-first `wxyz`, local +y's world-z component is matrix entry
+  `R[2,1] = 2*(y*z + w*x)`, not `R[1,1] = 1-2*(x*x + z*z)`.
+- Correction: recompute the complete rotation matrix and compare the transformed
+  pan-local +y axis with world +z.  The v1 closest frame is about 8.1 degrees from
+  level; its real defect is vertical placement of the mouth/floor.
+- Prevention/check: print the full transformed basis and cross-check it against a
+  known probe pose before changing any IK target from a quaternion-derived angle.
+
+## Never enable grounded task collision before a changed GraspPose settles
+
+- Context/symptom: v6 passed a static 23.07 mm broom/cube clearance check but the
+  fixed cube launched outward at 1.97 m/s in the first five transitions.
+- Incorrect assumption or action: the grounded dustpan ramp was enabled while reset
+  was still reconciling the source spawn, new fixed-pan IK, arm PD, and FixedJoint.
+- Root cause: centre-distance checks covered broom geometry only.  The moving ramp
+  swept through the nearby cube before the right-arm controller emitted any action.
+- Correction: park the cube, settle the attached tools with the ramp disabled,
+  enable and settle the ramp, assert pan pose/speed, then install the fixed task
+  cube before recorded frame0.
+- Prevention/check: every task-specific collider enabled after spawn needs a
+  zero-action dynamic reset gate; static separation from the active tool is not
+  sufficient evidence of a collision-free first transition.
+
+## Row-specific geometry diagnostics must index the same row
+
+- Context/symptom: the expert report labelled a value `row313_broom_outside_z_mm`,
+  but the coordinate came from preparation row301 using a vertex index selected on
+  row313.
+- Incorrect assumption or action: `points_pan[1][idx13]` was used after computing
+  `idx13` from `points_pan[-1]`.
+- Root cause: the row index and vertex index were separated across two statements
+  and the preparation index survived a prior diagnostic rewrite.
+- Correction: compute the coordinate with `points_pan[-1][idx13]`.
+- Prevention/check: derive every row-labelled diagnostic from one explicitly named
+  row array and include a static sanity print for the source row number.
+
+## Keep an immutable behavioral A/B baseline during controller iteration
+
+- Context/symptom: successive v10--v15 expert attempts changed contact-point
+  selection, source-path lateral motion, cube placement, and feedback timing while
+  trying to fix a near-successful v1 rollout.
+- Incorrect assumption or action: each failed controller became the starting point
+  for the next one, instead of replaying v1 unchanged and isolating the dustpan fix.
+- Root cause: useful per-attempt diagnostics were treated as justification for
+  cumulative redesign even though v1's best frame still used zero residual.
+- Correction: stop v15, freeze the archived v1 NPZ/video as the right-hand source of
+  truth, and permit only a one-variable low-pan/entry A/B replay next.
+- Prevention/check: before accepting a controller change, replay the immutable
+  baseline in the same scene and require quantitative plus visual improvement with
+  every non-target variable held constant.
+## Repair visible task-asset defects in the asset, not with an overlapping proxy
+
+- Context/symptom: the v1 dustpan visibly had a raised mouth lip, but the first
+  attempted A/B added and enabled an invisible smooth ramp around the unchanged
+  mesh.  It kicked the attached pan by 41.16 mm on frame1 and ejected the cube.
+- Incorrect assumption/action: treated a reconstructed mesh defect as only a
+  collision-topology problem, then tried root/child table filtering and delayed
+  activation without first repairing the visible source geometry.
+- Root cause: the original central mouth vertices rise from an 8--9 mm basin top
+  to 14.06 mm.  The added proxy also overlapped the initial v1 broom/tool geometry;
+  filtering table descendants did not change the failure trace.
+- Correction: removed both failed videos and superseded scripts, reverted the
+  ineffective filter change, generated a watertight task-owned asset whose mouth
+  continuously falls to 6.85 mm, and reran the immutable v1 actions/rows.
+- Prevention/check: when a user identifies an asset-level visual defect, first
+  measure and render the asset cross-section, preserve its topology and grasp
+  frame, create a non-destructive task copy, and validate with a behavioral A/B
+  whose command tensors are hash-locked.

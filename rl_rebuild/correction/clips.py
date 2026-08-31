@@ -405,12 +405,17 @@ def _sweep2(primary: str):
     # not run on a fresh clone.
     base = os.path.join(_DATASETS, "sweep_2_better")
     rr = base
+    # The reconstructed dustpan scan curls upward again at the open mouth,
+    # creating a 5--6 mm false lip that blocks the Sweep2 cube.  Keep the source
+    # dataset immutable and use the reproducibly smoothed task asset instead.
+    smooth_pan = os.path.abspath(os.path.join(
+        os.path.dirname(__file__), "../../tasks/Sweep/2/assets/dustpan_smooth_entry"))
     dustpan = dict(
         oid="object_0", hand="left",
         label="dustpan (15.8x2.9x21.6cm, handle near ground)",
-        mesh=os.path.join(base, "objects", "object_0", "object_mesh_scaled_final.obj"),
+        mesh=os.path.join(smooth_pan, "object_mesh_scaled_final.obj"),
         usd=os.path.join(rr, "retarget", "object_0.usd"),
-        usd_physics=os.path.join(base, "cache", "object_0.usd"),
+        usd_physics=os.path.join(smooth_pan, "object_mesh_scaled_final.usd"),
         semantics=ObjectSemantics(label="dustpan", mass_kg=0.10, friction=0.6,
                                   mass_range=(0.08, 0.30)),
     )

@@ -1,15 +1,18 @@
-"""U44 力学对账探针: 拧转角的推进是否被真实指尖接触力支撑?
+"""力学对账探针: 盖的转动是否由真实指尖接触力矩解释?
 
 用户质询 (2026-08-31, 看 run7 录像): "扭开了部分, 但那时候手并没有摩擦来旋转".
 
-逐控制步同时记录两个量:
-  tau_est  = 螺纹模型内部的力矩估计 (screw_tau_ema)
-  tau_cap  = Σ|F_i| × 力臂_i  —— PhysX 真实接触力给出的**物理上限**
-             (假设全部力都是切向, 已经是最宽松的上界)
-以及 omega 分解: 相对角速度 / 盖绝对 / 瓶绝对 (都投影到螺轴).
+逐控制步记录: 模型内部力矩估计 (screw_tau_ema) / 接触力上限 Σ|F|·arm /
+有符号切向分量 / 维持当前转速所需力矩 / 滑移 / 接触指数 / 合力.
 
-判据: 若拧角推进期 tau_cap << 维持该转速所需力矩 (tau_need = τk + b·ω),
-      则转动不是指尖摩擦驱动的 = 幻影.
+**验收门 (U44b 更正后)**: Δω 实测 与 (τ_接触 − τ_阻力)·dt/I_eff 预测
+**同号率 >= 70%**。
+
+⚠ 已废弃的判据 "滑移<0": force_matrix_w 是**法向力**张量 (IsaacLab 源码
+原话 "The normal contact forces"), 证不了摩擦驱动; 且滑移>0 排除不了
+**偏心法向推** (手指顶盖沿 = 拨旋钮), 那是合法驱动方式. 滑移仍打印, 仅参考.
+⚠ 判 Δω 必须计入螺纹阻力: 2 rad/s 下 drag = τk + b·ω = 75 mN·m,
+与接触力矩同量级, 漏掉它会把符号判反 (U44b 教训).
 
   OMNI_KIT_ACCEPT_EULA=YES SHARPA_WANDB=0 RL_ISAAC_NO_GUARD=1 PYTHONPATH=. \
       CUDA_VISIBLE_DEVICES=1 $PY -u \
@@ -73,12 +76,13 @@ print(f"[audit] spec breakaway={spec.breakaway_torque_nm} kinetic={spec.kinetic_
       f"viscous={spec.viscous_nms} I_eff={spec.inertia_eff_kgm2}")
 print("[audit] 列: 步 | 角° | ω_rel | ω_瓶 | 锁 | τ估计 | τ上限 | τ驱动(有符号) | τ需要 "
       "| 滑移(盖-指,m/s) | n触 | ΣF(N)")
-print("[audit] 判据: |τ驱动| < τ需要 且 滑移 > 0 ⇒ 盖跑在手指前面, 转动非指尖驱动 = 幻影")
+print("[audit] 门: Δω 与 (τ_接触−τ_阻力) 同号率 >= 70% (滑移列仅参考, 见 docstring)")
 
 obs = env.reset()
 prev_ang = 0.0
 adv_slip: list[float] = []      # 拧角推进步的滑移 (盖面 − 指尖)
 adv_n = 0
+trace: list[tuple] = []         # (步, 角, ω_rel, τ驱动, τ需要, n触)
 with torch.no_grad():
     for t in range(args.steps):
         mu = agent.model.act_inference(
@@ -129,6 +133,8 @@ with torch.no_grad():
                   f"{1000 * float(tau_cap[E]):7.1f} | {1000 * float(tau_drive[E]):+8.1f} | "
                   f"{1000 * tau_need:7.1f} | {float(slip[E]):+7.3f} | "
                   f"{n_c} | {float(fmag[E].sum()):6.2f}")
+        trace.append((t, ang, float(w_rel[E]), float(1000 * tau_drive[E]),
+                      1000 * tau_need, n_c))
         if ang - prev_ang > 0.5 and n_c > 0:      # 有接触且拧角在推进
             adv_slip.append(float(slip[E]))
             adv_n += 1
@@ -137,19 +143,32 @@ with torch.no_grad():
             print(f"[audit] env{E} 回合结束 @步 {t}")
             break
 
-# ---- U44 新验收门: 推进必须由指尖带动 (指尖跑在盖面前面 => 滑移 < 0) ----
-print(f"\n[audit] 推进采样步 n={adv_n}")
-if adv_n == 0:
-    print("[audit] ⚠ 无推进步 —— 该 ckpt 在修复后的物理下拧不动 (预期: 旧策略靠幻影)")
+# ---- 验收门 (U44b 更正后): 一致性检验 —— 盖的角加速度必须由
+# "接触力矩 − 螺纹阻力" 解释. 旧的"滑移<0"门已废弃: 它建立在
+# force_matrix_w 上, 而那是**法向力**张量, 永远证不了摩擦驱动;
+# 且它排除不了偏心法向推 (顶盖沿 = 拨旋钮), 那是合法的驱动方式.
+print(f"\n[audit] 推进采样步 n={adv_n}  (参考: 滑移>0 占比 "
+      f"{sum(1 for s in adv_slip if s > 0) / max(adv_n, 1):.0%}, 仅供参考不作判据)")
+agree = tot = 0
+for a, b in zip(trace, trace[1:]):
+    if b[0] - a[0] != 1 or a[5] == 0:
+        continue
+    dw_obs = b[2] - a[2]
+    tau_cap = -a[3] / 1000.0                 # 反作用: force_matrix_w 是盖->指尖
+    drag = (a[4] / 1000.0) * (1.0 if a[2] > 0 else -1.0)
+    dw_pred = (tau_cap - drag) * (12.0 / 240.0) / spec.inertia_eff_kgm2
+    if abs(dw_obs) < 1e-3:
+        continue
+    tot += 1
+    agree += (dw_obs > 0) == (dw_pred > 0)
+if tot == 0:
+    print("[audit] ⚠ 无可用样本 (该 ckpt 在新物理下几乎不转 —— 对旧策略是预期结果)")
 else:
-    pos = sum(1 for s in adv_slip if s > 0)
-    frac = pos / adv_n
-    mean_slip = sum(adv_slip) / adv_n
-    print(f"[audit] 推进步中 滑移>0 (盖跑在手指前面) 占比 = {frac:.1%}  "
-          f"均值 = {mean_slip:+.4f} m/s")
-    ok = frac < 0.5
-    print(f"[audit] {'PASS' if ok else 'FAIL'} U44门: 推进由指尖驱动"
-          f" (判据 滑移>0 占比 < 50%)")
+    frac = agree / tot
+    print(f"[audit] 一致性: Δω 实测与 (τ_接触−τ_阻力) 预测 同号 "
+          f"{agree}/{tot} = {frac:.0%}")
+    print(f"[audit] {'PASS' if frac >= 0.7 else 'FAIL'} 门: 转动由接触力矩解释"
+          f" (判据 同号率 >= 70%)")
 print("[audit] 完成")
 env.close()
 app.close()

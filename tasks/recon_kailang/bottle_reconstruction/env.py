@@ -416,7 +416,6 @@ class BottleReconstructionEnv(DexmateCorrectionEnv):
                 and hasattr(self, "_cap_contacts")):
             dw = dw * (self._cap_contacts().sum(dim=1) > 0).float()
         tau_in = spec.inertia_eff_kgm2 * dw / dt
-        omega_phys = self.screw_omega + dw
         alpha = dt / max(spec.torque_ema_s, dt)
         self.screw_tau_ema += alpha * (tau_in - self.screw_tau_ema)
         # 解锁 = EMA 持续超阈 unlock_dwell_s (连续子步计数), 冲击自动清零.
@@ -425,11 +424,22 @@ class BottleReconstructionEnv(DexmateCorrectionEnv):
         unlock = self.screw_locked & (
             self._screw_unlock_dwell >= spec.unlock_dwell_s)
         self.screw_locked = self.screw_locked & ~unlock
-        drag = (spec.kinetic_torque_nm + spec.viscous_nms
-                * omega_phys.abs()) * dt / spec.inertia_eff_kgm2
+        # U45 (2026-08-31, 用户裁定"贴近人手 + 物理与真实相同"): 螺纹转动改
+        # **准静态 (过阻尼)**. 真实盖 I/b ≈ 7e-7/0.03 ≈ 2e-5 s, 远小于一个子步
+        # (4e-3 s) —— 惯性完全可忽略, 转速由**力矩平衡**决定而非积分存动量:
+        #     ω = sign(τ)·(|τ| − τ_kinetic)⁺ / b
+        # 旧的 "ω += dw − drag" 让盖变成**飞轮** (时间常数 I_eff/b = 0.17s =
+        # 40 子步), 一次猛戳注入的角动量存得住还能累积 —— 这正是策略学会
+        # "戳转"而非"握拧"的根因 (U44b 尸检). 准静态下猛戳只给一瞬 τ 尖峰
+        # (还要过 25ms EMA + 33ms 持续解锁判据), ω 立刻回零; 只有持续握持的
+        # 持续 τ 才有持续转动 => 戳转失效, 握拧成为唯一通路.
+        # 回锁自然形成静/动摩擦滞环: 解锁需 |τ|>breakaway(0.04), 而 ω→0 需
+        # |τ|≤kinetic(0.015), 与真实螺纹一致.
         omega = torch.where(
-            self.screw_locked, torch.zeros_like(omega_phys),
-            torch.sign(omega_phys) * (omega_phys.abs() - drag).clamp(min=0.0))
+            self.screw_locked, torch.zeros_like(self.screw_tau_ema),
+            torch.sign(self.screw_tau_ema)
+            * (self.screw_tau_ema.abs()
+               - spec.kinetic_torque_nm).clamp(min=0.0) / spec.viscous_nms)
         relock = (~self.screw_locked
                   & (omega.abs() < spec.lock_omega_eps)
                   & (self.screw_tau_ema.abs() < spec.breakaway_torque_nm))

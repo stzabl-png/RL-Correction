@@ -12,6 +12,9 @@
       重建的盖转角不可作真值 (螺轴对称, 视觉不可观 —— 数据集 README)。
   placed = 双物体到**母带末交互行位姿** (不是静置位: 盖起点在瓶上、终点在桌上,
       rest≠end)。瓶 3cm/15°, 盖 5cm/30° (盖小且放置点由人示范定义, 松一档)。
+      **且护送未失败** (T2-3, 2026-08-30 用户裁定): 成功 = 右手拿着盖放到
+      桌上; 盖无右垫接触地快速穿过放下带顶 (过带单事件) 即 escort_fail
+      粘滞, placed 永不立 —— 盖自己脱落/被甩到目标邻域不算成功。
   置信度主档 tmix = min(瓶, 盖) 的 min(pos,rot) 档 —— 双物体任务里短板决定
       参考可信度 (README 排名同口径)。
   人手置信度 (本任务新增): hand_conf_fin_r/l 列 → HCF 权重 (绿1/黄0.5/红0),
@@ -39,6 +42,15 @@ MS_REWARD = {1: 5.0, 2: 8.0, 3: 10.0, 4: 15.0}   # G1/G2/G3释放/G4(=Success终
 PLACED_POS = {0: 0.03, 1: 0.05}          # 瓶 3cm / 盖 5cm
 PLACED_ROT = {0: np.radians(15), 1: np.radians(30)}
 PLACED_HOLD = 15
+# ---- [TASK] placed 护送判据 (2026-08-30 用户裁定, 台账 T2-3): 成功必须是
+# **右手拿着盖放到桌上**, 盖自己脱落/被甩到目标邻域不算。机制 = 过带单事件:
+# 释放后任何落桌的盖必恰好穿过放下带顶 (桌面+ESCORT_BAND) 一次; 穿带那步若
+# [单步下降>ESCORT_FALL 且 无右垫接触] => escort_fail 粘滞, placed 永不立。
+# 受控放下: 要么带着接触穿带, 要么慢放 (<ESCORT_FALL/步 = 16cm/s @20Hz)。
+# 自由落体哪怕从带顶上方 2cm 起掉, 穿带步降幅也 >3cm => 必抓; 母带释放高度
+# 仅 0.92m (人转平低位拧开), 高度无关的单事件判据不受此影响。----
+ESCORT_BAND = 0.03
+ESCORT_FALL = 0.008
 M4_ARM, M4_HOLD = np.radians(10), 15     # G4 双臂贴站姿逐关节<10°, hold15
 M4_DIST_POS, M4_DIST_ROT = 0.05, np.radians(30)   # 撤退期物体相对 placed 快照
 # ---- G1/G2 认证 (框架 L5-1 拍板; G1 只判左手, 见模块 docstring) ----
@@ -51,10 +63,84 @@ WAGE = 0.05
 WAGE_CAP = 3.0
 # ---- 死线 ----
 D1_DROP = 0.05
+D2_PRE_TILT = np.radians(60)  # G2 前瓶倒伏
 D2_TILT = np.radians(30)      # placed 后撤退段
 D3_DEV = 0.35
+D4_SLIP = 0.05               # 交互期腕-物相对滑移
+D5_BELOW_TABLE = 0.005       # 手部低于桌面 5mm
 TABLE_Z = 0.87
+PAD_FTH = 0.5
+PADS_MIN = 3
+SCREW_CONTACT_FTH = 0.1
+SCREW_TRIAD = (0, 1, 2)      # 右手拇/食/中
 UP_LOCAL = {0: np.array([0.0, 0.0, 1.0]), 1: np.array([0.0, 0.0, 1.0])}  # [TASK]
+
+# Checkpoint compatibility contract: only success/failure semantics belong in
+# this digest. Reward weights and accounting fields deliberately stay out.
+# schema=3: 2026-08-30 加 placed 护送判据 (ESCORT_*), placed 语义收紧。
+CRITERIA_SCHEMA = 3
+
+
+def criteria_items():
+    """Return normalized constants that determine task success or failure."""
+    def _n(value):
+        if isinstance(value, dict):
+            return {str(key): _n(value[key]) for key in sorted(value, key=str)}
+        if isinstance(value, np.ndarray):
+            return [_n(item) for item in value.tolist()]
+        if isinstance(value, (list, tuple)):
+            return [_n(item) for item in value]
+        if value is None:
+            return None
+        try:
+            return round(float(value), 9)
+        except Exception:
+            return str(value)
+
+    return {key: _n(value) for key, value in {
+        "GATE_POS": GATE_POS,
+        "TIER_HI": TIER_HI,
+        "TIER_LO": TIER_LO,
+        "GATE_ROT": GATE_ROT,
+        "RED_GATE_POS": RED_GATE_POS,
+        "LEASH_POS": LEASH_POS,
+        "LEASH_ROT": LEASH_ROT,
+        "G1_HOLD": G1_HOLD,
+        "CERT_RAMP": CERT_RAMP,
+        "CERT_HOLD": CERT_HOLD,
+        "CERT_RET": CERT_RET,
+        "CERT_RISE": CERT_RISE,
+        "CERT_SLIP": CERT_SLIP,
+        "CERT_WAIT": CERT_WAIT,
+        "CERT_TRIES": CERT_TRIES,
+        "PLACED_POS": PLACED_POS,
+        "PLACED_ROT": PLACED_ROT,
+        "PLACED_HOLD": PLACED_HOLD,
+        "ESCORT_BAND": ESCORT_BAND,
+        "ESCORT_FALL": ESCORT_FALL,
+        "M4_ARM": M4_ARM,
+        "M4_HOLD": M4_HOLD,
+        "M4_DIST_POS": M4_DIST_POS,
+        "M4_DIST_ROT": M4_DIST_ROT,
+        "D1_DROP": D1_DROP,
+        "D2_PRE_TILT": D2_PRE_TILT,
+        "D2_TILT": D2_TILT,
+        "D3_DEV": D3_DEV,
+        "D4_SLIP": D4_SLIP,
+        "D5_BELOW_TABLE": D5_BELOW_TABLE,
+        "PAD_FTH": PAD_FTH,
+        "PADS_MIN": PADS_MIN,
+        "SCREW_CONTACT_FTH": SCREW_CONTACT_FTH,
+        "SCREW_TRIAD": SCREW_TRIAD,
+        "UP_LOCAL": UP_LOCAL,
+        "TABLE_Z": TABLE_Z,
+    }.items()}
+
+
+def criteria_digest():
+    import hashlib
+    blob = json.dumps(criteria_items(), sort_keys=True, ensure_ascii=False)
+    return CRITERIA_SCHEMA, hashlib.md5(blob.encode()).hexdigest()[:16]
 
 
 def _tier(v):
@@ -168,11 +254,15 @@ class UnscrewProgress:
         self.m4_run = 0
         self.m3_snap = None
         self.done = False
+        self.escort_fail = False
+        self._cap_z_prev = None
 
     # -- 逐步接口: obj0=瓶(7,) obj1=盖(7,), armq_r/l(7,), pads3=左手>=3/5垫(bool),
-    #    wrist_r/l(3,), screw_released=env 螺旋 detach 锁存(bool) --
+    #    wrist_r/l(3,), screw_released=env 螺旋 detach 锁存(bool),
+    #    pads_r_cap=右手垫-盖接触>=1垫(bool); None=无信号, 护送判据停用
+    #    (离线探针兼容; env 必须显式传) --
     def step(self, obj0, obj1, armq_r, armq_l, pads3, wrist_r, wrist_l,
-             screw_released=False):
+             screw_released=False, pads_r_cap=None):
         out = {"clock": self.k, "adv": 0.0, "leash": 0.0, "w_obj": None,
                "ms": 0.0, "wage": 0.0, "done": False, "gate_by": None,
                "fail": None, "cert_phase": self.cert_phase, "cert_t": self.cert_t}
@@ -278,8 +368,20 @@ class UnscrewProgress:
         if self.g[2] and not self.g[3] and self.released:
             self.g[3] = True
             out["ms"] += MS_REWARD[3]
-        # ---- placed: [TASK] 双物体到母带末行目标 (瓶3cm/15° 盖5cm/30°) hold15 ----
-        if self.g[3] and not self.placed:
+        # ---- [TASK] 护送过带检查 (T2-3): 无接触快速穿过放下带顶 = 永久失败 ----
+        if self.g[3] and not self.placed and pads_r_cap is not None:
+            _cz = float(np.asarray(obj1, np.float64)[2])
+            _top = TABLE_Z + ESCORT_BAND
+            if (self._cap_z_prev is not None
+                    and self._cap_z_prev > _top >= _cz
+                    and (self._cap_z_prev - _cz) > ESCORT_FALL
+                    and not bool(pads_r_cap)):
+                self.escort_fail = True
+            self._cap_z_prev = _cz
+        out["escort_fail"] = self.escort_fail
+        # ---- placed: [TASK] 双物体到母带末行目标 (瓶3cm/15° 盖5cm/30°) hold15
+        #      + 护送未失败 (右手拿着盖放下, 不是盖自己掉到目标) ----
+        if self.g[3] and not self.placed and not self.escort_fail:
             _ok3 = True
             for _oi3, _act3 in ((0, obj0), (1, obj1)):
                 _dp3 = np.linalg.norm(np.asarray(_act3[:3])
@@ -321,10 +423,9 @@ class UnscrewProgress:
                 self.m4_run = 0
         # ---- 死线 D1/D2pre/D3/D8 ----
         # D2pre: G2 前瓶倾>60° = 倒伏即终 ([TASK] 只判瓶 —— 盖被螺旋钉着同倾角)
-        if not self.g[2]:
-            if _axis_tilt(np.asarray(obj0, np.float64)[3:7], UP_LOCAL[0]) \
-                    > np.radians(60):
-                out["fail"] = "D2pre_fallen_obj0"
+        if (not self.g[2] and _axis_tilt(np.asarray(obj0, np.float64)[3:7],
+                                         UP_LOCAL[0]) > D2_PRE_TILT):
+            out["fail"] = "D2pre_fallen_obj0"
         for oi, act in ((0, obj0), (1, obj1)):
             a = np.asarray(act, np.float64)
             if a[2] < TABLE_Z - D1_DROP:

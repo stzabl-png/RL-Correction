@@ -1,6 +1,6 @@
 """Unscrew 训练入口 (框架件, Pour17 v5 同构) (接线工程).
 
-  PY=/home/lyh/luhr/MagicSim/.venv/bin/python
+  PY=${PY:-$HOME/miniforge3/envs/isaac/bin/python}
   SHARPA_WANDB=0 PYTHONPATH=. $PY <task>/C_Wiring/train_task.py \
       --num_envs 512 --headless
   冒烟: ... --num_envs 64 --max_agent_steps 60000 --headless
@@ -8,7 +8,7 @@
 钩子 (全部单旋钮 EMA 体制, 与 RSI/#13 拍板一致):
   p_t0    = 0.2 + 0.6*EMA(sr/gate4)      —— RSI 配比 (#11)
   相B开闸  = EMA(sr/gate1) >= 0.7 单向棘轮 —— #13 拍板3 (v1 只立旗+记录, 接触奖金
-            与转运臂门放开的执行体挂 phase_b 旗, 见 pour_env TODO)
+            与转运臂门放开的执行体挂 phase_b 旗, 见 task_env)
 TB: 引擎自带 + sr/gate1-4 + prog/clock_frac + term/* 每 epoch 倾倒。
 """
 from __future__ import annotations
@@ -17,10 +17,24 @@ import argparse
 import os
 import sys
 
-from isaaclab.app import AppLauncher
+# 拒绝占位母带必须发生在导入 IsaacLab 之前；仅 --help 跳过，让 argparse
+# 仍能展示 AppLauncher 的完整参数表。
+_HELP_REQUESTED = any(arg in ("-h", "--help") for arg in sys.argv[1:])
+if not _HELP_REQUESTED:
+    _PREFLIGHT_DIR = os.path.dirname(os.path.abspath(__file__))
+    sys.path.insert(0, _PREFLIGHT_DIR)
+    import task_config as _TC_PREFLIGHT  # noqa: E402
+
+    _PREFLIGHT_REF = (
+        _TC_PREFLIGHT.REF_V2 if os.path.isfile(_TC_PREFLIGHT.REF_V2)
+        else _TC_PREFLIGHT.REF_V1)
+    _TC_PREFLIGHT.require_training_reference(_PREFLIGHT_REF)
+
+from isaaclab.app import AppLauncher  # noqa: E402
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--name", default="Unscrew32_0")
+parser.add_argument("--name", default=(
+    f"Unscrew{os.environ.get('UNSCREW_CLIP', '32')}_0"))
 parser.add_argument("--num_envs", type=int, default=512)
 parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--max_agent_steps", type=int, default=None)
@@ -30,6 +44,7 @@ parser.add_argument("--no_autorec", action="store_true",
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 assert args.headless or os.environ.get("POUR_GUI"), "训练必须 --headless (CLAUDE.md 铁则)"
+
 
 from rl_rebuild.utils.gpu_guard import isaac_slot  # noqa: E402
 _slot = isaac_slot(f"unscrew_train_{args.name}")
@@ -122,6 +137,18 @@ class TaskPPO(PPO):
 cfg = PE.build_cfg(num_envs=args.num_envs)
 cfg.seed = args.seed
 raw = PE.UnscrewEnv(cfg)
+# v2 验收不仅绑定母带，还绑定生成验收结论时的完整物理世界。
+import json as _json  # noqa: E402
+import world_fingerprint as WF  # noqa: E402
+
+if os.environ.get("UNSCREW_ALLOW_UNVERIFIED_REF") == "1":
+    print("[reference] ⚠ 已显式跳过 v2 验收世界核对", flush=True)
+else:
+    with open(_TC_PREFLIGHT.ACCEPTANCE_JSON, encoding="utf-8") as _fh:
+        _acceptance = _json.load(_fh)
+    # HYB/OBJ 只改变参考奖励体制，不改变这次零动作物理母带验收。
+    WF.assert_recorded(raw, _acceptance["world"], strict=True,
+                       label="v2 验收世界", ignore=("method.variant",))
 env = GymStyleEnvWrapper(raw, clip_actions=1.0)
 
 with open(os.path.join(_HERE, "ppo_task.yaml")) as f:
@@ -138,28 +165,27 @@ agent_cfg["algorithm"]["minibatch_size"] = min(
 
 log_dir = os.path.join("logs", args.name)
 os.makedirs(log_dir, exist_ok=True)
-# ---- 世界指纹 (ckpt绑定世界版本纪律 + L5-1: 母带世代进指纹) ----
-import hashlib, json
-# 世界USD: 记实际路径+md5, 不记"default" —— "default"只说明没覆写, 不说明用了哪份
-# (2026-08-29 重建侧发现: 旧 run 的 usd="default" 无法判断实际加载文件)
-from rl_rebuild.correction.env import dexmate_env_cfg as _dcfg
-_usd_path = getattr(_dcfg, "_FIXED_USD", os.environ.get("DEXMATE_FIXED_USD", "?"))
-try:
-    _usd_md5 = hashlib.md5(open(_usd_path, "rb").read()).hexdigest()[:8]
-except Exception:
-    _usd_md5 = "?"
-import task_config as _TC
-_wj = {"task": _TC.TASK, "clip": _TC.CLIP,
-       "variant": os.environ.get("POUR_VARIANT", "HYB").upper(),
-       "beta_r": os.environ.get("POUR_BETA_R", "2.0"),
-       "beta_l": os.environ.get("POUR_BETA_L", "1.0"),
-       "ref_npz": PE.MASTER,
-       "ref_md5": hashlib.md5(open(PE.MASTER, "rb").read()).hexdigest()[:8],
-       "usd": _usd_path, "usd_md5": _usd_md5,
-       "obs_dim": PE.OBS_DIM, "act_dim": PE.ACT_DIM}
-with open(os.path.join(log_dir, "world.json"), "w") as _wf:
-    json.dump(_wj, _wf, indent=1, ensure_ascii=False)
-print(f"[train_task] 世界指纹: ref_md5={_wj['ref_md5']} 变体={_wj['variant']}", flush=True)
+# ---- 完整世界指纹: ckpt 与几何、判据、螺纹物理、母带和方法参数绑定 ----
+import task_config as _TC  # noqa: E402
+
+if args.load_path and not os.environ.get("POUR_IGNORE_WORLD"):
+    _load_world = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(args.load_path))), "world.json")
+    WF.assert_match(raw, _load_world, strict=True)
+elif args.load_path:
+    print("[world] ⚠ POUR_IGNORE_WORLD=1 已跳过续训世界核对", flush=True)
+
+WF.write(raw, os.path.join(log_dir, "world.json"), extra={
+    "reference": {"path": PE.MASTER},
+    "policy_io": {"obs_dim": PE.OBS_DIM, "act_dim": PE.ACT_DIM},
+    "sensors": {"pad_force_threshold_N": PE.PAD_FTH,
+                "pads_min_per_hand": PE.PADS_MIN},
+    "method": {"task": _TC.TASK, "clip": _TC.CLIP,
+               "variant": raw._variant,
+               "beta_r": raw.beta_r,
+               "beta_l": raw.beta_l,
+               "name": args.name, "seed": args.seed},
+})
 agent = TaskPPO(env, output_dir=log_dir,
                 full_config=ConfigWrapper(agent_cfg, {}), raw_env=raw)
 if args.load_path:

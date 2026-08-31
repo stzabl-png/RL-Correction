@@ -46,6 +46,14 @@ agent_cfg["algorithm"]["num_actors"] = 1
 agent = PPO(env, output_dir="/tmp/unscrew_rec",
             full_config=ConfigWrapper(agent_cfg, {}, test=True), create_output_dir=False)
 agent.restore_test(args.checkpoint)
+import world_fingerprint as WF  # noqa: E402
+
+_world_json = os.path.join(os.path.dirname(os.path.dirname(
+    os.path.abspath(args.checkpoint))), "world.json")
+if not os.environ.get("POUR_IGNORE_WORLD"):
+    WF.assert_match(raw, _world_json, strict=True)
+else:
+    print("[world] ⚠ POUR_IGNORE_WORLD=1 已跳过世界核对", flush=True)
 agent.set_eval()
 
 import omni.replicator.core as rep  # noqa: E402

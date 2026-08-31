@@ -21,7 +21,8 @@ from progress import (LEASH_POS, LEASH_ROT, GATE_POS, GATE_ROT, RED_GATE_POS,
                       W_HCONF, _tier,
                       G1_HOLD, CERT_RAMP, CERT_HOLD, CERT_RET, CERT_RISE,
                       CERT_SLIP, CERT_WAIT, CERT_TRIES, WAGE, WAGE_CAP,
-                      D1_DROP, D2_TILT, D3_DEV, TABLE_Z, UP_LOCAL)
+                      D1_DROP, D2_PRE_TILT, D2_TILT, D3_DEV, TABLE_Z, UP_LOCAL,
+                      ESCORT_BAND, ESCORT_FALL)
 
 # 观测/接线兼容别名 (框架 task_env 引用这些名字)
 M2_HOLD = 1                      # G3=释放是锁存事件, 无 hold (进度条观测用)
@@ -133,6 +134,9 @@ class UnscrewProgressBatch:
         self.pre2 = torch.zeros_like(self.g1)
         self.pre3 = torch.zeros_like(self.g1)
         self.done = torch.zeros_like(self.g1)
+        # [TASK] T2-3 护送: escort_fail 粘滞; cap_z_prev<0=未初始化(过带恒假)
+        self.escort_fail = torch.zeros_like(self.g1)
+        self.cap_z_prev = torch.full((num_envs,), -1.0, device=device)
         self._acc = {"ep": 0, "g1": 0, "g2": 0, "g3": 0, "g4": 0,
                      "clock": 0.0, "catt": 0, "cpass": 0,
                      "ep_t0": 0, "g1_t0": 0, "g2_t0": 0, "g3_t0": 0, "g4_t0": 0}
@@ -154,8 +158,9 @@ class UnscrewProgressBatch:
                 self._acc[gk] += int((gt[env_ids] & t0m).sum())
         for t_ in (self.g1, self.g2, self.g3, self.g4, self.placed, self.done,
                    self.released, self.pre1, self.pre2, self.pre3, self.lb_set,
-                   self.cert_pending):
+                   self.cert_pending, self.escort_fail):
             t_[env_ids] = False
+        self.cap_z_prev[env_ids] = -1.0
         for oi in (0, 1):
             self.lb[oi][env_ids] = 0.0
         self.cert_z0[env_ids] = 0.0
@@ -209,9 +214,10 @@ class UnscrewProgressBatch:
         return out
 
     def step(self, obj0, obj1, armq_r, armq_l, pads3, wrist_r, wrist_l,
-             screw_released=None, run_mask=None):
+             screw_released=None, run_mask=None, pads_r_cap=None):
         """全部 (N,·) 张量; obj0=瓶 obj1=盖; pads3=左手>=3/5垫;
-        screw_released (N,)bool = env 螺旋 detach 锁存; run_mask=交互行管辖。"""
+        screw_released (N,)bool = env 螺旋 detach 锁存; run_mask=交互行管辖;
+        pads_r_cap (N,)bool = 右手垫-盖接触>=1垫 (None=护送判据停用)。"""
         k = self.k.clamp(max=self.N_ROW - 1)
         tier = self.tmix[k]
         w_obj = self.WO[tier]
@@ -314,14 +320,24 @@ class UnscrewProgressBatch:
         new3 = self.g2 & (~self.g3) & self.released & active
         self.g3 |= new3
         ms_r += new3.float() * MS_REWARD[3]
-        # ---- placed: [TASK] 母带末行目标, 瓶3cm/15° 盖5cm/30° ----
+        # ---- [TASK] 护送过带检查 (T2-3, 标量版同构): 无接触快速穿过
+        #      放下带顶 = 永久失败; 带内允许松手放下 ----
+        if pads_r_cap is not None:
+            esc_gate = self.g3 & (~self.placed) & active
+            cz = obj1[:, 2]
+            top = TABLE_Z + ESCORT_BAND
+            crossing = ((self.cap_z_prev > top) & (cz <= top)
+                        & ((self.cap_z_prev - cz) > ESCORT_FALL))
+            self.escort_fail |= esc_gate & crossing & (~pads_r_cap)
+            self.cap_z_prev = torch.where(esc_gate, cz, self.cap_z_prev)
+        # ---- placed: [TASK] 母带末行目标, 瓶3cm/15° 盖5cm/30° + 护送未失败 ----
         ok3 = torch.ones_like(ok_obj)
         for oi, act in ((0, obj0), (1, obj1)):
             ok3 &= ((act[:, :3] - self.end[oi][:3]).norm(dim=1)
                     <= PLACED_POS[oi])
             dt = (_tilt(act[:, 3:7], self.up[oi]) - self.end_tilt[oi]).abs()
             ok3 &= (dt <= PLACED_ROT[oi])
-        gatep = self.g3 & (~self.placed) & active
+        gatep = self.g3 & (~self.placed) & active & (~self.escort_fail)
         self.m3_run = torch.where(gatep & ok3, self.m3_run + 1,
                                   torch.zeros_like(self.m3_run))
         newp = gatep & (self.m3_run >= PLACED_HOLD)
@@ -346,7 +362,7 @@ class UnscrewProgressBatch:
         ms_r += new4.float() * MS_REWARD[4]
         # ---- 死线 (D2pre 只判瓶; D2/D8 倾角=相对末行目标) ----
         fail = torch.zeros(self.Ne, dtype=torch.bool, device=self.dev)
-        fail |= (~self.g2) & (_tilt(obj0[:, 3:7], self.up[0]) > np.radians(60))
+        fail |= (~self.g2) & (_tilt(obj0[:, 3:7], self.up[0]) > D2_PRE_TILT)
         for oi, act in ((0, obj0), (1, obj1)):
             fail |= (act[:, 2] < TABLE_Z - D1_DROP)
             ref = self.ref_obj[oi][k]

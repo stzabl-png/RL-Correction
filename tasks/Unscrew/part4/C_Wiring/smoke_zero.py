@@ -2,7 +2,7 @@
 
 自检项:
   A 静置位对账: env 场景物体静置位 vs 母带静置位 (<5mm 铁则, 不然进度机判据全错框架)
-  B 观测维 503 / 动作 58 收发正常
+  B 观测维 507 / 动作 58 收发正常
   C 机器段死线零误触 (approach 期 D1/D2/D3/D5 不得响)
   D 时钟/行指针推进与 M 链实录 (M1 在力控体制下是否点火 = 数据, 不是断言 ——
     柔顺补测已知右手垫欠实, 贴实是相A探索正业)
@@ -30,6 +30,8 @@ import task_env as PE  # noqa: E402
 cfg = PE.build_cfg(num_envs=4)
 E = PE.UnscrewEnv(cfg)
 # L5-1: 4 env 定点覆盖出生表 (POUR_UNLOCK=1,2,3 时=t0/g1/g2/g3或ret)
+E.unlocked.update((1, 2, 3))
+E._rebuild_entries()
 labels = [e[4] for e in E.entries]
 want = (list(range(len(E.entries))) * 4)[:4]  # v4: 绿点退役, 现役全覆盖
 E.force_entry = want
@@ -39,15 +41,22 @@ print(f"[零动作] 进入点: {[labels[i] for i in want]} | 全链 {E.T_ROW} �
 # ---- A: 静置位对账 (env 默认态 vs 母带) ----
 E.reset()
 for _ in range(30):     # 静置几步让物理落定
+    E._SA.apply_screw(E, integrate_angle=False)
+    E.scene.write_data_to_sim()
     E.sim.step(render=False)
     E.scene.update(E.sim.get_physics_dt())
+E._SA.apply_screw(E, integrate_angle=False)
 bot, cap = E._read_objs()
+rest_errors_cm = []
 for oi, (name, cur) in enumerate((("瓶", bot[0]), ("盖", cap[0]))):
     ref = E.rest_pose[oi].to(cur.device)
     dp = float((cur[:3] - ref[:3]).norm()) * 100
+    rest_errors_cm.append(dp)
     print(f"[零动作] A 静置对账 {name}: |Δpos|={dp:.2f}cm (env0=t0, 物体在静置)")
+rest_ok = max(rest_errors_cm) < 0.5
 
 obs, _ = E.reset()
+assert obs["policy"].shape == (4, PE.OBS_DIM), obs["policy"].shape
 print(f"[零动作] B obs {obs['policy'].shape} (期望 (4,{PE.OBS_DIM}))")
 
 zero = torch.zeros(4, PE.ACT_DIM, device=E.device)
@@ -94,8 +103,9 @@ for i in range(4):
           f"maxrow={int(maxrow[i])} maxK={int(maxk[i])} "
           f"G链={sorted(ms_at[i], key=str)} 累计奖励={float(rew_sum[i]):.1f}")
 print(f"机器段死线误触 = {pre_fail} (铁则: 0)")
-ok = pre_fail == 0
-print("✅ 预检骨架通过 (M链/时钟为实录数据)" if ok else "❌ 机器段死线误触")
+ok = rest_ok and pre_fail == 0
+print("✅ 预检骨架通过 (M链/时钟为实录数据)" if ok else
+      f"❌ 预检失败: rest_ok={rest_ok} pre_fail={pre_fail}")
 try:
     _slot.release()
 except Exception:

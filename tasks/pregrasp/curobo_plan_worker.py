@@ -38,10 +38,8 @@ import numpy as np
 import torch
 import yaml
 
-# 机器人配置随 MagicSim 定制版 cuRobo 走 (curobo.motion_planner 这套 API 是
-# MagicSim Third_Party fork, 不是 PyPI 的 nvidia curobo)。跨机部署:
-#   MAGICSIM_ROOT=<MagicSim检出路径>  或  CUROBO_ROBOT_YML=<yml绝对路径>
-# (2026-08-29 增量: 旧硬编码 /home/lyh 只在原机有效)
+# 机器人配置优先显式 CUROBO_ROBOT_YML，其次兼容 MagicSim vendor 树，最后使用
+# 仓库内由 NVlabs/curobo RobotBuilder 生成的自带配置。
 def _robot_yml() -> str:
     """CUROBO_ROBOT_YML > MagicSim 树 > 仓库自带生成品 (跨机自给自足)。
 
@@ -72,6 +70,22 @@ def _quat_to_R(q):
         [1 - 2*(y*y + z*z), 2*(x*y - w*z),     2*(x*z + w*y)],
         [2*(x*y + w*z),     1 - 2*(x*x + z*z), 2*(y*z - w*x)],
         [2*(x*z - w*y),     2*(y*z + w*x),     1 - 2*(x*x + y*y)]])
+
+
+def _savez_atomic(path, **payload):
+    """Publish a planner result only after the NPZ is complete."""
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    tmp = f"{path}.tmp.{os.getpid()}"
+    try:
+        with open(tmp, "wb") as fh:
+            np.savez(fh, **payload)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
 
 
 def main():
@@ -380,7 +394,7 @@ def main():
                     getattr(_ra, "success", torch.tensor([False])).flatten()[0])
                 print(f"[cspace诊] {_tag3}原地微动: {'✅可行' if _oka else '❌被判碰 => 病灶在此'}",
                       flush=True)
-            np.savez(a.out, ok=False, failed_frame="cspace", seconds=_dt,
+            _savez_atomic(a.out, ok=False, failed_frame="cspace", seconds=_dt,
                      noworld_ok=_ok2)
             return
         _arr, _names, _ = _take(_r)
@@ -394,7 +408,7 @@ def main():
             joint_names=pj))
         _owp = {f: _kin.tool_poses.get_link_pose(f, make_contiguous=True)
                 .position.view(-1, 3).detach().cpu().numpy() for f in _tool}
-        np.savez(a.out, ok=True, traj=_arr,
+        _savez_atomic(a.out, ok=True, traj=_arr,
                  joint_names=np.array(_names, dtype=object),
                  tool_frames=np.array(_tool, dtype=object),
                  seg_frames=np.array(["cspace"], dtype=object),
@@ -427,7 +441,7 @@ def main():
         if not ok:
             print("[worker] ❌ joint/pregrasp0 规划失败 (不降级不换候选, 人工定夺)",
                   flush=True)
-            np.savez(a.out, ok=False, failed_frame="joint/pregrasp0", seconds=dt)
+            _savez_atomic(a.out, ok=False, failed_frame="joint/pregrasp0", seconds=dt)
             return
         arr1, names, cur_q = _take(r1)
         segs.append(("both", "pregrasp", arr1))
@@ -499,7 +513,7 @@ def main():
                            else "目标本身够不着(朝向/锁躯干/自碰)")
                     print(f"[worker]   探针② 站姿起点+空世界: "
                           f"{'可行' if ok3 else '仍失败'} -> {_m3}", flush=True)
-                np.savez(a.out, ok=False, failed_frame=f"{f}/{stage}", seconds=dt)
+                _savez_atomic(a.out, ok=False, failed_frame=f"{f}/{stage}", seconds=dt)
                 return
             p_ = r.js_solution.position
             while p_.dim() > 2:
@@ -581,7 +595,7 @@ def main():
             bad.append(f"{f} 腕穿桌 {cl:.1f}cm")
     if bad:
         print(f"[worker] ❌❌ 验收不通过: {bad}", flush=True)
-        np.savez(a.out, ok=False, failed_frame="verify",
+        _savez_atomic(a.out, ok=False, failed_frame="verify",
                  reasons=np.array(bad, dtype=object))
         return
     print("[worker] ✅✅ 验收通过", flush=True)
@@ -596,7 +610,7 @@ def main():
         _vg = _vgoal.get(f) or (np.asarray(T["goals"][f]["pos"], float),
                                 np.asarray(T["goals"][f]["quat"], float))
         _ee[f"end_expect_{f}"] = np.asarray(_vg[0], float)
-    np.savez(a.out, ok=True, traj=traj,
+    _savez_atomic(a.out, ok=True, traj=traj,
              joint_names=np.array(names, dtype=object),
              tool_frames=np.array(_tool, dtype=object),
              seg_lens=np.array([len(s[2]) for s in segs]),

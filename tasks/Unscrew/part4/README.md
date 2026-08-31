@@ -37,8 +37,16 @@ bash tasks/Unscrew/part4/C_Wiring/data_engine.sh 32     # 1-6 步自动 (probe_r
 # 后续人工判读节点 (probe_beta β标定 / v2 / 硬闸 / 训练 / 评测) 见脚本尾部打印
 ```
 
-已验证 (2026-08-29, clip32): scene_layout 17 条全出 / v1 母带 273 行 /
-**判据自检家族五件全绿** (放音收入 38 / 批量逐位一致 / RSI 四点位 / 变体反向 / 体制)。
+离线已验证 (2026-08-30, clip32): scene_layout 17 条全出 / 审计 v1 273 行 /
+**判据自检家族五件全绿** (放音收入 38 / 批量逐位一致 / RSI 全点位 / 变体反向 /
+体制 9 项)。严格位置/姿态双门槛下，离线右臂 IK 仅 2%（全行中位
+14.61cm/19.7°），左臂 56%；当前入库 v1 仍是 offline-rest + smoothstep
+脚手架，训练入口会拒绝它。必须完成真实静置、cuRobo 双机器段、v2 重铸及硬闸
+后再发射。
+
+规划产物绑定交互几何摘要与 `env_rest.json` 哈希，旧规划不能串用；物理硬闸
+≥3/4 通过才原子写 `acceptance_v2.json`（绑定 v2 全文件 MD5 + 完整世界指纹）。
+训练入口会先于 IsaacLab 导入做母带/凭据预检，建环境后再核对现场世界。
 
 ## 已知欠账 (先读 DECISIONS T1 节再动手)
 
@@ -49,7 +57,8 @@ bash tasks/Unscrew/part4/C_Wiring/data_engine.sh 32     # 1-6 步自动 (probe_r
 2. 离线右臂 IK 达标率低 (URDF 锚系统差): probe_rest 实测锚重跑可修一半,
    终解是 build_reference v2 (Isaac 内站位捕获)。
 3. βL=2.0 是抄 Pour17 的初值, 必须 probe_beta 复标。
-4. Isaac 侧冒烟 (smoke_zero/probe_*) 尚未在本机跑过 —— 本次交付验证到离线链全绿。
+4. Isaac 侧冒烟尚未完成；2026-08-30 启动链/D6 已修至场景初始化阶段，但两张
+   GPU 被既有任务持续占满，真实 probe_rest/smoke_zero/probe_* 待空卡续跑。
 
 ## 环境旗 (框架沿革保留 POUR_* 前缀, 勿改名)
 

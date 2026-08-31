@@ -23,11 +23,19 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 
 # 关键项: 对不上 = ckpt 在这台机器上无效, 直接拒跑
 CRITICAL = (
     "robot.usd_md5", "robot.controlled_joint_names_in_order",
     "reference.md5", "policy_io.obs_dim", "policy_io.act_dim",
+    "criteria.digest", "criteria.schema",
+    "assembly.pitch_m", "assembly.turns", "assembly.closed_offset_m",
+    "assembly.direction", "assembly.max_angular_velocity_rad_s",
+    "assembly.omega_damping", "assembly.detach_at_full",
+    "sensors.pad_force_threshold_N", "sensors.pads_min_per_hand",
+    "method.clip", "method.variant", "method.squeeze_ff_enabled",
+    "method.beta_r", "method.beta_l",
     "time.control_dt_s", "time.decimation",
     "table.table_top_z_m",
     "objects.object_1.mass_kg", "objects.object_1.static_friction",
@@ -37,8 +45,7 @@ CRITICAL = (
 WARN = (
     "time.physics_dt_s", "physx.solver_type", "scene.env_spacing_m",
     "switches.friction_curriculum", "switches.obj_jitter_xy",
-    "robot.self_collision", "sensors.pad_force_threshold_N",
-    "sensors.pads_min_per_hand",
+    "robot.self_collision", "sensors.count",
 )
 
 
@@ -57,6 +64,49 @@ def _f(x):
         return None
 
 
+def _self_collision(env, spawn_cfg):
+    """Read the effective self-collision value from USD, falling back to cfg."""
+    path = getattr(getattr(env, "hand", None), "cfg", None)
+    path = getattr(path, "prim_path", None)
+    why = "no prim_path"
+    if path:
+        path0 = re.sub(r"env_[^/]*", "env_0", path)
+        try:
+            import omni.usd
+            from pxr import Usd
+
+            stage = omni.usd.get_context().get_stage()
+            prim = stage.GetPrimAtPath(path0)
+            if prim and prim.IsValid():
+                for child in Usd.PrimRange(prim):
+                    attr = child.GetAttribute(
+                        "physxArticulation:enabledSelfCollisions")
+                    if (attr and attr.IsValid()
+                            and attr.HasAuthoredValue()):
+                        return bool(attr.Get()), f"USD:{child.GetPath()}"
+                why = f"USD subtree has no authored value@{path0}"
+            else:
+                why = f"USD missing prim@{path0}"
+        except Exception as exc:
+            why = f"USD unreadable({type(exc).__name__})"
+    value = getattr(getattr(spawn_cfg, "articulation_props", None),
+                    "enabled_self_collisions", None)
+    if value is not None:
+        return bool(value), f"cfg fallback ({why})"
+    return None, f"unreadable ({why}; cfg missing)"
+
+
+def _criteria():
+    try:
+        import progress as task_progress
+        schema, digest = task_progress.criteria_digest()
+        return {"schema": schema, "digest": digest,
+                "items": task_progress.criteria_items()}
+    except Exception as exc:
+        return {"schema": None, "digest": None, "items": None,
+                "error": type(exc).__name__}
+
+
 def collect(env) -> dict:
     """从活的 env 采集世界指纹 (只采"世界", 不采方法)。"""
     sim, cfg = env.sim, env.cfg
@@ -67,7 +117,7 @@ def collect(env) -> dict:
     usd = getattr(sp, "usd_path", None)
 
     objs = {}
-    for oid, art in (("object_1", env.object), ("object_0", env.aux)):
+    for oid, art in (("object_0", env.object), ("object_1", env.aux)):
         d = {}
         try:
             d["mass_kg"] = _f(art.root_physx_view.get_masses()[0].sum())
@@ -83,12 +133,34 @@ def collect(env) -> dict:
         d["usd"] = getattr(getattr(art.cfg, "spawn", None), "usd_path", None)
         objs[oid] = d
 
+    self_collision, self_collision_source = _self_collision(env, sp)
+    screw = getattr(env, "screw_spec", None)
+    assembly = {
+        "pitch_m": _f(getattr(screw, "pitch_m", None)),
+        "turns": _f(getattr(screw, "turns", None)),
+        "closed_offset_m": _f(getattr(screw, "closed_offset_m", None)),
+        "direction": getattr(screw, "direction", None),
+        "max_angular_velocity_rad_s": _f(
+            getattr(screw, "max_angular_velocity_rad_s", None)),
+        "omega_damping": _f(getattr(env, "screw_omega_damping", None)),
+        "detach_at_full": getattr(env, "screw_detach_at_full", None),
+    }
+    method = {
+        "clip": getattr(cfg, "clip_name", None),
+        "variant": getattr(env, "_variant", None),
+        "squeeze_ff_enabled": getattr(env, "squeeze_ff_enabled", None),
+        "beta_r": _f(getattr(env, "beta_r", None)),
+        "beta_l": _f(getattr(env, "beta_l", None)),
+    }
     ref = getattr(env, "_master_path", None) or os.environ.get("POUR_REF_NPZ")
     fp = {
         "reference": {"path": ref, "md5": _md5(ref) if ref else None},
         "policy_io": {"obs_dim": int(getattr(cfg, "observation_space", 0)) or None,
                       "act_dim": int(getattr(cfg, "action_space", 0)) or None},
         "schema": "world_fingerprint_v1",
+        "criteria": _criteria(),
+        "assembly": assembly,
+        "method": method,
         "time": {"physics_dt_s": _f(sim.get_physics_dt()),
                  "control_dt_s": _f(sim.get_physics_dt()
                                     * int(getattr(cfg, "decimation", 1))),
@@ -104,14 +176,12 @@ def collect(env) -> dict:
         "robot": {"usd": usd, "usd_md5": _md5(usd) if usd else None,
                   "num_joints_articulation": len(jn),
                   "controlled_joint_names_in_order": ctrl,
-                  # ★不可读时必须记 None, 不能记 False —— "读不到"和"关着"是两回事,
-                  # 后者会把一个错值当成事实交出去 (2026-08-29 实测: cfg 写 True,
-                  # 采集却记 False, 差点交给外部合作方)。
-                  "self_collision": (
-                      getattr(getattr(sp, "articulation_props", None),
-                              "enabled_self_collisions", None))},
+                  "self_collision": self_collision,
+                  "self_collision_source": self_collision_source},
         "sensors": {"count": len(getattr(env, "_all_sensors", [])),
-                    "pad_force_threshold_N": None, "pads_min_per_hand": None},
+                    "pad_force_threshold_N": _f(
+                        getattr(env, "pad_force_threshold_N", None)),
+                    "pads_min_per_hand": getattr(env, "pads_min_per_hand", None)},
         "scene": {"env_spacing_m": _f(getattr(cfg.scene, "env_spacing", None)),
                   "replicate_physics": bool(
                       getattr(cfg.scene, "replicate_physics", False))},
@@ -172,8 +242,10 @@ def write(env, path, extra=None):
             else:
                 fp[k] = v
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    with open(path, "w") as f:
+    tmp = f"{path}.tmp.{os.getpid()}"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(fp, f, indent=1, ensure_ascii=False)
+    os.replace(tmp, path)
     r = fp["robot"]
     print(f"[world] USD md5={str(r['usd_md5'])[:8]} | 母带 md5="
           f"{str(fp.get('reference', {}).get('md5'))[:8]} | 受控关节 "
@@ -183,11 +255,43 @@ def write(env, path, extra=None):
     return fp
 
 
+def _abort_unverified_world():
+    import sys
+    sys.stdout.flush()
+    os._exit(11)
+
+
+def assert_recorded(env, recorded, strict=True, label="recorded world", ignore=()):
+    """Compare an in-memory current-schema fingerprint against a live env."""
+    crit, warn, unver = compare(recorded, collect(env))
+    ignored = set(ignore)
+    crit = [item for item in crit if item[0] not in ignored]
+    unver = [item for item in unver if item[0] not in ignored]
+    for key, old, new in warn:
+        print(f"[world] {label} 提示 {key}: 记录={old} 当前={new}", flush=True)
+    if crit:
+        print(f"[world] ★{label} 与当前环境不匹配:", flush=True)
+        for key, old, new in crit:
+            print(f"[world]   {key}: 记录={old} 当前={new}", flush=True)
+    if unver:
+        print(f"[world] ★{label} 有 {len(unver)} 项关键值无法核对:", flush=True)
+        for key, old, new in unver:
+            print(f"[world]   {key}: 记录={old} 当前={new}", flush=True)
+    if crit or unver:
+        if strict:
+            _abort_unverified_world()
+        return False
+    print(f"[world] ✅ {label} 匹配", flush=True)
+    return True
+
+
 def assert_match(env, path, strict=True):
     """回放/评测前核对。critical 不符时: strict=True 直接退出, 否则只告警。"""
     if not os.path.exists(path):
         print(f"[world] ⚠ 找不到世界指纹 {path} —— 无法核对, 这个 ckpt 的出生世界未知",
               flush=True)
+        if strict:
+            _abort_unverified_world()
         return False
     with open(path) as f:
         rec = json.load(f)
@@ -232,5 +336,12 @@ def assert_match(env, path, strict=True):
             _sys.stdout.flush()
             os._exit(11)
         return False
+    if unver:
+        print("[world] 关键项存在未验值；严格模式拒绝回放。"
+              "要强跑请显式设 POUR_IGNORE_WORLD=1。", flush=True)
+        if strict:
+            _abort_unverified_world()
+        return False
+
     print("[world] ✅ 世界匹配", flush=True)
     return True

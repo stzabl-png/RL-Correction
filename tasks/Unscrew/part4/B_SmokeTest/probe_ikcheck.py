@@ -1,4 +1,5 @@
-"""IK 行运动学核查: FK(v2臂行) vs 物体轨迹∘抓变换 的腕位姿残差, 逐行双侧。"""
+"""IK 行运动学核查：FK(v2臂行) vs 物体轨迹∘抓变换；逐行检查位置 1cm
+与姿态 10° 双阈值，关键拧盖窗不得有坏行。"""
 import argparse, os, sys
 from isaaclab.app import AppLauncher
 p = argparse.ArgumentParser(); AppLauncher.add_app_launcher_args(p)
@@ -36,17 +37,22 @@ for s in ("right", "left"):
         pk, qk_ = ref_obj[oi][k][:3], ref_obj[oi][k][3:7]
         Rk = quat_to_R(qk_) @ quat_to_R(q0_).T
         tgt_p = Rk @ w0[s][0] + (pk - Rk @ p0)
+        tgt_R = Rk @ w0[s][1]
         fp, fR = ik[s].fk(arm[s][k])
         e = float(np.linalg.norm(fp - tgt_p))
-        if e > 0.01:
-            bad[s].append((k, round(e * 100, 2)))
+        er = float(np.arccos(np.clip((np.trace(fR.T @ tgt_R) - 1) * 0.5, -1, 1)))
+        if e > 0.01 or er > np.radians(10):
+            bad[s].append((k, round(e * 100, 2), round(np.degrees(er), 1)))
+critical_bad = {}
 for s in ("right", "left"):
-    print(f"[ikchk] {s}: >1cm 行数 {len(bad[s])}/{N} | 明细(行,cm): {bad[s][:20]}",
+    print(f"[ikchk] {s}: 坏行 {len(bad[s])}/{N} | 明细(行,cm,deg): {bad[s][:20]}",
           flush=True)
     ks = E.PB.k_sep
     win = [b for b in bad[s] if max(ks - 40, 0) <= b[0] <= ks]
+    critical_bad[s] = win
     print(f"[ikchk] {s}: 拧盖窗({max(ks-40,0)}..{ks})内坏行: {win}", flush=True)
-print("[ikchk] 完毕", flush=True)
+ok = not critical_bad["right"] and not critical_bad["left"]
+print(f"[ikchk] {'✅ 关键窗通过' if ok else '❌ 关键窗存在位置/姿态坏行'}", flush=True)
 try: _slot.release()
 except Exception: pass
-app.close(); os._exit(0)
+app.close(); os._exit(0 if ok else 1)

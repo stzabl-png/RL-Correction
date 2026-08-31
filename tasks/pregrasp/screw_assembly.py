@@ -45,6 +45,15 @@ def screw_entry(clip_name: str):
     return e, None
 
 
+def _spec_from_cfg(cfg, assembly) -> ScrewSpec:
+    """Build a runtime spec with task-local overrides, without mutating CLIPS."""
+    values = dict(assembly)
+    turns = getattr(cfg, "screw_turns_override", None)
+    if turns is not None:
+        values["turns"] = float(turns)
+    return ScrewSpec.from_mapping(values)
+
+
 def aux_entry(clip_name: str):
     """clip 有**第二个物体**时返回 (entry, secondary) —— 不要求是装配。
 
@@ -129,7 +138,7 @@ def pre_init(env, cfg) -> bool:
     entry, sec = screw_entry(cfg.clip_name)
     env._screw_primary = entry.get("screw_primary", "body")
     env.aux_entry = sec
-    env.screw_spec = ScrewSpec.from_mapping(sec["assembly"])
+    env.screw_spec = _spec_from_cfg(cfg, sec["assembly"])
     assert env.screw_spec.mode == "preengaged", \
         "pregrasp 任务系目前只接了拧开(preengaged)模式"
     body_mesh = entry["mesh"] if env._screw_primary == "body" else sec["mesh"]

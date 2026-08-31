@@ -39,8 +39,10 @@ from tasks.pregrasp.env import GraspTaskEnv
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _L3 = os.path.abspath(os.path.join(_HERE, "..", "A_Design", "L3_Learning"))
 sys.path.insert(0, _L3)
-from progress import (UnscrewProgress, _axis_tilt, CERT_RAMP, CERT_RET,  # noqa: E402
-                      G1_HOLD)
+from progress import (  # noqa: E402
+    CERT_RAMP, CERT_RET, D1_DROP, D2_TILT, D3_DEV, D4_SLIP,
+    D5_BELOW_TABLE, G1_HOLD, PAD_FTH, PADS_MIN, SCREW_CONTACT_FTH,
+    SCREW_TRIAD, UnscrewProgress, _axis_tilt)
 from progress_batch import (  # noqa: E402
     M2_HOLD, M3_HOLD, M4_HOLD, TABLE_Z, UnscrewProgressBatch)
 
@@ -52,15 +54,11 @@ OBS_DIM = 507   # 框架 503 + 螺旋块 4 (frac/released/n_triad/gain)
 ACT_DIM = 58
 LOOK_KS = (1, 2, 4, 8, 16)
 DEV_ARM_MACHINE, DEV_ARM_HUMAN = 0.05, 0.08
-D4_SLIP = 0.05
 FAIL_PEN, D6_PEN, D6_CAP = -10.0, -0.5, -10.0
-PAD_FTH = 0.5
-PADS_MIN = 3                        # G1 左手垫数阈
 K_SCREW = 2.0                       # [TASK] 拧转势: 270°×2.0 ≈ 9.4 总额
 _RPADS = ["right_thumb_elastomer", "right_index_elastomer",
           "right_middle_elastomer", "right_ring_elastomer",
           "right_pinky_elastomer"]
-_TRIAD = (0, 1, 2)                  # 右垫序里的 拇/食/中 (U34/U39: 环小不计)
 
 
 def build_cfg(num_envs=1):
@@ -80,17 +78,28 @@ def build_cfg(num_envs=1):
     cfg.extra_supergrip_bodies = list(_RPADS)
     # D6 跨侧互撞 (判力不判距; POUR_NO_D6=1 回放规避 PhysX 断言)
     if os.environ.get("POUR_NO_D6") != "1":
-        _rx = "(R_arm_l5|R_arm_l7|R_arm_l8|right_hand_C_MC|right_.*_elastomer)"
-        _lf = ["L_arm_l5", "L_arm_l7", "L_arm_l8", "left_hand_C_MC",
-               "left_.*_elastomer"]
+        # One source body per sensor: PhysX requires filter expansions to
+        # match the source count (Pour17 L5-25).
+        _rd = ["R_arm_l5", "R_arm_l7", "R_arm_l8", "right_hand_C_MC"]
+        _lf = [f"/World/envs/env_.*/Robot/{n}" for n in
+               ("L_arm_l5", "L_arm_l7", "L_arm_l8", "left_hand_C_MC")]
         cfg.contact_sensors = list(cfg.contact_sensors) + [
-            ContactSensorCfg(prim_path=f"/World/envs/env_.*/Robot/{_rx}",
-                             history_length=1,
-                             filter_prim_paths_expr=[
-                                 f"/World/envs/env_.*/Robot/{n}" for n in _lf])]
-    cfg.approach_only = True
-    cfg.approach = True
+            ContactSensorCfg(
+                prim_path=f"/World/envs/env_.*/Robot/{n}",
+                history_length=1,
+                filter_prim_paths_expr=_lf,
+            )
+            for n in _rd]
+    # 基类接近段机制**整个不接** (V5 接线全覆写; 接近由母带 Approach 行承载)。
+    # approach=True 会一路索要 GraspPose prior (对齐势/退避族/canon 重摆 ——
+    # 三者都与本任务冲突, 见 task_config PRIOR_MAIN 注释), 全关走最小脚手架。
+    cfg.approach_only = False
+    cfg.approach = False
     cfg.pregrasp_align = False
+    cfg.screw_turns_override = TC.SCREW_TURNS
+    # 父类初始化仍会构造 verify 斜坡；本任务把该 RL 面全部覆写，显式请求同设备
+    # 零占位，而不是在 DexMate 共享层偷偷保留子类预设状态。
+    cfg.bypass_lift_scaffold = True
     # [TASK] 盖侧无 GraspPose prior (设定 B); 左手瓶 squeeze 层由 env 前馈掺入
     if TC.PRIOR_MAIN:
         from tasks.pregrasp.cfg import apply_grasp_prior
@@ -115,6 +124,11 @@ class UnscrewEnv(GraspTaskEnv):
         super().__init__(cfg, **kw)
         dev, N = self.device, self.num_envs
         assert self.screw_spec is not None, "clip 无螺旋装配 —— 选错场景"
+        assert abs(float(self.screw_spec.turns) - TC.SCREW_TURNS) < 1e-9, (
+            self.screw_spec.turns, TC.SCREW_TURNS)
+        self.pad_force_threshold_N = PAD_FTH
+        self.pads_min_per_hand = PADS_MIN
+        self._master_path = MASTER                 # 完整世界指纹的母带来源
         assert self._screw_primary == "body", self._screw_primary
         z = np.load(MASTER, allow_pickle=True)
         rows_h = np.where(np.asarray(z["source"]) == 1)[0]
@@ -227,18 +241,22 @@ class UnscrewEnv(GraspTaskEnv):
                 self.PB.end[oi] = self.PB.ref_obj[oi][-1].clone()
                 self.rest_pose[oi][2] += dz0
         # ---- squeeze 掺前馈 (山丘剖面; [TASK] 只有左手瓶侧有 prior) ----
+        self.beta_l = float(os.environ.get("POUR_BETA_L", str(TC.BETA_L)))
+        self.beta_r = float(os.environ.get("POUR_BETA_R", str(TC.BETA_R)))
+        self.squeeze_ff_enabled = (
+            os.environ.get("POUR_SQUEEZE_FF") == "1"
+            and os.path.isfile(TC.PRIOR_AUX))
         self.sq_add = None
         self._sq_delta = None
-        if os.environ.get("POUR_SQUEEZE_FF") == "1" and os.path.isfile(TC.PRIOR_AUX):
+        if self.squeeze_ff_enabled:
             _sql = np.asarray(np.load(TC.PRIOR_AUX)["squeeze"],
                               np.float64).reshape(-1)[7:29]
-            _bl = float(os.environ.get("POUR_BETA_L", str(TC.BETA_L)))
-            _br = float(os.environ.get("POUR_BETA_R", str(TC.BETA_R)))
             _dsq = np.concatenate([
-                _br * np.zeros(22),                      # 右手盖: 无 squeeze prior
-                _bl * (_sql - ref[self.IA0, 36:58])])
-            print(f"[UnscrewEnv] squeeze 剂量: βL={_bl} (Screw27_body, 待 probe_beta"
-                  f" 复标) βR={_br} (盖侧无 prior)")
+                self.beta_r * np.zeros(22),             # 右手盖: 无 squeeze prior
+                self.beta_l * (_sql - ref[self.IA0, 36:58])])
+            print(f"[UnscrewEnv] squeeze 剂量: βL={self.beta_l} "
+                  f"(Screw27_body, 待 probe_beta 复标) βR={self.beta_r} "
+                  "(盖侧无 prior)")
             self._sq_delta = torch.tensor(_dsq, dtype=torch.float32, device=dev)
         # ---- 手指/臂门 (Approach 冻结照谱, 缝1 起全开, Retreat 指冻臂开) ----
         self.APP_END = segl[0]
@@ -270,7 +288,8 @@ class UnscrewEnv(GraspTaskEnv):
                      "wage": 0.0, "fshape": 0.0, "screw": 0.0, "n": 0}
         self.tb = {"term/M4_success": 0, "d6_pen_sum": 0.0, "ep": 0}
         self.diag_acc = {"screw_deg": 0.0, "released": 0, "n_triad": 0.0,
-                         "gain": 0.0, "cap_any": 0.0, "n": 0, "ep": 0}
+                         "gain": 0.0, "cap_any": 0.0, "escort_fail": 0.0,
+                         "n": 0, "ep": 0}
 
     def _rebuild_entries(self):
         """按已解锁 Gate 重建出生表 (渐进RSI)."""
@@ -287,6 +306,17 @@ class UnscrewEnv(GraspTaskEnv):
         print(f"[UnscrewEnv] RSI出生表: {[e[4] for e in self.entries]}")
 
     # ================= 动作 =================
+    def _update_screw_drive_gain(self):
+        """Refresh the contact-gated screw drive used by RL and manual probes."""
+        fcap = self._pads_f().norm(dim=-1)[:, 5:]        # 右垫×盖
+        n_any = (fcap > SCREW_CONTACT_FTH).sum(dim=1)
+        n_triad = (fcap[:, list(SCREW_TRIAD)] > SCREW_CONTACT_FTH) \
+            .sum(dim=1).float()
+        self.screw_drive_gain = torch.where(
+            n_any >= 1, (n_triad / 3.0).clamp(min=1.0 / 3.0, max=1.0),
+            torch.zeros_like(n_triad))
+        self._n_triad, self._n_cap_any = n_triad, n_any
+
     def _pre_physics_step(self, actions):
         a = actions.clamp(-1.0, 1.0)
         self.last_act = a.clone()
@@ -308,14 +338,7 @@ class UnscrewEnv(GraspTaskEnv):
             qnow = self.hand.data.joint_pos[:, self.map_ids_t]
             self.rebase_off[cap] = (qnow - self.ref58[self.EXIT0].unsqueeze(0))[cap]
             self.rebase_armed[cap] = False
-        # [TASK] 螺旋驱动增益 (U34/U39): 三指分级, 无接触 0
-        fcap = self._pads_f().norm(dim=-1)[:, 5:]        # 右垫×盖
-        n_any = (fcap > 0.1).sum(dim=1)
-        n_triad = (fcap[:, list(_TRIAD)] > 0.1).sum(dim=1).float()
-        self.screw_drive_gain = torch.where(
-            n_any >= 1, (n_triad / 3.0).clamp(min=1.0 / 3.0, max=1.0),
-            torch.zeros_like(n_triad))
-        self._n_triad, self._n_cap_any = n_triad, n_any
+        self._update_screw_drive_gain()
         self._ff = self._ff_row(r)
         self.q_tgt = self._ff + self.cum_res
 
@@ -393,6 +416,8 @@ class UnscrewEnv(GraspTaskEnv):
         # ---- G1 垫数原料: [TASK] 左手 >=3/5 垫 (右手时序上后进场) ----
         f = self._pads_f().norm(dim=-1)                  # (N,10) 前5左 后5右
         pads3 = (f[:, :5] > PAD_FTH).sum(dim=1) >= PADS_MIN
+        # [TASK] T2-3 护送原料: 右手任一垫与盖有力 = 右手还拿着盖
+        pads_r_cap = (f[:, 5:] > PAD_FTH).sum(dim=1) >= 1
         org_w = self.scene.env_origins
         wr_pos = self.hand.data.body_pos_w[:, self.wid["R"]] - org_w
         wl_pos = self.hand.data.body_pos_w[:, self.wid["L"]] - org_w
@@ -401,7 +426,8 @@ class UnscrewEnv(GraspTaskEnv):
         # ---- 进度机 (仅交互行起管辖) ----
         run_mask = (self.row >= self.IA0) & ~holding
         out = self.PB.step(bot, cap, armq_r, armq_l, pads3, wr_pos, wl_pos,
-                           screw_released=released, run_mask=run_mask)
+                           screw_released=released, run_mask=run_mask,
+                           pads_r_cap=pads_r_cap)
         # ---- [TASK] 拧转势: K_SCREW×Δθ (双向计, 回拧扣分; prev 在 reset 时对齐) ----
         dtheta = self.screw_angle - self.prev_screw
         self.prev_screw = self.screw_angle.clone()
@@ -420,14 +446,14 @@ class UnscrewEnv(GraspTaskEnv):
         fail_env = torch.zeros(N, dtype=torch.bool, device=dev)
         pre = self.row < self.IA0
         for oi, _o in ((0, bot), (1, cap)):
-            fail_env |= pre & (_o[:, 2] < TABLE_Z - 0.05)              # D1 机器段
+            fail_env |= pre & (_o[:, 2] < TABLE_Z - D1_DROP)          # D1 机器段
             qn = _o[:, 3:7] / _o[:, 3:7].norm(dim=1, keepdim=True).clamp(min=1e-9)
             upw = quat_apply(qn, self.PB.up[oi].unsqueeze(0).expand(len(qn), 3))
             tilt = torch.acos((upw[:, 2] / upw.norm(dim=1).clamp(min=1e-9))
                               .clamp(-1, 1))
-            fail_env |= pre & (tilt > np.radians(30))                  # D2 机器段
+            fail_env |= pre & (tilt > D2_TILT)                         # D2 机器段
             rest = self.rest_pose[oi]
-            fail_env |= pre & ((_o[:, :3] - rest[:3]).norm(dim=1) > 0.35)  # D3
+            fail_env |= pre & ((_o[:, :3] - rest[:3]).norm(dim=1) > D3_DEV)  # D3
         # D4 滑移 (交互行, G2 后, 相对基线): 左腕-瓶 / 右腕-盖
         d_l = (self.hand.data.body_pos_w[:, self.wid["L"]]
                - self.object.data.root_pos_w).norm(dim=1)
@@ -466,7 +492,7 @@ class UnscrewEnv(GraspTaskEnv):
         self._prev_pf = pf_now.detach().clone()
         # D5 撞桌
         hz = self.hand.data.body_pos_w[:, self.hand_bids, 2]
-        fail_env |= (hz < TABLE_Z - 0.005).any(dim=1)
+        fail_env |= (hz < TABLE_Z - D5_BELOW_TABLE).any(dim=1)
         # D7 超时
         timeout = self.episode_length_buf >= self.D7
         fail_env &= ~holding
@@ -536,6 +562,7 @@ class UnscrewEnv(GraspTaskEnv):
         da["n_triad"] += float(self._n_triad.sum())
         da["gain"] += float(self.screw_drive_gain.sum())
         da["cap_any"] += float((self._n_cap_any >= 1).float().sum())
+        da["escort_fail"] += float(self.PB.escort_fail.float().sum())
         da["n"] += N
         succ = self.PB.g4
         self._tick_out = {"terminated": terminated, "timeout": timeout & ~terminated,
@@ -556,7 +583,8 @@ class UnscrewEnv(GraspTaskEnv):
         out.update({f"diag/{k}": v / nd for k, v in self.diag_acc.items()
                     if k not in ("n", "ep")})
         self.diag_acc = {"screw_deg": 0.0, "released": 0, "n_triad": 0.0,
-                         "gain": 0.0, "cap_any": 0.0, "n": 0, "ep": 0}
+                         "gain": 0.0, "cap_any": 0.0, "escort_fail": 0.0,
+                         "n": 0, "ep": 0}
         return out
 
     # ================= 观测 (507 = 框架503 + 螺旋块4) =================

@@ -1,6 +1,6 @@
 """Unscrew 机器段 cuRobo 规划驱动 (照 pregrasp_suite 的 targets->worker 模式)。
 
-  # Approach: 站姿 -> (双臂联合, 满障碍) -> 站位腕靶 (v1 母带里的 station_wr/wl)
+  # Approach: 站姿 -> (cspace, 满障碍) -> pregrasp 内点构型 (v1 machine_pre_q_*)
   UNSCREW_CLIP=32 SHARPA_WANDB=0 PYTHONPATH=. $PY \\
       tasks/Unscrew/part4/A_Design/L1_Data/Motion_Planning/plan_machine_segs.py \\
       --headless
@@ -10,8 +10,8 @@
 产出 A_Design/L1_Data/Motion_Planning/<clip>/{Approach,Retreat}.npz;
 之后**重跑 make_reference.py** 把规划行剪进母带 (它检测到产物自动消费)。
 
-依赖: MagicSim 定制版 cuRobo (curobo.motion_planner API) 已 pip 装进本解释器,
-且 MAGICSIM_ROOT / CUROBO_ROBOT_YML 指到位 —— 见 curobo_plan_worker.py 头注。
+依赖: NVlabs/curobo 新版主线已安装；机器人配置默认使用仓库自带生成品，也可由
+CUROBO_ROBOT_YML 覆写（MAGICSIM_ROOT 仅保留兼容）—— 见 curobo_plan_worker.py。
 worker 在**干净子进程**里跑 (Isaac 起来后同进程 import cuRobo 会崩在 warp)。
 
 顺序 (循环依赖的解法): probe_rest -> make_reference(占位机器段) -> 本脚本
@@ -21,6 +21,7 @@ worker 在**干净子进程**里跑 (Isaac 起来后同进程 import cuRobo 会�
 from __future__ import annotations
 
 import argparse
+import time
 
 from isaaclab.app import AppLauncher
 
@@ -58,10 +59,11 @@ E = PE.UnscrewEnv(cfg)
 E.force_entry = [0]
 E.reset()
 for _ in range(40):
+    E._SA.apply_screw(E, integrate_angle=False)
     E.scene.write_data_to_sim()
     E.sim.step(render=False)
     E.scene.update(E.sim.get_physics_dt())
-    E._SA.apply_screw(E)
+E._SA.apply_screw(E, integrate_angle=False)
 
 W = E.scene.env_origins[0].cpu().numpy().astype(np.float64)
 hand = E.hand
@@ -72,6 +74,11 @@ _sec = _e["secondary"]
 _sx, _sy, _sz = cfg.table_size
 z1 = np.load(TC.REF_V1, allow_pickle=True)
 rows_h = np.where(np.asarray(z1["source"]) == 1)[0]
+planning_basis = TC.reference_planning_digest(TC.REF_V1)
+rest_md5 = TC.file_md5(TC.REST_JSON)
+assert rest_md5 is not None, "缺 env_rest.json；先运行 probe_rest.py"
+segment_name = "retreat" if args.retreat else "approach"
+
 
 # 物体障碍 (env 系 -> 底座系只减 _root_p, 见 pregrasp_suite 的 2026-08-18 坑注)
 bot_p = (E.object.data.root_pos_w[0].cpu().numpy() - W).astype(np.float64)
@@ -95,9 +102,16 @@ objs = [{"name": "obj_primary", "mesh": _e["mesh"],
 dq = hand.data.default_joint_pos[0].cpu().numpy().astype(float)
 start = {n: float(v) for n, v in zip(jn, dq)}
 if args.retreat:
+    # 起点 = machine_pre 净空内点构型, **不是**交互末行 (T2-2):
+    # 交互末行的手贴着瓶/盖/桌面 —— 碰撞检查规划器必判 "start in collision"
+    # (2026-08-30 实测: 仅桌/仅瓶/仅杯世界起点微动全 ❌, 空世界 ✅)。
+    # "松手撤离" (交互末行 -> pre) 由缝2 数据斜坡负责, 与缝1 的"贴近合拢"
+    # 对称; cuRobo 只管 pre -> 站姿 的机器段 (物体钉母带终位当障碍)。
+    _qpre_r = np.asarray(z1["machine_pre_q_r"], np.float64)
+    _qpre_l = np.asarray(z1["machine_pre_q_l"], np.float64)
     for i in range(1, 8):
-        start[f"R_arm_j{i}"] = float(np.asarray(z1["right_q"])[rows_h][-1][i - 1])
-        start[f"L_arm_j{i}"] = float(np.asarray(z1["left_q"])[rows_h][-1][i - 1])
+        start[f"R_arm_j{i}"] = float(_qpre_r[i - 1])
+        start[f"L_arm_j{i}"] = float(_qpre_l[i - 1])
 start.update({"torso_j1": float(np.radians(40.5196)),
               "torso_j2": float(np.radians(73.6595)),
               "torso_j3": float(np.radians(0.3896)),
@@ -117,25 +131,18 @@ if args.retreat:
                         for P in ("R", "L") for i in range(1, 8)}
     out_npz = TC.RETREAT_NPZ
 else:
-    # ---- Approach: 双臂联合位姿规划到站位腕靶 (v1 母带的数据推导目标) ----
-    st_r = np.asarray(z1["station_wr"], np.float64)   # (7,) env 系
-    st_l = np.asarray(z1["station_wl"], np.float64)
-    # pregrasp: 右手 = 靶上方 8cm (顶抓沿螺轴退); 左手 = 沿瓶轴径向外退 8cm
-    rad = st_l[:3] - bot_p
-    rad[2] = 0.0
-    rad = rad / max(np.linalg.norm(rad), 1e-9)
-    T["goals"] = {
-        "right_hand_C_MC": {"pos": (st_r[:3] - _root_p).tolist(),
-                            "quat": st_r[3:7].tolist()},
-        "left_hand_C_MC": {"pos": (st_l[:3] - _root_p).tolist(),
-                           "quat": st_l[3:7].tolist()}}
-    T["pregrasp_goals"] = {
-        "right_hand_C_MC": {"pos": (st_r[:3] + [0, 0, 0.08] - _root_p).tolist(),
-                            "quat": st_r[3:7].tolist()},
-        "left_hand_C_MC": {"pos": (st_l[:3] + 0.08 * rad - _root_p).tolist(),
-                           "quat": st_l[3:7].tolist()}}
-    T["hand_targets"] = {"right_hand_C_MC": "obj_secondary",
-                         "left_hand_C_MC": "obj_primary"}
+    # ---- Approach: cspace 直达 pregrasp 内点构型 (2026-08-30 排障定稿) ----
+    # 旧的双臂位姿模式对本任务全灭: 左腕镜像锚姿态超 j7 行程, ArmIK 钳限位
+    # 出"达标"解, cuRobo 带限位余量把贴边构型全部拒收 (台账 T2-2 八轮二分)。
+    # 现在目标 = make_reference 里收缩限位 3° ArmIK 解出的内点构型
+    # (machine_pre_q_*), plan_cspace 全程避障且终帧=目标关节, 离线预演
+    # (桌+物体充气1cm) 已全通。
+    qpre_r = np.asarray(z1["machine_pre_q_r"], np.float64)
+    qpre_l = np.asarray(z1["machine_pre_q_l"], np.float64)
+    T["cspace_goal"] = {}
+    for i in range(1, 8):
+        T["cspace_goal"][f"R_arm_j{i}"] = float(qpre_r[i - 1])
+        T["cspace_goal"][f"L_arm_j{i}"] = float(qpre_l[i - 1])
     out_npz = TC.APPROACH_NPZ
 
 os.makedirs(os.path.dirname(out_npz), exist_ok=True)
@@ -147,20 +154,40 @@ cmd = [sys.executable, "-u", "-m", "tasks.pregrasp.curobo_plan_worker",
        "--targets", _tgt, "--out", out_npz,
        "--act_dist", str(args.act_dist), "--attempts", str(args.attempts),
        "--obj_inflate", str(args.obj_inflate)]
-if not args.retreat:
-    cmd += ["--joint", "1"]
+# Approach/Retreat 现都走 cspace_goal (worker 按 targets 里键自动分支)
 print(f"[plan] worker: {' '.join(cmd)}", flush=True)
-subprocess.run(cmd, cwd=os.getcwd(),
-               env=dict(os.environ, PYTHONPATH=os.getcwd()), timeout=2400)
-_z = np.load(out_npz, allow_pickle=True)
-if not bool(_z["ok"]):
-    print(f"[plan] ❌ 失败: {_z.get('failed_frame')}", flush=True)
+started_ns = time.time_ns()
+run = subprocess.run(cmd, cwd=os.getcwd(),
+                     env=dict(os.environ, PYTHONPATH=os.getcwd()), timeout=2400)
+fresh = (os.path.isfile(out_npz)
+         and os.stat(out_npz).st_mtime_ns >= started_ns)
+if run.returncode != 0 or not fresh:
+    print(f"[plan] ❌ worker 未产出本次结果: returncode={run.returncode} "
+          f"fresh={fresh} out={out_npz}", flush=True)
+    try:
+        _slot.release()
+    except Exception:
+        pass
+    app.close(); os._exit(1)
+with np.load(out_npz, allow_pickle=True) as _z:
+    plan_payload = {key: _z[key] for key in _z.files}
+if not bool(plan_payload["ok"]):
+    failed_frame = plan_payload.get("failed_frame")
+    print(f"[plan] ❌ 失败: {failed_frame}", flush=True)
     try:
         _slot.release()
     except Exception:
         pass
     os._exit(1)
-print(f"[plan] ✅ {out_npz}: {len(_z['traj'])} 行 | "
+plan_payload.update(
+    plan_clip=np.array(TC.CLIP_ID), plan_segment=np.array(segment_name),
+    planning_basis_digest=np.array(planning_basis),
+    rest_md5=np.array(rest_md5))
+tmp_plan = f"{out_npz}.tmp.{os.getpid()}"
+with open(tmp_plan, "wb") as fh:
+    np.savez(fh, **plan_payload)
+os.replace(tmp_plan, out_npz)
+print(f"[plan] ✅ {out_npz}: {len(plan_payload['traj'])} 行 | "
       f"记得重跑 make_reference.py 剪进母带", flush=True)
 try:
     _slot.release()

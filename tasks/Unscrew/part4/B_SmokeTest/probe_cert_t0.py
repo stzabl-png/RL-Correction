@@ -1,4 +1,4 @@
-"""认证显微探针: 1env g1出生零动作, 逐步打印认证机全量."""
+"""认证显微探针: 8 env 从 t0 生长握，逐步打印认证机全量。"""
 import argparse, os, sys
 from isaaclab.app import AppLauncher
 p = argparse.ArgumentParser(); AppLauncher.add_app_launcher_args(p)
@@ -27,7 +27,9 @@ for t in range(430):
               f"垫L={[(f[i,:5]>0.5).sum().item() for i in range(8)]}", flush=True)
 n1, n2 = int(E.PB.g1.sum()), int(E.PB.g2.sum())
 print(f"[certT0] ★零动作t0: G1形成 {n1}/8 | 认证通过 {n2}/8", flush=True)
-print("[cert] 完毕", flush=True)
+ok = n1 > 0 and n2 > 0
+print(f"[cert] {'✅ 生长握存在可认证样本' if ok else '❌ 生长握完全无法通过认证'}",
+      flush=True)
 try: _slot.release()
 except Exception: pass
-app.close(); os._exit(0)
+app.close(); os._exit(0 if ok else 1)

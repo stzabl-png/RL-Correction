@@ -34,35 +34,52 @@ app = AppLauncher(args).app
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
+os.environ["POUR_NO_D6"] = "1"  # 静置测量不需要跨臂碰撞探针
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import task_config as TC  # noqa: E402
 import task_env as PE  # noqa: E402
 from rl_rebuild.correction.kinematics import quat_to_R  # noqa: E402
 
-# 母带可能还不存在 (先 probe 后 make_reference): 给 env 一个只建场景的降级路径
-_have_ref = os.path.isfile(PE.MASTER)
+# 静置测量必须独立于母带：UnscrewEnv.reset() 会用母带首行重置物体，
+# 若在已有 bootstrap v1 时走它，会把“实测”变成对占位母带的循环复述。
+from tasks.pregrasp.env import GraspTaskEnv
 cfg = PE.build_cfg(num_envs=1)
-if _have_ref:
-    E = PE.UnscrewEnv(cfg)
-    E.force_entry = [0]
-    E.reset()
-else:
-    from tasks.pregrasp.env import GraspTaskEnv
-    print("[probe_rest] 母带缺席 -> 基类场景 (只测静置/锚, 不放音)")
-    cfg.observation_space = 8   # 基类自算, 占位
-    cfg.action_space = 29
-    E = GraspTaskEnv(cfg)
-    E.reset()
+cfg.observation_space = 8   # 基类自算, 占位
+cfg.action_space = 29
+# build_cfg 的垫序是 前5左+后5右 (10 个); 基类 _pad_signals 按 5 指算
+# (finger_active 形状 5)。UnscrewEnv._setup_scene 会自己切片, 但本探针
+# 走基类, 要在建场景前切掉右垫 —— 静置测量不消费任何接触信号。
+cfg.contact_sensors = list(cfg.contact_sensors)[:5]
+E = GraspTaskEnv(cfg)
+# 探针不消费观测/动作, 只借场景静置; 观测宽度随基类开关浮动 (实测 167),
+# 占位 8 过不了 _check_obs_dim —— 直接豁免, 别追着开关改数
+E._check_obs_dim = lambda *_a, **_k: None
+E.reset()
+print("[probe_rest] 基类场景独立测量（不读取母带）", flush=True)
 for _ in range(args.settle):
+    # probe_rest bypasses DirectRLEnv.step(), so _apply_action() does not run.
+    # Keep the analytic screw constraint alive explicitly; otherwise the cap
+    # falls through the collision-filtered bottle and a bogus rest file is
+    # produced with cap and bottle on the same table plane.
+    E._SA.apply_screw(E, integrate_angle=False)
     E.scene.write_data_to_sim()
     E.sim.step(render=False)
     E.scene.update(E.sim.get_physics_dt())
+E._SA.apply_screw(E, integrate_angle=False)
 
 org = E.scene.env_origins[0].cpu().numpy()
 body = np.concatenate([E.object.data.root_pos_w[0].cpu().numpy() - org,
                        E.object.data.root_quat_w[0].cpu().numpy()])
 cap = np.concatenate([E.aux.data.root_pos_w[0].cpu().numpy() - org,
                       E.aux.data.root_quat_w[0].cpu().numpy()])
+axis = quat_to_R(body[3:7])[:, 2]
+rel = cap[:3] - body[:3]
+axial = float(np.dot(rel, axis))
+radial = float(np.linalg.norm(rel - axial * axis))
+expected_axial = float(E.screw_spec.closed_offset_m)
+assert abs(axial - expected_axial) < 0.005, (
+    f"瓶盖未保持合拢: axial={axial:.4f}m, expected={expected_axial:.4f}m")
+assert radial < 0.005, f"瓶盖偏离螺轴: radial={radial:.4f}m"
 bn = list(E.hand.body_names)
 ac = bn.index("arm_center")
 aT = np.eye(4)
@@ -85,13 +102,17 @@ out = {"clip": TC.CLIP_ID,
        "stance_arm14": arm14, "stance_fin44": fin44,
        "settle_steps": args.settle}
 os.makedirs(os.path.dirname(TC.REST_JSON), exist_ok=True)
-json.dump(out, open(TC.REST_JSON, "w"), indent=1)
+tmp_json = TC.REST_JSON + ".tmp"
+with open(tmp_json, "w", encoding="utf-8") as f:
+    json.dump(out, f, indent=1)
+os.replace(tmp_json, TC.REST_JSON)
 tilt = np.degrees(np.arccos(np.clip(
     quat_to_R(body[3:7])[2, 2], -1, 1)))
 print(f"[probe_rest] -> {TC.REST_JSON}")
 print(f"[probe_rest] 瓶静置 pos={np.round(body[:3], 4).tolist()} 倾角 {tilt:.1f}° "
       f"| 盖 pos={np.round(cap[:3], 4).tolist()} "
-      f"| 盖-瓶 z 差 {(cap[2] - body[2]) * 100:.1f}cm (期望 ~18)")
+      f"| 轴向差 {axial * 100:.1f}cm (期望 {expected_axial * 100:.1f}) "
+      f"| 径向差 {radial * 100:.2f}cm")
 try:
     _slot.release()
 except Exception:

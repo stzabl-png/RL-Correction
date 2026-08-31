@@ -1,7 +1,10 @@
 """合法变体 + 反向自检: 参考放音只证"完美能过", 这里再证
 ① 合法偏差 (物体 2cm 内小偏 + 腕 5mm 漂) 也能过;
 ② 真错被拦: 拧反方向(不释放)→G3 不立; 盖没送到位→placed 不立;
-③ 未释放却报 placed 语义不可能 (G3 是 placed 的前置)。"""
+③ 未释放却报 placed 语义不可能 (G3 是 placed 的前置);
+④ 护送信号开着的正路 (右垫全程接触) 照常 G4;
+⑤ 盖脱手自由落体到目标 → 无接触快速过带 ⇒ escort_fail, placed 永不立
+   (T2-3 用户裁定: 成功=右手拿着盖放桌上, 不是盖自己掉下去)。"""
 import os
 import sys
 
@@ -26,9 +29,13 @@ WOFF = np.array([0.0, 0.0, 0.10])
 rng = np.random.default_rng(7)
 
 
-def run(off_scale=0.0, feed_released=True, cap_end_off=0.0, max_t=1500):
+def run(off_scale=0.0, feed_released=True, cap_end_off=0.0, max_t=1500,
+        escort=None):
+    """escort: None=无信号(护送停用) / 'hold'=右垫全程接触 /
+    'drop'=释放后盖脱手自由落体到终点 (每步 -2.5cm, 无接触)。"""
     P = UnscrewProgress(NPZ)
     t = 0
+    drop_z = None
     while t < max_t and not P.g[4]:
         if P.cert_phase == 1:
             dz = 0.015 * min((P.cert_t + 1) / CERT_RAMP, 1.0)
@@ -56,11 +63,23 @@ def run(off_scale=0.0, feed_released=True, cap_end_off=0.0, max_t=1500):
             o1[:2] += cap_end_off
         o0[2] += dz; o1[2] += dz
         rel = feed_released and P.g[2] and k >= P.k_sep
+        prc = None
+        if escort == "hold":
+            prc = True
+        elif escort == "drop":
+            prc = False
+            if P.g[3]:
+                # 释放后盖脱手: xy 直接到终点, z 每步直落 2.5cm 直至终点高度
+                if drop_z is None:
+                    drop_z = float(o1[2])
+                drop_z = max(drop_z - 0.025, float(P.end[1][2]))
+                o1 = P.end[1].copy()
+                o1[2] = drop_z
         # 腕漂 ±2mm: 认证滑移线 8mm, 两帧独立 ±5mm 噪声最坏差 17mm 会误伤
         r = P.step(o0, o1, ar, al, True,
                    o1[:3] + WOFF + rng.uniform(-0.002, 0.002, 3),
                    o0[:3] + WOFF + rng.uniform(-0.002, 0.002, 3),
-                   screw_released=rel)
+                   screw_released=rel, pads_r_cap=prc)
         if r["fail"]:
             return P, r["fail"], t
         t += 1
@@ -80,4 +99,15 @@ P, fail, t = run(cap_end_off=0.12)
 assert P.g[3] and not P.placed and not P.g[4], \
     f"盖偏 12cm 却 placed={P.placed}"
 print(f"[变体] ③ 盖离目标 12cm -> placed 不立 ✅")
+# ④ 护送正路: 右垫全程接触, 照常走到 G4
+P, fail, t = run(escort="hold")
+assert fail is None and P.g[4] and not P.escort_fail, \
+    f"护送正路被误拦: fail={fail} G4={P.g[4]} escort_fail={P.escort_fail}"
+print(f"[变体] ④ 右垫护送 -> G4 @{t} ✅")
+# ⑤ 盖脱手自由落体到目标: escort_fail, placed 永不立
+P, fail, t = run(escort="drop")
+assert P.g[3] and P.escort_fail and not P.placed and not P.g[4], \
+    (f"自由落体却 placed={P.placed} escort_fail={P.escort_fail} "
+     f"G4={P.g[4]}")
+print(f"[变体] ⑤ 盖脱手自由落体 -> escort_fail, placed 不立 ✅")
 print("[变体] ★全绿")

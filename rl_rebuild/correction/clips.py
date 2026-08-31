@@ -577,6 +577,12 @@ def _unscrew_take(take_dir: str):
                                robot_hand="left")
     entry["npz"] = os.path.join(os.path.abspath(take_dir), "replay_world.npz")
     entry["upright"] = True
+    # 左手×瓶身 affordance (设定 B 对齐目标; 由 expected_area_*_left.npz 转换,
+    # points/weight -> points_raw/heatmap, 见 tasks/Unscrew/part4 台账 T2-1)
+    _aff = os.path.join(os.path.abspath(take_dir), "contact",
+                        "affordance_bottle_left.npz")
+    if os.path.isfile(_aff):
+        entry["affordance"] = _aff
     entry["resting_pose_json"] = os.path.join(
         os.path.abspath(take_dir), "resting_pose.json")
     asm = entry["secondary"]["assembly"]

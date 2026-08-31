@@ -148,6 +148,26 @@ class StaticReconstructionPlacementTest(unittest.TestCase):
                 target_hz=None,
             )
 
+    def test_phase_less_replay_requires_explicit_hand_and_placement_frame(self):
+        with np.load(self.replay, allow_pickle=True) as data:
+            payload = {key: data[key] for key in data.files
+                       if not key.startswith("phase_")}
+        phase_less = Path(self.tmp.name) / "phase_less.npz"
+        np.savez_compressed(phase_less, **payload)
+
+        _, placement = load_static_reconstruction(
+            str(phase_less), str(self.mesh), hand="left", placement_frame=1,
+            target_hz=None, return_placement=True,
+        )
+        self.assertEqual(placement.hand, "left")
+        self.assertEqual(placement.source_frame, 1)
+        self.assertEqual(placement.placement_frame, 1)
+
+        with self.assertRaisesRegex(ValueError, "phase_left"):
+            load_static_reconstruction(
+                str(phase_less), str(self.mesh), hand="left", target_hz=None,
+            )
+
     def test_upright_projection_keeps_only_yaw(self):
         # 全程在手 clip (screw_unscrew_cap1) 用: 30° 倾角 + 90° yaw 的 FoundationPose,
         # upright=True 应剥掉倾角只保留 yaw, 且落桌几何合同不变.

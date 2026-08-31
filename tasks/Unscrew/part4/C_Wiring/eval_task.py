@@ -1,7 +1,7 @@
 """Unscrew 确定性评测 — 关探索噪声 (只用 mu), 全程 t0 口径 (考试分布).
 
   SHARPA_WANDB=0 PYTHONPATH=. $PY <task>/C_Wiring/eval_task.py \
-      --checkpoint logs/Pour17_0/stage1_nn/last.pth --num_envs 256 --headless
+      --checkpoint logs/Unscrew32_0/stage1_nn/last.pth --num_envs 256 --headless
 
 成功 = M4 (终局); 逐关率 M1-M4 按"完成回合"精确计, 另报失败谱 (超时/env侧/进度机)。
 """
@@ -44,6 +44,14 @@ agent_cfg["algorithm"]["num_actors"] = args.num_envs
 agent = PPO(env, output_dir="/tmp/unscrew_eval", full_config=ConfigWrapper(agent_cfg, {}, test=True),
             create_output_dir=False)
 agent.restore_test(args.checkpoint)
+import world_fingerprint as WF  # noqa: E402
+
+_world_json = os.path.join(os.path.dirname(os.path.dirname(
+    os.path.abspath(args.checkpoint))), "world.json")
+if not os.environ.get("POUR_IGNORE_WORLD"):
+    WF.assert_match(raw, _world_json, strict=True)
+else:
+    print("[world] ⚠ POUR_IGNORE_WORLD=1 已跳过世界核对", flush=True)
 agent.set_eval()
 
 obs = env.reset()
@@ -61,11 +69,10 @@ with torch.no_grad():
         if len(d):
             # dones 时 PB 状态尚未被 reset 覆盖? reset 在 step 内已发生 —— 用 TB 口径
             done_n += len(d)
-if hasattr(raw.PB, "pop_rates"):
-    # 评测期间 PB.reset_idx 已在 env 内累计逐关率
-    rates = raw.PB.pop_rates()
-    print(f"[eval] 完成回合≈{done_n} | " +
-          " ".join(f"{k}={v:.3f}" for k, v in rates.items()))
+assert hasattr(raw.PB, "pop_rates"), "进度机缺少确定性评测计数接口"
+rates = raw.PB.pop_rates()
+print(f"[eval] 完成回合≈{done_n} | " +
+      " ".join(f"{k}={v:.3f}" for k, v in rates.items()))
 print(f"[eval] ★Success(M4) = {rates['sr/gate4']:.3f}")
 try:
     _slot.release()

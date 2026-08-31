@@ -105,7 +105,16 @@ def compute_static_placement(
     see datasets/README.md).
     """
 
-    side, source_frame = first_interaction(replay, hand)
+    # Some scene-layout-driven datasets intentionally omit phase_* channels:
+    # their hand and placement frame are already explicit metadata. Keep the
+    # generic first_interaction contract strict, and accept the phase-less
+    # format only when both pieces of replacement metadata are present.
+    phase_key = f"phase_{hand}" if hand is not None else None
+    if (hand is not None and placement_frame is not None
+            and phase_key not in replay.files):
+        side, source_frame = hand, int(placement_frame)
+    else:
+        side, source_frame = first_interaction(replay, hand)
     source_length = len(replay["obj_pose"])
     if source_length < 1 or aligned_length < 1:
         raise ValueError("empty replay/aligned trajectory")
@@ -251,7 +260,12 @@ def load_static_reconstruction(
     """
 
     with np.load(npz_path, allow_pickle=True) as replay:
-        side, _ = first_interaction(replay, hand)
+        phase_key = f"phase_{hand}" if hand is not None else None
+        if (hand is not None and placement_frame is not None
+                and phase_key not in replay.files):
+            side = hand
+        else:
+            side, _ = first_interaction(replay, hand)
         data_unit = load_replay(
             npz_path,
             mesh_path,

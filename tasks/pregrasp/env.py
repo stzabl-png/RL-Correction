@@ -147,9 +147,15 @@ class GraspTaskEnv(DexmateCorrectionEnv):
 
         # ---- PreGrasp 姿态 (臂参考钉死在这一帧) ----
         self.q_pregrasp = self.q_ref[self.grasp_start].clone()          # (7,)
-        assert getattr(self, "q_lift", None) is not None or cfg.grasp_prior_npz, \
-            "微抬升验证依赖基类预解的 q_lift (place_mode=ref_builder 路径; " \
-            "prior 模式会在 _load_grasp_prior 里自行重解)"
+        if getattr(cfg, "bypass_lift_scaffold", False):
+            assert not cfg.approach and not cfg.grasp_prior_npz, (
+                "bypass_lift_scaffold 只允许给完全覆写 approach/verify 的任务")
+            self.q_lift = torch.zeros(
+                int(cfg.lift_steps) + 1, 7, dtype=torch.float32, device=dev)
+        else:
+            assert getattr(self, "q_lift", None) is not None or cfg.grasp_prior_npz, \
+                "微抬升验证依赖基类预解的 q_lift (place_mode=ref_builder 路径; " \
+                "prior 模式会在 _load_grasp_prior 里自行重解)"
 
         # ---- 手型模板 (USD 关节序) + 关节→手指映射 ----
         side = cfg.hand_side

@@ -123,9 +123,15 @@ def motion_window(P, base_n=12):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--rest-json", default=TC.REST_JSON,
-                    help="probe_rest.py 产物 (env 实测静置位/anchor_T/站姿); 缺省走 URDF 推导")
+                    help="probe_rest.py 产物 (env 实测静置位/anchor_T/站姿)")
+    ap.add_argument(
+        "--allow-offline-rest", action="store_true",
+        help="显式允许无 env_rest 时用离线估计；只供初始脚手架，不可用于正式母带")
     ap.add_argument("--out", default=TC.REF_V1)
     args = ap.parse_args()
+    if not os.path.isfile(args.rest_json) and not args.allow_offline_rest:
+        raise FileNotFoundError(
+            f"缺少 {args.rest_json}; 先运行 C_Wiring/probe_rest.py")
     take = TC.TAKE_DIR
     print(f"[v1] clip={TC.CLIP_ID} take={take}")
 
@@ -163,6 +169,8 @@ def main():
     rest = None
     if os.path.isfile(args.rest_json):
         rest = json.load(open(args.rest_json))
+        if str(rest.get("clip")) != TC.CLIP_ID:
+            raise ValueError(f"env_rest clip={rest.get('clip')} != {TC.CLIP_ID}")
         print(f"[v1] env 静置位: {args.rest_json} (实测)")
     else:
         print(f"[v1] ⚠ 无 {args.rest_json} —— 静置位用离线估计, "
@@ -189,6 +197,16 @@ def main():
     if rest:
         rest_b = np.asarray(rest["body_pose"], float)         # env 系 (7,)
         rest_c = np.asarray(rest["cap_pose"], float)
+        rest_axis = quat_to_R(rest_b[3:7])[:, 2]
+        rest_rel = rest_c[:3] - rest_b[:3]
+        rest_axial = float(np.dot(rest_rel, rest_axis))
+        rest_radial = float(np.linalg.norm(
+            rest_rel - rest_axial * rest_axis))
+        if abs(rest_axial - 0.18) >= 0.005 or rest_radial >= 0.005:
+            raise ValueError(
+                f"env_rest screw closure invalid: axial={rest_axial:.4f}m "
+                f"(expected 0.1800), radial={rest_radial:.4f}m; "
+                "rerun C_Wiring/probe_rest.py")
     else:
         import trimesh
         mesh_b = trimesh.load(objs[BODY_ID]["mesh"], process=False, force="mesh")
@@ -316,13 +334,24 @@ def main():
         P, Q = _left_track(np.radians(ydeg))
         sols = ik_l.solve_traj(P[::4], Q[::4], w_rot=0.25, n_restart=2)
         pe = np.array([sv["pos_err"] for sv in sols])
-        score = float((pe < 0.02).mean())
-        med = float(np.median(pe))
-        if best is None or (score, -med) > (best[1], -best[2]):
-            best = (ydeg, score, med)
+        re = np.array([sv["rot_err"] for sv in sols])
+        qs = np.stack([sv["q"] for sv in sols])
+        # 限位余量判据 (2026-08-30 cuRobo 排障): ArmIK 是钳限位的, 贴边解
+        # (clip32 原 yaw*=240°: j7 钉死 -79°下限 33 行) 误差再小也过不了带
+        # 限位余量的 cuRobo —— 机器段规划直接全灭。内点 ≥3° 才算达标。
+        marg = np.minimum(qs - ik_l.lower, ik_l.upper - qs).min(axis=1)
+        good = (pe < 0.02) & (re < np.radians(10.0)) & (marg > np.radians(3.0))
+        score = float(good.mean())
+        # Tie-break with the same position/rotation geometry used by ArmIK.
+        cost = float(np.median(pe ** 2 + (0.25 * re) ** 2))
+        if best is None or (score, -cost) > (best[1], -best[2]):
+            best = (ydeg, score, cost, float(np.median(pe)),
+                    float(np.median(re)), float(np.degrees(np.median(marg))))
     yaw_l = np.radians(best[0])
-    print(f"[v1] 左抓方位扫描: yaw*={best[0]}° 可达率 {best[1] * 100:.0f}% "
-          f"中位 {best[2] * 100:.2f}cm (prior=Screw27_body 镜像)")
+    print(f"[v1] 左抓方位扫描: yaw*={best[0]}° 可达率(含限位内点) "
+          f"{best[1] * 100:.0f}% 全行中位 {best[3] * 100:.2f}cm/"
+          f"{np.degrees(best[4]):.1f}° 限位余量中位 {best[5]:.1f}° "
+          f"(prior=Screw27_body 镜像)")
     wl_P, wl_Q = _left_track(yaw_l)
 
     # ---- ArmIK ----
@@ -341,20 +370,53 @@ def main():
                              w_rot=0.25)
         q = np.stack([s["q"] for s in sols])
         pe = np.array([s["pos_err"] for s in sols])
-        good = np.isfinite(q).all(1) & (pe < 0.02)
+        re = np.array([s["rot_err"] for s in sols])
+        good = (np.isfinite(q).all(1) & (pe < 0.02) &
+                (re < np.radians(10.0)))
         bad = np.flatnonzero(~good)
         if len(bad):
             gd = np.flatnonzero(good)
             assert len(gd), f"{side} IK 全程不达标"
             q[bad] = q[gd[np.abs(gd[None] - bad[:, None]).argmin(1)]]
-        print(f"[v1] {side} IK: 位置<2cm {good.mean() * 100:.0f}% | "
-              f"中位 {np.median(pe[good]) * 100:.2f}cm | 顶替 {len(bad)} 行")
+        print(f"[v1] {side} IK: 位置<2cm且姿态<10° "
+              f"{good.mean() * 100:.0f}% | 达标内中位 "
+              f"{np.median(pe[good]) * 100:.2f}cm/"
+              f"{np.degrees(np.median(re[good])):.1f}° | 全行中位 "
+              f"{np.median(pe) * 100:.2f}cm/"
+              f"{np.degrees(np.median(re)):.1f}° | 顶替 {len(bad)} 行")
         return q, float(good.mean())
 
     q_r, ok_r = solve_side("right", wr_P, wr_Q)
     q_l, ok_l = solve_side("left", wl_P, wl_Q)
     q_r = smooth(q_r, 1.5)
     q_l = smooth(q_l, 1.5)
+
+    # ---- 机器段 pregrasp 内点构型 (2026-08-30 cuRobo 排障定稿, 台账 T2-2) ----
+    # 位姿 IK 规划对贴限锚不可用: ArmIK 钳限位出解 (j7 钉 -79° 也算达标),
+    # cuRobo 带限位余量把贴边构型全拒 —— Approach 位姿模式全灭。机器段改
+    # cspace 直达关节构型: 收缩限位 3° 的 ArmIK 解 station+净空 的最近内点,
+    # 误差原样入档 (左臂 ~8cm/54° 是腕行程物理极限, 缝1+RL 消化;
+    # 右 pregrasp 抬升 4cm —— 8cm 超可达域, 离线 cuRobo 实测 ≤5cm 才通)。
+    PRE_L_RADIAL = 0.05
+    PRE_R_LIFT = 0.04
+    _m3 = np.radians(3.0)
+    _radL = wl_P[0] - body_p[0]
+    _radL[2] = 0.0
+    _radL /= max(np.linalg.norm(_radL), 1e-9)
+    machine_pre = {}
+    for _side, _pp, _qq in (
+            ("left", wl_P[0] + PRE_L_RADIAL * _radL, wl_Q[0]),
+            ("right", wr_P[0] + [0.0, 0.0, PRE_R_LIFT], wr_Q[0])):
+        _ikp = _mk_ik(_side)
+        _ikp.lower = _ikp.lower + _m3
+        _ikp.upper = _ikp.upper - _m3
+        _sp = _ikp.solve_traj(np.asarray(_pp, float)[None],
+                              np.asarray(_qq, float)[None],
+                              w_rot=0.25, n_restart=24)[0]
+        machine_pre[_side] = np.asarray(_sp["q"], np.float64)
+        print(f"[v1] 机器段 pregrasp 内点构型 {_side}: 距锚 "
+              f"{_sp['pos_err'] * 100:.2f}cm/"
+              f"{np.degrees(_sp['rot_err']):.1f}° (锚不可达部分由缝1+RL 消化)")
 
     # 手指行: 右手 = 活的人手流 (拧盖手法, 本批实证活通道, P-HYB 形状指引同源);
     # 左手 = prior 抓形模板 (与镜像腕位姿配套 —— 人手指流描述的是**人的**握法,
@@ -384,19 +446,34 @@ def main():
         s = s * s * (3 - 2 * s)
         return a[None] * (1 - s)[:, None] + b[None] * s[:, None]
 
-    def _load_plan(npz_path):
+    have_machine_plan = (os.path.isfile(TC.APPROACH_NPZ)
+                         or os.path.isfile(TC.RETREAT_NPZ))
+    planning_basis = (TC.reference_planning_digest(TC.REF_V1)
+                      if have_machine_plan else None)
+    rest_md5 = TC.file_md5(args.rest_json)
+
+    def _load_plan(npz_path, segment):
         """cuRobo worker 产物 -> (右臂行, 左臂行)。列按 joint_names 名取。"""
         pz = np.load(npz_path, allow_pickle=True)
         assert bool(pz["ok"]), f"{npz_path}: 规划失败产物 (ok=False)"
+        provenance = {key: str(np.asarray(pz[key]).item()) for key in
+                      ("plan_clip", "plan_segment", "planning_basis_digest",
+                       "rest_md5") if key in pz.files}
+        expected = {"plan_clip": TC.CLIP_ID, "plan_segment": segment,
+                    "planning_basis_digest": planning_basis, "rest_md5": rest_md5}
+        assert provenance == expected, (
+            f"{npz_path}: 规划产物与当前母带/静置不匹配；重新运行 plan_machine_segs",
+            provenance, expected)
         names = [str(n) for n in pz["joint_names"]]
         tr = np.asarray(pz["traj"], np.float64)
+        assert np.isfinite(tr).all() and tr.ndim == 2 and len(tr) >= 2, npz_path
         ir = [names.index(f"R_arm_j{i}") for i in range(1, 8)]
         il = [names.index(f"L_arm_j{i}") for i in range(1, 8)]
         return tr[:, ir], tr[:, il]
 
     # Approach: cuRobo 规划产物优先 (碰撞检查过的可行解; plan_machine_segs.py 产出)
     if os.path.isfile(TC.APPROACH_NPZ):
-        app_r, app_l = _load_plan(TC.APPROACH_NPZ)
+        app_r, app_l = _load_plan(TC.APPROACH_NPZ, "approach")
         n_app = len(app_r)
         print(f"[v1] Approach = cuRobo 规划 {TC.APPROACH_NPZ} ({n_app} 行)")
     else:
@@ -416,7 +493,7 @@ def main():
     s1_fr, s1_fl = np.tile(f_r[0], (SEAM1, 1)), np.tile(f_l[0], (SEAM1, 1))
     # Retreat: cuRobo cspace 规划产物优先 (物体已在终位, 躲避着回站姿)
     if os.path.isfile(TC.RETREAT_NPZ):
-        ret_r, ret_l = _load_plan(TC.RETREAT_NPZ)
+        ret_r, ret_l = _load_plan(TC.RETREAT_NPZ, "retreat")
         print(f"[v1] Retreat = cuRobo 规划 {TC.RETREAT_NPZ} ({len(ret_r)} 行)")
         assert np.abs(ret_r[-1] - st_r).max() < 0.06 and             np.abs(ret_l[-1] - st_l).max() < 0.06,             "Retreat 末行须回到站姿 (progress G4 拿它当 InitialPose)"
         ret_r = np.concatenate([ret_r, st_r[None]])   # 末行=精确站姿 (判据口径)
@@ -490,12 +567,16 @@ def main():
                      if os.path.isfile(TC.APPROACH_NPZ) else "smoothstep占位"),
         "retreat": ("curobo:" + TC.RETREAT_NPZ
                     if os.path.isfile(TC.RETREAT_NPZ) else "smoothstep占位"),
+        "planning_basis_digest": planning_basis,
+        "rest_md5": rest_md5,
         "notes": "交互1行=1重建帧@15fps, "
                  "env 20Hz 播放 1.33x 实时 (Pour17 v1 同口径)",
     }
     out = dict(
         # 站位腕靶 (plan_machine_segs 的规划目标) + 交互腕靶全轨 (v2/诊断)
         station_wr=np.r_[wr_P[0], wr_Q[0]], station_wl=np.r_[wl_P[0], wl_Q[0]],
+        machine_pre_q_r=machine_pre["right"],
+        machine_pre_q_l=machine_pre["left"],
         wrist_tgt_r=np.concatenate([wr_P, wr_Q], axis=1),
         wrist_tgt_l=np.concatenate([wl_P, wl_Q], axis=1),
         right_q=right_q, left_q=left_q, right_f=right_f, left_f=left_f,
@@ -505,10 +586,15 @@ def main():
         fin_names=np.array(fin_names), meta=np.array(json.dumps(meta)),
         **cols)
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
-    np.savez(args.out, **out)
-    md5 = hashlib.md5(open(args.out, "rb").read()).hexdigest()[:8]
+    tmp_out = f"{args.out}.tmp.{os.getpid()}"
+    with open(tmp_out, "wb") as fh:
+        np.savez(fh, **out)
+    os.replace(tmp_out, args.out)
+    with open(args.out, "rb") as fh:
+        md5 = hashlib.md5(fh.read()).hexdigest()[:8]
     print(f"[v1] 已写 {args.out} md5={md5} 全链 {Tn} 行 "
-          f"(app {APP_ROWS}/seam1 {SEAM1}/ia {N}/seam2 {SEAM2}/ret {RET_ROWS})")
+          f"(app {len(app_r)}/seam1 {SEAM1}/ia {N}/seam2 {SEAM2}"
+          f"/ret {len(ret_r)})")
     return 0
 
 

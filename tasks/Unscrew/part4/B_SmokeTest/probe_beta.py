@@ -37,10 +37,11 @@ def drive(rows_per_env, sq_scale):
     full = E.hand.data.joint_pos.clone()
     full[:, E.map_ids_t] = tgt
     E.hand.set_joint_position_target(full)
+    E._update_screw_drive_gain()
     for _ in range(DECI):
+        E._SA.apply_screw(E)
         E.scene.write_data_to_sim(); E.sim.step(render=False)
         E.scene.update(E.sim.get_physics_dt())
-        E._SA.apply_screw(E)   # ⚠ 盖-瓶碰撞被豁免, 不投影盖会穿进瓶身
 
 # 第一幕: approach 全员照谱 (无squeeze); 行号动态取 env (Pour 硬编码已废)
 APP, IA0, IA1 = E.APP_END, E.IA0, E.IA1
@@ -73,6 +74,7 @@ for r in range(IA0, KEY_END):
             for i in range(N)), flush=True)
 d_r = (E.hand.data.body_pos_w[:, E.wid["L"]] - E.object.data.root_pos_w).norm(dim=1)
 f = E._pads_f().norm(dim=-1)
+held = []
 for i in range(N):
     slip = float((d_r[i] - d0[i]) * 100)
     npr = int((f[i, :5] > 0.5).sum())
@@ -80,12 +82,20 @@ for i in range(N):
     # 判读: 关键段末瓶应离桌 (母带该行 z) 且滑移小; 阈值随 clip 从母带取
     ref_z = float(E.PB.ref_obj[0][int(0.6 * (IA1 - IA0))][2])
     ok = slip < 3 and npr >= 2 and bz > ref_z - 0.07
+    held.append(ok)
     print(f"[beta] β={BETA[i]}: 滑移={slip:+.1f}cm 左垫={npr} 瓶z={bz:.3f} "
           f"(母带 {ref_z:.3f}) -> {'✅持住了' if ok else '❌脱手'}", flush=True)
-print("[beta] 完毕", flush=True)
+ok_any = any(held)
+if ok_any and all(held):
+    print("[beta] 四档全通过；下次向更低剂量扩展以找到下界", flush=True)
+elif not ok_any:
+    print("[beta] ❌ 四档全失败；当前剂量窗没有可用值", flush=True)
+else:
+    print(f"[beta] 可用剂量: {[BETA[i] for i, ok in enumerate(held) if ok]}", flush=True)
 try:
     _slot.release()
 except Exception:
     pass
 app.close()
-os._exit(0)
+sys.stdout.flush()
+os._exit(0 if ok_any else 1)

@@ -58,11 +58,12 @@ def drive(row, sL):
     full = E.hand.data.joint_pos.clone()
     full[0, E.map_ids_t] = tgt
     E.hand.set_joint_position_target(full)
+    E._update_screw_drive_gain()
     for _ in range(DECI):
+        E._SA.apply_screw(E)
         E.scene.write_data_to_sim()
         E.sim.step(render=False)
         E.scene.update(E.sim.get_physics_dt())
-        E._SA.apply_screw(E)
 
 
 print(f"[v2] 第一幕: Approach 照谱 + 缝1 βL={BL} 渐入", flush=True)
@@ -95,13 +96,17 @@ for s in ("right", "left"):
         q0t = q_seed[s] if trial == 0 else q_seed[s] + rng.normal(0, 0.03, 7)
         r5 = ik[s].solve(w0[s][0] + np.array([0, 0, 0.015]), w0[s][1],
                          q0=q0t, iters=300)
-        if best is None or r5["pos_err"] < best["pos_err"]:
+        score = r5["pos_err"] ** 2 + (0.35 * r5["rot_err"]) ** 2
+        best_score = (float("inf") if best is None else
+                      best["pos_err"] ** 2 + (0.35 * best["rot_err"]) ** 2)
+        if score < best_score:
             best = r5
-        if best["pos_err"] < 0.001:
+        if best["pos_err"] < 0.001 and best["rot_err"] < 0.05:
             break
     cert[s] = np.asarray(best["q"], np.float64)
-    print(f"[v2] 认证行IK {s}: pos_err={best['pos_err'] * 1000:.2f}mm", flush=True)
-fail_ik, err_max = 0, 0.0
+    print(f"[v2] 认证行IK {s}: pos={best['pos_err'] * 1000:.2f}mm "
+          f"rot={np.degrees(best['rot_err']):.2f}°", flush=True)
+fail_pos, fail_rot, critical_bad, pos_max, rot_max = 0, 0, 0, 0.0, 0.0
 for k in range(Nrow):
     for s in ("right", "left"):
         oi = side_obj[s]
@@ -112,12 +117,19 @@ for k in range(Nrow):
         r = ik[s].solve(Rk @ w0[s][0] + tp, Rk @ w0[s][1], q0=q_seed[s],
                         iters=60)
         if r["pos_err"] > 0.01:
-            fail_ik += 1
-        err_max = max(err_max, float(r["pos_err"]))
+            fail_pos += 1
+        if r["rot_err"] > np.radians(10):
+            fail_rot += 1
+        if (r["pos_err"] > 0.01 or r["rot_err"] > np.radians(10)) and \
+                max(E.PB.k_sep - 40, 0) <= k <= E.PB.k_sep:
+            critical_bad += 1
+        pos_max = max(pos_max, float(r["pos_err"]))
+        rot_max = max(rot_max, float(r["rot_err"]))
         q_ik[s][k] = r["q"]
         q_seed[s] = np.asarray(r["q"], np.float64)
-print(f"[v2] 交互IK: >1cm 失败 {fail_ik}/{Nrow * 2} 最大误差={err_max * 100:.2f}cm",
-      flush=True)
+print(f"[v2] 交互IK: pos>1cm {fail_pos}/{Nrow * 2} | rot>10° "
+      f"{fail_rot}/{Nrow * 2} | 关键窗坏行 {critical_bad} | "
+      f"最大={pos_max * 100:.2f}cm/{np.degrees(rot_max):.1f}°", flush=True)
 
 d1 = dict(np.load(V1, allow_pickle=True))
 v2r = np.asarray(d1["right_q"], np.float64).copy()
@@ -135,6 +147,8 @@ for i in range(SEAM2):
     v2l[rr] = (1 - a) * v2l[IA1] + a * v2l[RET0]
 with open(V1, "rb") as fh:
     parent_md5 = hashlib.md5(fh.read()).hexdigest()[:8]
+assert np.isfinite(v2r).all() and np.isfinite(v2l).all(), \
+    "v2 arm trajectories contain NaN/Inf"
 out = dict(d1)
 out.update(right_q=v2r, left_q=v2l,
            human_right_q=hum_r, human_left_q=hum_l,
@@ -143,8 +157,14 @@ out.update(right_q=v2r, left_q=v2l,
            cert_arm7_right=cert["right"], cert_arm7_left=cert["left"],
            meta_v2=np.array(f"gen=unscrew_v2;parent_v1_md5={parent_md5};"
                             f"betaL={BL};betaR={BR};ik=delta_space;"
+                            f"fail_pos_gt_1cm={fail_pos};fail_rot_gt_10deg={fail_rot};"
+                            f"critical_bad={critical_bad};pos_max_cm={pos_max*100:.3f};"
+                            f"rot_max_deg={np.degrees(rot_max):.3f};"
                             f"clip={TC.CLIP_ID}"))
-np.savez(OUT, **out)
+tmp_out = OUT + ".tmp"
+with open(tmp_out, "wb") as fh:
+    np.savez(fh, **out)
+os.replace(tmp_out, OUT)
 with open(OUT, "rb") as fh:
     print(f"[v2] 已写 {OUT} md5={hashlib.md5(fh.read()).hexdigest()[:8]}",
           flush=True)

@@ -134,18 +134,119 @@ upright 投影 (U24a): 重建静置帧 ~20.5° FoundationPose 噪声 > 平底圆
   联合位姿规划到站位腕靶, obj_inflate 1cm) / Retreat.npz (cspace 直达站姿,
   物体钉在母带终位当障碍) → make_reference 自动消费, 缝1/缝2 焊接斜坡桥接
   规划解与离线 IK 解的分支差。
-- ⚠ worker 依赖 **MagicSim 定制版 cuRobo** (`curobo.motion_planner` API,
-  非 PyPI nvidia-curobo), 本机未装、盘上无检出。跨机口径已参数化:
-  `MAGICSIM_ROOT=<检出路径>` 或 `CUROBO_ROBOT_YML=<yml>`。装法: 从有 MagicSim
-  的机器拷 `Third_Party/curobo`, pip install -e 进本 isaac 解释器。
+- ★上面“依赖 MagicSim 定制 fork / 本机未装”的初始判断已由 T1-3b **推翻**；
+  当前 worker 首选本机 NVlabs/curobo 主线及仓库自带机器人 yml。
 - ⚠ 旧 pregrasp_suite 的躯干锁角 45/90/0 是**旧世界值**, 本实例驱动已用新站姿;
   若复用 suite 本体, 先改这三个数。
+
+### T2-0 Claude 交接审计 —— ✅ 代码收口 / ⬜ Isaac 实跑待空卡 (2026-08-30)
+- 本地会话 `新配置搭建` (`ae387a7f-1d46-415b-94fa-b4bdc2dc634e`) 共落四个提交:
+  `1de87065` 数据导入、`332e7c3e` V5 任务实例、`51b38f60` 死通道零依赖与
+  cuRobo 自包含、`a0a299f0` cuRobo 机器人配置与冒烟。17 条 clip 可注册；新增
+  17 份左手瓶 affordance 已逐点核对来源、归一化和有限性，属于有效未跟踪产物。
+- 已交付的设计主线保持不变: cuRobo 仅负责 Approach/Retreat；缝1后的全交互由
+  RL 残差处理；物体/置信度/右手指与姿态是活通道，腕平移死通道零依赖；四级
+  Gate、58 动作/507 观测、三指接触分级螺旋驱动均已接线。
+- 接管时发现并修正的假完成/串线风险:
+  1. `probe_rest` 曾在未投影解析螺旋时直接 step，写出瓶盖同根位的假静置 JSON，
+     且“预期 18cm”只打印不断言。无效文件已移到
+     `/tmp/unscrew32_env_rest_invalid_20260830.json`；现在每步先投影螺旋、校验
+     轴向/径向闭合 <5mm，再原子写入；并直接用基础环境启动，不依赖尚未生成的母带，
+     消除 `env_rest → v1 → env_rest` 循环依赖。
+  2. D6 使用一个正则源匹配多 body、过滤端却展开 5 项，触发 PhysX
+     `expected 9, found 5`；改为四个显式远端 body 传感器，各过滤四个对侧远端体。
+  3. 左抓 prior 曾预先镜像后又被 `make_reference` 再镜像；现只保留原始右手
+     `Screw27_body.npz`，构带时恰好镜像一次。基类 approach/prior 脚手架与数据
+     直立摆放冲突，已用受限 `bypass_lift_scaffold` 明确断开。
+  4. 手工回放探针原先先 step 后 `apply_screw`，且从不刷新接触增益，导致螺旋
+     永久零增益/释放不可能；v2 构建、β、IK、验收现与 DirectRLEnv 顺序一致。
+  5. `probe_ikcheck`、`probe_acceptance` 原先即使失败也 exit 0；现关键拧盖窗
+     >1cm / >10° IK 坏行或验收少于 3/4 会返回非零。训练启动前另硬验 v2、真实静置、
+     双 cuRobo 段、clip/turns/β 与有限数组；验收通过才原子写绑定 v2 全文件 MD5
+     与现场完整世界指纹的 `acceptance_v2.json`。训练入口在导入 IsaacLab 前验
+     母带/凭据，建环境后再对现场世界，离线占位母带不能误发射。
+  6. 世界指纹从旧 9 字段补齐为机器人/母带/IO/判据摘要/螺纹/方法参数/物性；
+     关键字段缺失或不可读属于“未验”并拒绝续训、评测与录像，不再静默放行。
+  7. cuRobo worker/机器段/v1/v2/静置/验收产物均改为原子落盘；机器段另写
+     clip、段名、交互几何摘要和静置哈希，构带时逐项验 provenance，防止旧规划
+     与新静置或新交互轨迹串线。
+  8. 真正影响成败/螺旋接触的阈值集中到 `progress.py` 单一事实源，判据摘要
+     schema=2；体制自检验证“阈值改动必改摘要、纯奖励改动不改摘要”。
+
+- 离线复核: 17 clip 的注册/静态摆放/60k affordance 全部可读；静态重建单测
+  11/11；五件判据自检全绿（体制件含 9 项）；clip32 离线审计母带 273 行，
+  严格位置/姿态双门槛下右臂 IK 仅 2%（全行中位 14.61cm/19.7°）、左臂 56%；
+  机器段为 smoothstep，文件只留 `/tmp`，未覆盖正式母带。
+- 当前两张 GPU 持续满载既有训练/录像；未杀任何既有进程。真实 `probe_rest`
+  及后续 T2-1 仍待卡空后按顺序执行，故此处不宣称 Isaac 验收完成。
 
 ### T2-1 冒烟/验收 —— ⬜ 待跑 (顺序不可乱)
 probe_rest → make_reference(重跑, 实测锚) → [plan_machine_segs ×2 →
 make_reference(重跑)] → smoke_zero (A 静置对账 <5mm 铁则 / 机器段死线 0 误触)
 → probe_beta (βL 标定) → build_reference (v2) → probe_ikcheck →
-probe_acceptance → 训练冒烟 (双变体各短发)。
+probe_acceptance (≥3/4 后写验收凭据) → 训练入口预检/现场世界核对 →
+训练冒烟 (双变体各短发)。
+
+### T2-2 本机 Isaac 实跑: probe_rest→v1→cuRobo 机器段 —— ✅ (2026-08-30)
+- probe_rest 实跑连闯三关: ① settle 循环每子步 `apply_screw` (缺投影时盖穿瓶
+  掉桌, 假 rest 文件已在 T2-0 记案); ② 探针走基类, build_cfg 的 10 垫传感器
+  撞上基类 finger_active(5) —— 探针把 `cfg.contact_sensors` 切回前 5 左垫
+  (UnscrewEnv._setup_scene 同款处理); ③ 观测宽度 167 vs 占位 8 —— 实例上
+  豁免 `_check_obs_dim` (探针不消费观测)。实测: 瓶倾角 0.0°, 盖-瓶轴向差
+  18.0cm, anchor_T/站姿 44 指列入档。进程卡 `app.close()` 2 小时属已知病,
+  kill -9 收尾。
+- v1 实测锚重建: 右臂 IK 2%→13% (交互行贴人手流, v2 重铸域), 左臂 72%。
+- **cuRobo Approach 首跑全灭 → 八轮二分定案** (全部离线 worker 复现, 免 Isaac):
+  ① 去物体障碍仍败; ② 拆单臂: 右=位置✅姿态✅合体❌, 左=位置/姿态各自❌;
+  ③ 关自碰撞 + 500 IK 种子仍败 ⟹ 纯运动学; ④ FK 交叉对账: cuRobo
+  FK(ArmIK 左解) 中位 0.56cm/1.2° —— 两运动学链一致、env→base=+[0.5,0,0]
+  正确、限位 0 越限; ⑤ cspace 直达已验证构型 + 空世界原地微动也被拒;
+  ⑥ 自碰撞点名: 该构型无任何自碰; ⑦ 限位排查 = **真凶: ArmIK 钳限位出解**
+  —— 左 j7 33 行钉 -79° 下限、右 j7 91/103 行钉 -64° 下限, "0.42cm 达标"
+  是贴边换来的; cuRobo 带限位余量把贴边构型整族拒收。且左手镜像锚姿态本身
+  超左腕 j7 行程 (现场 ArmIK 20 重启也只到 5.6cm/47.9°, j7 at_limit)。
+- 三条修法 (均已落盘):
+  1. make_reference 左抓方位扫描加 **限位内点判据** (全关节余量 >3° 才算
+     达标行): yaw* 240°→270°, 内点可达率 50%。
+  2. 机器段弃位姿 IK, 改 **cspace 直达内点 pregrasp 构型**: 收缩限位 3° 的
+     ArmIK 解 station+净空 —— 左 = +5cm 径向 (距锚 7.82cm/53.6°, 左腕物理
+     极限), 右 = +4cm 抬升 (0.37cm/2.8°; 8cm 抬升超可达域, 离线实测 ≤5cm
+     才通)。构型存 `machine_pre_q_r/l` 入 v1, 纳入规划 digest。锚不可达
+     部分由缝1+RL 消化 —— 数据引擎"从粗糙轨迹恢复"的正业, 不是缺陷。
+  3. Retreat 起点 = machine_pre (**非**交互末行): 交互末行手贴瓶/盖/桌,
+     碰撞检查器必判 start in collision (仅桌/仅瓶/仅杯微动全❌, 空世界✅);
+     "松手撤离" 归缝2 数据斜坡, 与缝1 "贴近合拢" 对称 —— 缝 by design 是
+     不做碰撞背书的桥, cuRobo 只认净空↔站姿。
+- 结果: Approach 81 路点/终帧 0.00°/9.1s, Retreat 81 路点/0.00°/5.8s
+  (均满障碍: 桌 + 充气 1cm 双物体, 物体钉各自段的母带位)。v1 全链
+  273→316 行 (app 81/ret 82), 自检五件全绿。smoke_zero: A 静置对账
+  瓶 0.20cm / 盖 0.26cm (<5mm 铁则过), obs (4,507), 机器段回放垫接触
+  全零; ⚠ 800 步全程判定在 t=400 被人工中断 (共享卡让出), 待空卡补跑
+  收尾行。
+- ⚠ 遗留观察: 右臂交互行 j7 91/103 贴限 = 人手流腕姿对右臂运动学不友好的
+  又一证据 (13% 达标同源), v2 Isaac 重铸 + RL 残差是既定救治路径; 若 v2 后
+  仍贴限, 考虑对握锚绕螺轴 yaw 重定向 (离线实测 station 各 yaw 全可达,
+  pregrasp 在 yaw+60°~180° 可达)。
+
+### T2-3 placed 收紧: 护送判据 escort (2026-08-30 用户裁定)
+- **问题** (用户看录像发现): 旧 placed 只判双物体终位姿 + hold15, "盖自己
+  脱落/被甩到目标邻域" 也算成功 —— 大量假成功视频里右手根本没拿着盖放。
+- **裁定**: 成功 = **右手拿着瓶盖放在桌子上**, 不是瓶盖自己落在桌子上。
+- **机制** (只加一条, 一次一参数纪律; 首版"带上连击计数"被母带证伪 —— 人是
+  转平低位拧开, 释放高度仅 0.92m, 带上方只剩 2cm 根本凑不齐连击):
+  **过带单事件** —— 任何落到桌面的盖必恰好穿过放下带顶 (桌面+ESCORT_BAND=3cm)
+  一次; 穿带那步若 [单步降>ESCORT_FALL=8mm(=16cm/s@20Hz) 且 无右垫-盖接触]
+  ⇒ escort_fail 粘滞, placed 永不立。受控放下 = 带着接触穿带或慢放; 自由
+  落体哪怕从带顶上 2cm 起掉, 穿带步降幅 >3cm 必抓, 与释放高度无关。
+  新 step 输入 pads_r_cap (右垫-盖 ≥1 垫, env 从 _pads_f() 后 5 列取);
+  None=停用 (离线探针兼容, env 必显式传)。
+- **入账**: CRITERIA_SCHEMA 2→3 (ESCORT_BAND/ESCORT_FALL 进判据摘要);
+  双版同步 (progress.py + progress_batch.py); diag/escort_fail 观察针;
+  变体自检加 ④ 护送正路照常 G4 / ⑤ 自由落体 → escort_fail & placed 不立
+  证伪对; 体制自检 schema==3 + ESCORT 阈值敏感性。
+- **证伪信号**: 训练里若 sr/gate3 高而 sr/gate4≈0 且 diag/escort_fail 高
+  ⇒ 策略只会拧不会放 (判据在拦真行为, 不是 bug); 若 escort_fail≈0 且
+  录像仍见自由落体成功 ⇒ 判据漏(查 PAD_FTH 与盖的接触感度)。
 
 ### 观察针预登记 (防事后挑数)
 - diag/screw_deg, diag/released, diag/n_triad, diag/gain, diag/cap_any (螺旋链)

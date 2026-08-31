@@ -7,7 +7,7 @@
 # 每条 clip 的完整流水 (框架 CHECKLIST 顺序, 不可乱):
 #   1 probe_rest        env 实测静置位/anchor_T/站姿 -> env_rest.json
 #   2 make_reference    v1 母带 (实测锚重跑离线 IK)
-#   3 plan_machine_segs cuRobo Approach+Retreat (缺 MagicSim cuRobo 时跳过,
+#   3 plan_machine_segs cuRobo Approach+Retreat (缺 NVlabs cuRobo 时跳过,
 #                       用 smoothstep 占位 —— 只够冒烟, 无碰撞背书)
 #   4 make_reference    重跑, 剪进规划行
 #   5 selftest 家族     判据离线全绿 (不开 Isaac)
@@ -24,6 +24,9 @@
 set -e
 cd "$(dirname "$0")/../../../.."
 PY=${PY:-$HOME/miniforge3/envs/isaac/bin/python}
+TMPDIR=${TMPDIR:-$HOME/tmp}
+mkdir -p "$TMPDIR"
+export TMPDIR OMNI_KIT_ACCEPT_EULA=${OMNI_KIT_ACCEPT_EULA:-YES}
 D=tasks/Unscrew/part4
 CLIPS=${1:-32}
 [ "$CLIPS" = all ] && CLIPS="32 89 60 17 67 53 68 36 8"
@@ -38,7 +41,7 @@ for C in $CLIPS; do
     $PY $D/A_Design/L1_Data/Motion_Planning/plan_machine_segs.py --retreat --headless
     $PY $D/A_Design/L2_Reference/make_reference.py
   else
-    echo "[engine] ⚠ 本机无 cuRobo (MagicSim fork), 机器段=占位 —— 只够冒烟"
+    echo "[engine] ⚠ 本机无 NVlabs cuRobo, 机器段=占位 —— 只够冒烟"
   fi
   for t in selftest_regime selftest_progress selftest_rsi selftest_variants \
            selftest_progress_batch; do

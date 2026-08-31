@@ -19,7 +19,7 @@ network:
 load_path: None
 
 algorithm:
-  experiment_name: 'Pour17_0'
+  experiment_name: 'Unscrew32_0'  # train_task.py 按 clip/--name 覆写
   normalize_input: True
   normalize_value: True
   value_bootstrap: True

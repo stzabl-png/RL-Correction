@@ -50,7 +50,8 @@ DECI = int(getattr(E.cfg, "decimation", 12))
 BL = TC.BETA_L
 sql = np.asarray(np.load(TC.PRIOR_AUX)["squeeze"], np.float64).reshape(-1)[7:29]
 ref = E.ref58.cpu().numpy()
-dsq_l = torch.tensor(BL * (sql - ref[E.IA0, 36:58]), dtype=torch.float32,
+dsq_l = torch.tensor(np.clip(BL * (sql - ref[E.IA0, 36:58]), -TC.SQUEEZE_DELTA_CAP,
+                          TC.SQUEEZE_DELTA_CAP), dtype=torch.float32,
                      device=dev)
 
 

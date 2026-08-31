@@ -65,10 +65,14 @@ fail_at = {i: None for i in range(4)}
 maxrow = torch.zeros(4, dtype=torch.long)
 maxk = torch.zeros(4, dtype=torch.long)
 pre_fail = 0
+seam_fail = 0
+_FAILNM = {10: "D1掉瓶", 11: "D1掉盖", 20: "D2瓶倒", 21: "D2盖倒",
+           30: "D3瓶偏", 31: "D3盖偏", 4: "D4滑移"}
 rew_sum = torch.zeros(4)
 done_at = {i: None for i in range(4)}
 for t in range(args.steps):
-    obs, rew, term, trunc, _ = E.step(zero)
+    row_pre = E.row.clone()          # 步进**前**的行号: 失败与 reset 同一步发生,
+    obs, rew, term, trunc, _ = E.step(zero)   # 事后读 E.row 只会读到 0
     o = E._tick_out
     rew_sum += rew.cpu()
     maxrow = torch.maximum(maxrow, E.row.cpu())
@@ -79,13 +83,22 @@ for t in range(args.steps):
                             ("p", E.PB.placed), (4, E.PB.g4)):
                 if bool(flag[i]) and m not in ms_at[i]:
                     ms_at[i][m] = t
-            if bool(o["fail_env"][i]) and (E.row[i] < E.IA0):
+            # 铁则的范围 = **cuRobo 背书的机器段** (row < APP_END), 与本文件
+            # 开头写的"approach 期不得响"一致。缝1 是"手主动去接触物体"的交接段,
+            # 那里有接触是设计内的, 而且手指/臂残差在缝1 对策略开放 —— 缝1 把瓶
+            # 碰倒是 RL correction 要学的第一课, 单独统计, 不并进铁则。
+            if bool(o["fail_env"][i]) and (row_pre[i] < E.APP_END):
                 pre_fail += 1
                 _c = int(E.fail_code[i])
-                _nm = {10: "D1掉瓶", 11: "D1掉盖", 20: "D2瓶倒", 21: "D2盖倒",
-                       30: "D3瓶偏", 31: "D3盖偏", 4: "D4滑移"}.get(_c, f"码{_c}")
-                print(f"[零动作] ⚠ 机器段死线误触 env{i} @t{t} row={int(E.row[i])} "
+                _nm = _FAILNM.get(_c, f"码{_c}")
+                print(f"[零动作] ⚠ 机器段死线误触 env{i} @t{t} row={int(row_pre[i])} "
                       f"-> {_nm}", flush=True)
+            elif bool(o["fail_env"][i]) and (row_pre[i] < E.IA0):
+                seam_fail += 1
+                print(f"[零动作] · 缝1 交接段死线 env{i} @t{t} "
+                      f"row={int(row_pre[i])} -> "
+                      f"{_FAILNM.get(int(E.fail_code[i]), '?')} (记账, 不入铁则)",
+                      flush=True)
             if bool(term[i]) or bool(trunc[i]):
                 done_at[i] = t
                 fail_at[i] = ("timeout" if bool(trunc[i]) else
@@ -107,7 +120,9 @@ for i in range(4):
     print(f"env{i} [{names[i]:10s}] 终:{fail_at[i] or '未终止'}@{done_at[i]} "
           f"maxrow={int(maxrow[i])} maxK={int(maxk[i])} "
           f"G链={sorted(ms_at[i], key=str)} 累计奖励={float(rew_sum[i]):.1f}")
-print(f"机器段死线误触 = {pre_fail} (铁则: 0)")
+print(f"机器段死线误触 = {pre_fail} (铁则: 0; 范围=cuRobo 背书的 row<{E.APP_END})")
+print(f"缝1 交接段死线 = {seam_fail} (记账项: 零动作合拢会不会碰倒物体; "
+      f"手指/臂残差在此段对策略开放, 属 correction 的学习对象)")
 ok = rest_ok and pre_fail == 0
 print("✅ 预检骨架通过 (M链/时钟为实录数据)" if ok else
       f"❌ 预检失败: rest_ok={rest_ok} pre_fail={pre_fail}")

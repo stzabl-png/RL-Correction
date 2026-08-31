@@ -45,7 +45,8 @@ dev = E.device
 DECI = int(getattr(E.cfg, "decimation", 12))
 sql = np.asarray(np.load(TC.PRIOR_AUX)["squeeze"], np.float64).reshape(-1)[7:29]
 ref = E.ref58.cpu().numpy()
-dsq_l = torch.tensor(BL * (sql - ref[E.IA0, 36:58]), dtype=torch.float32,
+dsq_l = torch.tensor(np.clip(BL * (sql - ref[E.IA0, 36:58]), -TC.SQUEEZE_DELTA_CAP,
+                          TC.SQUEEZE_DELTA_CAP), dtype=torch.float32,
                      device=dev)
 APP, IA0, IA1 = E.APP_END, E.IA0, E.IA1
 Nrow = E.PB.N_ROW
@@ -120,6 +121,7 @@ for s in ("right", "left"):
 # —— 实测右臂对自己的腕目标中位差 44.7cm、100/103 行贴限, 整段搬运冻死。
 fail_pos, fail_rot, critical_bad, pos_max, rot_max = 0, 0, 0, 0.0, 0.0
 frozen = {"right": 0, "left": 0}
+frozen_run = {"right": 0, "left": 0}
 _rngb = np.random.default_rng(23)
 for k in range(Nrow):
     for s in ("right", "left"):
@@ -138,17 +140,23 @@ for k in range(Nrow):
             if best is None or sc < best[0]:
                 best = (sc, r)
         r = best[1]
-        good = (np.isfinite(r["q"]).all() and r["pos_err"] < 0.01
+        # 判据与 make_reference 的 solve_side 对齐 (2cm/10°/跳变60°/连冻2行放行):
+        # v2 原来用 1cm 且没有"连冻放行", 一处解不出来就顺着热启链把整段冻死
+        # (实测右臂冻结 98/103, 而同一条轨迹 v1 是 79% 达标)。
+        good = (np.isfinite(r["q"]).all() and r["pos_err"] < 0.02
                 and r["rot_err"] < np.radians(10)
-                and np.abs(np.asarray(r["q"], np.float64)
-                           - q_seed[s]).max() < np.radians(30))
+                and (frozen_run[s] >= 2
+                     or np.abs(np.asarray(r["q"], np.float64)
+                               - q_seed[s]).max() < np.radians(60)))
         if good or k == 0:
             q_ik[s][k] = r["q"]
             q_seed[s] = np.asarray(r["q"], np.float64)
             pe_k, re_k = float(r["pos_err"]), float(r["rot_err"])
+            frozen_run[s] = 0
         else:                       # 冻结上一行: 不跳分支, 误差如实入账
             q_ik[s][k] = q_seed[s]
             frozen[s] += 1
+            frozen_run[s] += 1
             fp, fR = ik[s].fk(q_seed[s])
             pe_k = float(np.linalg.norm(fp - tgt_p))
             re_k = float(np.arccos(np.clip(

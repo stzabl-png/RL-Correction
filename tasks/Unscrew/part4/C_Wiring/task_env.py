@@ -273,7 +273,8 @@ class UnscrewEnv(GraspTaskEnv):
                               np.float64).reshape(-1)[7:29]
             _dsq = np.concatenate([
                 self.beta_r * np.zeros(22),             # 右手盖: 无 squeeze prior
-                self.beta_l * (_sql - ref[self.IA0, 36:58])])
+                np.clip(self.beta_l * (_sql - ref[self.IA0, 36:58]),
+                        -TC.SQUEEZE_DELTA_CAP, TC.SQUEEZE_DELTA_CAP)])
             print(f"[UnscrewEnv] squeeze 剂量: βL={self.beta_l} "
                   f"(Screw27_body 原始 squeeze，不外推) βR={self.beta_r} "
                   "(盖侧无 prior)")

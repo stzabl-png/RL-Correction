@@ -50,6 +50,9 @@ from rl_rebuild.correction.kinematics import ArmIK, R_to_quat, quat_to_R  # noqa
 TABLE_Z = 0.87
 OBJ_GAP = 0.01
 APP_ROWS, SEAM1, SEAM2, RET_ROWS = 60, 25, 25, 60
+# SEAM1 定档 25 (2026-08-31 实测): 拉到 40 行 (合拢 0.8s) 反而在**进刀段末尾**
+# 就把瓶碰倒 —— 这一段的净空只有约 1cm, 手在瓶边多停留反而更容易蹭上。25 行
+# 是实测"全程不倒 + 站位 4 垫"的那一组。行数不进规划摘要, 改它不必重规划。
 CAP_CLEARANCE = 0.015                       # U35b: 盖顶净空
 HAND_DROP = TC.HAND_DROP                    # 腕-指尖垂距 (probe_grasp 实测, 逐手)
 SEP_THRESH = 0.04                           # 盖脱离帧: 与装配位偏差首超 4cm
@@ -800,8 +803,8 @@ def main():
     def _sf_of(side):
         return sf_l if side == "left" else sf_r
 
-    _kpre = max(1, int(SEAM1 * 0.28))  # ① 预张开 (手臂原地不动)
-    _kclose = max(1, int(SEAM1 * 0.28))  # ③ 合拢 (手臂到位不动)
+    _kpre = max(1, int(SEAM1 * 0.25))   # ① 预张开 (手臂原地不动)
+    _kclose = max(1, int(SEAM1 * 0.40))  # ③ 合拢 (手臂到位不动, 放慢=不推倒瓶)
     _kmov = SEAM1 - _kpre - _kclose    # ② 进刀行数
     # 顺序照 prior 自己的配方: **先预合成 grasp 杯状手型 (手臂不动) -> 杯状手
     # 进刀 -> 到位后才加 squeeze**。

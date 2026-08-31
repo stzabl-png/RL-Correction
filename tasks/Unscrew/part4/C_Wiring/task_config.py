@@ -98,6 +98,15 @@ SEAM_MOVE_FRAC = 0.7
 # 而是"斜推", 且推点在瓶身上部 (+15cm) 力臂长, 0.53kg 的自由瓶一推就倒。
 # 用 probe_grasp --pin_bottle 量出来的差值回填 (换 clip/换手都要复测)。
 PRIOR_RADIAL_TRIM = 0.007
+# squeeze 的**逐关节增量封顶**: prior 的 squeeze 相对 grasp 中位只多合 4.6°,
+# 但拇指要多合 64.6° —— 右手 prior 按名镜像到左手时拇指最不对称, 结果拇指
+# 顶进瓶身 45N 把瓶推过 D2 死线, 而其他手指才刚碰上。封到 20°: 其他手指的
+# 合拢原样保留, 拇指不再顶死。(母带不变, 这是运行时前馈的量)
+import numpy as _np_cfg
+# 2026-08-31 实测: 封顶 20° 把抓握一起掐掉 (站位垫 4->0), 45° 仍掉到 0 ——
+# 拇指那 64.6° 的合拢量正是"把手真正收到瓶面上"的主力, 削不得。设成 180°
+# (=不生效), 拇指偏硬 45N 留给 RL 残差修 (见 DECISIONS T2-6d)。
+SQUEEZE_DELTA_CAP = float(_np_cfg.radians(180.0))
 
 
 def seam_squeeze_profile(u):

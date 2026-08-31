@@ -531,3 +531,12 @@ D2 死线 30°)。βL 复标: 1.0 → 4 垫; 0.6 反而掉到 2 垫 —— 旧�
    碰撞世界里排除 (手本来就是要去碰它的), 这样进刀路径由规划器保证无碰。
 2. 或者接受 t0 出生的高失败率, 用 RSI 课程从 g1 起步 (现成机制), 待策略学会
    轻合拢后再解锁 t0 —— 判读针 H6.6 已登记。
+
+**附: Retreat 规划失败的一条待验假设 (记录, 本轮不追)**
+cuRobo 在 start=machine_pre 时**正反方向、连空世界**都解不出来, 而同一个构型
+作为 **goal** 时一次就通 (Approach)。这与 T2-2 的发现同族: cuRobo 对**起点**
+的限位余量校验比对目标更严 —— 收缩 3° 的内点解够当 goal, 未必够当 start。
+若下一轮要根治 Retreat, 先验这条 (把 machine_pre 再往内收几度当起点试)。
+另: 当前 Retreat = Approach 倒放, 其碰撞世界里**没有**桌上那顶盖;
+`training_reference_issues` 分辨不出这一点 (只查 "curobo:" 前缀), 产物里的
+`derived_from=approach_reversed` 是唯一凭证。

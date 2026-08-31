@@ -26,7 +26,14 @@ BASE = {"schema": "world_fingerprint_v1",
         # ★L5-26: 判据摘要也是关键项 —— 改阈值=改成败判定。
         # 它进 CRITICAL 之后, **没有这两个键的旧指纹会被判为"无法核对"**,
         # 这是设计意图(老 ckpt 拿不出判据摘要, 就不能声称核对过), 不是 bug。
-        "criteria": {"schema": 1, "digest": "0" * 16}}
+        "criteria": {"schema": 1, "digest": "0" * 16},
+        # ★L5-31: conf_flat 消融旗也是关键项 —— 它把置信度整条链路拍平, 时钟门
+        # 从红档 8cm 变 5cm、朝向从禁判变照判, **直接改成败判定**(主判据
+        # clock_done 就靠时钟门)。而 criteria.digest 抓不到它: 常量一个没变,
+        # 变的是"每一行用哪一档"。所以必须单列。
+        # 与 L5-27 加 criteria.digest 时同理: 它进 CRITICAL 后, 没有这个键的
+        # 旧指纹会被判"无法核对" —— 那是设计意图, 不是 bug。
+        "switches": {"conf_flat": False}}
 
 
 def run(tag, mut):
@@ -52,6 +59,9 @@ reds = [
     run("⑤ 关节表顺序变了",
         lambda d: d["robot"].__setitem__("controlled_joint_names_in_order",
                                          ["j2", "j1"])),
+    # ★L5-31 新增: 拿 flat 训的 ckpt 在 base 环境评测必须被拒
+    run("⑧ conf_flat 旗变了",
+        lambda d: d["switches"].__setitem__("conf_flat", True)),
 ]
 print("缺数据的输入(必须标为'无法核对', 不得静默通过):")
 u1 = run("⑥ 关键项键缺失", lambda d: d["robot"].pop("usd_md5"))

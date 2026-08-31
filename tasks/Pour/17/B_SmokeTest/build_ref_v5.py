@@ -22,6 +22,34 @@ from rl_rebuild.correction.kinematics import ArmIK, quat_to_R
 
 BR, BL = 2.0, 1.0
 OUT = os.environ.get("POUR_REF_OUT") or "tasks/Pour/17/A_Design/L2_Reference/pour17_reference_v2.npz"
+# ★L5-31 消融旗 POUR_REF_NOCONF: 造"没有置信度"的母带 (flat 臂用)。
+#   用户裁定 flat 连母带一起重造 —— 因为置信度不只在运行时用, 它在**母带生成时**
+#   就参与了朝向平滑: `_smooth_quat` 拿 conf>=40 挑锚点, 不可信帧由两侧 SLERP 插值,
+#   再按转速上限迭代降级(降谁也按 conf 挑)。只关运行时等于只消融了一半。
+#   A 版 = 完全跳过这道平滑, 原始重建朝向直接进 IK。
+#   ⚠ 预期风险(L5-11 实测): 重建在倒水段长轴摆 44~57°/帧, 会被翻译成 72°/帧 的
+#   关节跳, 而残差界只有几度。**A 版很可能过不了"关节连续性"那道出厂检查** ——
+#   过不了本身就是结论(置信度平滑是母带可造性的必要条件), 那时退 B 版
+#   (保留转速上限, 只是不用 conf 挑锚点)。
+NOCONF = os.environ.get("POUR_REF_NOCONF") == "1"
+# ★L5-31 用户裁定: 连续性硬闸是**我们自己流水线的质量关**, 不是物理定律。
+#   消融要问的是"没有置信度这一整套会怎样" —— 拿我们自己的闸把原始重建拦下来,
+#   等于没做这个消融。POUR_REF_ALLOW_JUMP=1 只放行**连续性**这一道, 其余三道
+#   (峰值保全 / IK 精度 / 末态-判据一致性)照常把关。
+ALLOW_JUMP = os.environ.get("POUR_REF_ALLOW_JUMP") == "1"
+if NOCONF:
+    print("[v5] " + "=" * 66, flush=True)
+    print("[v5] ★POUR_REF_NOCONF=1: 不用置信度做任何朝向平滑 —— 原始重建直接进 IK",
+          flush=True)
+    print("[v5]   这就是「没有置信度」的真实条件: 不挑帧、不修轨迹。", flush=True)
+    print("[v5] " + "=" * 66, flush=True)
+if ALLOW_JUMP:
+    print("[v5] ⚠★POUR_REF_ALLOW_JUMP=1: **连续性硬闸只报不拦**。", flush=True)
+    print("[v5]   已知后果: 关节跳变会超过残差界(几度), 策略在那几行结构上跟不上,",
+          flush=True)
+    print("[v5]   时钟大概率卡住 —— 这是消融的**预期结果**, 不是故障。", flush=True)
+    print("[v5]   判读时必须说清: 失败机制是'参考跳变超出残差能力', 不是'RL 学不会'。",
+          flush=True)
 cfg = PE.build_cfg(num_envs=1)
 E = PE.PourEnv(cfg)
 E.force_entry = [0]
@@ -112,12 +140,22 @@ def _qang(q0, q1):
     return 2 * np.arccos(min(1.0, abs(float(np.dot(
         q0 / np.linalg.norm(q0), q1 / np.linalg.norm(q1))))))
 
-def _smooth_quat(Q, conf, tag):
-    """可信帧当锚, 不可信帧 SLERP; 再迭代压掉超过转速上限的残余跳变。"""
+def _smooth_quat(Q, conf, tag, use_conf=True):
+    """可信帧当锚, 不可信帧 SLERP; 再迭代压掉超过转速上限的残余跳变。
+
+    ★L5-31 `use_conf=False` = B 版消融: **保留转速上限, 但不用置信度挑锚点**。
+      置信度在本函数里出现两次: ① 初始 trust 掩膜 ② 违反转速上限时"降级哪一端"。
+      B 版把①改成"全部当锚"(等于不做基于可信度的插值), ②改成纯几何判据
+      (降级相邻转速更大的那一端)。这样就把"conf 挑锚点"和"有没有转速上限"
+      两件事分开了。
+      由来: A 版(完全不平滑)实测过不了连续性硬闸 —— 右臂 j5 在腕奇异区跳 31.65°
+      (>25° 上限), 而腕目标只动 0.71cm/5.70°。左臂最大仅 6.94°, 越限只有 11 行。
+      ⟹ 置信度平滑的实际作用是**压住奇异区那几行**, 不是整体去噪。
+    """
     n = len(Q)
-    trust = conf >= CONF_TRUST
+    trust = (conf >= CONF_TRUST) if use_conf else np.ones(n, dtype=bool)
     trust[0] = trust[-1] = True                    # 两端必须是锚
-    for _it in range(40):
+    for _it in range(200 if not use_conf else 40):
         idx = np.where(trust)[0]
         out = Q.copy()
         for a, b in zip(idx[:-1], idx[1:]):
@@ -133,7 +171,22 @@ def _smooth_quat(Q, conf, tag):
         cand = [k for k in (j, j + 1) if trust[k] and 0 < k < n - 1]
         if not cand:
             break
-        trust[min(cand, key=lambda k: conf[k])] = False
+        if use_conf:
+            trust[min(cand, key=lambda k: conf[k])] = False
+        else:
+            # ★纯几何降级, 且**每轮批量降**, 不是一帧一帧降。
+            #   第一版每轮只降一帧、上限 40 轮 —— 而 conf 版一开始就把 conf<40 的
+            #   上百帧一次性标为不可信。两者力度差一个数量级, 那样比出来的"不用
+            #   conf 就造不出母带"是我的实现太弱, 不是 conf 不可替代。
+            #   现在改成: 每轮把**所有**相邻转速越限的内点一起降级, 力度对齐。
+            _bad = [k for k in range(1, n - 1)
+                    if trust[k] and max(rate[k - 1], rate[k]) > ROT_CAP]
+            if not _bad:
+                trust[max(cand, key=lambda k: max(rate[max(k - 1, 0)],
+                                                  rate[min(k, n - 2)]))] = False
+            else:
+                for k in _bad:
+                    trust[k] = False
     print(f"[v5] {tag} 朝向平滑: 锚点 {int(trust.sum())}/{n}, "
           f"转速 中位={np.degrees(np.median(rate)):.2f}° 最大={np.degrees(rate.max()):.2f}° "
           f"(上限 {np.degrees(ROT_CAP):.0f}°)", flush=True)
@@ -203,8 +256,15 @@ _feat_bad = 0
 for oi, nm in ((0, "杯"), (1, "瓶")):
     _cf = np.asarray(_z1[f"conf_rot_{oi}"], np.float64)[_rows1]
     _before = _task_features(ref_obj_raw[oi][:, :3], ref_obj_raw[oi][:, 3:7], oi)
-    ref_obj_raw[oi][:, 3:7] = _smooth_quat(
-        ref_obj_raw[oi][:, 3:7].copy(), _cf, nm)
+    if NOCONF:
+        _rt = np.array([_qang(ref_obj_raw[oi][i, 3:7], ref_obj_raw[oi][i + 1, 3:7])
+                        for i in range(len(ref_obj_raw[oi]) - 1)])
+        print(f"[v5] {nm} 朝向**完全未平滑**: 原始转速 中位={np.degrees(np.median(_rt)):.2f}° "
+              f"最大={np.degrees(_rt.max()):.2f}° (基线版会压到 {np.degrees(ROT_CAP):.0f}° 以下)",
+              flush=True)
+    else:
+        ref_obj_raw[oi][:, 3:7] = _smooth_quat(
+            ref_obj_raw[oi][:, 3:7].copy(), _cf, nm, use_conf=True)
     # ★L5-27 末态归位: 参考的交互段**末行必须回到它自己的首行**, 否则
     #   "完美跟随参考"与 placed 判据(≤M3_POS 3cm)直接矛盾。
     #   实测 v2: 瓶末行距首行 5.60cm, 末尾连续<3cm 的行数 = 0 —— 参考从未把瓶
@@ -359,9 +419,16 @@ for s in ("right", "left"):
                   f"腕目标转角 {np.degrees(np.arccos(np.clip((np.trace(_tgt(s,side_obj[s],_b)[1].T@_tgt(s,side_obj[s],_b+1)[1])-1)/2,-1,1))):.2f}°",
                   flush=True)
 if _bad:
-    print("[v5] ★连续性硬闸未过 (要求 P95<8° 且 最大<25°, 按人手行实测定线) —— 不写母带", flush=True)
-    raise SystemExit(2)
-print("[v5] ✅ 连续性硬闸通过", flush=True)
+    if ALLOW_JUMP:
+        print("[v5] ⚠连续性硬闸**未过但被放行** (ALLOW_JUMP=1): "
+              "要求 P95<8° 且 最大<25°。这条母带带着已知的关节跳变, "
+              "**只能用于消融对照, 不得当作正式母带**。", flush=True)
+    else:
+        print("[v5] ★连续性硬闸未过 (要求 P95<8° 且 最大<25°, 按人手行实测定线) —— 不写母带",
+              flush=True)
+        raise SystemExit(2)
+else:
+    print("[v5] ✅ 连续性硬闸通过", flush=True)
 print(f"[v5] 交互IK: >1cm 失败 {fail_ik}/{Nrow*2} 最大误差={err_max*100:.2f}cm", flush=True)
 
 d1 = dict(np.load(V1, allow_pickle=True))
@@ -432,7 +499,10 @@ out.update(obj_cols, source=src_new, frame_of_row=fr_new,
            human_right_f=hum_rf, human_left_f=hum_lf,
            cert_arm7_right=cert["right"], cert_arm7_left=cert["left"],
            meta_v5=np.array([f"gen=L5-1;parent_v1_md5={parent_md5};betaR={BR};betaL={BL};"
-                             f"obj_rest_z=0.959;ik=delta_space;date=2026-08-27"]))
+                             f"obj_rest_z=0.959;ik=delta_space;date=2026-08-27;"
+                             f"up_local=0.0,1.0,0.0;"
+                             f"conf_smooth={'off' if NOCONF else 'on'};"
+                             f"continuity_gate={'bypassed' if ALLOW_JUMP else 'passed'}"]))
 # ═══ ★第四道出厂检查 (L5-27): 末态-判据一致性 ═══
 import sys as _sys                                                    # noqa: E402
 _sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),

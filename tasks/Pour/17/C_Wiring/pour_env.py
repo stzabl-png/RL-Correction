@@ -368,7 +368,10 @@ class PourEnv(GraspTaskEnv):
         _uc = [round(float(x), 3) for x in self.PB.upc.tolist()]
         print(f"[PourEnv] ★轴对称假设: 长轴 瓶={_ub} 杯={_uc}; "
               f"绕长轴自转在 参考IK/皮筋/G3/placed/G4/死线 全链**不判**")
-        _mt = str(z["meta"]) if "meta" in z else ""
+        # ★ 必须两个键都读: 生成器把新字段写进 **meta_v5**, 而 `meta` 是 v1 遗留的
+        #   描述串。第一版只读 `meta` ⟹ 这条断言永远不会触发 —— 正是"写了但从不执行"
+        #   那一族(今天刚提交的教训, 转头自己又埋了一次)。
+        _mt = " ; ".join(str(z[k]) for k in ("meta", "meta_v5") if k in z)
         if "up_local=" in _mt:
             _dec = _mt.split("up_local=")[1].split(";")[0]
             _cur = ",".join(str(x) for x in _ub)

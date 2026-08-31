@@ -32,6 +32,12 @@ CRITICAL = (
     # ★L5-26: 判据摘要 —— 改阈值=改成败判定, 属关键项。与整文件哈希不同,
     # 加计数器不会动它(见 progress.criteria_items 的说明)。
     "criteria.digest", "criteria.schema",
+    # ★L5-31 消融旗: conf_flat 把置信度整条链路拍平 —— 时钟门从红档 8cm 变 5cm、
+    # 朝向从"红档禁判"变"照判", **直接改成败判定**(主判据 clock_done 就靠时钟门)。
+    # 但 criteria.digest 抓不到它: 常量一个没变, 变的是"每一行用哪一档"。
+    # 不列关键项的具体风险: 拿 flat 训的 ckpt 在 base 环境评测, 世界闸会放行,
+    # 而判据其实不一样 —— 正是本项目反复踩的"静默匹配"。
+    "switches.conf_flat",
     "time.control_dt_s", "time.decimation",
     "table.table_top_z_m",
     "objects.object_1.mass_kg", "objects.object_1.static_friction",
@@ -194,6 +200,8 @@ def collect(env) -> dict:
                       getattr(cfg.scene, "replicate_physics", False))},
         "switches": {"approach_only": bool(getattr(cfg, "approach_only", False)),
                      "obj_jitter_xy": _f(getattr(cfg, "obj_jitter_xy", None)),
+                     "conf_flat": bool(getattr(env.PB, "conf_flat", False))
+                     if hasattr(env, "PB") else None,
                      "friction_curriculum": bool(
                          getattr(cfg, "friction_curriculum", False))},
     }

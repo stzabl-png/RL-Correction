@@ -8,6 +8,7 @@ TB 记账: pop_rates() 吐 sr/gate1..4, prog/clock_frac, sr/cert_pass, prog/cert
 """
 from __future__ import annotations
 
+import os
 import numpy as np
 import torch
 
@@ -97,6 +98,24 @@ class PourProgressBatch:
         self.tp = {oi: tiers(f"conf_pos_{oi}") for oi in (0, 1)}
         self.tr = {oi: tiers(f"conf_rot_{oi}") for oi in (0, 1)}
         self.tmix = torch.minimum(self.tp[1], self.tr[1])
+        # ★L5-31 消融旗 POUR_CONF_FLAT: 把逐帧置信度**整条链路**拍平到黄档(tier=1)。
+        #   全部消费者都通过 tp/tr/tmix 索引, 所以改这一处, 下游六项自动跟着变:
+        #     ① W_OBJ/W_HAND 0.5/0.5   ② 皮筋位置 恒5cm   ③ 皮筋朝向 恒30°且红档禁判失效
+        #     ④ 时钟门 恒5cm(不再走红档8cm宽门)  ⑤ 残差界 恒0.08  ⑥ regime 观测变常量
+        #   ★第⑥项才是本质: 策略从"知道这一行可不可信"变成"完全不知道"。
+        #   ★不对称提示 (写进台账 L5-31): OBJ 变体走 no_hand_ref 分支, W_OBJ 本就恒 1.0
+        #     ⟹ base_o vs flat_o 只差 ②③④⑤⑥, 不差 ①。置信度有两个作用:
+        #     (a) 在物体与人手间分权 —— 只有带手时存在; (b) 调容差/门/残差界/告知策略 ——
+        #     两种都有。判读 2×2 的交互项时必须记住这个不对称, 别当成发现。
+        self.conf_flat = os.environ.get("POUR_CONF_FLAT") == "1"
+        if self.conf_flat:
+            _one = torch.ones_like(self.tmix)
+            self.tmix = _one.clone()
+            for oi in (0, 1):
+                self.tp[oi] = torch.ones_like(self.tp[oi])
+                self.tr[oi] = torch.ones_like(self.tr[oi])
+            print("[PB] ★POUR_CONF_FLAT=1: 逐帧置信度已拍平到黄档 —— "
+                  "权重/皮筋/时钟门/残差界/regime观测 全部恒定", flush=True)
         self.LP = torch.tensor([LEASH_POS[0], LEASH_POS[1], LEASH_POS[2]],
                                device=device)
         self.LR = torch.tensor([float(LEASH_ROT[0] or 1e9),
@@ -154,7 +173,7 @@ class PourProgressBatch:
         self.done = torch.zeros_like(self.g1)
         # TB 记账
         self._acc = {"ep": 0, "g1": 0, "g2": 0, "g3": 0, "g4": 0,
-                     "clock": 0.0, "catt": 0, "cpass": 0, "cdone": 0, "cdone_t0": 0,
+                     "clock": 0.0, "catt": 0, "cpass": 0, "cdone": 0, "cdone_t0": 0, "cge90": 0, "succ": 0, "succ_t0": 0,
                      "ep_t0": 0, "g1_t0": 0, "g2_t0": 0, "g3_t0": 0, "g4_t0": 0,
                      "cf_rise_bot": 0, "cf_rise_cup": 0, "cf_slip_r": 0,
                      "cf_slip_l": 0, "cf_pads": 0, "term_any": 0,
@@ -177,6 +196,24 @@ class PourProgressBatch:
             _cdone = (self.k[env_ids] >= self.N_ROW - 1)
             self._acc["cdone"] += int(_cdone.sum())
             self._acc["cdone_t0"] += int((_cdone & self.born_t0[env_ids]).sum())
+            # ★躲门哨兵 (L5-31): 主判据换成 clock_done 后**不改终止条件** ——
+            #   走完时钟后回合继续跑撤退段, 在那里死掉要扣 -10。理论上策略可以学会
+            #   "不走完以躲开后面的死亡"(台账: 门后更差 ⟹ 躲门)。
+            #   判读: ge90 ≈ cdone 正常; **ge90 ≫ cdone = 大量回合停在末尾几行不走完**。
+            _ge90 = (self.k[env_ids].float() >= 0.90 * (self.N_ROW - 1))
+            self._acc["cge90"] += int(_ge90.sum())
+            # ★L5-31 主判据 = G3 ∧ clock_done (用户裁定)。
+            #   单看 clock_done 会被**红档**刷: 时钟推进只要位置在 gp 内, 而
+            #   `gp = where(tier>0, 5cm, 8cm)` 且 `rot_ok` 在红档**根本不判**;
+            #   偏偏"倾角>60°的 71 个真在倒水的行"里绿档 0 行、黄 34、红 37。
+            #   ⟹ 端着瓶子平移过整个倒水段, clock_done 照样满分。
+            #   铁证 (同一条线的时间趋势, 无 seed 混淆):
+            #     P17v6_OBJ_s14   9M 步: G3 0.73 / clock_done 0.19
+            #                    28M 步: G3 0.49 / clock_done 0.95
+            #   越训越会走轨迹, 越训越不倒水。
+            _succ = self.g3[env_ids] & _cdone
+            self._acc["succ"] += int(_succ.sum())
+            self._acc["succ_t0"] += int((_succ & self.born_t0[env_ids]).sum())
             # 药②: t0 出生口径 (预置出生不进分母, 消课程稀释偏差)
             t0m = self.born_t0[env_ids]
             self._acc["ep_t0"] += int(t0m.sum())
@@ -236,6 +273,10 @@ class PourProgressBatch:
                "prog/clock_frac": _r(self._acc["clock"], _ep),
                "sr/clock_done": _r(self._acc["cdone"], _ep),
                "sr_t0/clock_done": _r(self._acc["cdone_t0"], _ep0),
+               "sr/clock_ge90": _r(self._acc["cge90"], _ep),
+               # ★主判据
+               "sr/success": _r(self._acc["succ"], _ep),
+               "sr_t0/success": _r(self._acc["succ_t0"], _ep0),
                "sr/cert_pass": _r(self._acc["cpass"], _at),
                "prog/cert_att": _r(self._acc["catt"], _ep),
                "n/ep_done": float(_ep),          # ★分母本身: 判读前先看它
@@ -250,7 +291,7 @@ class PourProgressBatch:
             out["term/" + _k] = _r(self._acc["term_" + _k], _tn)
         out["n/term_judge"] = float(_tn)
         self._acc = {"ep": 0, "g1": 0, "g2": 0, "g3": 0, "g4": 0,
-                     "clock": 0.0, "catt": 0, "cpass": 0, "cdone": 0, "cdone_t0": 0,
+                     "clock": 0.0, "catt": 0, "cpass": 0, "cdone": 0, "cdone_t0": 0, "cge90": 0, "succ": 0, "succ_t0": 0,
                      "ep_t0": 0, "g1_t0": 0, "g2_t0": 0, "g3_t0": 0, "g4_t0": 0,
                      "cf_rise_bot": 0, "cf_rise_cup": 0, "cf_slip_r": 0,
                      "cf_slip_l": 0, "cf_pads": 0, "term_any": 0,

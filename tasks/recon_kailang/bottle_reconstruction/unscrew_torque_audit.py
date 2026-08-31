@@ -134,7 +134,8 @@ with torch.no_grad():
                   f"{1000 * tau_need:7.1f} | {float(slip[E]):+7.3f} | "
                   f"{n_c} | {float(fmag[E].sum()):6.2f}")
         trace.append((t, ang, float(w_rel[E]), float(1000 * tau_drive[E]),
-                      1000 * tau_need, n_c))
+                      1000 * tau_need, n_c, 1000 * float(raw.screw_tau_ema[E]),
+                      1000 * float(tau_cap[E]), float(fmag[E].sum())))
         if ang - prev_ang > 0.5 and n_c > 0:      # 有接触且拧角在推进
             adv_slip.append(float(slip[E]))
             adv_n += 1
@@ -143,32 +144,34 @@ with torch.no_grad():
             print(f"[audit] env{E} 回合结束 @步 {t}")
             break
 
-# ---- 验收门 (U44b 更正后): 一致性检验 —— 盖的角加速度必须由
-# "接触力矩 − 螺纹阻力" 解释. 旧的"滑移<0"门已废弃: 它建立在
-# force_matrix_w 上, 而那是**法向力**张量, 永远证不了摩擦驱动;
-# 且它排除不了偏心法向推 (顶盖沿 = 拨旋钮), 那是合法的驱动方式.
-print(f"\n[audit] 推进采样步 n={adv_n}  (参考: 滑移>0 占比 "
-      f"{sum(1 for s in adv_slip if s > 0) / max(adv_n, 1):.0%}, 仅供参考不作判据)")
-agree = tot = 0
-for a, b in zip(trace, trace[1:]):
-    if b[0] - a[0] != 1 or a[5] == 0:
-        continue
-    dw_obs = b[2] - a[2]
-    tau_cap = -a[3] / 1000.0                 # 反作用: force_matrix_w 是盖->指尖
-    drag = (a[4] / 1000.0) * (1.0 if a[2] > 0 else -1.0)
-    dw_pred = (tau_cap - drag) * (12.0 / 240.0) / spec.inertia_eff_kgm2
-    if abs(dw_obs) < 1e-3:
-        continue
-    tot += 1
-    agree += (dw_obs > 0) == (dw_pred > 0)
-if tot == 0:
-    print("[audit] ⚠ 无可用样本 (该 ckpt 在新物理下几乎不转 —— 对旧策略是预期结果)")
-else:
-    frac = agree / tot
-    print(f"[audit] 一致性: Δω 实测与 (τ_接触−τ_阻力) 预测 同号 "
-          f"{agree}/{tot} = {frac:.0%}")
-    print(f"[audit] {'PASS' if frac >= 0.7 else 'FAIL'} 门: 转动由接触力矩解释"
-          f" (判据 同号率 >= 70%)")
+# ---- 验收门 (U45 准静态版) ----------------------------------------
+# 准静态下 ω = f(τ_ema) 是模型的定义式, 再去检验 "Δω 是否由 τ 解释" 属于
+# 同义反复 (那是为旧的积分器模型设计的, U44b 用它定过案, 此处不再作判据)。
+# 对准静态模型, 有意义的独立物理合法性检验是这两条:
+#   门1 零接触 ⇒ 不转 (允许 EMA 拖尾: τ_ema 时间常数 25ms ≈ 半个控制步)
+#   门2 |τ_ema| ≤ Σ|F_i|·arm_i —— 模型不得凭空造出接触力供不起的力矩
+zc = [r for r in trace if r[5] == 0]
+zc_bad = [r for r in zc if abs(r[2]) > 1e-6]
+con = [r for r in trace if r[5] > 0]
+ub_bad = [r for r in con if abs(r[6]) > r[7] + 1e-6]
+print(f"\n[audit] 最大拧角 {max((r[1] for r in trace), default=0):.1f}°  "
+      f"接触步 {len(con)}/{len(trace)}")
+ok1 = len(zc_bad) <= max(1, int(0.1 * max(len(zc), 1)))
+print(f"[audit] {'PASS' if ok1 else 'FAIL'} 门1 零接触零转动: 违例 "
+      f"{len(zc_bad)}/{len(zc)} (容 10%, EMA 拖尾)")
+ok2 = len(ub_bad) <= max(1, int(0.05 * max(len(con), 1)))
+print(f"[audit] {'PASS' if ok2 else 'FAIL'} 门2 τ_ema ≤ 接触力上限: 违例 "
+      f"{len(ub_bad)}/{len(con)}")
+# chatter: 周期 2 振荡应使相邻非零 ω 几乎每步异号
+seq = [r[2] for r in trace if r[2] != 0.0]
+flip = sum(1 for a, b in zip(seq, seq[1:]) if a * b < 0)
+fr = flip / max(len(seq) - 1, 1)
+print(f"[audit] {'PASS' if fr < 0.5 else 'FAIL'} 门3 无 chatter: 相邻非零 ω "
+      f"异号率 {fr:.0%} (周期2振荡应接近 100%)")
+Fs = sorted(r[8] for r in con)
+if Fs:
+    print(f"[audit] 参考 接触力 ΣF 中位 {Fs[len(Fs) // 2]:.1f}N 最大 {Fs[-1]:.1f}N "
+          f"(人手精捏约 2-20N)")
 print("[audit] 完成")
 env.close()
 app.close()

@@ -33,10 +33,17 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd -- "$SCRIPT_DIR/../../../.." && pwd)
 cd "$REPO_ROOT"
 
-if [[ -z "${PY:-}" && -f "$REPO_ROOT/env_a6000.sh" ]]; then
+# env_a6000.sh 是**另一台机器**的环境 (PY/VEGA_URDF/RR_ROOT/AFFORDANCE_ROOT/
+# PYTHONPATH 全指向 $HOME/data 与 $HOME/RL_Correction)。只有那台机器上才 source,
+# 否则一堆变量被设成不存在的路径, 而下游的 ${VAR:-默认} 因为"变量已非空"永远
+# 用不上默认值 —— 2026-08-31 实测连着炸了两次 (找不到 Isaac Python / 找不到
+# vega URDF)。
+if [[ -z "${PY:-}" && -f "$REPO_ROOT/env_a6000.sh" && -d "$HOME/data/vega_urdf" ]]; then
   source "$REPO_ROOT/env_a6000.sh" >/dev/null 2>&1 || true
 fi
-if [[ -z "${PY:-}" ]]; then
+# 判据是"能不能执行", 不是"变量空不空": env_a6000.sh 会把 PY 设成别的机器的
+# 路径 (~/miniconda3/...), 变量一非空就跳过探测 => 本机永远报"找不到 Isaac Python"。
+if [[ -z "${PY:-}" || ! -x "${PY:-}" ]]; then
   for candidate in "$HOME/miniforge3/envs/isaac/bin/python" "$HOME/miniconda3/envs/isaac/bin/python" "$HOME/miniconda3/envs/env_isaaclab/bin/python"; do
     if [[ -x "$candidate" ]]; then
       PY=$candidate
@@ -49,7 +56,13 @@ fi
   exit 3
 }
 
-export VEGA_URDF=${VEGA_URDF:-"$REPO_ROOT/datasets/vega_urdf/vega_1p_sharpa/vega_1p_sharpa.urdf"}
+# 同 PY: 判据是"文件在不在", 不是"变量设没设" —— env_a6000.sh 会把 VEGA_URDF
+# 指到别的机器的路径 (~/data/vega_urdf/...), 变量一非空就用不上仓库自带资产。
+_VEGA_REPO="$REPO_ROOT/datasets/vega_urdf/vega_1p_sharpa/vega_1p_sharpa.urdf"
+if [[ -z "${VEGA_URDF:-}" || ! -f "${VEGA_URDF:-}" ]]; then
+  VEGA_URDF=$_VEGA_REPO
+fi
+export VEGA_URDF
 TMP_BASE=${TMPDIR:-"$HOME/tmp"}
 export TMPDIR=${UNSCREW_TMPDIR:-"$TMP_BASE/unscrew-${USER:-user}"}
 mkdir -p -- "$TMPDIR" logs

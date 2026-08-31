@@ -14,7 +14,9 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd -- "$SCRIPT_DIR/../../../.." && pwd)
 cd "$REPO_ROOT"
 
-if [[ -z "${PY:-}" ]]; then
+# 判据是"能不能执行", 不是"变量空不空": env_a6000.sh 会把 PY 设成别的机器的
+# 路径 (~/miniconda3/...), 变量一非空就跳过探测 => 本机永远报"找不到 Isaac Python"。
+if [[ -z "${PY:-}" || ! -x "${PY:-}" ]]; then
   for candidate in "$HOME/miniforge3/envs/isaac/bin/python" "$HOME/miniconda3/envs/isaac/bin/python" "$HOME/miniconda3/envs/env_isaaclab/bin/python"; do
     if [[ -x "$candidate" ]]; then
       PY=$candidate
@@ -28,7 +30,13 @@ fi
 }
 
 export UNSCREW_CLIP=$CLIP
-export VEGA_URDF=${VEGA_URDF:-"$REPO_ROOT/datasets/vega_urdf/vega_1p_sharpa/vega_1p_sharpa.urdf"}
+# 同 PY: 判据是"文件在不在", 不是"变量设没设" —— env_a6000.sh 会把 VEGA_URDF
+# 指到别的机器的路径 (~/data/vega_urdf/...), 变量一非空就用不上仓库自带资产。
+_VEGA_REPO="$REPO_ROOT/datasets/vega_urdf/vega_1p_sharpa/vega_1p_sharpa.urdf"
+if [[ -z "${VEGA_URDF:-}" || ! -f "${VEGA_URDF:-}" ]]; then
+  VEGA_URDF=$_VEGA_REPO
+fi
+export VEGA_URDF
 TMP_BASE=${TMPDIR:-"$HOME/tmp"}
 export TMPDIR=${UNSCREW_TMPDIR:-"$TMP_BASE/unscrew-${USER:-user}"}
 export OMNI_KIT_ACCEPT_EULA=YES SHARPA_WANDB=0

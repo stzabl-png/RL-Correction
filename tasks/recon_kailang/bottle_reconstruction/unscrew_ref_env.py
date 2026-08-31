@@ -157,6 +157,9 @@ class UnscrewRefTaskCfg(UnscrewTaskCfg):
     sigma_fin_imit = 0.25             # rad, 上项的 exp 尺度
     # U39: 右手拇指对握门 (U26 左手同款药: 拇指不触盖, contact/chold 不计酬)
     cap_need_thumb = False
+    # U42: 单指拨盘不计酬 —— 拧转进度奖 r_screw 须 ≥N 根 (拇/食/中) 触盖.
+    # 0=关 (旧行为). 用户裁定 ≥2: "扭了之后我要拿下来, 一手指扭下来了手也拿不住"
+    screw_rew_min_triad = 0
     wr_reach_m = 0.0                  # U35b 腕-盖锚距; 0=公式(盖高+净空+伸指垂距
                                       # =23.5cm, 伸指顶抓口径). 深倾斜段该距离
                                       # 沿水平轴伸出会超可达域 (IK 顶替 @57-84
@@ -225,6 +228,10 @@ class UnscrewRefTaskCfg(UnscrewTaskCfg):
     #  ⚠ 换场景后仍建议用 record 复测一次盖的躺姿高度, 确认 2.5cm 容差没被吃掉.)
     place_z_tol = 0.025               # m, 盖 root 离**桌面**上限 (相对量)
     place_speed = 0.05                # m/s, 盖静置速度上限
+    # U41 (2026-08-30 用户裁定): 成功 = "右手拿着盖放到桌上", 不是盖自己落桌.
+    # 旧判据只看"盖在目标点附近静止", 拧脱后自由落体也算 —— 判定错误.
+    place_carry_steps = 10            # 释放后右手 ≥2 指尖持盖须累计 ≥ 这么多控制步
+    place_max_fall = 0.8              # m/s, 释放后盖下落峰速上限; 自由落体 (~2m/s) 否决
     # ---- v3: 腕参考 = 数据姿势锚定 (用户裁定: 必须从提取的初始姿势出发) ----
     # 数据事实: 腕**平移**流是静态填充, 但腕**姿态**流是活的 (左 64°/右 27°,
     # recon_world 系, 与规范系同向), 静态腕点本身即提取的人手姿势 (局部正确).
@@ -301,6 +308,14 @@ class UnscrewDynTaskCfg(UnscrewRefTaskCfg):
     w_fin_imit = 0.05
     # U39 (Dyn23 起): 右手拇指对握门.
     cap_need_thumb = True
+    # U42 (Dyn24 13M 起): 拧转进度奖按三指根数线性计酬.
+    # Dyn24@13M: 真螺纹下单指拨盘照样破锁 (螺旋约束吸掉径向推力, 像拨旋钮),
+    # cap_triad_frac 精确 0. 而 U41 placed 要求 ≥2 指持盖运输 —— 拧转段
+    # 手型必须和携带段对齐, 否则脱扣瞬间就掉盖.
+    # U42b (run6 20M): =2 硬门证伪 (梯度断崖, 单指点火路断掉, 触盖趴平 2%
+    # / rew_screw 恒 0 / release 0). 课程: 先 1 (单指 1/3 额, 留点火路 +
+    # 每根手指真实边际) 后 2 (contact2>30% 或 release>20% 时收口).
+    screw_rew_min_triad = 1
     # U36 (Dyn19 起): 完成奖须超过"泡满全程年金"的机会成本.
     # Dyn18@25M 定量: 年金 0.36/步 × 402 步 ≈ 145 ≈ Mean Rewards 143 (精确吻合),
     # 而 placed 终止回合 = 放弃剩余年金, 第250步完成只值 130 —— 泡着赢 15 分.
@@ -673,6 +688,8 @@ class UnscrewRefTaskEnv(UnscrewTaskEnv):
         self.placed_latch = torch.zeros(self.num_envs, dtype=torch.bool, device=dev)
         self._placed_step = torch.zeros(self.num_envs, dtype=torch.bool, device=dev)
         self.prev_place_d = torch.zeros(self.num_envs, device=dev)
+        self._cap_carry_steps = torch.zeros(self.num_envs, device=dev)   # U41
+        self._cap_fall_peak = torch.zeros(self.num_envs, device=dev)     # U41
         self.wrist_err_ctr = torch.zeros(self.num_envs, dtype=torch.long, device=dev)
 
         tilt = torch.rad2deg(torch.arccos(
@@ -856,8 +873,18 @@ class UnscrewRefTaskEnv(UnscrewTaskEnv):
         place_d = (cap_pos - self.cap_goal).norm(dim=1)
         on_table = cap_pos[:, 2] < (self.cfg.table_top_z + self.cfg.place_z_tol)
         at_rest = self.cap.data.root_lin_vel_w.norm(dim=1) < self.cfg.place_speed
+        # U41 记账: 释放后右手持盖 (≥2 指尖触盖) 的累计步数 + 盖下落峰速.
+        # 成功必须"拿着放", 自由落体/甩落一票否决.
+        held = self._cap_contacts().sum(dim=1) >= 2
+        self._cap_carry_steps += (self.released_latch & held).float()
+        fall = (-self.cap.data.root_lin_vel_w[:, 2]).clamp(min=0.0)
+        self._cap_fall_peak = torch.maximum(
+            self._cap_fall_peak,
+            torch.where(self.released_latch, fall, torch.zeros_like(fall)))
         placed = (self.released_latch & (place_d < self.cfg.place_tol)
-                  & on_table & at_rest)
+                  & on_table & at_rest
+                  & (self._cap_carry_steps >= self.cfg.place_carry_steps)
+                  & (self._cap_fall_peak < self.cfg.place_max_fall))
         self._placed_step = placed & ~self.placed_latch
         self.placed_latch |= placed
         cap_fell = cap_pos[:, 2] < (self.cfg.table_top_z - 0.05)
@@ -970,6 +997,13 @@ class UnscrewRefTaskEnv(UnscrewTaskEnv):
         # 环/小扒盖不计 => 正确三指严格多挣, 且每根都有独立边际 (可爬)
         n_triad = capc[:, :3].sum(dim=1)
         r_ctriad = cfg.w_cap_triad * (n_triad / 3.0)
+        # U42: 单指拨盘不计酬 —— 拧转进度奖须 ≥screw_rew_min_triad 根
+        # (拇/食/中) 触盖: 2 指 2/3 额, 3 指全额, 单/零指为 0.
+        if cfg.screw_rew_min_triad > 0:
+            _tri = n_triad.float()
+            r_screw = r_screw * torch.where(
+                _tri >= cfg.screw_rew_min_triad,
+                (_tri / 3.0).clamp(max=1.0), torch.zeros_like(_tri))
         # U27: 右手持续触盖爬坡 (镜像 U20③; U39 起须含拇指)
         self._chold = torch.where((n_cap >= 2) & thumb_cap, self._chold + 1,
                                   torch.zeros_like(self._chold))
@@ -1075,6 +1109,9 @@ class UnscrewRefTaskEnv(UnscrewTaskEnv):
         d.add("screw_deg", torch.rad2deg(self.screw_angle), mode="max")
         d.add("release", self.released_latch.float(), mode="max")
         d.add("placed", self.placed_latch.float(), mode="max")
+        # U41 哨兵: 持盖运输步数 / 释放后盖下落峰速 (判"拿着放"还是"自己落")
+        d.add("cap_carry_steps", self._cap_carry_steps, mode="max")
+        d.add("cap_fall_peak", self._cap_fall_peak, mode="max")
         d.add("place_dist_cm", (place_d * 100).clamp(max=100.0),
               mask=self.released_latch)
         d.add("wrist_err_cm", wrist_err * 100.0, mask=active)
@@ -1139,6 +1176,12 @@ class UnscrewRefTaskEnv(UnscrewTaskEnv):
                                                       max=1.0),
                                 torch.zeros_like(n_triad))
             d.add("screw_gain", _gain, mask=(n_cap >= 1))
+        # U40 哨兵: 真实螺纹副 —— 指尖经摩擦锥传入的轴向力矩 / 解锁占比
+        if self.screw_spec.breakaway_torque_nm is not None:
+            d.add("screw_tau_mNm", 1000.0 * self.screw_tau_ema.abs(),
+                  mask=self.screw_engaged)
+            d.add("screw_unlocked", (~self.screw_locked).float(),
+                  mask=self.screw_engaged, mode="max")
         d.add("left_n_fingers", n_left.float(), mask=(n_left >= 1))
         d.add("left_grip5_frac", ((n_left >= 5) & thumb_c).float(), mask=active)
         d.add("rew_ctriad", r_ctriad, mask=active)
@@ -1193,6 +1236,8 @@ class UnscrewRefTaskEnv(UnscrewTaskEnv):
         self.placed_latch[ids] = False
         self._placed_step[ids] = False
         self.prev_place_d[ids] = 0.0
+        self._cap_carry_steps[ids] = 0.0
+        self._cap_fall_peak[ids] = 0.0
         self.wrist_err_ctr[ids] = 0
         self.gate_unlocked[ids] = False
         self._gate_step[ids] = False

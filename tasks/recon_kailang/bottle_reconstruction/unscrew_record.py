@@ -29,6 +29,8 @@ parser.add_argument("--env_index", type=int, default=0,
                     help="镜头跟随/统计的 env (配合 --seed 两遍法录成功回合)")
 parser.add_argument("--seed", type=int, default=-1,
                     help=">=0 时在建环境后播种, 使两遍 rollout 可复现")
+parser.add_argument("--cap_marker", action="store_true",
+                    help="把红色色标烘焙进瓶盖 USD 副本 (纯视觉), 旋转在录像里可辨")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 args.enable_cameras = True                     # 离屏渲染必需
@@ -78,6 +80,50 @@ env_cfg.viewer = ViewerCfg(
     eye=tuple(float(x) for x in args.eye.split(",")),
     lookat=tuple(float(x) for x in args.lookat.split(",")),
     origin_type="env", env_index=args.env_index, resolution=(720, 540))
+
+if args.cap_marker:
+    # 盖旋转对称无纹理, 录像里辨不出转动. 复制盖 USD 加红色标 (顶面表针+侧面
+    # 竖条, 无碰撞/物性 API = 纯视觉), 再把 clip 的 secondary["usd"] 指向副本;
+    # ensure_mesh_usd 按 mtime 判缓存, 副本更新不会被原 mesh 重新覆盖.
+    import shutil
+    from pxr import Gf, Sdf, Usd, UsdGeom, UsdShade
+    _sec = clips.clip_entry(args.clip)["secondary"]
+    clips.ensure_mesh_usd(_sec["mesh"], _sec["usd"], _sec["semantics"])
+    _marked = os.path.join(out_dir, "cap_marked.usd")
+    shutil.copy(_sec["usd"], _marked)
+    _stage = Usd.Stage.Open(_marked)
+    _root = _stage.GetDefaultPrim()
+    _rng = UsdGeom.BBoxCache(
+        Usd.TimeCode.Default(), [UsdGeom.Tokens.default_],
+    ).ComputeUntransformedBound(_root).ComputeAlignedRange()
+    if _rng.IsEmpty():
+        _rx, _zlo, _zhi = 0.016, 0.0, 0.02                 # PCO-1810 兜底
+    else:
+        _lo, _hi = _rng.GetMin(), _rng.GetMax()
+        _rx = max(abs(_lo[0]), abs(_hi[0]), abs(_lo[1]), abs(_hi[1]))
+        _zlo, _zhi = float(_lo[2]), float(_hi[2])
+    _mat = UsdShade.Material.Define(_stage, _root.GetPath().AppendChild("MarkerMat"))
+    _sh = UsdShade.Shader.Define(_stage, _mat.GetPath().AppendChild("Shader"))
+    _sh.CreateIdAttr("UsdPreviewSurface")
+    _sh.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(1.0, 0.05, 0.03))
+    _sh.CreateInput("emissiveColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(0.8, 0.02, 0.01))
+    _sh.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(0.4)
+    _mat.CreateSurfaceOutput().ConnectToSource(_sh.ConnectableAPI(), "surface")
+
+    def _add_box(name, t, dims):
+        c = UsdGeom.Cube.Define(_stage, _root.GetPath().AppendChild(name))
+        c.GetSizeAttr().Set(1.0)                           # 边长 1 → scale 即尺寸
+        c.AddTranslateOp().Set(Gf.Vec3d(*t))
+        c.AddScaleOp().Set(Gf.Vec3f(*dims))
+        c.CreateDisplayColorAttr([Gf.Vec3f(1.0, 0.05, 0.03)])
+        UsdShade.MaterialBindingAPI.Apply(c.GetPrim()).Bind(_mat)
+
+    _h = _zhi - _zlo
+    _add_box("MarkerHand", (0.5 * _rx, 0.0, _zhi + 0.002), (1.3 * _rx, 0.006, 0.003))
+    _add_box("MarkerSide", (_rx + 0.002, 0.0, _zlo + 0.5 * _h), (0.003, 0.006, 0.9 * _h))
+    _stage.GetRootLayer().Save()
+    _sec["usd"] = _marked
+    print(f"[record] cap 色标 USD: {_marked} (rx={100 * _rx:.1f}cm 高={100 * _h:.1f}cm)")
 
 base = (UnscrewRefTaskEnv if args.ref else UnscrewTaskEnv)(env_cfg, render_mode="rgb_array")
 if args.seed >= 0:

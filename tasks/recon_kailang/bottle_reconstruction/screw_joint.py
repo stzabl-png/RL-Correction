@@ -30,6 +30,17 @@ class ScrewSpec:
     capture_tilt_deg: float = 10.0
     capture_yaw_deg: float = 30.0
     max_angular_velocity_rad_s: float = 20.0
+    # ---- U40 真实螺纹副 (breakaway_torque_nm=None 时以下全部不生效) ----
+    # 咬合期盖绕螺轴等效惯量调大, 指尖→盖扭矩传输交给 PhysX 摩擦锥
+    # (可传扭矩 ≤ μ·N·r); 螺纹阻力 = 静锁阈值 + 库仑动摩擦 + 粘滞.
+    breakaway_torque_nm: float | None = None   # 静摩擦解锁阈值
+    kinetic_torque_nm: float = 0.015           # 转动中的库仑阻力矩
+    viscous_nms: float = 0.03                  # 粘滞系数 (N·m·s/rad)
+    inertia_eff_kgm2: float = 5e-3             # 咬合期盖绕螺轴等效惯量
+    torque_ema_s: float = 0.025                # 传入力矩估计的 EMA 时间常数
+    unlock_dwell_s: float = 0.033              # EMA 需持续超阈这么久才解锁 (抗冲击)
+    lock_omega_eps: float = 0.05               # |ω| 低于此且 τ<阈值 → 回锁
+    react_on_bottle: bool = True               # 螺纹反作用扭矩施加回瓶身
 
     def __post_init__(self):
         if self.pitch_m <= 0.0:
@@ -50,6 +61,14 @@ class ScrewSpec:
             raise ValueError("capture_yaw_deg must be between 0 and 180")
         if self.max_angular_velocity_rad_s <= 0.0:
             raise ValueError("max_angular_velocity_rad_s must be positive")
+        if self.breakaway_torque_nm is not None:
+            if self.breakaway_torque_nm <= 0.0:
+                raise ValueError("breakaway_torque_nm must be positive")
+            if min(self.kinetic_torque_nm, self.viscous_nms) < 0.0:
+                raise ValueError("thread friction terms must be non-negative")
+            if min(self.inertia_eff_kgm2, self.torque_ema_s,
+                   self.lock_omega_eps) <= 0.0:
+                raise ValueError("thread friction scales must be positive")
 
     @property
     def travel_m(self) -> float:
@@ -82,6 +101,17 @@ class ScrewSpec:
             max_angular_velocity_rad_s=float(
                 value.get("max_angular_velocity_rad_s", 20.0)
             ),
+            breakaway_torque_nm=(
+                None if value.get("breakaway_torque_nm") is None
+                else float(value["breakaway_torque_nm"])
+            ),
+            kinetic_torque_nm=float(value.get("kinetic_torque_nm", 0.015)),
+            viscous_nms=float(value.get("viscous_nms", 0.03)),
+            inertia_eff_kgm2=float(value.get("inertia_eff_kgm2", 5e-3)),
+            torque_ema_s=float(value.get("torque_ema_s", 0.025)),
+            unlock_dwell_s=float(value.get("unlock_dwell_s", 0.033)),
+            lock_omega_eps=float(value.get("lock_omega_eps", 0.05)),
+            react_on_bottle=bool(value.get("react_on_bottle", True)),
         )
 
 

@@ -202,6 +202,22 @@ CLIPS["screw_unscrew_cap1_task"] = dict(
 # 任务口径的螺旋角速度上限: 指尖驱动的真实量级 (~5-10 rad/s), 不是审计用的 20.
 # 20 rad/s 下 0.63s 就能转完 2 圈, 轻弹即成 —— 训练学到的是"搓帽"不是"拧帽".
 CLIPS["screw_unscrew_cap1_task"]["secondary"]["assembly"]["max_angular_velocity_rad_s"] = 6.0
+# U40 (2026-08-30 用户裁定 "最接近真实情况建模"): 真实螺纹副任务口径.
+# 与 _task 的区别: 接触门/triad 分级/ω 阻尼退役, 换成咬合期重惯量螺旋自由度
+# (指尖可传扭矩受 PhysX 摩擦锥真实限制) + 静锁 breakaway + 库仑 + 粘滞.
+# 参数量级 = 已破封的松盖 (全新盖 breakaway ~0.4-1 N·m, 超出机器手能力);
+# τ=0.075 N·m 时稳态 2 rad/s ≈ 人手拧速. 旧 _task 条目原样保留 (Dyn23 回放).
+CLIPS["screw_unscrew_cap1_task_real"] = dict(
+    _screw_unscrew_cap1("preengaged"), robot_hand="right")
+CLIPS["screw_unscrew_cap1_task_real"]["secondary"]["assembly"].update(
+    max_angular_velocity_rad_s=4.0,     # 仅安全夹, 摩擦模型才是整形器
+    breakaway_torque_nm=0.04,
+    kinetic_torque_nm=0.015,
+    viscous_nms=0.03,
+    inertia_eff_kgm2=5e-3,
+    torque_ema_s=0.025,
+    lock_omega_eps=0.05,
+)
 CLIPS["pp0_anchor"] = dict(CLIPS["pp0_human"], variant="anchor")
 CLIPS["pp55_anchor"] = dict(CLIPS["pp55_human"], variant="anchor")
 

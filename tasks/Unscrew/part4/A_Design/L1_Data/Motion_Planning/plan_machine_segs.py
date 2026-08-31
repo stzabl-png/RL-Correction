@@ -296,7 +296,8 @@ if not bool(np.asarray(plan_payload.get("derived_from", ""))
     _tgt2 = os.path.join(_tmp, "targets_leg2.json")
     with open(_tgt2, "w") as f:
         json.dump(_T2, f)
-    _out2 = out_npz + ".leg2.npz"
+    _out2 = os.path.join(_tmp, "leg2.npz")   # 临时目录: 别在产物目录里留垃圾
+                                            # (失败的中间产物混进仓库会误导)
     _cmd2 = [sys.executable, "-u", "-m", "tasks.pregrasp.curobo_plan_worker",
              "--targets", _tgt2, "--out", _out2,
              "--act_dist", str(args.act_dist), "--attempts", str(args.attempts),

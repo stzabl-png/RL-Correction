@@ -106,7 +106,7 @@ assert float(assembly["turns"]) == registered_turns
 # (breakaway=None 时 screw_assembly 走旧支路, 碰一下就白转的老病立刻复发)
 assert spec.breakaway_torque_nm is not None, "clip 未带 U40 真实螺纹参数"
 for _k, _v in (("breakaway_torque_nm", 0.04), ("kinetic_torque_nm", 0.015),
-               ("viscous_nms", 0.03), ("inertia_eff_kgm2", 5e-3),
+               ("viscous_nms", 0.03), ("inertia_eff_kgm2", 5e-4),   # U45
                ("torque_ema_s", 0.025), ("unlock_dwell_s", 0.033),
                ("lock_omega_eps", 0.05)):
     assert abs(float(getattr(spec, _k)) - _v) < 1e-12, (_k, getattr(spec, _k))

@@ -362,18 +362,26 @@ def _thread_friction_step(env, relative_ang, axis_w, integrate_angle):
     if _gate is not None and getattr(env, "_thread_tau_contact_gate", True):
         dw = dw * (_gate() > 0).float()
     tau_in = spec.inertia_eff_kgm2 * dw / dt
-    omega_phys = env.screw_omega + dw
     alpha = dt / max(spec.torque_ema_s, dt)
     env.screw_tau_ema += alpha * (tau_in - env.screw_tau_ema)
     above = env.screw_tau_ema.abs() > spec.breakaway_torque_nm
     env._screw_unlock_dwell = (env._screw_unlock_dwell + dt) * above.float()
     unlock = env.screw_locked & (env._screw_unlock_dwell >= spec.unlock_dwell_s)
     env.screw_locked = env.screw_locked & ~unlock
-    drag = (spec.kinetic_torque_nm + spec.viscous_nms * omega_phys.abs()) \
-        * dt / spec.inertia_eff_kgm2
+    # U45 (2026-08-31, 用户裁定"贴近人手 + 物理与真实相同"): 螺纹转动改
+    # **准静态 (过阻尼)**. 真实盖 I/b ≈ 7e-7/0.03 ≈ 2e-5 s, 远小于一个子步
+    # (4e-3 s) —— 惯性可忽略, 转速由**力矩平衡**决定而非积分存动量:
+    #     ω = sign(τ)·(|τ| − τ_kinetic)⁺ / b
+    # 旧的 "ω += dw − drag" 让盖成**飞轮** (时间常数 I_eff/b), 一次猛戳注入的
+    # 角动量存得住还能累积 —— 正是策略学会"戳转"而非"握拧"的根因 (LEDGER
+    # U44b 尸检). 准静态下猛戳只给一瞬 τ 尖峰 (还要过 EMA + 持续解锁判据),
+    # ω 立刻回零; 只有持续握持的持续 τ 才有持续转动。
+    # 回锁自然形成静/动摩擦滞环: 解锁需 |τ|>breakaway, ω→0 需 |τ|≤kinetic。
     omega = torch.where(
-        env.screw_locked, torch.zeros_like(omega_phys),
-        torch.sign(omega_phys) * (omega_phys.abs() - drag).clamp(min=0.0))
+        env.screw_locked, torch.zeros_like(env.screw_tau_ema),
+        torch.sign(env.screw_tau_ema)
+        * (env.screw_tau_ema.abs()
+           - spec.kinetic_torque_nm).clamp(min=0.0) / spec.viscous_nms)
     relock = (~env.screw_locked & (omega.abs() < spec.lock_omega_eps)
               & (env.screw_tau_ema.abs() < spec.breakaway_torque_nm))
     env.screw_locked = env.screw_locked | relock

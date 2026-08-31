@@ -593,11 +593,17 @@ def _unscrew_take(take_dir: str):
     asm["mode"] = "preengaged"
     asm["turns"] = 0.75
     asm.update(
-        max_angular_velocity_rad_s=4.0,   # 仅安全夹, 摩擦模型才是整形器
+        # U45: 准静态螺纹 (ω=(|τ|−kinetic)⁺/b). 安全夹 4.0→2.5: 人手拧盖约
+        # 2 rad/s, 准静态下顶到 2.5 需持续 τ≈0.09N·m, 是真安全栏非整形器.
+        max_angular_velocity_rad_s=2.5,
         breakaway_torque_nm=0.04,         # 已破封的松盖量级 (全新盖 0.4-1N·m)
         kinetic_torque_nm=0.015,
         viscous_nms=0.03,
-        inertia_eff_kgm2=5e-3,
+        # U45: 5e-3→5e-4. (a) 更接近真实盖 (≈7e-7, 5g/r1.7cm); (b) 准静态下
+        # I_eff 过大会与"手指用静摩擦强制盖面速度"形成正反馈: τ_ema 每子步
+        # 增益 α·I_eff/(dt·b), 5e-3 约 6.7 (周期2振荡), 5e-4 约 0.67 (稳定).
+        # 观测器不受影响: τ=I·dw/dt 对 I 不变 (dw ∝ 1/I).
+        inertia_eff_kgm2=5e-4,
         torque_ema_s=0.025,
         unlock_dwell_s=0.033,
         lock_omega_eps=0.05,

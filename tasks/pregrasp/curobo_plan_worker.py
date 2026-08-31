@@ -69,10 +69,18 @@ def load_robot_yaml(path: str) -> dict:
     with open(path, encoding="utf-8") as fh:
         raw = yaml.safe_load(fh)
     kin = raw["robot_cfg"]["kinematics"]
-    asset_root = kin.get("asset_root_path")
-    urdf_path = kin.get("urdf_path")
+    repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+    def _abs(p):
+        # 入库 yml 存的是仓库相对路径; 按**仓库根**解析 (worker 可能从任意
+        # 工作目录被 spawn —— 靠 cwd 会时灵时不灵)。
+        return p if not p or os.path.isabs(p) else os.path.join(repo, p)
+
+    asset_root = _abs(kin.get("asset_root_path"))
+    urdf_path = _abs(kin.get("urdf_path"))
     if (asset_root and os.path.isdir(asset_root)
             and urdf_path and os.path.isfile(urdf_path)):
+        kin["asset_root_path"], kin["urdf_path"] = asset_root, urdf_path
         return raw
 
     bundled_root = os.path.abspath(os.path.join(

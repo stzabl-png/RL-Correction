@@ -33,6 +33,12 @@ CRITICAL = (
     "assembly.pitch_m", "assembly.turns", "assembly.closed_offset_m",
     "assembly.direction", "assembly.max_angular_velocity_rad_s",
     "assembly.omega_damping", "assembly.detach_at_full",
+    # U40 真实螺纹副 (不适用时一律 0.0/legacy —— 不能留 None, 那会被判"未验")
+    "assembly.thread_model", "assembly.breakaway_torque_nm",
+    "assembly.kinetic_torque_nm", "assembly.viscous_nms",
+    "assembly.inertia_eff_kgm2", "assembly.torque_ema_s",
+    "assembly.unlock_dwell_s", "assembly.lock_omega_eps",
+    "assembly.react_on_bottle",
     "sensors.pad_force_threshold_N", "sensors.pads_min_per_hand",
     "method.clip", "method.variant", "method.squeeze_ff_enabled",
     "method.beta_r", "method.beta_l",
@@ -142,9 +148,30 @@ def collect(env) -> dict:
         "direction": getattr(screw, "direction", None),
         "max_angular_velocity_rad_s": _f(
             getattr(screw, "max_angular_velocity_rad_s", None)),
-        "omega_damping": _f(getattr(env, "screw_omega_damping", None)),
+        # real 模式下 ω 阻尼不再施加 —— 记 0.0 (事实), 不留 None (会被判未验)
+        "omega_damping": _f(getattr(env, "screw_omega_damping", None) or 0.0),
         "detach_at_full": getattr(env, "screw_detach_at_full", None),
     }
+    _brk = getattr(screw, "breakaway_torque_nm", None)
+    assembly.update(
+        thread_model=("real_friction" if _brk is not None
+                      else "legacy_gain_damping"),
+        breakaway_torque_nm=_f(_brk or 0.0),
+        kinetic_torque_nm=_f(getattr(screw, "kinetic_torque_nm", 0.0)
+                             if _brk is not None else 0.0),
+        viscous_nms=_f(getattr(screw, "viscous_nms", 0.0)
+                       if _brk is not None else 0.0),
+        inertia_eff_kgm2=_f(getattr(screw, "inertia_eff_kgm2", 0.0)
+                            if _brk is not None else 0.0),
+        torque_ema_s=_f(getattr(screw, "torque_ema_s", 0.0)
+                        if _brk is not None else 0.0),
+        unlock_dwell_s=_f(getattr(screw, "unlock_dwell_s", 0.0)
+                          if _brk is not None else 0.0),
+        lock_omega_eps=_f(getattr(screw, "lock_omega_eps", 0.0)
+                          if _brk is not None else 0.0),
+        react_on_bottle=bool(getattr(screw, "react_on_bottle", False)
+                             if _brk is not None else False),
+    )
     method = {
         "clip": getattr(cfg, "clip_name", None),
         "variant": getattr(env, "_variant", None),

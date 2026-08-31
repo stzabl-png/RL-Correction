@@ -3,8 +3,11 @@
 ② 真错被拦: 拧反方向(不释放)→G3 不立; 盖没送到位→placed 不立;
 ③ 未释放却报 placed 语义不可能 (G3 是 placed 的前置);
 ④ 护送信号开着的正路 (右垫全程接触) 照常 G4;
-⑤ 盖脱手自由落体到目标 → 无接触快速过带 ⇒ escort_fail, placed 永不立
-   (T2-3 用户裁定: 成功=右手拿着盖放桌上, 不是盖自己掉下去)。"""
+⑤ 盖脱手自由落体到目标 → 无接触快速过带 ⇒ escort_fail, placed 永不立;
+⑥ 盖无接触**慢慢**沉到目标 (逐步 <ESCORT_FALL, 过带判据抓不到) ⇒ 持盖步数
+   不够 (U41②), placed 仍不立 —— 单靠过带判据会漏的那一路;
+⑦ 拿着盖但半途摔下去再接住 (降幅峰值 >PLACE_FALL) ⇒ U41③ 否决。
+   (T2-3/U41 同一条用户裁定: 成功=右手**拿着**盖**放**到桌上。)"""
 import os
 import sys
 
@@ -14,6 +17,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 sys.path.insert(0, os.path.join(_HERE, "..", "..", "C_Wiring"))
 from progress import (CERT_RAMP, CERT_RET, PLACED_HOLD, M4_HOLD,  # noqa: E402
+                      ESCORT_FALL, PLACE_CARRY, PLACE_FALL, TABLE_Z,
                       UnscrewProgress)
 import task_config as TC  # noqa: E402
 
@@ -32,7 +36,9 @@ rng = np.random.default_rng(7)
 def run(off_scale=0.0, feed_released=True, cap_end_off=0.0, max_t=1500,
         escort=None):
     """escort: None=无信号(护送停用) / 'hold'=右垫全程接触 /
-    'drop'=释放后盖脱手自由落体到终点 (每步 -2.5cm, 无接触)。"""
+    'drop'=释放后盖脱手自由落体到终点 (每步 -2.5cm, 无接触) /
+    'slowdrop'=无接触但每步只沉 0.5cm (<ESCORT_FALL, 过带判据抓不到) /
+    'toss'=右手拿着, 但半途一段 6cm/步 的坠落 (>PLACE_FALL) 后再接住。"""
     P = UnscrewProgress(NPZ)
     t = 0
     drop_z = None
@@ -65,16 +71,31 @@ def run(off_scale=0.0, feed_released=True, cap_end_off=0.0, max_t=1500,
         rel = feed_released and P.g[2] and k >= P.k_sep
         prc = None
         if escort == "hold":
-            prc = True
-        elif escort == "drop":
-            prc = False
+            prc = 3
+        elif escort in ("drop", "slowdrop"):
+            prc = 0
             if P.g[3]:
-                # 释放后盖脱手: xy 直接到终点, z 每步直落 2.5cm 直至终点高度
+                # 释放后盖脱手: xy 直接到终点, z 逐步下沉至终点高度。
+                # drop = 2.5cm/步 (过带判据抓得到); slowdrop = 0.5cm/步
+                # (<ESCORT_FALL, 过带抓不到 —— 该由 U41② 持盖步数拦下)
+                step = 0.025 if escort == "drop" else 0.005
                 if drop_z is None:
                     drop_z = float(o1[2])
-                drop_z = max(drop_z - 0.025, float(P.end[1][2]))
+                drop_z = max(drop_z - step, float(P.end[1][2]))
                 o1 = P.end[1].copy()
                 o1[2] = drop_z
+        elif escort == "toss":
+            prc = 3          # 手一直在盖上 (过带/持盖两件都满足)
+            if P.g[3]:
+                # 目标点上方 12cm 起, 6cm/步 坠到桌面 (>PLACE_FALL=4cm/步) ——
+                # 手全程在盖上, 过带/持盖两件都满足, 只该被 U41③ 否决。
+                # 抬高幅度必须留在 D3 偏离死线内, 否则测的是死线不是判据。
+                floor = float(P.end[1][2])
+                if drop_z is None:
+                    drop_z = floor + 0.12
+                o1 = P.end[1].copy()
+                o1[2] = drop_z
+                drop_z = max(drop_z - 0.06, floor)
         # 腕漂 ±2mm: 认证滑移线 8mm, 两帧独立 ±5mm 噪声最坏差 17mm 会误伤
         r = P.step(o0, o1, ar, al, True,
                    o1[:3] + WOFF + rng.uniform(-0.002, 0.002, 3),
@@ -104,10 +125,30 @@ P, fail, t = run(escort="hold")
 assert fail is None and P.g[4] and not P.escort_fail, \
     f"护送正路被误拦: fail={fail} G4={P.g[4]} escort_fail={P.escort_fail}"
 print(f"[变体] ④ 右垫护送 -> G4 @{t} ✅")
-# ⑤ 盖脱手自由落体到目标: escort_fail, placed 永不立
+# ⑤ 盖脱手自由落体到目标: escort_fail (过带), placed 永不立
 P, fail, t = run(escort="drop")
 assert P.g[3] and P.escort_fail and not P.placed and not P.g[4], \
     (f"自由落体却 placed={P.placed} escort_fail={P.escort_fail} "
      f"G4={P.g[4]}")
-print(f"[变体] ⑤ 盖脱手自由落体 -> escort_fail, placed 不立 ✅")
+assert P.carry_steps == 0, f"脱手却记了持盖步 {P.carry_steps}"
+print(f"[变体] ⑤ 盖脱手自由落体 -> escort_fail(过带)+持盖0步, placed 不立 ✅")
+# ⑥ 无接触慢沉: 过带判据抓不到 (降幅 < ESCORT_FALL), 靠 U41② 拦
+P, fail, t = run(escort="slowdrop")
+assert P.g[3] and not P.placed and not P.g[4], \
+    f"无接触慢沉却 placed={P.placed} G4={P.g[4]}"
+assert not P.escort_fail, "慢沉不该触发过带判据 (那是 ⑤ 的命题)"
+assert fail is None, f"⑥ 不该撞死线: {fail}"
+assert P.carry_steps < PLACE_CARRY and P.fall_peak < PLACE_FALL, \
+    f"慢沉应只由持盖步数拦下: carry={P.carry_steps} fall={P.fall_peak:.3f}"
+print(f"[变体] ⑥ 无接触慢沉 -> 持盖 {P.carry_steps:.0f}<{PLACE_CARRY} 步, "
+      f"placed 不立 ✅ (过带判据本身抓不到, 单靠它会漏)")
+# ⑦ 拿着但半途坠落再接住: 降幅峰值否决
+P, fail, t = run(escort="toss")
+assert fail is None, f"⑦ 不该撞死线 (那测的就不是判据了): {fail}"
+assert P.g[3] and not P.placed and not P.g[4], \
+    f"坠落再接住却 placed={P.placed} G4={P.g[4]}"
+assert P.fall_peak >= PLACE_FALL and P.carry_steps >= PLACE_CARRY, \
+    f"应由降幅峰值拦下: fall={P.fall_peak:.3f} carry={P.carry_steps}"
+print(f"[变体] ⑦ 半途坠落 {P.fall_peak * 100:.0f}cm/步 (>{PLACE_FALL * 100:.0f}) "
+      f"-> placed 不立 ✅ (持盖 {P.carry_steps:.0f} 步够, 但没'放'住)")
 print("[变体] ★全绿")

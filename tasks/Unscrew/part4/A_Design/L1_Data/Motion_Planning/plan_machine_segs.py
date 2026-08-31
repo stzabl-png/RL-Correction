@@ -107,8 +107,21 @@ if args.retreat:
     # (2026-08-30 实测: 仅桌/仅瓶/仅杯世界起点微动全 ❌, 空世界 ✅)。
     # "松手撤离" (交互末行 -> pre) 由缝2 数据斜坡负责, 与缝1 的"贴近合拢"
     # 对称; cuRobo 只管 pre -> 站姿 的机器段 (物体钉母带终位当障碍)。
-    _qpre_r = np.asarray(z1["machine_pre_q_r"], np.float64)
-    _qpre_l = np.asarray(z1["machine_pre_q_l"], np.float64)
+    # 用 **Approach 实际选中的那一档**净空 (两段必须首尾相接; Approach 换了
+    # 候选而 Retreat 还用 0 档, 撤退起点就不是机器段真正停的地方)
+    _pre_idx = 0
+    if os.path.isfile(TC.APPROACH_NPZ):
+        with np.load(TC.APPROACH_NPZ, allow_pickle=True) as _za:
+            if "pre_idx" in _za.files:
+                _pre_idx = int(_za["pre_idx"])
+    if "machine_pre_alts_r" in z1.files:
+        _qpre_r = np.asarray(z1["machine_pre_alts_r"], np.float64)[_pre_idx]
+        _qpre_l = np.asarray(z1["machine_pre_alts_l"], np.float64)[_pre_idx]
+    else:
+        _qpre_r = np.asarray(z1["machine_pre_q_r"], np.float64)
+        _qpre_l = np.asarray(z1["machine_pre_q_l"], np.float64)
+    print(f"[plan] Retreat 起点 = pregrasp 候选 #{_pre_idx} (随 Approach)",
+          flush=True)
     for i in range(1, 8):
         start[f"R_arm_j{i}"] = float(_qpre_r[i - 1])
         start[f"L_arm_j{i}"] = float(_qpre_l[i - 1])
@@ -137,12 +150,16 @@ else:
     # 现在目标 = make_reference 里收缩限位 3° ArmIK 解出的内点构型
     # (machine_pre_q_*), plan_cspace 全程避障且终帧=目标关节, 离线预演
     # (桌+物体充气1cm) 已全通。
-    qpre_r = np.asarray(z1["machine_pre_q_r"], np.float64)
-    qpre_l = np.asarray(z1["machine_pre_q_l"], np.float64)
+    if "machine_pre_alts_r" in z1.files:
+        alts_r = np.asarray(z1["machine_pre_alts_r"], np.float64)
+        alts_l = np.asarray(z1["machine_pre_alts_l"], np.float64)
+    else:                       # 旧母带: 只有一档
+        alts_r = np.asarray(z1["machine_pre_q_r"], np.float64)[None]
+        alts_l = np.asarray(z1["machine_pre_q_l"], np.float64)[None]
     T["cspace_goal"] = {}
     for i in range(1, 8):
-        T["cspace_goal"][f"R_arm_j{i}"] = float(qpre_r[i - 1])
-        T["cspace_goal"][f"L_arm_j{i}"] = float(qpre_l[i - 1])
+        T["cspace_goal"][f"R_arm_j{i}"] = float(alts_r[0][i - 1])
+        T["cspace_goal"][f"L_arm_j{i}"] = float(alts_l[0][i - 1])
     out_npz = TC.APPROACH_NPZ
 
 os.makedirs(os.path.dirname(out_npz), exist_ok=True)
@@ -155,31 +172,50 @@ cmd = [sys.executable, "-u", "-m", "tasks.pregrasp.curobo_plan_worker",
        "--act_dist", str(args.act_dist), "--attempts", str(args.attempts),
        "--obj_inflate", str(args.obj_inflate)]
 # Approach/Retreat 现都走 cspace_goal (worker 按 targets 里键自动分支)
-print(f"[plan] worker: {' '.join(cmd)}", flush=True)
-started_ns = time.time_ns()
-run = subprocess.run(cmd, cwd=os.getcwd(),
-                     env=dict(os.environ, PYTHONPATH=os.getcwd()), timeout=2400)
-fresh = (os.path.isfile(out_npz)
-         and os.stat(out_npz).st_mtime_ns >= started_ns)
-if run.returncode != 0 or not fresh:
-    print(f"[plan] ❌ worker 未产出本次结果: returncode={run.returncode} "
-          f"fresh={fresh} out={out_npz}", flush=True)
-    try:
-        _slot.release()
-    except Exception:
-        pass
-    app.close(); os._exit(1)
-with np.load(out_npz, allow_pickle=True) as _z:
-    plan_payload = {key: _z[key] for key in _z.files}
-if not bool(plan_payload["ok"]):
-    failed_frame = plan_payload.get("failed_frame")
-    print(f"[plan] ❌ 失败: {failed_frame}", flush=True)
+# Approach 还要逐档试 pregrasp 净空: 目标构型本身被判碰是本任务的常见死因
+# (左抓锚一准, pregrasp 就贴在瓶壁上), 净空该给多少是逐 clip 的几何问题 ——
+# 由近及远试, 第一条通的记进产物 (Retreat 起点跟着用同一档)。
+n_alt = 1 if args.retreat else len(alts_r)
+plan_payload, pre_idx = None, 0
+for _k in range(n_alt):
+    if not args.retreat:
+        for i in range(1, 8):
+            T["cspace_goal"][f"R_arm_j{i}"] = float(alts_r[_k][i - 1])
+            T["cspace_goal"][f"L_arm_j{i}"] = float(alts_l[_k][i - 1])
+        with open(_tgt, "w") as f:
+            json.dump(T, f)
+        print(f"[plan] === pregrasp 候选 #{_k}/{n_alt - 1} ===", flush=True)
+    print(f"[plan] worker: {' '.join(cmd)}", flush=True)
+    started_ns = time.time_ns()
+    run = subprocess.run(cmd, cwd=os.getcwd(),
+                         env=dict(os.environ, PYTHONPATH=os.getcwd()),
+                         timeout=2400)
+    fresh = (os.path.isfile(out_npz)
+             and os.stat(out_npz).st_mtime_ns >= started_ns)
+    if run.returncode != 0 or not fresh:
+        print(f"[plan] ❌ worker 未产出本次结果: returncode={run.returncode} "
+              f"fresh={fresh} out={out_npz}", flush=True)
+        try:
+            _slot.release()
+        except Exception:
+            pass
+        app.close(); os._exit(1)
+    with np.load(out_npz, allow_pickle=True) as _z:
+        payload = {key: _z[key] for key in _z.files}
+    if bool(payload["ok"]):
+        plan_payload, pre_idx = payload, _k
+        break
+    print(f"[plan] 候选 #{_k} 失败: {payload.get('failed_frame')}"
+          f"{' —— 换下一档净空' if _k + 1 < n_alt else ''}", flush=True)
+if plan_payload is None:
+    print(f"[plan] ❌ {n_alt} 档净空全部失败", flush=True)
     try:
         _slot.release()
     except Exception:
         pass
     os._exit(1)
 plan_payload.update(
+    pre_idx=np.array(pre_idx),
     plan_clip=np.array(TC.CLIP_ID), plan_segment=np.array(segment_name),
     planning_basis_digest=np.array(planning_basis),
     rest_md5=np.array(rest_md5))

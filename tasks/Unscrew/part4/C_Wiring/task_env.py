@@ -56,6 +56,12 @@ LOOK_KS = (1, 2, 4, 8, 16)
 DEV_ARM_MACHINE, DEV_ARM_HUMAN = 0.05, 0.08
 FAIL_PEN, D6_PEN, D6_CAP = -10.0, -0.5, -10.0
 K_SCREW = 2.0                       # [TASK] 拧转势: 270°×2.0 ≈ 9.4 总额
+# 诊断台账初值 (screw_tau_mNm/screw_unlocked 按**咬合 env 步**归一, 别用 n)
+_DIAG0 = {"screw_deg": 0.0, "released": 0, "n_triad": 0.0, "gain": 0.0,
+          "cap_any": 0.0, "escort_fail": 0.0, "carry_steps": 0.0,
+          "fall_peak": 0.0, "screw_tau_mNm": 0.0, "screw_unlocked": 0.0,
+          "screw_n_eng": 0.0, "n": 0, "ep": 0}
+_DIAG_ENG = ("screw_tau_mNm", "screw_unlocked")     # 分母 = screw_n_eng
 _RPADS = ["right_thumb_elastomer", "right_index_elastomer",
           "right_middle_elastomer", "right_ring_elastomer",
           "right_pinky_elastomer"]
@@ -216,9 +222,21 @@ class UnscrewEnv(GraspTaskEnv):
         self._slip_obs = torch.zeros(N, 8, device=dev)
         self._tick_out = None
         self.prev_screw = torch.zeros(N, device=dev)     # [TASK] 拧转势差分
-        self.screw_omega_damping = 0.9                   # [TASK] 螺纹粘滞 (v3)
         self.screw_detach_at_full = True                 # [TASK] 拧满即脱开
         self.screw_drive_gain = torch.zeros(N, device=dev)
+        # [TASK] U40 真实螺纹副: 接触门/ω 阻尼这两个假摩擦替身退役 (clip 带
+        # breakaway_torque_nm 时 screw_assembly 自动走摩擦支路)。drive_gain 仍
+        # 逐步计算 —— 它是观测里的接触特征 (obs 507 维不变), 只是不再乘进角速度。
+        self._real_thread = self.screw_spec is not None and \
+            self.screw_spec.breakaway_torque_nm is not None
+        if not self._real_thread:
+            self.screw_omega_damping = 0.9               # 旧口径 (v3 假粘滞)
+        print(f"[UnscrewEnv] 螺纹模型: "
+              + (f"真实摩擦副 breakaway={self.screw_spec.breakaway_torque_nm}N·m "
+                 f"kinetic={self.screw_spec.kinetic_torque_nm} "
+                 f"viscous={self.screw_spec.viscous_nms} "
+                 f"I_eff={self.screw_spec.inertia_eff_kgm2}"
+                 if self._real_thread else "旧口径 (接触门 + ω 阻尼)"))
         # 身体索引
         bn = list(self.hand.body_names)
         self.wid = {"R": bn.index("right_hand_C_MC"), "L": bn.index("left_hand_C_MC")}
@@ -287,9 +305,7 @@ class UnscrewEnv(GraspTaskEnv):
                      "pen6": 0.0, "bonus": 0.0, "regrip": 0.0, "slope": 0.0,
                      "wage": 0.0, "fshape": 0.0, "screw": 0.0, "n": 0}
         self.tb = {"term/M4_success": 0, "d6_pen_sum": 0.0, "ep": 0}
-        self.diag_acc = {"screw_deg": 0.0, "released": 0, "n_triad": 0.0,
-                         "gain": 0.0, "cap_any": 0.0, "escort_fail": 0.0,
-                         "n": 0, "ep": 0}
+        self.diag_acc = dict(_DIAG0)
 
     def _rebuild_entries(self):
         """按已解锁 Gate 重建出生表 (渐进RSI)."""
@@ -316,6 +332,14 @@ class UnscrewEnv(GraspTaskEnv):
             n_any >= 1, (n_triad / 3.0).clamp(min=1.0 / 3.0, max=1.0),
             torch.zeros_like(n_triad))
         self._n_triad, self._n_cap_any = n_triad, n_any
+
+    def _screw_cap_contact_n(self):
+        """U40d 真值门: 右指尖 vs 盖的接触指数 —— 零接触 = 物理上没有外力矩。
+
+        每物理子步被 screw_assembly 调用; 力矩估计乘上它, 封死一切数值泄漏
+        (老方法线三次尸检: 手离盖 11cm 仍读出 68mN·m 幻影扭矩并白解锁)。
+        """
+        return (self._pads_f().norm(dim=-1)[:, 5:] > SCREW_CONTACT_FTH).sum(dim=1)
 
     def _pre_physics_step(self, actions):
         a = actions.clamp(-1.0, 1.0)
@@ -417,7 +441,7 @@ class UnscrewEnv(GraspTaskEnv):
         f = self._pads_f().norm(dim=-1)                  # (N,10) 前5左 后5右
         pads3 = (f[:, :5] > PAD_FTH).sum(dim=1) >= PADS_MIN
         # [TASK] T2-3 护送原料: 右手任一垫与盖有力 = 右手还拿着盖
-        pads_r_cap = (f[:, 5:] > PAD_FTH).sum(dim=1) >= 1
+        pads_r_cap = (f[:, 5:] > PAD_FTH).sum(dim=1)     # U41: 计数, 不是 bool
         org_w = self.scene.env_origins
         wr_pos = self.hand.data.body_pos_w[:, self.wid["R"]] - org_w
         wl_pos = self.hand.data.body_pos_w[:, self.wid["L"]] - org_w
@@ -444,16 +468,33 @@ class UnscrewEnv(GraspTaskEnv):
         self._prev_finq = finq_r.detach().clone()
         # ---- env 侧死线 (机器段 D1/D2/D3 + D4 滑移 + D5 撞桌 + D7 超时) ----
         fail_env = torch.zeros(N, dtype=torch.bool, device=dev)
+        # 失败码 (诊断用, 不参与判定): 0=无 / 1x=D1 掉 / 2x=D2 倒 / 3x=D3 偏,
+        # 个位 = 物体号 (0 瓶 1 盖); 4=D4 滑移 5=D5 插桌 6=D6 双臂互碰。
+        # 冒烟报告里"env 侧终止"曾经查不出是哪条 —— 机器段铁则要求 0 误触,
+        # 没有码就只能靠猜 (2026-08-31 补)。
+        self.fail_code = torch.zeros(N, dtype=torch.long, device=dev)
+
+        def _mark(mask, code):
+            self.fail_code = torch.where(mask & (self.fail_code == 0),
+                                         torch.full_like(self.fail_code, code),
+                                         self.fail_code)
+
         pre = self.row < self.IA0
         for oi, _o in ((0, bot), (1, cap)):
-            fail_env |= pre & (_o[:, 2] < TABLE_Z - D1_DROP)          # D1 机器段
+            _m = pre & (_o[:, 2] < TABLE_Z - D1_DROP)                  # D1 机器段
+            fail_env |= _m
+            _mark(_m, 10 + oi)
             qn = _o[:, 3:7] / _o[:, 3:7].norm(dim=1, keepdim=True).clamp(min=1e-9)
             upw = quat_apply(qn, self.PB.up[oi].unsqueeze(0).expand(len(qn), 3))
             tilt = torch.acos((upw[:, 2] / upw.norm(dim=1).clamp(min=1e-9))
                               .clamp(-1, 1))
-            fail_env |= pre & (tilt > D2_TILT)                         # D2 机器段
+            _m = pre & (tilt > D2_TILT)                                # D2 机器段
+            fail_env |= _m
+            _mark(_m, 20 + oi)
             rest = self.rest_pose[oi]
-            fail_env |= pre & ((_o[:, :3] - rest[:3]).norm(dim=1) > D3_DEV)  # D3
+            _m = pre & ((_o[:, :3] - rest[:3]).norm(dim=1) > D3_DEV)   # D3
+            fail_env |= _m
+            _mark(_m, 30 + oi)
         # D4 滑移 (交互行, G2 后, 相对基线): 左腕-瓶 / 右腕-盖
         d_l = (self.hand.data.body_pos_w[:, self.wid["L"]]
                - self.object.data.root_pos_w).norm(dim=1)
@@ -469,6 +510,7 @@ class UnscrewEnv(GraspTaskEnv):
             ((d_l - self.grasp_d0[:, 0]).abs() > D4_SLIP)
             | ((~released) & ((d_r - self.grasp_d0[:, 1]).abs() > D4_SLIP)))
         fail_env |= slip
+        _mark(slip, 4)
         # ---- 滑移量/滑速/垫压 → 反射奖+斜坡罚+观测块 (框架 v5 移植) ----
         d_now = torch.stack([d_l, d_r], dim=1)
         pf_now = torch.stack([f[:, :5].sum(dim=1), f[:, 5:].sum(dim=1)], dim=1)
@@ -563,6 +605,16 @@ class UnscrewEnv(GraspTaskEnv):
         da["gain"] += float(self.screw_drive_gain.sum())
         da["cap_any"] += float((self._n_cap_any >= 1).float().sum())
         da["escort_fail"] += float(self.PB.escort_fail.float().sum())
+        da["carry_steps"] += float(self.PB.carry_steps.sum())
+        da["fall_peak"] += float(self.PB.fall_peak.sum())
+        if self._real_thread:
+            # U40 哨兵: 指尖经摩擦锥传入的轴向力矩 / 解锁占比。幻影探测器 ——
+            # cap_any≈0 而 screw_tau≫0 就是又漏了一条通道 (老台账三次尸检)。
+            da["screw_tau_mNm"] += float(
+                (1000.0 * self.screw_tau_ema.abs())[self.screw_engaged].sum())
+            da["screw_unlocked"] += float(
+                (~self.screw_locked)[self.screw_engaged].float().sum())
+            da["screw_n_eng"] += float(self.screw_engaged.float().sum())
         da["n"] += N
         succ = self.PB.g4
         self._tick_out = {"terminated": terminated, "timeout": timeout & ~terminated,
@@ -580,11 +632,11 @@ class UnscrewEnv(GraspTaskEnv):
         self.racc = {k: 0.0 for k in self.racc}
         self.racc["n"] = 0
         nd = max(self.diag_acc["n"], 1)
-        out.update({f"diag/{k}": v / nd for k, v in self.diag_acc.items()
-                    if k not in ("n", "ep")})
-        self.diag_acc = {"screw_deg": 0.0, "released": 0, "n_triad": 0.0,
-                         "gain": 0.0, "cap_any": 0.0, "escort_fail": 0.0,
-                         "n": 0, "ep": 0}
+        ne = max(self.diag_acc["screw_n_eng"], 1.0)
+        out.update({f"diag/{k}": v / (ne if k in _DIAG_ENG else nd)
+                    for k, v in self.diag_acc.items()
+                    if k not in ("n", "ep", "screw_n_eng")})
+        self.diag_acc = dict(_DIAG0)
         return out
 
     # ================= 观测 (507 = 框架503 + 螺旋块4) =================

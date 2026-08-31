@@ -561,11 +561,15 @@ for _n, _d, _pm in (("screw0_cap", f"{_RR_OUT}/egodex_auto/screw_unscrew_bottle_
 # (bottle_body c9d18519 / bottle_cap c755e07c) —— 螺纹参数/质量/摩擦整段沿用
 # 已验证配方, 不重标。78 号只注册到 1 个物体, 不注册 (README 已知缺口)。
 #
-# 任务口径三处覆写 (承旧台账 tasks/recon_kailang LEDGER_unscrew, 用户裁定):
+# 任务口径覆写 (承旧台账 tasks/recon_kailang LEDGER_unscrew, 用户裁定):
 #   turns=0.75            U30b: 演示实测拧 ~266° 即分离, 2.0 圈是标准件假设 (难 2.7×)
-#   max_ang_vel=2.0 rad/s U34:  "不要太快的拧" —— 20 rad/s 下单指轻弹 5 步拧完,
-#                               是"拇指戳"局部最优的制度性根源 (pk22)
 #   mode=preengaged       拧开任务: 盖起始装在瓶上 (VLM part_change 不用猜)
+#   U40 真实螺纹副 (2026-08-30 用户裁定 "最接近真实情况建模"; 老方法线 U40/b/c/d):
+#     旧口径的"接触门 + ω 阻尼"是假摩擦替身 —— 有接触就白给转动, 于是**碰一下
+#     瓶盖就自己转开/脱落**。换成: 咬合期盖用球形重惯量 (指尖→盖可传扭矩由
+#     PhysX 摩擦锥真实裁决, 捏得紧才传得多) + 解析螺纹阻力 (静锁 breakaway
+#     0.04N·m / 库仑 0.015 / 粘滞 0.03 → τ=0.075 时稳态 2rad/s ≈ 人手拧速);
+#     max_ang_vel 退化成 4rad/s 安全夹, 整形交给摩擦模型。
 # 角色拍板 (2026-08-29): screw_primary="body" —— 瓶身=env.object (置于桌面, 听
 # 左手相位摆放 + upright 投影: 重建静置帧带 ~21° FoundationPose 噪声 > 平底圆柱
 # 18.3° 倾倒极限, 旧台账 U24 的总根因, 必须投直); 盖=env.aux, 由 reset_screw 按
@@ -588,7 +592,17 @@ def _unscrew_take(take_dir: str):
     asm = entry["secondary"]["assembly"]
     asm["mode"] = "preengaged"
     asm["turns"] = 0.75
-    asm["max_angular_velocity_rad_s"] = 2.0
+    asm.update(
+        max_angular_velocity_rad_s=4.0,   # 仅安全夹, 摩擦模型才是整形器
+        breakaway_torque_nm=0.04,         # 已破封的松盖量级 (全新盖 0.4-1N·m)
+        kinetic_torque_nm=0.015,
+        viscous_nms=0.03,
+        inertia_eff_kgm2=5e-3,
+        torque_ema_s=0.025,
+        unlock_dwell_s=0.033,
+        lock_omega_eps=0.05,
+        react_on_bottle=True,             # 反作用扭矩回瓶身: 左手须抗扭
+    )
     return entry
 
 

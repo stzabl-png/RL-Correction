@@ -164,11 +164,48 @@ for i in range(N):
           f"-> {'✅' if okb and okc and okr else '❌'}", flush=True)
 stable_envs = int(stable.sum().item())
 ok = stable_envs >= 3
+# ---- 可训练性台账 (T2-4 裁定下"绿灯"必须仍然有信息量) ----
+# 只查"有限/不发散"的闸对**任何**母带都会亮绿 —— 包括瓶已经躺在地上的那种。
+# reference 不必自己成功 (那是 RL correction 的活), 但下面这几条是"策略有没有
+# 可能学会"的先决条件, 一律入账并显式点名; 不阻塞, 但绝不假装没看见。
+_meta_v2 = {}
+try:
+    with np.load(PE.MASTER, allow_pickle=True) as _z:
+        if "meta_v2" in _z.files:
+            _meta_v2 = dict(kv.split("=", 1) for kv in str(_z["meta_v2"]).split(";")
+                            if "=" in kv)
+except Exception as _e:
+    _meta_v2 = {"error": f"{type(_e).__name__}: {_e}"}
+warn = []
+if min(station_pads_l) < 3:
+    warn.append(f"站位行左垫最少 {min(station_pads_l)}/5 < G1 所需 3 —— "
+                f"左手没抓上瓶, G1 无从成形")
+if min(station_pads_r) < 1:
+    warn.append(f"站位行右垫最少 {min(station_pads_r)}/5 —— 右手没碰到盖, "
+                f"真实螺纹副下扭矩传不进去 (拧不动)")
+_screw_max = float(torch.rad2deg(E.screw_angle).max())
+if _screw_max < 1.0:
+    warn.append(f"零动作回放全程拧角 {_screw_max:.1f}° —— 参考本身一点没拧动")
+_tau_max = (float(1000.0 * E.screw_tau_ema.abs().max())
+            if getattr(E, "_real_thread", False) else float("nan"))
+if getattr(E, "_real_thread", False) and min(station_pads_r) < 1 and _tau_max > 5:
+    warn.append(f"零接触却有 {_tau_max:.0f} mN·m 传入力矩 = 幻影扭矩通道 "
+                f"(老台账 U40b/c/d 同款, 必须先修再训)")
+for _k in ("frozen_r", "frozen_l"):
+    if float(_meta_v2.get(_k, 0) or 0) > 40:
+        warn.append(f"母带 {_k}={_meta_v2[_k]} 行是 IK 冻结行 (臂跟不上腕参考), "
+                    f"残差界内难以救回")
 baseline = {
     "reference_successes": reference_successes,
     "reference_success_required": False,
     "beta_l": BL,
     "envs": baseline_envs,
+    "station_pads_l_min": int(min(station_pads_l)),
+    "station_pads_r_min": int(min(station_pads_r)),
+    "screw_deg_max": round(_screw_max, 3),
+    "screw_tau_max_mNm": round(_tau_max, 3) if _tau_max == _tau_max else None,
+    "reference_ik": _meta_v2,
+    "warnings": warn,
 }
 if ok:
     receipt = {
@@ -194,6 +231,18 @@ if ok:
 
 print(f"[v2gate] reference 零动作成功 {reference_successes}/{N}（仅诊断，不阻塞）",
       flush=True)
+print(f"[v2gate] 站位垫 L{min(station_pads_l)}~{max(station_pads_l)}/5 "
+      f"R{min(station_pads_r)}~{max(station_pads_r)}/5 | 回放拧角峰 "
+      f"{_screw_max:.1f}°"
+      + (f" | 传入力矩峰 {_tau_max:.0f} mN·m" if _tau_max == _tau_max else ""),
+      flush=True)
+if warn:
+    print("[v2gate] ⚠ 可训练性告警 (不阻塞, 但这些是策略能不能学会的先决条件):",
+          flush=True)
+    for _w in warn:
+        print(f"[v2gate]   - {_w}", flush=True)
+else:
+    print("[v2gate] 可训练性告警: 无", flush=True)
 print(f"[v2gate] ★训练稳定性: {stable_envs}/{N}（要求≥3） => {'✅' if ok else '❌'}", flush=True)
 try:
     _slot.release()

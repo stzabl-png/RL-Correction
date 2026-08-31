@@ -51,6 +51,14 @@ PLACED_HOLD = 15
 # 仅 0.92m (人转平低位拧开), 高度无关的单事件判据不受此影响。----
 ESCORT_BAND = 0.03
 ESCORT_FALL = 0.008
+# U41 (老方法线同一条用户裁定的第二、三个必要条件, 2026-08-30 移植):
+# 光"没被甩下去"还不够 —— 还要**真的拿过**且**放得住**:
+#   ② 持盖运输: 释放后右垫 >=CARRY_PADS 触盖累计 >=PLACE_CARRY 步 (0.5s@20Hz);
+#   ③ 受控下放: 释放后单步降幅峰值 <PLACE_FALL (=0.8m/s@20Hz); 自由落体从
+#      瓶口高度落桌 ~1.7-2.2m/s 一票否决, 3cm 内的轻放不受影响。
+CARRY_PADS = 2
+PLACE_CARRY = 10
+PLACE_FALL = 0.04
 M4_ARM, M4_HOLD = np.radians(10), 15     # G4 双臂贴站姿逐关节<10°, hold15
 M4_DIST_POS, M4_DIST_ROT = 0.05, np.radians(30)   # 撤退期物体相对 placed 快照
 # ---- G1/G2 认证 (框架 L5-1 拍板; G1 只判左手, 见模块 docstring) ----
@@ -78,7 +86,7 @@ UP_LOCAL = {0: np.array([0.0, 0.0, 1.0]), 1: np.array([0.0, 0.0, 1.0])}  # [TASK
 # Checkpoint compatibility contract: only success/failure semantics belong in
 # this digest. Reward weights and accounting fields deliberately stay out.
 # schema=3: 2026-08-30 加 placed 护送判据 (ESCORT_*), placed 语义收紧。
-CRITERIA_SCHEMA = 3
+CRITERIA_SCHEMA = 4
 
 
 def criteria_items():
@@ -118,6 +126,9 @@ def criteria_items():
         "PLACED_HOLD": PLACED_HOLD,
         "ESCORT_BAND": ESCORT_BAND,
         "ESCORT_FALL": ESCORT_FALL,
+        "CARRY_PADS": CARRY_PADS,
+        "PLACE_CARRY": PLACE_CARRY,
+        "PLACE_FALL": PLACE_FALL,
         "M4_ARM": M4_ARM,
         "M4_HOLD": M4_HOLD,
         "M4_DIST_POS": M4_DIST_POS,
@@ -256,6 +267,8 @@ class UnscrewProgress:
         self.done = False
         self.escort_fail = False
         self._cap_z_prev = None
+        self.carry_steps = 0.0      # U41②: 释放后 >=CARRY_PADS 垫触盖的累计步
+        self.fall_peak = 0.0        # U41③: 释放后盖单步降幅峰值 (m/步)
 
     # -- 逐步接口: obj0=瓶(7,) obj1=盖(7,), armq_r/l(7,), pads3=左手>=3/5垫(bool),
     #    wrist_r/l(3,), screw_released=env 螺旋 detach 锁存(bool),
@@ -368,20 +381,31 @@ class UnscrewProgress:
         if self.g[2] and not self.g[3] and self.released:
             self.g[3] = True
             out["ms"] += MS_REWARD[3]
-        # ---- [TASK] 护送过带检查 (T2-3): 无接触快速穿过放下带顶 = 永久失败 ----
+        # ---- [TASK] 护送三件 (T2-3 过带 + U41 持盖/受控下放) ----
+        # pads_r_cap = 右垫触盖**计数** (None = 离线探针, 三件全部停用).
         if self.g[3] and not self.placed and pads_r_cap is not None:
+            _npads = int(pads_r_cap)
             _cz = float(np.asarray(obj1, np.float64)[2])
             _top = TABLE_Z + ESCORT_BAND
-            if (self._cap_z_prev is not None
-                    and self._cap_z_prev > _top >= _cz
-                    and (self._cap_z_prev - _cz) > ESCORT_FALL
-                    and not bool(pads_r_cap)):
-                self.escort_fail = True
+            if self._cap_z_prev is not None:
+                _drop = self._cap_z_prev - _cz
+                if (self._cap_z_prev > _top >= _cz and _drop > ESCORT_FALL
+                        and _npads < 1):
+                    self.escort_fail = True         # ① 无接触过带
+                self.fall_peak = max(self.fall_peak, _drop)      # ③ 降幅峰值
+            if _npads >= CARRY_PADS:
+                self.carry_steps += 1.0                          # ② 持盖运输
             self._cap_z_prev = _cz
         out["escort_fail"] = self.escort_fail
+        out["carry_steps"] = self.carry_steps
+        out["fall_peak"] = self.fall_peak
+        _escorted = (self.escort_fail
+                     or (pads_r_cap is not None
+                         and (self.carry_steps < PLACE_CARRY
+                              or self.fall_peak >= PLACE_FALL)))
         # ---- placed: [TASK] 双物体到母带末行目标 (瓶3cm/15° 盖5cm/30°) hold15
         #      + 护送未失败 (右手拿着盖放下, 不是盖自己掉到目标) ----
-        if self.g[3] and not self.placed and not self.escort_fail:
+        if self.g[3] and not self.placed and not _escorted:
             _ok3 = True
             for _oi3, _act3 in ((0, obj0), (1, obj1)):
                 _dp3 = np.linalg.norm(np.asarray(_act3[:3])

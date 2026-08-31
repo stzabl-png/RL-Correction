@@ -81,6 +81,11 @@ for t in range(args.steps):
                     ms_at[i][m] = t
             if bool(o["fail_env"][i]) and (E.row[i] < E.IA0):
                 pre_fail += 1
+                _c = int(E.fail_code[i])
+                _nm = {10: "D1掉瓶", 11: "D1掉盖", 20: "D2瓶倒", 21: "D2盖倒",
+                       30: "D3瓶偏", 31: "D3盖偏", 4: "D4滑移"}.get(_c, f"码{_c}")
+                print(f"[零动作] ⚠ 机器段死线误触 env{i} @t{t} row={int(E.row[i])} "
+                      f"-> {_nm}", flush=True)
             if bool(term[i]) or bool(trunc[i]):
                 done_at[i] = t
                 fail_at[i] = ("timeout" if bool(trunc[i]) else

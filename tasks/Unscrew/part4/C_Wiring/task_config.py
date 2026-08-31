@@ -57,6 +57,23 @@ AFFORDANCE_CAP = os.path.join(TAKE_DIR, "contact", "expected_area_object_1_right
 BETA_R = 0.0     # [TASK] 右手盖: 无 squeeze prior (三指精捏交给人手指流+残差)
 BETA_L = 1.0     # [TASK] 左手瓶: 回放 Screw27_body 原始 squeeze，不做剂量外推
 
+# ---- 交互段持瓶朝向重定向 (U35c 逐 clip 标定; make_reference 消费) ----
+# 人举瓶的朝向对人顺手, 对机器人肘几何常常不可达 —— 绕世界 z 转一个角度,
+# 位置与倾角全不动 (瓶是旋转体, 判据只看轴倾角), 但双臂可达性天差地别。
+# clip32 扫描实测 (2026-08-31, 见 DECISIONS T2-6):
+#   0° -> 右臂 43% / 左 100%;  -35° -> 右 77% / 左 100%;  -70° -> 右 69% / 左 98%
+# 逐 clip 值缺省 0; 新 clip 上线前用同一扫描定一次 (UNSCREW_HOLD_YAW 可覆写)。
+HOLD_YAW_BY_CLIP = {"32": -35.0}
+# 机器段 pregrasp 净空: 从站位抓握位姿沿"离开物体"的方向让开多少 (cuRobo 的
+# cspace 目标就是这个构型的限位内点解)。2026-08-31 提高左手径向净空: 左抓锚
+# 修准之后 pregrasp 落在瓶壁上, 充气 10mm 的障碍直接把**目标构型**判碰,
+# Approach 全灭 (诊断: "目标原地微动 ❌被判碰")。右手抬升保持 4cm ——
+# T2-2 实测 8cm 已超可达域, ≤5cm 才规划得通。
+PRE_L_RADIAL = 0.12
+PRE_R_LIFT = 0.04
+HOLD_YAW_DEG = float(os.environ.get(
+    "UNSCREW_HOLD_YAW", HOLD_YAW_BY_CLIP.get(CLIP_ID, 0.0)))
+
 # ---- 物体几何 (Success Tracker 判据原料; CAD 全批统一, md5 已核对) ----
 BOTTLE_HALF_H = 0.0985           # 瓶身长轴半长 (mesh 实测 19.7cm/2)
 CAP_HALF_H = 0.0085              # 盖半高 (1.7cm/2)
@@ -108,10 +125,16 @@ def rest_anchor_T(side, path=None):
 
 
 def reference_planning_digest(path):
-    """Hash only geometry consumed by Approach/Retreat planning.
+    """Hash exactly what Approach/Retreat planning consumes —— 不多不少。
 
-    Machine rows are deliberately excluded, so the digest stays stable after
-    the two plans are spliced back into v1/v2.
+    plan_machine_segs 实际读的是: 两个 cspace 目标构型 machine_pre_q_*、
+    它们所锚的 station_w*、以及 Retreat 世界里的两个障碍位置 (交互**末行**
+    的瓶/盖位置)。机器行本身排除在外, 于是规划剪回母带后摘要不变。
+
+    2026-08-30 收窄: 原实现把**整段交互行** (含 right_q/left_q 与逐行物体
+    位姿) 一起哈希 —— 与自己的 docstring 矛盾, 且把"改交互段姿态参考"这种
+    与规划无关的改动也判成规划失效, 逼出无谓的重规划。反过来说, 只要
+    machine_pre/station/末行障碍任一变了, 摘要照样变 —— 该重规划的一次不漏。
     """
     import hashlib
 
@@ -122,6 +145,7 @@ def reference_planning_digest(path):
         rows = np.flatnonzero(src == 1)
         if not len(rows):
             raise ValueError(f"{path}: no interaction rows")
+        end = rows[-1:]
         h = hashlib.sha256()
         for key, arr in (
                 ("station_wr", z["station_wr"]), ("station_wl", z["station_wl"]),
@@ -129,11 +153,9 @@ def reference_planning_digest(path):
                 *((("machine_pre_q_r", z["machine_pre_q_r"]),
                    ("machine_pre_q_l", z["machine_pre_q_l"]))
                   if "machine_pre_q_r" in z.files else ()),
-                ("right_q", z["right_q"][rows]), ("left_q", z["left_q"][rows]),
-                ("obj_pos_0", z["obj_pos_0"][rows]),
-                ("obj_quat_0", z["obj_quat_0"][rows]),
-                ("obj_pos_1", z["obj_pos_1"][rows]),
-                ("obj_quat_1", z["obj_quat_1"][rows])):
+                # Retreat 世界的障碍: 交互末行的瓶/盖落点
+                ("obj_pos_0_end", z["obj_pos_0"][end]),
+                ("obj_pos_1_end", z["obj_pos_1"][end])):
             data = np.ascontiguousarray(arr, dtype=np.float64)
             h.update(key.encode())
             h.update(str(data.shape).encode())

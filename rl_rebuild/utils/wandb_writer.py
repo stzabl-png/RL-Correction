@@ -47,7 +47,15 @@ class TBWriter:
         except (TypeError, ValueError, RuntimeError):
             scalar = None
         if scalar is not None and not math.isfinite(scalar):
-            print(f"[metrics] skip non-finite scalar: {tag}={scalar}", flush=True)
+            # 同一个 tag 只报一次: NaN 常常是"这一轮没有样本"的正常语义
+            # (例: 首轮无认证样本的 sr/cert_pass), 每 epoch 刷一行会淹掉日志。
+            seen = getattr(self, "_nonfinite_seen", None)
+            if seen is None:
+                seen = self._nonfinite_seen = set()
+            if tag not in seen:
+                seen.add(tag)
+                print(f"[metrics] skip non-finite scalar: {tag}={scalar} "
+                      f"(该 tag 后续不再重复报告)", flush=True)
             return
         self.writer.add_scalar(tag, value, step)
         if self._wandb is not None:

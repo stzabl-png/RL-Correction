@@ -185,7 +185,7 @@ def main():
     # 后 79.7%→100%)。幅度随倾角权重渐入 (静置 0, 深倾斜满额), 位置不动;
     # 所有下游几何 (螺轴/盖行/腕锚/左握位) 从同一 body_q 派生, 自动一致。
     # 每条 clip 用 UNSCREW_HOLD_YAW 覆写 (probe_ikcheck 出数后定, 默认 0)。
-    hold_yaw = float(os.environ.get("UNSCREW_HOLD_YAW", "0"))
+    hold_yaw = TC.HOLD_YAW_DEG          # 逐 clip 标定值 (UNSCREW_HOLD_YAW 可覆写)
     if hold_yaw:
         wmix = np.clip((tilt - 22.0) / 18.0, 0.0, 1.0)
         hy = np.deg2rad(hold_yaw) * wmix
@@ -248,6 +248,57 @@ def main():
     print(f"[v1] 盖脱离帧: f{sep_src} (交互行 {k_sep}) | "
           f"脱离前瓶系相对漂移中位 {np.median(sep_d[w0:sep_src]) * 100:.1f}cm")
 
+    # ---- 瓶身自转规范化 (脱离后冻结) ----
+    # 与右腕同一条依据: 瓶也是旋转体, 判据侧只看轴倾角 (placed/_axis_tilt),
+    # 绕自身轴的自转在**脱离后**既不可判也无任务含义 —— 而演示里人拧完还在
+    # 继续转瓶, 左手抓点就跟着绕瓶公转到瓶的另一侧: 左臂要"绕过瓶子"才能跟,
+    # 实测搬运段左腕目标 6~21cm 不可达 (多重启也解不出来), 整段左臂冻死。
+    # 脱离前不动 (那段的相对自转 = 螺纹相位, 是任务本身)。
+    def _twist_free(q_seq, k0):
+        """k0 之后只保留**轴的摆动**, 自转平行输运 (轴逐位不变)。
+
+        做法: 用"把上一行的轴最小旋转搬到本行的轴"的那个旋转去推进 —— 轴按
+        原样复现, 绕轴的自转不再累积。⚠ 不能改成"逐步剔掉局部 z 增量再积分":
+        剔掉自转后后续的摆动是在**另一个自转相位**的局部系里施加的, 轴会跟着
+        跑偏 (单元测试实测轴差 0.74)。
+        """
+        out = q_seq.copy()
+        ez = np.array([[0.0, 0.0, 1.0]])
+        ax = qrot(q_seq, np.tile([0.0, 0.0, 1.0], (len(q_seq), 1)))
+        ax = ax / np.linalg.norm(ax, axis=1, keepdims=True)
+        for k in range(k0 + 1, len(q_seq)):
+            a0, a1 = ax[k - 1], ax[k]
+            c = float(np.clip(np.dot(a0, a1), -1.0, 1.0))
+            v = np.cross(a0, a1)
+            nv = float(np.linalg.norm(v))
+            if nv < 1e-9:
+                dq = np.array([1.0, 0.0, 0.0, 0.0]) if c > 0 else None
+                if dq is None:                     # 180° 反向: 取任意垂直轴
+                    perp = np.array([1.0, 0.0, 0.0])
+                    if abs(a0[0]) > 0.9:
+                        perp = np.array([0.0, 1.0, 0.0])
+                    v = np.cross(a0, perp)
+                    v /= np.linalg.norm(v)
+                    dq = np.array([0.0, v[0], v[1], v[2]])
+            else:
+                ang = np.arctan2(nv, c)
+                v = v / nv
+                dq = np.concatenate([[np.cos(0.5 * ang)],
+                                     np.sin(0.5 * ang) * v])
+            out[k] = qmul(dq[None], out[k - 1:k])[0]       # 世界系左乘
+            out[k] /= np.linalg.norm(out[k])
+        _chk = qrot(out, np.tile([0.0, 0.0, 1.0], (len(q_seq), 1)))
+        assert np.abs(_chk - ax).max() < 1e-6, "自转冻结改变了螺轴 (实现错)"
+        del ez
+        return out
+
+    _spin_before = np.degrees(np.arccos(np.clip(np.abs(
+        (body_q[k_sep] * body_q[-1]).sum()), -1, 1))) * 2
+    body_q = _twist_free(body_q, k_sep)
+    axis = qrot(body_q, np.tile([0.0, 0.0, 1.0], (N, 1)))     # 螺轴 (自转无关)
+    print(f"[v1] 瓶自转冻结 (脱离行 {k_sep} 起): 原演示末行相对脱离行转过 "
+          f"{_spin_before:.0f}°, 现只保留轴向摆动 (自转不可判)")
+
     # 盖行: 脱离前=瓶推导 (盖钉在瓶顶, 与螺旋投影同语义); 脱离后=盖自身轨迹
     # 按**世界平移**换基 (与瓶同一平移 —— 保住"盖终点落在桌面"的不变量:
     # 若按脱离点连续性拼接, U24a 投影造成的座位高度差会把整段送放轨迹整体
@@ -272,6 +323,13 @@ def main():
     cap_p[:, 2] = np.maximum(cap_p[:, 2], TABLE_Z + 0.006)
     cap_q = smooth_quats(cap_q, 1.5)
 
+    def _mk_ik(side):
+        if rest and rest.get(f"anchor_T_{side}"):
+            return ArmIK(side, anchor_link="arm_center",
+                         anchor_T=np.asarray(rest[f"anchor_T_{side}"], float))
+        return ArmIK(side, torso_deg={"torso_j1": 40.5196, "torso_j2": 73.6595,
+                                      "torso_j3": 0.3896})
+
     # ---- 腕参考 (交互窗) ----
     # ⚠ 死通道零依赖 (2026-08-30): ref_qpos 的 wrist_pos 是上游静态填充的
     # 死数据 (clip32 腕 <0.6cm/盖 66cm), 本构建器只消费**活通道**:
@@ -291,11 +349,90 @@ def main():
     crx = np.cross(hz, tgt)
     ang = np.arctan2(np.linalg.norm(crx, axis=1), (hz * tgt).sum(1))
     ax_n = crx / np.maximum(np.linalg.norm(crx, axis=1, keepdims=True), 1e-9)
-    ang[k_sep:], ax_n[k_sep:] = ang[k_sep], ax_n[k_sep]   # 脱离后冻结修正量
+    # 掌轴对准全程生效 (原先脱离后冻结修正量 —— 但位置口径本来就是"手在盖正
+    # 上方 reach·螺轴", 姿态却继续跟人腕自由飘, 两者自相矛盾; 钉住掌轴才与
+    # 位置同一假设)。
     half = 0.5 * ang
     fixq = np.concatenate([np.cos(half)[:, None], np.sin(half)[:, None] * ax_n], 1)
     wr_Q = qmul(fixq, wr_Q)
     wr_Q /= np.linalg.norm(wr_Q, axis=1, keepdims=True)
+
+    # ---- 右腕绕螺轴的自转角 = **规范自由度**, 解出来而不是照抄人腕 ----
+    # 依据 (2026-08-30 用户裁定 + 数据事实):
+    #   ① 盖是旋转体, 数据集里盖的**旋转**置信度低 (位置高), 判据侧 placed 只
+    #      看轴倾角 (progress.py 用 _axis_tilt), 盖绕自身轴的自转不可观也不可判;
+    #   ② 脱离前盖与瓶身同体 (cap_q 由瓶推导), 那段的自转 = 螺纹相位, **不动**;
+    #      能动的只有"手怎么握" —— 一个常量抓握自转角 (刚性抓握);
+    #   ③ 脱离后盖被手拿着, 盖的姿态跟着手走 (rigid ride), 自转角逐行限速漂移。
+    # 不做这件事的代价 (实测): 人腕前臂自转随便 270°, 机器腕 j7 行程仅 143° ——
+    # 右臂交互行 100/103 贴限位、对自己的腕目标中位差 44.7cm, 整段搬运冻死。
+    ROLL_STEP = np.radians(6.0)          # 每行自转限速 (20Hz 下 ~2 rad/s)
+    ik_r = _mk_ik("right")
+    axis_n = axis / np.linalg.norm(axis, axis=1, keepdims=True)
+
+    def _roll_q(q_rows, ax_rows, angs):
+        h = 0.5 * np.asarray(angs, float)
+        rq = np.concatenate([np.cos(h)[:, None], np.sin(h)[:, None] * ax_rows], 1)
+        out = qmul(rq, q_rows)
+        return out / np.linalg.norm(out, axis=1, keepdims=True)
+
+    def _score_rows(P_rows, Q_rows, n_restart=2):
+        sols = ik_r.solve_traj(P_rows, Q_rows, w_rot=0.25, n_restart=n_restart)
+        pe = np.array([sv["pos_err"] for sv in sols])
+        re = np.array([sv["rot_err"] for sv in sols])
+        qs = np.stack([sv["q"] for sv in sols])
+        marg = np.minimum(qs - ik_r.lower, ik_r.upper - qs).min(axis=1)
+        good = (pe < 0.02) & (re < np.radians(10.0)) & (marg > np.radians(3.0))
+        return float(good.mean()), float(np.median(pe)), float(np.median(re)), sols
+
+    ks1 = k_sep + 1
+    best_g = None
+    for ydeg in range(0, 360, 30):        # ① 抓握自转扫描 (与左手 yaw* 同法)
+        Qg = _roll_q(wr_Q[:ks1], axis_n[:ks1], np.full(ks1, np.radians(ydeg)))
+        g, mp, mr, _ = _score_rows(wr_P[:ks1], Qg)
+        if best_g is None or (g, -mp) > (best_g[1], -best_g[2]):
+            best_g = (ydeg, g, mp, mr)
+    yaw_g = np.radians(best_g[0])
+    print(f"[v1] 右抓自转扫描 (拧盖窗 {ks1} 行): yaw*={best_g[0]}° 可达率(含限位"
+          f"内点) {best_g[1] * 100:.0f}% 中位 {best_g[2] * 100:.2f}cm/"
+          f"{np.degrees(best_g[3]):.1f}°")
+    roll = np.full(N, yaw_g)
+    wr_Q = _roll_q(wr_Q, axis_n, roll)
+
+    # ② 脱离后逐行限速漂移: 手与盖一起转 (不滑手), 盖的自转本就不可判
+    q_seed = np.asarray(ik_r.solve_traj(wr_P[:ks1], wr_Q[:ks1], w_rot=0.25,
+                                        n_restart=2)[-1]["q"], np.float64)
+    drift = 0.0
+    for k in range(ks1, N):
+        best = None
+        for d in (-2, -1, 0, 1, 2):
+            cand = drift + d * ROLL_STEP
+            Qk = _roll_q(wr_Q[k:k + 1], axis_n[k:k + 1], [cand])[0]
+            r = ik_r.solve(wr_P[k], quat_to_R(Qk), q0=q_seed, iters=150,
+                           w_rot=0.25)
+            m = float(np.minimum(r["q"] - ik_r.lower, ik_r.upper - r["q"]).min())
+            sc = (r["pos_err"] + 0.25 * r["rot_err"]
+                  + max(0.0, np.radians(3.0) - m))
+            if best is None or sc < best[0]:
+                best = (sc, r, cand, Qk)
+        drift = best[2]
+        wr_Q[k] = best[3]
+        roll[k] = yaw_g + drift
+        if best[1]["pos_err"] < 0.02:      # 失败解不许污染下一行的种子
+            q_seed = np.asarray(best[1]["q"], np.float64)
+    print(f"[v1] 右腕自转漂移 (脱离后 {N - ks1} 行, 限速 "
+          f"{np.degrees(ROLL_STEP):.0f}°/行): 累计 "
+          f"{np.degrees(roll[-1] - yaw_g):+.0f}°")
+
+    # 盖脱离后姿态改为"跟着手走" (rigid ride): 位置仍用重建 (置信度高), 姿态
+    # 由抓握变换从脱离行推出 —— 重建的盖自转本就不可信, 让它与手自洽更物理。
+    grasp_rel = qmul(qconj(wr_Q[k_sep:k_sep + 1]), cap_q[k_sep:k_sep + 1])[0]
+    cap_q[k_sep:] = qmul(wr_Q[k_sep:], np.tile(grasp_rel, (N - k_sep, 1)))
+    cap_q /= np.linalg.norm(cap_q, axis=1, keepdims=True)
+    _ct = np.degrees(np.arccos(np.clip(
+        qrot(cap_q, np.tile([0.0, 0.0, 1.0], (N, 1)))[:, 2], -1, 1)))
+    print(f"[v1] 盖姿态 rigid ride (脱离行 {k_sep} 起): 末行倾角 "
+          f"{_ct[-1]:.0f}° (原重建 107°, 自转不可判故不追)")
 
     # 左腕: GraspPose prior 镜像锚定 (2026-08-30 拍板: **零死数据依赖**)。
     # 旧法取静态腕点当握位偏移 —— 那正是死通道 (上游腕平移静态填充), 且"静态点
@@ -321,17 +458,18 @@ def main():
         P[:, 2] = np.maximum(P[:, 2], TABLE_Z + 0.02)
         return P, Q
 
-    def _mk_ik(side):
-        if rest and rest.get(f"anchor_T_{side}"):
-            return ArmIK(side, anchor_link="arm_center",
-                         anchor_T=np.asarray(rest[f"anchor_T_{side}"], float))
-        return ArmIK(side, torso_deg={"torso_j1": 40.5196, "torso_j2": 73.6595,
-                                      "torso_j3": 0.3896})
-
     ik_l = _mk_ik("left")
     best = None
-    for ydeg in range(0, 360, 30):
+    for ydeg in range(0, 360, 15):
         P, Q = _left_track(np.radians(ydeg))
+        # **站位行 (交互第 0 行) 单独出解并作为硬条件**: 那是左手合拢抓瓶的
+        # 唯一时刻, 也是机器段 pregrasp 的锚。2026-08-30 实测教训: 只看全程
+        # 平均可达率会选出"站位行差 5~19cm"的方位角 —— 手根本没到瓶上, G1
+        # 三垫永远不成形 (零动作验收里左垫只有 1 个接触就是这么来的)。
+        s0 = ik_l.solve_traj(P[:1], Q[:1], w_rot=0.25, n_restart=16)[0]
+        m0 = float(np.minimum(s0["q"] - ik_l.lower, ik_l.upper - s0["q"]).min())
+        st_ok = (s0["pos_err"] < 0.02 and s0["rot_err"] < np.radians(10.0)
+                 and m0 > np.radians(3.0))
         sols = ik_l.solve_traj(P[::4], Q[::4], w_rot=0.25, n_restart=2)
         pe = np.array([sv["pos_err"] for sv in sols])
         re = np.array([sv["rot_err"] for sv in sols])
@@ -344,52 +482,104 @@ def main():
         score = float(good.mean())
         # Tie-break with the same position/rotation geometry used by ArmIK.
         cost = float(np.median(pe ** 2 + (0.25 * re) ** 2))
-        if best is None or (score, -cost) > (best[1], -best[2]):
+        key = (1 if st_ok else 0, score, -cost)
+        if best is None or key > best[6]:
             best = (ydeg, score, cost, float(np.median(pe)),
-                    float(np.median(re)), float(np.degrees(np.median(marg))))
+                    float(np.median(re)), float(np.degrees(np.median(marg))),
+                    key, float(s0["pos_err"]), float(np.degrees(s0["rot_err"])))
     yaw_l = np.radians(best[0])
-    print(f"[v1] 左抓方位扫描: yaw*={best[0]}° 可达率(含限位内点) "
-          f"{best[1] * 100:.0f}% 全行中位 {best[3] * 100:.2f}cm/"
-          f"{np.degrees(best[4]):.1f}° 限位余量中位 {best[5]:.1f}° "
-          f"(prior=Screw27_body 镜像)")
+    print(f"[v1] 左抓方位扫描: yaw*={best[0]}° 站位行 {best[7] * 100:.2f}cm/"
+          f"{best[8]:.1f}° ({'可达' if best[6][0] else '⚠ 不可达'}) "
+          f"可达率(含限位内点) {best[1] * 100:.0f}% 全行中位 "
+          f"{best[3] * 100:.2f}cm/{np.degrees(best[4]):.1f}° 限位余量中位 "
+          f"{best[5]:.1f}° (prior=Screw27_body 镜像)")
     wl_P, wl_Q = _left_track(yaw_l)
 
-    # ---- ArmIK ----
-    def solve_side(side, P, Q):
-        if rest and rest.get(f"anchor_T_{side}"):
-            ik = ArmIK(side, anchor_link="arm_center",
-                       anchor_T=np.asarray(rest[f"anchor_T_{side}"], float))
-        else:
-            # ⚠ URDF 推导锚: 必须传新场景站姿 (kinematics 默认 45/90/0 是旧站姿,
-            # 肩位差 ~10cm); 且仿真躯干会塌 (torso_j2 实测掉 ~6°) —— 有 probe
-            # 实测 anchor_T 永远优先, 这条路只是让离线冒烟能跑起来.
-            ik = ArmIK(side, torso_deg={"torso_j1": 40.5196,
-                                        "torso_j2": 73.6595,
-                                        "torso_j3": 0.3896})
-        sols = ik.solve_traj(np.asarray(P, float), np.asarray(Q, float),
+    # ---- ArmIK: 逐行热启 + 失败冻结 + 轻平滑后**重投影** ----
+    # 2026-08-30 修掉的三个坑 (都是"母带看起来存在, 其实臂根本没到位"的来源):
+    #   ① 失败解当下一行种子 => 一次解崩会顺着热启链把整段拖进限位角落;
+    #   ② "最近达标行顶替" 会在分支之间跳 (顶替行与邻行不是同一 IK 分支);
+    #   ③ 解完再 σ=1.5 高斯平滑: 跨分支平均出来的构型谁也不是 —— 实测左臂
+    #      拧盖窗中位 0.14cm 的解, 平滑后对同一目标差 9.3cm/62.7°。
+    # 现在: 热启保连续 -> 坏行冻结上一行 -> σ=0.5 轻平滑 -> 每行以平滑值为种子
+    # 重投影一次, 只在不变差时采纳 (平滑与精度不再互相拆台)。
+    def solve_side(side, P, Q, seed=None, tag=""):
+        ik = _mk_ik(side)
+        P = np.asarray(P, float)
+        Q = np.asarray(Q, float)
+        n = len(P)
+        rng_s = np.random.default_rng(11)
+        q = np.zeros((n, 7))
+        pe = np.zeros(n)
+        re = np.zeros(n)
+        frozen = 0
+        frozen_run = 0
+        q_prev = None if seed is None else np.asarray(seed, float)
+        for k in range(n):
+            seeds = ([q_prev] if q_prev is not None else []) + [None]
+            if q_prev is None or k % 12 == 0:
+                seeds += [rng_s.uniform(ik.lower, ik.upper) for _ in range(2)]
+            best = None
+            for q0 in seeds:
+                r = ik.solve(P[k], quat_to_R(Q[k]), q0=q0, iters=200,
                              w_rot=0.25)
-        q = np.stack([s["q"] for s in sols])
-        pe = np.array([s["pos_err"] for s in sols])
-        re = np.array([s["rot_err"] for s in sols])
-        good = (np.isfinite(q).all(1) & (pe < 0.02) &
-                (re < np.radians(10.0)))
-        bad = np.flatnonzero(~good)
-        if len(bad):
-            gd = np.flatnonzero(good)
-            assert len(gd), f"{side} IK 全程不达标"
-            q[bad] = q[gd[np.abs(gd[None] - bad[:, None]).argmin(1)]]
-        print(f"[v1] {side} IK: 位置<2cm且姿态<10° "
-              f"{good.mean() * 100:.0f}% | 达标内中位 "
-              f"{np.median(pe[good]) * 100:.2f}cm/"
-              f"{np.degrees(np.median(re[good])):.1f}° | 全行中位 "
-              f"{np.median(pe) * 100:.2f}cm/"
-              f"{np.degrees(np.median(re)):.1f}° | 顶替 {len(bad)} 行")
-        return q, float(good.mean())
+                sc = r["pos_err"] + 0.25 * r["rot_err"]
+                if best is None or sc < best[0]:
+                    best = (sc, r)
+            r = best[1]
+            ok_k = (np.isfinite(r["q"]).all() and r["pos_err"] < 0.02
+                    and r["rot_err"] < np.radians(10.0))
+            if ok_k and q_prev is not None and frozen_run < 2:
+                # 单行跳变上限 60°: 相邻行跳一支解 = PD 跟不上 (会把物体打飞)。
+                # 但**连冻 2 行就放行** —— 否则一次抖动会把整条热启链锁死在
+                # 冻结态 (实测把左臂 66% 打到 0%: 冻住后真解越离越远, 永不回来)。
+                ok_k = bool(np.abs(np.asarray(r["q"], float) - q_prev).max()
+                            < np.radians(60))
+            if ok_k or q_prev is None:
+                q[k] = r["q"]
+                q_prev = q[k].copy()
+                pe[k], re[k] = r["pos_err"], r["rot_err"]
+                frozen_run = 0
+            else:
+                q[k] = q_prev           # 冻结: 不跳分支, 差多少如实入账
+                frozen_run += 1
+                fp, fR = ik.fk(q[k])
+                pe[k] = float(np.linalg.norm(fp - P[k]))
+                re[k] = float(np.arccos(np.clip(
+                    (np.trace(fR.T @ quat_to_R(Q[k])) - 1) * 0.5, -1, 1)))
+                frozen += 1
+        # 逐行限速: 冻结段重新锁定目标时会一次跳好几十度 (母带里就是"臂瞬移"),
+        # PD 跟不上会把桌上的物体扫飞。坏行本来就不准, 把跳变摊到几行里换来
+        # 可播放性; 好行几乎不受影响 (跳变本来就 <RATE)。
+        RATE = np.radians(20.0)
+        for k in range(1, n):
+            d = q[k] - q[k - 1]
+            m = np.abs(d).max()
+            if m > RATE:
+                q[k] = q[k - 1] + d * (RATE / m)
+        qs = smooth(q, 0.5)
+        for k in range(n):
+            r = ik.solve(P[k], quat_to_R(Q[k]), q0=qs[k], iters=80, w_rot=0.25)
+            # 只在**既更准又不跳分支**时采纳: 重投影可能落到另一支解上, 那会
+            # 在母带里留下一行几十度的关节跳变 (PD 跟不上 = 把物体打飞)。
+            near = np.abs(np.asarray(r["q"], float) - q[k]).max() < np.radians(20)
+            if near and (r["pos_err"] + 0.25 * r["rot_err"]) <= (pe[k]
+                                                                 + 0.25 * re[k]):
+                q[k], pe[k], re[k] = r["q"], r["pos_err"], r["rot_err"]
+        good = (pe < 0.02) & (re < np.radians(10.0))
+        marg = np.minimum(q - ik.lower, ik.upper - q).min(axis=1)
+        jump = np.degrees(np.abs(np.diff(q, axis=0)).max()) if n > 1 else 0.0
+        print(f"[v1] {side} IK{tag}: 位置<2cm且姿态<10° {good.mean() * 100:.0f}% "
+              f"| 全行中位 {np.median(pe) * 100:.2f}cm/"
+              f"{np.degrees(np.median(re)):.1f}° | 90分位 "
+              f"{np.percentile(pe, 90) * 100:.2f}cm | 冻结 {frozen} 行 "
+              f"| 限位余量中位 {np.degrees(np.median(marg)):.1f}° "
+              f"(贴限<3° {int((marg < np.radians(3)).sum())} 行) "
+              f"| 最大逐行跳变 {jump:.1f}°")
+        return q, float(good.mean()), pe, re, marg
 
-    q_r, ok_r = solve_side("right", wr_P, wr_Q)
-    q_l, ok_l = solve_side("left", wl_P, wl_Q)
-    q_r = smooth(q_r, 1.5)
-    q_l = smooth(q_l, 1.5)
+    q_r, ok_r, pe_r, re_r, mg_r = solve_side("right", wr_P, wr_Q)
+    q_l, ok_l, pe_l, re_l, mg_l = solve_side("left", wl_P, wl_Q)
 
     # ---- 机器段 pregrasp 内点构型 (2026-08-30 cuRobo 排障定稿, 台账 T2-2) ----
     # 位姿 IK 规划对贴限锚不可用: ArmIK 钳限位出解 (j7 钉 -79° 也算达标),
@@ -397,26 +587,39 @@ def main():
     # cspace 直达关节构型: 收缩限位 3° 的 ArmIK 解 station+净空 的最近内点,
     # 误差原样入档 (左臂 ~8cm/54° 是腕行程物理极限, 缝1+RL 消化;
     # 右 pregrasp 抬升 4cm —— 8cm 超可达域, 离线 cuRobo 实测 ≤5cm 才通)。
-    PRE_L_RADIAL = 0.05
-    PRE_R_LIFT = 0.04
+    # 净空**候选梯子**: 由近及远 (左径向, 左抬升, 右抬升)。规划器逐个试, 第一条
+    # cspace 通的就用 —— 2026-08-31 的教训: 左抓锚修准之后 pregrasp 正好落在
+    # 瓶壁上, 充气 1cm 的障碍把**目标构型**判碰, Approach 全灭; 而净空给多少
+    # 才够是逐 clip 的几何问题, 手调标定跑不动 17 条的数据引擎。右手抬升不超
+    # 5cm (T2-2 实测 8cm 已超可达域)。
+    PRE_LADDER = [(TC.PRE_L_RADIAL, 0.00, TC.PRE_R_LIFT),
+                  (0.12, 0.06, 0.04), (0.16, 0.06, 0.05),
+                  (0.20, 0.10, 0.05), (0.24, 0.14, 0.03),
+                  (0.28, 0.18, 0.02)]
     _m3 = np.radians(3.0)
     _radL = wl_P[0] - body_p[0]
     _radL[2] = 0.0
     _radL /= max(np.linalg.norm(_radL), 1e-9)
-    machine_pre = {}
-    for _side, _pp, _qq in (
-            ("left", wl_P[0] + PRE_L_RADIAL * _radL, wl_Q[0]),
-            ("right", wr_P[0] + [0.0, 0.0, PRE_R_LIFT], wr_Q[0])):
-        _ikp = _mk_ik(_side)
-        _ikp.lower = _ikp.lower + _m3
-        _ikp.upper = _ikp.upper - _m3
-        _sp = _ikp.solve_traj(np.asarray(_pp, float)[None],
-                              np.asarray(_qq, float)[None],
-                              w_rot=0.25, n_restart=24)[0]
-        machine_pre[_side] = np.asarray(_sp["q"], np.float64)
-        print(f"[v1] 机器段 pregrasp 内点构型 {_side}: 距锚 "
-              f"{_sp['pos_err'] * 100:.2f}cm/"
-              f"{np.degrees(_sp['rot_err']):.1f}° (锚不可达部分由缝1+RL 消化)")
+    _ikp = {sd: _mk_ik(sd) for sd in ("left", "right")}
+    for _sd in ("left", "right"):
+        _ikp[_sd].lower = _ikp[_sd].lower + _m3
+        _ikp[_sd].upper = _ikp[_sd].upper - _m3
+    pre_alts = {"left": [], "right": []}
+    for _lr, _ll, _rl in PRE_LADDER:
+        for _side, _pp, _qq in (
+                ("left", wl_P[0] + _lr * _radL + [0.0, 0.0, _ll], wl_Q[0]),
+                ("right", wr_P[0] + [0.0, 0.0, _rl], wr_Q[0])):
+            _sp = _ikp[_side].solve_traj(np.asarray(_pp, float)[None],
+                                         np.asarray(_qq, float)[None],
+                                         w_rot=0.25, n_restart=24)[0]
+            pre_alts[_side].append(np.asarray(_sp["q"], np.float64))
+        print(f"[v1] 机器段 pregrasp 候选 (L径向{_lr * 100:.0f}cm/抬{_ll * 100:.0f}cm, "
+              f"R抬{_rl * 100:.0f}cm): 左距锚 "
+              f"{np.linalg.norm(_ikp['left'].fk(pre_alts['left'][-1])[0] - (wl_P[0] + _lr * _radL + [0.0, 0.0, _ll])) * 100:.2f}cm "
+              f"右距锚 "
+              f"{np.linalg.norm(_ikp['right'].fk(pre_alts['right'][-1])[0] - (wr_P[0] + [0.0, 0.0, _rl])) * 100:.2f}cm")
+    machine_pre = {sd: pre_alts[sd][0] for sd in ("left", "right")}
+    pre_alts = {sd: np.stack(v) for sd, v in pre_alts.items()}
 
     # 手指行: 右手 = 活的人手流 (拧盖手法, 本批实证活通道, P-HYB 形状指引同源);
     # 左手 = prior 抓形模板 (与镜像腕位姿配套 —— 人手指流描述的是**人的**握法,
@@ -446,8 +649,25 @@ def main():
         s = s * s * (3 - 2 * s)
         return a[None] * (1 - s)[:, None] + b[None] * s[:, None]
 
-    have_machine_plan = (os.path.isfile(TC.APPROACH_NPZ)
-                         or os.path.isfile(TC.RETREAT_NPZ))
+    def _plan_usable(p):
+        # 规划**失败**的产物 (ok=False) 一律当作"没有规划": 否则 bootstrap 死循环
+        # —— 要重建母带才能出新的规划目标, 而重建被上一次的失败产物拦住。
+        if not os.path.isfile(p):
+            return False
+        try:
+            with np.load(p, allow_pickle=True) as _pz:
+                if not bool(_pz["ok"]):
+                    print(f"[v1] ⚠ {os.path.basename(p)} 是失败产物 (ok=False), "
+                          f"当作无规划处理 (机器段退占位)")
+                    return False
+        except Exception as _e:
+            print(f"[v1] ⚠ {p} 不可读 ({type(_e).__name__}), 当作无规划")
+            return False
+        return True
+
+    have_approach = _plan_usable(TC.APPROACH_NPZ)
+    have_retreat = _plan_usable(TC.RETREAT_NPZ)
+    have_machine_plan = have_approach or have_retreat
     planning_basis = (TC.reference_planning_digest(TC.REF_V1)
                       if have_machine_plan else None)
     rest_md5 = TC.file_md5(args.rest_json)
@@ -455,7 +675,7 @@ def main():
     def _load_plan(npz_path, segment):
         """cuRobo worker 产物 -> (右臂行, 左臂行)。列按 joint_names 名取。"""
         pz = np.load(npz_path, allow_pickle=True)
-        assert bool(pz["ok"]), f"{npz_path}: 规划失败产物 (ok=False)"
+        assert bool(pz["ok"]), f"{npz_path}: 规划失败产物 (ok=False)"   # 上游已筛
         provenance = {key: str(np.asarray(pz[key]).item()) for key in
                       ("plan_clip", "plan_segment", "planning_basis_digest",
                        "rest_md5") if key in pz.files}
@@ -472,7 +692,7 @@ def main():
         return tr[:, ir], tr[:, il]
 
     # Approach: cuRobo 规划产物优先 (碰撞检查过的可行解; plan_machine_segs.py 产出)
-    if os.path.isfile(TC.APPROACH_NPZ):
+    if have_approach:
         app_r, app_l = _load_plan(TC.APPROACH_NPZ, "approach")
         n_app = len(app_r)
         print(f"[v1] Approach = cuRobo 规划 {TC.APPROACH_NPZ} ({n_app} 行)")
@@ -492,7 +712,7 @@ def main():
     s1_r, s1_l = ramp(app_r[-1], q_r[0], SEAM1), ramp(app_l[-1], q_l[0], SEAM1)
     s1_fr, s1_fl = np.tile(f_r[0], (SEAM1, 1)), np.tile(f_l[0], (SEAM1, 1))
     # Retreat: cuRobo cspace 规划产物优先 (物体已在终位, 躲避着回站姿)
-    if os.path.isfile(TC.RETREAT_NPZ):
+    if have_retreat:
         ret_r, ret_l = _load_plan(TC.RETREAT_NPZ, "retreat")
         print(f"[v1] Retreat = cuRobo 规划 {TC.RETREAT_NPZ} ({len(ret_r)} 行)")
         assert np.abs(ret_r[-1] - st_r).max() < 0.06 and             np.abs(ret_l[-1] - st_l).max() < 0.06,             "Retreat 末行须回到站姿 (progress G4 拿它当 InitialPose)"
@@ -554,6 +774,17 @@ def main():
         "task": "unscrew", "clip": TC.CLIP_ID, "take": take,
         "gen": "make_reference_v1_20260829",
         "windows": {"w0": w0, "w1": w1, "sep_src": sep_src, "k_sep": k_sep},
+        "hold_yaw_deg": hold_yaw,
+        "gauge": {"right_grasp_roll_deg": float(np.degrees(yaw_g)),
+                  "right_roll_drift_deg": float(np.degrees(roll[-1] - yaw_g)),
+                  "bottle_spin_frozen_from_row": int(k_sep),
+                  "cap_rigid_ride_from_row": int(k_sep)},
+        "ik": {"right": {"ok": ok_r, "med_cm": float(np.median(pe_r) * 100),
+                         "p90_cm": float(np.percentile(pe_r, 90) * 100),
+                         "marg_med_deg": float(np.degrees(np.median(mg_r)))},
+               "left": {"ok": ok_l, "med_cm": float(np.median(pe_l) * 100),
+                        "p90_cm": float(np.percentile(pe_l, 90) * 100),
+                        "marg_med_deg": float(np.degrees(np.median(mg_l)))}},
         "rest_source": "probe" if rest else "offline_estimate",
         "left_grasp": {"prior": TC.PRIOR_AUX, "mirror": "xz-plane",
                        "yaw_deg": float(np.degrees(yaw_l))},
@@ -564,9 +795,9 @@ def main():
         "screw": {"turns": TC.SCREW_TURNS, "pitch_m": 0.00318,
                   "closed_offset_m": 0.18},
         "approach": ("curobo:" + TC.APPROACH_NPZ
-                     if os.path.isfile(TC.APPROACH_NPZ) else "smoothstep占位"),
+                     if have_approach else "smoothstep占位"),
         "retreat": ("curobo:" + TC.RETREAT_NPZ
-                    if os.path.isfile(TC.RETREAT_NPZ) else "smoothstep占位"),
+                    if have_retreat else "smoothstep占位"),
         "planning_basis_digest": planning_basis,
         "rest_md5": rest_md5,
         "notes": "交互1行=1重建帧@15fps, "
@@ -577,6 +808,8 @@ def main():
         station_wr=np.r_[wr_P[0], wr_Q[0]], station_wl=np.r_[wl_P[0], wl_Q[0]],
         machine_pre_q_r=machine_pre["right"],
         machine_pre_q_l=machine_pre["left"],
+        machine_pre_alts_r=pre_alts["right"],
+        machine_pre_alts_l=pre_alts["left"],
         wrist_tgt_r=np.concatenate([wr_P, wr_Q], axis=1),
         wrist_tgt_l=np.concatenate([wl_P, wl_Q], axis=1),
         right_q=right_q, left_q=left_q, right_f=right_f, left_f=left_f,

@@ -106,7 +106,12 @@ for s in ("right", "left"):
     cert[s] = np.asarray(best["q"], np.float64)
     print(f"[v2] 认证行IK {s}: pos={best['pos_err'] * 1000:.2f}mm "
           f"rot={np.degrees(best['rot_err']):.2f}°", flush=True)
+# 逐行 IK: 热启保连续 / 坏行冻结上一行 / 逐行跳变上限 30° (2026-08-30 修)。
+# 旧版把**失败解**直接当下一行的种子, 一次解崩顺着热启链把整段拖进限位角落
+# —— 实测右臂对自己的腕目标中位差 44.7cm、100/103 行贴限, 整段搬运冻死。
 fail_pos, fail_rot, critical_bad, pos_max, rot_max = 0, 0, 0, 0.0, 0.0
+frozen = {"right": 0, "left": 0}
+_rngb = np.random.default_rng(23)
 for k in range(Nrow):
     for s in ("right", "left"):
         oi = side_obj[s]
@@ -114,22 +119,50 @@ for k in range(Nrow):
         pk, qk_ = ref_obj[oi][k][:3], ref_obj[oi][k][3:7]
         Rk = quat_to_R(qk_) @ quat_to_R(q0_).T
         tp = pk - Rk @ p0
-        r = ik[s].solve(Rk @ w0[s][0] + tp, Rk @ w0[s][1], q0=q_seed[s],
-                        iters=60)
-        if r["pos_err"] > 0.01:
+        tgt_p, tgt_R = Rk @ w0[s][0] + tp, Rk @ w0[s][1]
+        seeds = [q_seed[s], None]
+        if k % 12 == 0:
+            seeds += [_rngb.uniform(ik[s].lower, ik[s].upper) for _ in range(2)]
+        best = None
+        for q0s in seeds:
+            r = ik[s].solve(tgt_p, tgt_R, q0=q0s, iters=200)
+            sc = r["pos_err"] + 0.25 * r["rot_err"]
+            if best is None or sc < best[0]:
+                best = (sc, r)
+        r = best[1]
+        good = (np.isfinite(r["q"]).all() and r["pos_err"] < 0.01
+                and r["rot_err"] < np.radians(10)
+                and np.abs(np.asarray(r["q"], np.float64)
+                           - q_seed[s]).max() < np.radians(30))
+        if good or k == 0:
+            q_ik[s][k] = r["q"]
+            q_seed[s] = np.asarray(r["q"], np.float64)
+            pe_k, re_k = float(r["pos_err"]), float(r["rot_err"])
+        else:                       # 冻结上一行: 不跳分支, 误差如实入账
+            q_ik[s][k] = q_seed[s]
+            frozen[s] += 1
+            fp, fR = ik[s].fk(q_seed[s])
+            pe_k = float(np.linalg.norm(fp - tgt_p))
+            re_k = float(np.arccos(np.clip(
+                (np.trace(fR.T @ tgt_R) - 1) * 0.5, -1, 1)))
+        if pe_k > 0.01:
             fail_pos += 1
-        if r["rot_err"] > np.radians(10):
+        if re_k > np.radians(10):
             fail_rot += 1
-        if (r["pos_err"] > 0.01 or r["rot_err"] > np.radians(10)) and \
+        if (pe_k > 0.01 or re_k > np.radians(10)) and \
                 max(E.PB.k_sep - 40, 0) <= k <= E.PB.k_sep:
             critical_bad += 1
-        pos_max = max(pos_max, float(r["pos_err"]))
-        rot_max = max(rot_max, float(r["rot_err"]))
-        q_ik[s][k] = r["q"]
-        q_seed[s] = np.asarray(r["q"], np.float64)
+        pos_max = max(pos_max, pe_k)
+        rot_max = max(rot_max, re_k)
+_mg = {s: np.degrees(np.minimum(q_ik[s] - ik[s].lower,
+                                ik[s].upper - q_ik[s]).min(axis=1))
+       for s in ("right", "left")}
 print(f"[v2] 交互IK: pos>1cm {fail_pos}/{Nrow * 2} | rot>10° "
       f"{fail_rot}/{Nrow * 2} | 关键窗坏行 {critical_bad} | "
-      f"最大={pos_max * 100:.2f}cm/{np.degrees(rot_max):.1f}°", flush=True)
+      f"最大={pos_max * 100:.2f}cm/{np.degrees(rot_max):.1f}° | 冻结 "
+      f"R{frozen['right']}/L{frozen['left']} 行 | 限位余量中位 "
+      f"R{np.median(_mg['right']):.1f}°/L{np.median(_mg['left']):.1f}°",
+      flush=True)
 
 d1 = dict(np.load(V1, allow_pickle=True))
 v2r = np.asarray(d1["right_q"], np.float64).copy()
@@ -160,6 +193,9 @@ out.update(right_q=v2r, left_q=v2l,
                             f"fail_pos_gt_1cm={fail_pos};fail_rot_gt_10deg={fail_rot};"
                             f"critical_bad={critical_bad};pos_max_cm={pos_max*100:.3f};"
                             f"rot_max_deg={np.degrees(rot_max):.3f};"
+                            f"frozen_r={frozen['right']};frozen_l={frozen['left']};"
+                            f"marg_r_deg={np.median(_mg['right']):.2f};"
+                            f"marg_l_deg={np.median(_mg['left']):.2f};"
                             f"clip={TC.CLIP_ID}"))
 tmp_out = OUT + ".tmp"
 with open(tmp_out, "wb") as fh:

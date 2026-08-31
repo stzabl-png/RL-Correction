@@ -22,7 +22,8 @@ from progress import (LEASH_POS, LEASH_ROT, GATE_POS, GATE_ROT, RED_GATE_POS,
                       G1_HOLD, CERT_RAMP, CERT_HOLD, CERT_RET, CERT_RISE,
                       CERT_SLIP, CERT_WAIT, CERT_TRIES, WAGE, WAGE_CAP,
                       D1_DROP, D2_PRE_TILT, D2_TILT, D3_DEV, TABLE_Z, UP_LOCAL,
-                      ESCORT_BAND, ESCORT_FALL)
+                      ESCORT_BAND, ESCORT_FALL, CARRY_PADS, PLACE_CARRY,
+                      PLACE_FALL)
 
 # 观测/接线兼容别名 (框架 task_env 引用这些名字)
 M2_HOLD = 1                      # G3=释放是锁存事件, 无 hold (进度条观测用)
@@ -148,6 +149,9 @@ class UnscrewProgressBatch:
         # [TASK] T2-3 护送: escort_fail 粘滞; cap_z_prev<0=未初始化(过带恒假)
         self.escort_fail = torch.zeros_like(self.g1)
         self.cap_z_prev = torch.full((num_envs,), -1.0, device=device)
+        # U41: 释放后"真的拿过" / "放得住" 两件 (标量版同构)
+        self.carry_steps = torch.zeros(num_envs, device=device)
+        self.fall_peak = torch.zeros(num_envs, device=device)
         self._acc = {"ep": 0, "g1": 0, "g2": 0, "g3": 0, "g4": 0,
                      "clock": 0.0, "catt": 0, "cpass": 0,
                      "ep_t0": 0, "g1_t0": 0, "g2_t0": 0, "g3_t0": 0, "g4_t0": 0}
@@ -172,6 +176,8 @@ class UnscrewProgressBatch:
                    self.cert_pending, self.escort_fail):
             t_[env_ids] = False
         self.cap_z_prev[env_ids] = -1.0
+        self.carry_steps[env_ids] = 0.0
+        self.fall_peak[env_ids] = 0.0
         for oi in (0, 1):
             self.lb[oi][env_ids] = 0.0
         self.cert_z0[env_ids] = 0.0
@@ -333,14 +339,25 @@ class UnscrewProgressBatch:
         ms_r += new3.float() * MS_REWARD[3]
         # ---- [TASK] 护送过带检查 (T2-3, 标量版同构): 无接触快速穿过
         #      放下带顶 = 永久失败; 带内允许松手放下 ----
+        escorted_bad = self.escort_fail
         if pads_r_cap is not None:
             esc_gate = self.g3 & (~self.placed) & active
             cz = obj1[:, 2]
             top = TABLE_Z + ESCORT_BAND
+            seen = self.cap_z_prev > 0.0
+            drop = self.cap_z_prev - cz
             crossing = ((self.cap_z_prev > top) & (cz <= top)
-                        & ((self.cap_z_prev - cz) > ESCORT_FALL))
-            self.escort_fail |= esc_gate & crossing & (~pads_r_cap)
+                        & (drop > ESCORT_FALL))
+            self.escort_fail |= esc_gate & crossing & (pads_r_cap < 1)
+            # U41②③: 持盖运输步数 / 单步降幅峰值 (=下落峰速)
+            self.carry_steps += (esc_gate & (pads_r_cap >= CARRY_PADS)).float()
+            self.fall_peak = torch.where(esc_gate & seen,
+                                         torch.maximum(self.fall_peak, drop),
+                                         self.fall_peak)
             self.cap_z_prev = torch.where(esc_gate, cz, self.cap_z_prev)
+            escorted_bad = (self.escort_fail
+                            | (self.carry_steps < PLACE_CARRY)
+                            | (self.fall_peak >= PLACE_FALL))
         # ---- placed: [TASK] 母带末行目标, 瓶3cm/15° 盖5cm/30° + 护送未失败 ----
         ok3 = torch.ones_like(ok_obj)
         for oi, act in ((0, obj0), (1, obj1)):
@@ -348,7 +365,7 @@ class UnscrewProgressBatch:
                     <= PLACED_POS[oi])
             dt = (_tilt(act[:, 3:7], self.up[oi]) - self.end_tilt[oi]).abs()
             ok3 &= (dt <= PLACED_ROT[oi])
-        gatep = self.g3 & (~self.placed) & active & (~self.escort_fail)
+        gatep = self.g3 & (~self.placed) & active & (~escorted_bad)
         self.m3_run = torch.where(gatep & ok3, self.m3_run + 1,
                                   torch.zeros_like(self.m3_run))
         newp = gatep & (self.m3_run >= PLACED_HOLD)

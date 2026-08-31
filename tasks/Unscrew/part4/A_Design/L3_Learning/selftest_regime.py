@@ -73,11 +73,12 @@ print("[体制] ⑤ 机器行 conf=NaN 禁查 ✅")
 
 # ⑥ 判据摘要: 判定阈值变化必须变红，奖励权重变化必须保持安静。
 schema0, digest0 = PG.criteria_digest()
-assert schema0 == 3 and len(digest0) == 16   # schema=3: T2-3 护送判据入摘要
+assert schema0 == 4 and len(digest0) == 16   # schema=4: T2-3 过带 + U41 持盖/降幅
 assert all(PG.criteria_digest()[1] == digest0 for _ in range(3))
 for name in ("GATE_POS", "CERT_RISE", "PLACED_HOLD", "M4_DIST_ROT", "D1_DROP",
              "D2_PRE_TILT", "D3_DEV", "D4_SLIP", "PAD_FTH", "TABLE_Z",
-             "ESCORT_BAND", "ESCORT_FALL"):
+             "ESCORT_BAND", "ESCORT_FALL", "CARRY_PADS", "PLACE_CARRY",
+             "PLACE_FALL"):
     old = getattr(PG, name)
     setattr(PG, name, old + 1 if isinstance(old, int) else old * 1.01 + 1e-6)
     assert PG.criteria_digest()[1] != digest0, name
@@ -101,7 +102,20 @@ probe_turns = registered_turns + 0.125
 spec = _spec_from_cfg(SimpleNamespace(screw_turns_override=probe_turns), assembly)
 assert abs(spec.turns - probe_turns) < 1e-12
 assert float(assembly["turns"]) == registered_turns
-print("[体制] ⑦ UNSCREW_TURNS -> runtime spec，注册表不变 ✅")
+# U40 真实螺纹副的参数必须整条流进 runtime spec —— 少一个就退回假摩擦口径
+# (breakaway=None 时 screw_assembly 走旧支路, 碰一下就白转的老病立刻复发)
+assert spec.breakaway_torque_nm is not None, "clip 未带 U40 真实螺纹参数"
+for _k, _v in (("breakaway_torque_nm", 0.04), ("kinetic_torque_nm", 0.015),
+               ("viscous_nms", 0.03), ("inertia_eff_kgm2", 5e-3),
+               ("torque_ema_s", 0.025), ("unlock_dwell_s", 0.033),
+               ("lock_omega_eps", 0.05)):
+    assert abs(float(getattr(spec, _k)) - _v) < 1e-12, (_k, getattr(spec, _k))
+assert spec.react_on_bottle is True
+_w_ss = (0.06 - spec.kinetic_torque_nm) / spec.viscous_nms
+assert 1.0 < _w_ss < spec.max_angular_velocity_rad_s, _w_ss
+print(f"[体制] ⑦ UNSCREW_TURNS -> runtime spec，注册表不变; U40 真实螺纹参数"
+      f"齐备 (0.06N·m 稳态 {_w_ss:.1f} rad/s < 安全夹 "
+      f"{spec.max_angular_velocity_rad_s}) ✅")
 
 # ⑧ 世界指纹比较器必须区分匹配、物理不符与关键项缺失。
 import copy

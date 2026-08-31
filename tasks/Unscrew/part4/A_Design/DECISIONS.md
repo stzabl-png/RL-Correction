@@ -85,11 +85,11 @@ upright 投影 (U24a): 重建静置帧 ~20.5° FoundationPose 噪声 > 平底圆
 倾倒极限, 不投则瓶必自倒 (旧台账总根因, 参考侧与摆放侧同投影同口径)。
 垫序与 Pour 相反: 前5=左vs瓶, 后5=右vs盖 (configure_cfg 按交互手=left 重建)。
 
-### T1-1 β 剂量 —— ⬜ 初值未标定
-βL=2.0 (瓶 0.53kg 与 Pour17 重物侧同级, 抄其实证值), βR=0 (盖侧无 prior)。
-**必须 probe_beta.py 复标后回填** —— 剂量窗两端都要测。
+### T1-1 β 剂量 —— ✅ 已诊断，后由 T2-4 裁定取代
+初值 βL=2.0 来自 Pour17；clip32 已实测 β=1/1.5/2/3 四档。
+结果与最终裁定见 T2-4。
 
-### T1-2 母带 —— ✅ v1 链路通 (2026-08-29) / ⬜ v2 待 Isaac 标定
+### T1-2 母带 —— ✅ v1/v2 链路通（v2 实测见 T2-5）
 - v1 (make_reference.py, 离线): clip32 全链 273 行 (app60/缝25/交互103/缝25/退60),
   自检家族五件全绿 (放音 G 链全通收入 38 / 批量逐位一致 / RSI 四点位 / 变体
   反向 / 体制)。盖脱离帧从数据测 (瓶体系相对漂移 >4cm): f35, 交互行 13。
@@ -139,7 +139,7 @@ upright 投影 (U24a): 重建静置帧 ~20.5° FoundationPose 噪声 > 平底圆
 - ⚠ 旧 pregrasp_suite 的躯干锁角 45/90/0 是**旧世界值**, 本实例驱动已用新站姿;
   若复用 suite 本体, 先改这三个数。
 
-### T2-0 Claude 交接审计 —— ✅ 代码收口 / ⬜ Isaac 实跑待空卡 (2026-08-30)
+### T2-0 Claude 交接审计 —— ✅ 代码收口；实跑见 T2-2/T2-5 (2026-08-30)
 - 本地会话 `新配置搭建` (`ae387a7f-1d46-415b-94fa-b4bdc2dc634e`) 共落四个提交:
   `1de87065` 数据导入、`332e7c3e` V5 任务实例、`51b38f60` 死通道零依赖与
   cuRobo 自包含、`a0a299f0` cuRobo 机器人配置与冒烟。17 条 clip 可注册；新增
@@ -160,10 +160,11 @@ upright 投影 (U24a): 重建静置帧 ~20.5° FoundationPose 噪声 > 平底圆
      直立摆放冲突，已用受限 `bypass_lift_scaffold` 明确断开。
   4. 手工回放探针原先先 step 后 `apply_screw`，且从不刷新接触增益，导致螺旋
      永久零增益/释放不可能；v2 构建、β、IK、验收现与 DirectRLEnv 顺序一致。
-  5. `probe_ikcheck`、`probe_acceptance` 原先即使失败也 exit 0；现关键拧盖窗
-     >1cm / >10° IK 坏行或验收少于 3/4 会返回非零。训练启动前另硬验 v2、真实静置、
-     双 cuRobo 段、clip/turns/β 与有限数组；验收通过才原子写绑定 v2 全文件 MD5
-     与现场完整世界指纹的 `acceptance_v2.json`。训练入口在导入 IsaacLab 前验
+  5. `probe_ikcheck`、`probe_acceptance` 当时改成了物理完美硬闸；
+     **此项后由 T2-4 用户裁定取代**：IK 坏行只诊断，少于 3/4 数值稳定才返回非零。
+     训练启动前仍硬验 v2、真实静置、双 cuRobo 段、clip/turns/β 与有限数组；
+     训练稳定性通过才原子写绑定 v2 全文件 MD5 与现场完整世界指纹的
+     `acceptance_v2.json`。训练入口在导入 IsaacLab 前验
      母带/凭据，建环境后再对现场世界，离线占位母带不能误发射。
   6. 世界指纹从旧 9 字段补齐为机器人/母带/IO/判据摘要/螺纹/方法参数/物性；
      关键字段缺失或不可读属于“未验”并拒绝续训、评测与录像，不再静默放行。
@@ -180,11 +181,11 @@ upright 投影 (U24a): 重建静置帧 ~20.5° FoundationPose 噪声 > 平底圆
 - 当前两张 GPU 持续满载既有训练/录像；未杀任何既有进程。真实 `probe_rest`
   及后续 T2-1 仍待卡空后按顺序执行，故此处不宣称 Isaac 验收完成。
 
-### T2-1 冒烟/验收 —— ⬜ 待跑 (顺序不可乱)
+### T2-1 冒烟/验收 —— ✅ 全序列完成 (顺序不可乱)
 probe_rest → make_reference(重跑, 实测锚) → [plan_machine_segs ×2 →
 make_reference(重跑)] → smoke_zero (A 静置对账 <5mm 铁则 / 机器段死线 0 误触)
-→ probe_beta (βL 标定) → build_reference (v2) → probe_ikcheck →
-probe_acceptance (≥3/4 后写验收凭据) → 训练入口预检/现场世界核对 →
+→ probe_beta (βL 基线) → build_reference (v2) → probe_ikcheck (诊断) →
+probe_acceptance (稳定≥3/4 后写凭据) → 训练入口预检/现场世界核对 →
 训练冒烟 (双变体各短发)。
 
 ### T2-2 本机 Isaac 实跑: probe_rest→v1→cuRobo 机器段 —— ✅ (2026-08-30)
@@ -254,3 +255,41 @@ probe_acceptance (≥3/4 后写验收凭据) → 训练入口预检/现场世界
 - sr/gate1..4 + sr_t0 口径 + n/ep_done (分母针, L5-17 纪律)
 - 挤奶哨兵 (U29 系三次尸检的教训): 若 Mean Rewards ↑ 而 release/placed ↓,
   先查每步年金总量×回合长 ≈ Mean 否 —— 完成的一次性收益必须 > 放弃的剩余年金。
+
+### T2-4 reference 是 correction 先验，不是零动作答案 (2026-08-30 用户裁定)
+
+- **裁定**：重建轨迹存在穿模/穿孔、IK 偏差和零动作接触失败是可接受的；本任务
+  本来就要用 RL correction 恢复物理可行好轨迹，不应先把 reference 修成答案。
+- **实测基线**：`smoke_zero --steps 800` 完整通过（静置瓶 0.20cm/盖 0.26cm，
+  obs=(4,507)，机器段接触死线 0 误触）；`probe_beta` 的 β=1/1.5/2/3
+  在关键段末均为左垫 0、未持住。22 关节顺序已逐名核对且为 identity，排除映射错。
+- **剂量**：βL 取 1.0，等于 Screw27_body 原始 squeeze，避免 β>1 对关节构型
+  外推；βR 保持 0。探针失败入账，不阻塞 v2 或训练。
+- **硬闸重定义**：`probe_ikcheck` 的 1cm/10° 坏行只作诊断；正式入口仍要求
+  probe 静置、cuRobo 机器段、Isaac v2、有限数组和剂量/哈希一致。
+  `probe_acceptance` 改写 `unscrew_trainability_v1` 凭据：零动作全链记录滑移、
+  释放和终点误差，但只以 NaN/Inf、状态/速度/力发散为失败，要求稳定环境≥3/4。
+- **最终物理正确性**：仍由 G1→G4、真实接触门控螺旋、escort 判据和独立 eval
+  约束；放宽的是 reference 前置门槛，不是成功判据。
+
+### T2-5 v2/训练/部署闭环 —— ✅ (2026-08-30)
+
+- **v2 产物**：316 行，段长 81/25/103/25/82，MD5
+  `0d78d12af9c426a629f96c570ae88983`。`meta_v2` 记录位置坏行 172、姿态坏行
+  130、关键窗坏行 15；这些是 correction 基线，不是训练门禁。
+- **IK 诊断**：右臂 94/103 坏行（关键窗 5），左臂 78/103（关键窗 10）；
+  全数组有限，探针按裁定返回通过。
+- **可训练性凭据**：4/4 环境有限且不发散；最大垫力 3.846–6.911N，最大物体
+  半径 1.164m，最大关节绝对值 3.0711rad。零动作成功 0/4、滑移/终点偏差
+  均完整写入 baseline，只作诊断。正式入口和现场世界指纹均通过。
+- **PPO 实跑**：HYB、OBJ 都用 4 env × 32 horizon 完成 rollout 和一次优化更新，
+  均产出可加载 `best.pth`；最终 checkpoint 的 342,871 个张量值全有限，
+  TensorBoard 在 Isaac 关闭前 flush，world.json 与事件文件均非空。RSI 解锁
+  交互冒烟另实测 HYB 的 leash/pen、OBJ 的 adv/leash/bonus/slope 非零，
+  两者都有螺旋转角/释放诊断。
+- **空分母修复**：首轮没有认证样本时 `sr/cert_pass` 原始值继续用 NaN 表示
+  “未观测”，日志器点名跳过；课程 EMA 把未观测率保守映射为 0，避免 NaN
+  永久污染解锁状态。离线回归与真实 PPO 均已证实。
+- **部署**：启动器/验证器使用仓库相对路径、LFS/母带/凭据硬检查、用户独占
+  Isaac 临时目录；`docs/DEPLOY_UNSCREW.md` 给出目标服务器安装、验收和
+  HYB/OBJ 发射命令。

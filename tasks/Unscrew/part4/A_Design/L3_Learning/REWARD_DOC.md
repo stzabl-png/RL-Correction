@@ -15,8 +15,9 @@
   人手行只出**手指形状**与逐帧置信度。
 - **双变体**：`POUR_VARIANT=HYB`（默认；置信门控 + 指形指引）/ `OBJ`（纯物轨消融）。
 - **置信度主档** tmix = min(瓶,盖)×min(pos,rot)——短板决定参考可信度。
-- **squeeze 剂量**：βL=2.0（左手瓶，Screw27_body 层，待 probe_beta 复标）；
-  βR=0（盖侧设定 B 无 prior，三指精捏交给人手指流+残差）。
+- **squeeze 剂量**：βL=1.0（左手瓶，回放 Screw27_body 原始 squeeze，不做
+  >1 外推；零动作未持住只作为 correction 基线）；βR=0（盖侧设定 B 无 prior，
+  三指精捏交给人手指流+残差）。
 
 ## 一、Gate 阶段机
 

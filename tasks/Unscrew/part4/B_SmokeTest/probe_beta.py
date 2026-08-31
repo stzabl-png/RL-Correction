@@ -1,4 +1,4 @@
-"""squeeze 剂量标定: 4 env 各带 β=1.0/1.5/2.0/3.0, 零动作过提升段, 看谁持住。"""
+"""squeeze 基线诊断: 4 env 各带 β=1/1.5/2/3；结果入账但不阻塞 RL correction。"""
 import argparse, os, sys
 from isaaclab.app import AppLauncher
 p = argparse.ArgumentParser(); AppLauncher.add_app_launcher_args(p)

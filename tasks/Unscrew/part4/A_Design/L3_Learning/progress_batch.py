@@ -49,6 +49,17 @@ def _qang(a, b):
     return 2 * torch.acos(d)
 
 
+def finite_rate(rates, key, default=0.0):
+    """Return a finite curriculum value for a possibly unobserved rate.
+
+    ``pop_rates`` keeps NaN so dashboards distinguish "no samples" from a
+    measured zero. Curriculum state must not absorb that NaN forever; an
+    unobserved success rate is conservatively zero.
+    """
+    value = float(rates.get(key, default))
+    return value if np.isfinite(value) else float(default)
+
+
 class UnscrewProgressBatch:
     def __init__(self, npz_path, num_envs, device, kcap=None, no_hand_ref=False):
         z = np.load(npz_path, allow_pickle=True)

@@ -44,7 +44,7 @@ from progress import (  # noqa: E402
     D5_BELOW_TABLE, G1_HOLD, PAD_FTH, PADS_MIN, SCREW_CONTACT_FTH,
     SCREW_TRIAD, UnscrewProgress, _axis_tilt)
 from progress_batch import (  # noqa: E402
-    M2_HOLD, M3_HOLD, M4_HOLD, TABLE_Z, UnscrewProgressBatch)
+    M2_HOLD, M3_HOLD, M4_HOLD, TABLE_Z, UnscrewProgressBatch, finite_rate)
 
 import task_config as TC  # noqa: E402
 
@@ -255,7 +255,7 @@ class UnscrewEnv(GraspTaskEnv):
                 self.beta_r * np.zeros(22),             # 右手盖: 无 squeeze prior
                 self.beta_l * (_sql - ref[self.IA0, 36:58])])
             print(f"[UnscrewEnv] squeeze 剂量: βL={self.beta_l} "
-                  f"(Screw27_body, 待 probe_beta 复标) βR={self.beta_r} "
+                  f"(Screw27_body 原始 squeeze，不外推) βR={self.beta_r} "
                   "(盖侧无 prior)")
             self._sq_delta = torch.tensor(_dsq, dtype=torch.float32, device=dev)
         # ---- 手指/臂门 (Approach 冻结照谱, 缝1 起全开, Retreat 指冻臂开) ----

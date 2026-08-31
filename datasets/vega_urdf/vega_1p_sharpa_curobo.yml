@@ -3,7 +3,7 @@
 robot_cfg:
   kinematics:
     add_object_link: false
-    asset_root_path: /home/feiyang/WorkSpace/RL-Correction/datasets/vega_urdf/vega_1p_sharpa
+    asset_root_path: datasets/vega_urdf/vega_1p_sharpa
     base_link: vega_1p_mobile
     collision_link_names: [L_arm_l2, L_arm_l3, L_arm_l4, L_arm_l5, L_arm_l7, L_arm_l8,
       R_arm_l2, R_arm_l3, R_arm_l4, R_arm_l5, R_arm_l7, R_arm_l8, vega_1p_L_arm_l1,
@@ -1034,6 +1034,6 @@ robot_cfg:
       zed_left_camera: [vega_1p_head_l3]
       zed_right_camera: [vega_1p_head_l3]
     tool_frames: [right_hand_C_MC, left_hand_C_MC]
-    urdf_path: /home/feiyang/WorkSpace/RL-Correction/datasets/vega_urdf/vega_1p_sharpa/vega_1p_sharpa.urdf
+    urdf_path: datasets/vega_urdf/vega_1p_sharpa/vega_1p_sharpa.urdf
     use_external_assets: false
     use_global_cumul: true

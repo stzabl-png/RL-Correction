@@ -12,9 +12,9 @@
 #   4 make_reference    重跑, 剪进规划行
 #   5 selftest 家族     判据离线全绿 (不开 Isaac)
 #   6 smoke_zero        零动作冒烟 (A 静置对账 <5mm 铁则)
-#   7 probe_beta        βL 标定 (人工判读后回填 task_config)
+#   7 probe_beta        βL 接触/滑移诊断 (reference 不要求零动作成功)
 #   8 build_reference   v2 重铸 (站位捕获 + 物体轨迹反解 IK + 认证行)
-#   9 probe_ikcheck / probe_acceptance   运动学核查 + 零动作硬闸
+#   9 probe_ikcheck / probe_acceptance   运动学基线 + 训练稳定性闸
 #  10 train_task        发射 (SHARPA_WANDB=0 POUR_SQUEEZE_FF=1 POUR_BONUS_NOW=1
 #                       POUR_BONUS_DIST=1 POUR_VARIANT=HYB --headless)
 #  11 eval_task         确定性评测 (唯一成功率口径)
@@ -50,7 +50,7 @@ for C in $CLIPS; do
   $PY $D/C_Wiring/smoke_zero.py --headless
   cat <<EOF
 [engine] clip $C 冒烟链完毕. 后续 (人工判读节点, 命令自取):
-  UNSCREW_CLIP=$C ... $D/B_SmokeTest/probe_beta.py --headless        # βL 标定
+  UNSCREW_CLIP=$C ... $D/B_SmokeTest/probe_beta.py --headless        # βL 基线诊断
   UNSCREW_CLIP=$C ... $D/B_SmokeTest/build_reference.py --headless   # v2
   UNSCREW_CLIP=$C ... $D/B_SmokeTest/probe_ikcheck.py --headless
   UNSCREW_CLIP=$C ... $D/B_SmokeTest/probe_acceptance.py --headless

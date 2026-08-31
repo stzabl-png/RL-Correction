@@ -17,11 +17,12 @@ import time
 
 import numpy as np
 import torch
-import yaml
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 YML = os.path.join(REPO, "datasets", "vega_urdf", "vega_1p_sharpa_curobo.yml")
 
+sys.path.insert(0, REPO)
+from tasks.pregrasp.curobo_plan_worker import load_robot_yaml  # noqa: E402
 from curobo.motion_planner import MotionPlanner, MotionPlannerCfg  # noqa: E402
 from curobo.types import DeviceCfg, GoalToolPose, JointState, Pose  # noqa: E402
 
@@ -32,7 +33,7 @@ STANCE = {"torso_j1": np.radians(40.5196), "torso_j2": np.radians(73.6595),
           "L_arm_j4": np.radians(-90.0), "R_arm_j4": np.radians(-90.0),
           "head_j1": 0.0, "head_j2": 0.0, "head_j3": 0.0}
 
-raw = yaml.safe_load(open(YML))
+raw = load_robot_yaml(YML)
 kin = raw["robot_cfg"]["kinematics"]
 kin["tool_frames"] = list(TOOL)
 # 锁死 躯干/头/手指 (worker 同款: lock_joints 值 = start_joints)

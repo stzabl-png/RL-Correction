@@ -92,19 +92,23 @@ class TaskPPO(PPO):
         rates = raw.PB.pop_rates()
         for k, v in rates.items():
             self.writer.add_scalar(k, v, self.agent_steps)
+
+        def rate(key):
+            return PE.finite_rate(rates, key)  # raw NaN means no samples
+
         for k, v in raw.pop_racc().items():          # 逐项奖惩台账
             self.writer.add_scalar(k, v, self.agent_steps)
-        self._ema_g1 = 0.98 * self._ema_g1 + 0.02 * rates["sr/gate1"]
-        self._ema_g2 = 0.98 * self._ema_g2 + 0.02 * rates["sr/gate2"]
-        self._ema_g3 = 0.98 * self._ema_g3 + 0.02 * rates["sr/gate3"]
-        self._ema_g4 = 0.98 * self._ema_g4 + 0.02 * rates["sr/gate4"]
+        self._ema_g1 = 0.98 * self._ema_g1 + 0.02 * rate("sr/gate1")
+        self._ema_g2 = 0.98 * self._ema_g2 + 0.02 * rate("sr/gate2")
+        self._ema_g3 = 0.98 * self._ema_g3 + 0.02 * rate("sr/gate3")
+        self._ema_g4 = 0.98 * self._ema_g4 + 0.02 * rate("sr/gate4")
         # 渐进RSI 解锁 (L5-8 药②③): 无偏指标(t0出生口径) + 持续20窗 + 认证闸
         # 旧版用 sr/gate(有偏: 短回合先结算致虚高) 在假阳性上放开了课程, 实测
         # 解锁后 G2 断崖到 0 且再未恢复 —— 换指标+持续判定+G2额外认证闸。
-        self._ema_cert = 0.98 * self._ema_cert + 0.02 * rates.get("sr/cert_pass", 0.0)
+        self._ema_cert = 0.98 * self._ema_cert + 0.02 * rate("sr/cert_pass")
         self.writer.add_scalar("curr/ema_cert", self._ema_cert, self.agent_steps)
         for _gi in (1, 2, 3):
-            _r = rates.get(f"sr_t0/gate{_gi}", 0.0)
+            _r = rate(f"sr_t0/gate{_gi}")
             self._ema_t0[_gi] = 0.98 * self._ema_t0[_gi] + 0.02 * _r
             self.writer.add_scalar(f"curr/ema_t0_g{_gi}", self._ema_t0[_gi],
                                    self.agent_steps)
@@ -206,6 +210,7 @@ if not args.no_autorec:
         stderr=subprocess.STDOUT)
     print(f"[train_task] 录像循环已自拉 (每1M步一支 -> {_vdir})", flush=True)
 agent.train()
+agent.writer.flush()  # app.close may hang in Isaac; persist TB before shutdown
 try:
     _slot.release()
 except Exception:

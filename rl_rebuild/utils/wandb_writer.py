@@ -3,6 +3,7 @@
 # Disable with SHARPA_WANDB=0. Configure with:
 #   SHARPA_WANDB_PROJECT (default "sharpa-rl-rebuild"), SHARPA_WANDB_ENTITY (default: your default entity),
 #   SHARPA_WANDB_MODE (default "online"; "offline"/"disabled" also work).
+import math
 import os
 from tensorboardX import SummaryWriter
 
@@ -38,6 +39,16 @@ class TBWriter:
             self._wandb = None
 
     def add_scalar(self, tag, value, step=None):
+        # tensorboardX otherwise emits an anonymous x2num warning and writes an
+        # unusable event value.  Name the offending metric and keep it out of
+        # both logging backends; this does not affect the optimizer state.
+        try:
+            scalar = float(value.detach().item()) if hasattr(value, "detach") else float(value)
+        except (TypeError, ValueError, RuntimeError):
+            scalar = None
+        if scalar is not None and not math.isfinite(scalar):
+            print(f"[metrics] skip non-finite scalar: {tag}={scalar}", flush=True)
+            return
         self.writer.add_scalar(tag, value, step)
         if self._wandb is not None:
             try:

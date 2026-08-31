@@ -19,7 +19,7 @@ sys.path.insert(0, _HERE)
 sys.path.insert(0, os.path.join(_HERE, "..", "..", "C_Wiring"))
 from progress import (W_OBJ, W_HAND, W_HCONF, _tier, TIER_HI, TIER_LO,  # noqa: E402
                       UnscrewProgress)
-from progress_batch import UnscrewProgressBatch  # noqa: E402
+from progress_batch import UnscrewProgressBatch, finite_rate  # noqa: E402
 import task_config as TC  # noqa: E402
 
 import progress as PG  # noqa: E402
@@ -158,13 +158,13 @@ with tempfile.TemporaryDirectory() as td:
     np.savez(parent_path, meta=np.array(json.dumps(meta)), **arrays)
     parent_md5 = TC.file_md5(parent_path)[:8]
     meta_v2 = (f"gen=unscrew_v2;parent_v1_md5={parent_md5};"
-               f"betaL={TC.BETA_L};betaR={TC.BETA_R};ik=delta_space;critical_bad=0;"
+               f"betaL={TC.BETA_L};betaR={TC.BETA_R};ik=delta_space;critical_bad=7;"
                f"clip={TC.CLIP_ID}")
     np.savez(good_path, meta=np.array(json.dumps(meta)),
              meta_v2=np.array(meta_v2), **arrays)
-    receipt = {"schema": "unscrew_acceptance_v1", "clip": TC.CLIP_ID,
+    receipt = {"schema": "unscrew_trainability_v1", "clip": TC.CLIP_ID,
                "reference_v2_md5": TC.file_md5(good_path),
-               "passes": 3, "num_envs": 4, "world": {}}
+               "stable_envs": 3, "num_envs": 4, "world": {}}
     with open(acceptance_path, "w", encoding="utf-8") as fh:
         json.dump(receipt, fh)
 
@@ -182,5 +182,13 @@ with tempfile.TemporaryDirectory() as td:
     assert any("probe_rest" in issue for issue in bad_issues)
     assert any("cuRobo" in issue for issue in bad_issues)
     assert any("meta_v2" in issue for issue in bad_issues)
-print("[体制] ⑨ 正式母带预检：合格 v2 通过/离线占位拒绝 ✅")
+print("[体制] ⑨ 正式母带预检：IK误差可修/训练稳定 v2 通过/离线占位拒绝 ✅")
+
+# ⑩ dashboard 保留 NaN 表示无样本；课程控制值必须有限，避免 EMA 永久污染。
+assert finite_rate({"missing": float("nan")}, "missing") == 0.0
+assert finite_rate({"missing": float("inf")}, "missing") == 0.0
+assert finite_rate({"measured": 0.625}, "measured") == 0.625
+assert finite_rate({}, "absent") == 0.0
+print("[体制] ⑩ 空分母指标：原始 NaN、课程控制值 0 ✅")
+
 print("[体制] ★全绿")

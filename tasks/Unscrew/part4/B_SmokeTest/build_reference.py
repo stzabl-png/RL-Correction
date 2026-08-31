@@ -78,8 +78,8 @@ f = E._pads_f().norm(dim=-1)[0]
 print(f"[v2] 站位垫: L{int((f[:5] > 0.5).sum())}/R{int((f[5:] > 0.5).sum())}",
       flush=True)
 
-ik = {"right": ArmIK("right", anchor_link="arm_center", anchor_T=E._anchor_T),
-      "left": ArmIK("left", anchor_link="arm_center", anchor_T=E._anchor_T)}
+ik = {side: ArmIK(side, anchor_link="arm_center",
+                  anchor_T=TC.rest_anchor_T(side)) for side in ("right", "left")}
 ref_obj = {oi: E.PB.ref_obj[oi].cpu().numpy() for oi in (0, 1)}
 side_obj = {"right": 1, "left": 0}      # [TASK] 右手跟盖, 左手跟瓶
 q_ik = {s: np.zeros((Nrow, 7)) for s in ("right", "left")}

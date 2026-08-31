@@ -64,6 +64,33 @@ def _robot_yml() -> str:
 ROBOT_YML = _robot_yml()
 
 
+def load_robot_yaml(path: str) -> dict:
+    """Load a robot YAML and repair bundled asset paths after relocation."""
+    with open(path, encoding="utf-8") as fh:
+        raw = yaml.safe_load(fh)
+    kin = raw["robot_cfg"]["kinematics"]
+    asset_root = kin.get("asset_root_path")
+    urdf_path = kin.get("urdf_path")
+    if (asset_root and os.path.isdir(asset_root)
+            and urdf_path and os.path.isfile(urdf_path)):
+        return raw
+
+    bundled_root = os.path.abspath(os.path.join(
+        os.path.dirname(__file__), "..", "..", "datasets", "vega_urdf",
+        "vega_1p_sharpa"))
+    bundled_urdf = os.path.join(bundled_root, "vega_1p_sharpa.urdf")
+    if not os.path.isfile(bundled_urdf):
+        raise FileNotFoundError(
+            f"cuRobo robot assets unavailable: yaml={path}, "
+            f"asset_root={asset_root}, urdf={urdf_path}, "
+            f"bundled={bundled_urdf}")
+    kin["asset_root_path"] = bundled_root
+    kin["urdf_path"] = bundled_urdf
+    print(f"[worker] robot YAML 已重定位到仓库资产: {bundled_root}",
+          flush=True)
+    return raw
+
+
 def _quat_to_R(q):
     w, x, y, z = q
     return np.array([
@@ -128,8 +155,7 @@ def main():
     from curobo.motion_planner import MotionPlanner, MotionPlannerCfg
     from curobo.types import DeviceCfg, GoalToolPose, JointState, Pose
 
-    with open(a.robot) as f:
-        raw = yaml.safe_load(f)
+    raw = load_robot_yaml(a.robot)
 
     _tool = list(T["tool_frames"])
     raw["robot_cfg"]["kinematics"]["tool_frames"] = _tool

@@ -165,6 +165,10 @@ def main():
     for n in LOCK_ZERO:
         if n in cs_joints:          # 猜名不许进 yml (F_wheel 不存在的教训)
             lj[n] = 0.0
+    # 入库文件不得固化生成机器的绝对路径；worker 会按仓库根重定位。
+    kin["asset_root_path"] = "datasets/vega_urdf/vega_1p_sharpa"
+    kin["urdf_path"] = (
+        "datasets/vega_urdf/vega_1p_sharpa/vega_1p_sharpa.urdf")
     kin["lock_joints"] = lj
     with open(OUT, "w") as f:
         f.write("# tools/make_vega1p_sharpa_curobo_yml.py 生成 (NVlabs curobo "

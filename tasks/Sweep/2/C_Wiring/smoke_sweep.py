@@ -31,4 +31,7 @@ print(f"[smoke_sweep] PASS envs={args.num_envs} steps={args.steps} random={args.
       f"row_max={int(raw.row.max())} gates={raw.progress.gates.any(0).int().tolist()}")
 try: _slot.release()
 except Exception: pass
-app.close()
+sys.stdout.flush()
+# Isaac shutdown can hang after the result is durable (see the existing
+# pregrasp/Pour hard-exit entry points). Process exit releases this finite smoke.
+os._exit(0)

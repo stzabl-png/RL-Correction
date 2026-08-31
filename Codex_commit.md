@@ -539,3 +539,161 @@
 - Cleanup: removed failed expert/minfix/pan-probe videos, removed superseded
   diagnostic scripts, and restored cumulative failed `make_expert.py` experiments
   to HEAD.  Preserved v1 and the two approved reconstruction/grasp videos.
+
+## 2026-08-30 — Match the physical dustpan mouth to the repaired asset
+
+- Goal: test whether the remaining near-entry failure is caused by the invisible
+  collision surface while replaying the immutable v1 behavior byte-for-byte.
+- Changes: `sweep_env.py` replaces the disabled 80 mm proxy ramp with an enabled
+  28 mm local wedge spanning z=80--108 mm and y=8.5--6 mm; its floor joins the
+  wedge continuously at z=80 mm.  `replay_v1_smooth_asset.py` asserts the collider
+  is enabled and records its geometry in metrics.
+- Validation: Python compilation, `git diff --check`, analytic endpoint assertions,
+  one-environment physical reset, FixedJoint assertions (<3 mm), exact row/action
+  hashes, 500-frame video, and trace inspection.  The best exact-containment
+  deficit improves 21.84 -> 19.06 mm, but Gate3/4 remain false.
+- Remaining: this isolated collision fix is useful but insufficient.  Preserve the
+  resulting video for user review; do not change the right controller or start
+  BC/PPO until the next controlled variable is approved.
+
+## 2026-08-30 — Reject pre-roll settling that breaks the near-success state
+
+- Goal: remove the visible initial cube impulse by parking the cube while the
+  row-zero tools and short entry collider settle.
+- Experiment: enabled the entry only after two attachment-settle passes, restored
+  the exact archived cube pose with zero velocity, and replayed all 500 immutable
+  v1 rows/actions.
+- Result: early displacement fell 59.06 -> 30.84 mm but remained visible, while
+  best containment regressed 19.06 -> 38.20 mm.  The initialization transient is
+  part of the state that lets the unchanged v1 trajectory nearly enter later.
+- Resolution: reverted the experimental code to the validated physical-entry
+  replay, retained trace/metrics/log for diagnosis, and deleted the failed video.
+
+## 2026-08-30 — Test a right-only inward extension of immutable v1
+
+- Goal: clear the remaining 19.06 mm mouth-depth deficit without changing the
+  left hand, cube, pan asset/collider, physics or success criteria.
+- Changes: added `replay_v1_right_depth_extension.py`, which reconstructs v1's
+  nominal cumulative residual and uses live-anchor ArmIK to add one smooth
+  pan-local right-hand depth offset.  It records plan, bound and action hashes in
+  task-owned metrics and never mutates source references.
+- Validation: 25 mm passed the original envelope and reduced deficit to 4.63 mm.
+  The user-authorized 40 mm run stayed within URDF limits and a 3 deg maximum
+  confidence-envelope excess, but achieved only 4.78 mm.  Both recorded 500 rows,
+  kept every left action zero, and failed Gate3/4.
+- Remaining: extra depth command has saturated physical progress; test lateral
+  brush/cube contact alignment as a separate next variable before expert/BC/PPO.
+
+## 2026-08-30 — Redefine terminal success at entry and export two experts
+
+- Goal: encode the user-approved operational definition that the sweep succeeds
+  as soon as the cube enters the dustpan, then stop instead of allowing it to fall
+  back out later.
+- Changes: added a geometrically guarded `entered` signal in
+  `progress_batch.py`; retained `fully_inside` unchanged for strict diagnostics;
+  made Gate3 and Gate4 trigger on the same first-entry step; updated the CPU
+  contract tests; parameterized the right-depth replay and truncated its trace and
+  video exactly at first success.
+- Validation: CPU self-test PASS.  Formal 25 mm replay succeeded at frame384 and
+  formal 40 mm replay at frame382.  Each trace is an exact source-row prefix,
+  contains one terminal `entered` frame, has simultaneous Gate3/4, has no left
+  actions, and has the same frame count as its 20 fps 1280x720 video.
+- Artifacts: `outputs_video/sweep2_expert_entry{25,40}_v1.mp4`; all matching
+  traces, metrics and run logs are under `logs/expert/`.
+- Git state: not committed because the touched task-contract files overlap the
+  preserved pre-existing dirty Sweep work; no unrelated change was staged.
+
+## 2026-08-30 — Sweep2 arm-residual RL pipeline
+
+- Extended Sweep2 state/reward design and added a strict 4-second Actor freeze.
+- Added separate Critic sizing and policy-update masks to the shared PPO stack.
+- Replaced actor-only BC with weighted Actor BC plus success/failure Critic
+  return regression; added no-video physical transition collection and manifest.
+- Added `SWEEP_TRAJECTORY_PLAYBOOK.md` and `DECISIONS.md` so future reconstructed
+  Sweep trajectories reuse the validated asset/expert/training workflow.
+- Validation completed so far: Python compilation, `git diff --check`, physical
+  recollection of two successful experts plus canonical failure, and 1-env PPO.
+
+## 2026-08-30 — 3M 训练诊断与中文流程收敛
+
+- 正式训练每跨过 3M agent steps 保存不可变 checkpoint 和指标 JSON，并由
+  `autorecord_sweep.sh` 生成 `outputs_video/` 下的确定性视频以及 run 内逐步 NPZ trace。
+- `record_sweep.py` 新增 trace 输出，包含 observation、privileged state、action、reward、
+  row、Gate、success、cube-pan、Actor mask 与累计 residual。
+- 正式 run 写入 `world.json`，固定 reference、簸箕资产、transition hash、policy I/O、
+  固定方块位置、4 秒前缀和成功定义。
+- 将 `Codex_tasks.md` 和 `SWEEP_TRAJECTORY_PLAYBOOK.md` 重写为中文，只保留最终确定的
+  Sweep2 数据流以及可复用于新 Sweep 重建轨迹的处理和训练方法。
+- 修复多环境簸箕 collider 的 clone xform 重复以及逐环境 full-stage traversal 的平方复杂度。
+- 静态验证：`py_compile`、`bash -n`、`git diff --check` 通过。正式 1024-env run 已在
+  tmux `sweep2_ppo1024_seed42_v3_20260830` 启动。
+
+## 2026-08-30 — 将 Sweep2 成功处理过程固化为详细案例
+
+- 在 `SWEEP_TRAJECTORY_PLAYBOOK.md` 增加完整 Sweep2 case study，记录从错误回放、
+  canonical v1 near-miss 选择、簸箕 mesh/collider 根因、严格 A/B、25/40 mm 右臂
+  depth extension、`entered` 成功定义，到 transition、warmup 和 PPO 的完整因果链。
+- 记录被证伪的方案及其量化结果，包括重叠 proxy ramp、误删早期接触状态、pan-only
+  probe 冒充 expert、同时改多变量，以及 commanded depth 不等于 cube penetration。
+- 明确区分可复用的诊断流程与不可照搬的 Sweep2 专属数值，供后续每条新 Sweep 重建
+  轨迹独立生成 reference、expert、transition 和 residual policy。
+- 验证：Markdown fence 平衡、九个案例小节齐全、关键数值与 expert metrics、工程台账和
+  mistakes 记录交叉核对，`git diff --check` 通过。
+
+## 2026-08-31 — 修复 3M 诊断并恢复正式训练
+
+- 修复 `train_sweep.py` 诊断 JSON 路径缺少 `torch` import 的 NameError。
+- 新增 resume-only `--initial_agent_steps` / `--initial_epoch`，并让 PPO 保留全局 step，
+  避免恢复后从零计数或重新进入 Critic-only warmup。
+- PPO checkpoint 从此保存并恢复 optimizer state、agent steps、epoch 和 learning rate；
+  旧 checkpoint 缺少这些字段时继续兼容。
+- 从已成功写出的 `diag_0003M.pth` 补齐 3M JSON、deterministic MP4 和 rollout NPZ，
+  再从 3,014,656 steps / epoch91 恢复 1024-env PPO。
+- 验证：Python compilation、`git diff --check`、checkpoint/JSON 非空、视频 418 帧、
+  rollout NPZ 非空；3M deterministic rollout 为 Gate `[1,1,0,0]`。
+
+## 2026-08-31 — 统一 Sweep 训练节点产物并清理冗余快照
+
+- 目标：让每个保留训练步数都有自包含的 checkpoint/debug 包与统一视觉目录，后续录像固定同时产出斜视视频和桌心俯视连续帧。
+- 重要改动：`train_sweep.py` 将每 3M checkpoint/metrics 写入 `logs/checkpoints/Sweep2__<YYYYMMDD>_policy_<XXXXM>/`，并关闭通用 `ep_* / best / last` 冗余保存；`autorecord_sweep.sh` 将 `policy.mp4` 与 `topdown_frames/` 写入 `outputs_video/<同名节点>/`，将 `rollout.npz` 与 `record.log` 写回 checkpoint 节点；`record_sweep.py` 支持失败策略保存 terminal 前连续俯视帧。
+- 迁移与清理：只保留 3M、12M、15M、48M 四个训练节点；迁移前后 checkpoint、rollout、record log 和 MP4 均通过 SHA-256 对照。删除其他步数视频、diagnostics 和所有周期/reward checkpoint；完整保留 `logs/expert/`、TensorBoard、run metadata 以及四个批准的基准/专家视频。
+- 补录验证：3M 保存第 406–417 帧并明确为失败 terminal；12M、15M、48M 分别保存首次成功前第 257–268、221–232、211–222 帧。每个节点均为 12 张互不相同的 1280×720 PNG，人工抽查确认 cube、dustpan mouth 和 broom 同时可见。
+- 验证：`py_compile`、`bash -n`、`git diff --check`、节点文件清单、JSON checkpoint 路径、PNG 数量/唯一 SHA-256、MP4/NPZ 非空和任务进程退出检查。
+- Git 状态：未提交、未推送；保留工作区原有未提交 Sweep 改动。
+
+## 2026-08-31 — 完整整理 Sweep Residual RL 训练算法
+
+- 将 `SWEEP_TRAJECTORY_PLAYBOOK.md` 的算法部分扩写为可独立执行的训练说明，明确 reference 加累计 residual 的控制形式、confidence step/deviation envelope、4 秒 scripted prelude 和接触同步 reference row。
+- 按真实实现记录 asymmetric Actor-Critic：Actor 使用 191 维 observation 与前 8 维 task embedding，Critic 使用 191+22 维完整真值；补充网络宽度、Gaussian exploration、normalization 与 deterministic inference。
+- 逐项整理四级 Success Tracker、ratcheted reward、confidence tracking、人手 shape prior、动作/左臂正则，以及 expert transition、带权 Actor BC、成功/失败 Critic warmup 和 pure on-policy PPO 更新。
+- 增加正式启动、3M 诊断包、Gate 漏斗排错、checkpoint 恢复、512 回合 deterministic 验收和“达到 50% 不会自动早停”的操作说明。
+- 验证：章节结构、Markdown fence、关键维度/超参数/路径与 `sweep_env.py`、`progress_batch.py`、`bc_warmup.py`、`train_sweep.py`、`ppo.py`、`ppo_sweep.yaml`、`eval_sweep.py` 交叉核对；`git diff --check` 通过。
+
+## 2026-08-31 — Deep20 成功条件与末段推动奖励
+
+- 目标：把第一阶段“cube 中心刚进入”提升为“cube 完整进入后，入口侧整面再深入 20 mm”，并让 reward 对最后几毫米和扫把实际推动继续提供梯度。
+- 重要改动：`progress_batch.py` 保留 Gate3 `entered` 并将 Gate4 改为 `deep_inside`，新增 ratcheted `deep_progress`；`sweep_env.py` 用扫把距离、后方方向、横向和高度对齐加权 episode 新 inward depth，替换一次性速度峰值 push shaping；新增 Deep20/fully-inside/扫把辅助诊断。
+- 专家：Actor 只 BC 40 mm；Critic 使用按新 reward 重采的 25/40 mm near-success 和 canonical failure，不使用 48M rollout，也不恢复 48M checkpoint。
+- 录像：`record_sweep.py` 在真实 Deep20 terminal 后只为斜视 MP4 重复最终帧 2 秒，并补充 `next_*`、`entered/fully_inside/deep_inside/deep_margin/deep_progress/broom_assisted_progress` trace。
+- GPU 安全：修复 Sweep 自动录像绕过 guard 的旧行为；训练现在响应 `pause.request`，只在 epoch 边界释放本任务槽位，录像退出并静置后恢复。用户明确授权与 `feiyang` 共享 GPU0 且不得中断外部进程；流水线据此直接启动，但本任务训练与录像之间仍禁止重叠。
+- 验证：Python compilation、CPU Success Tracker contract、`bash -n` 和 `git diff --check` 已通过；GPU transition/smoke 与 1024-env 已在 task-owned tmux 排队等待安全计算槽位。
+
+## 2026-08-31 — 新 Codex 统一交接入口
+
+- 新增根目录 `CODEX_HANDOFF.md`，将分散在工程日志、Playbook、旧 Pour 指南和运行目录中的当前事实整理为单一入口。
+- 文档明确 Deep20 目标与判据、reference 到 residual PPO 的数据流、Actor/Critic 输入与 warmup、1024-env 当前 run、3M 产物规范、512 回合验收、GPU 共享边界和最近待办。
+- 同步 `Codex_tasks.md` 的实时状态：Deep20 transition 和 1-env smoke 已完成；1024-env 已完成初始化和 BC/critic 数据预热，BC checkpoint 已落盘，当前处于 critic-only warmup，禁止重复 launch。
+- 此次只修改文档，不修改训练代码、不重启进程、不触碰其他用户 GPU 作业。
+
+## 2026-08-31 — 回退到旧 15M entry-success 训练方案
+
+- 按用户决定撤销 Deep20 作为训练目标，恢复首次几何有效 entered 时 Gate3/Gate4 同步成功并立即终止；Deep20 几何量仅保留为诊断，不再参与成功或 task reward。
+- 训练重新使用 logs/expert/transitions/ 中旧方案的 25/40 mm success 与 canonical failure transition，从随机初始化重新做 Actor/Critic warmup，不加载旧 checkpoint。
+- 保留诊断基础设施与录像展示逻辑：真实 rollout 在成功当步终止，MP4 额外重复终止帧 40 次（20 FPS 下 2 秒）。修复录像摘要误读 terminal reset 后 Gate 的问题。
+- 验证：Python compile、CPU tracker self-test、git diff --check 通过；旧 15M checkpoint 在恢复环境中于 step232 重现 entry success，trace Gate [1,1,1,1]，视频 233 个物理帧后追加 40 帧。
+
+## 2026-08-31 — 修复成功录像冻结帧 off-by-one
+
+- 发现 DirectRLEnv 在 terminal step 返回前已经自动 reset；旧 recorder 在 env.step 后渲染，误把 reset 画面 frame_0232 当作成功冻结源。
+- recorder 现在检测 terminal 后跳过 post-reset render，保留最后一个有效物理画面 frame_0231，并以该画面追加 40 帧。
+- 回归验证：topdown 最后一帧为 frame_0231.png，MP4 共 272 帧（232 个有效画面 + 40 帧冻结），terminal trace Gate [1,1,1,1]。首次 v1 初始化 run 已停止，改用独立 v2 目录从头重启，避免日志混写。

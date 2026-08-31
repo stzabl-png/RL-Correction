@@ -1,10 +1,10 @@
-"""Build the 20 Hz Sweep2 P-OBJ reference from reconstructed tool trajectories.
+"""Build the source-faithful 20 Hz Sweep2 P-OBJ/HYB reference.
 
-Each tool is placed with the same canon-rotation, pinned yaw, and affordance-centred
-translation used by ``GraspTaskEnv``. Reconstructed world-space position and rotation
-increments are then applied to that reachable pose. Each tool pose is converted to
-a hand pose with its GraspPose ``T_object_hand`` and solved by continuous-seed arm
-IK. Fingers are fixed throughout; reconstructed human finger motion is not P-OBJ.
+The RTS tool trajectories keep their full bimanual 6DoF path under one shared scene
+registration. GraspPose supplies the frame-zero object-to-hand transform and fixed
+finger posture. Object-driven wrist targets are solved by continuous arm IK. Human
+wrist tracks are welded to the same GraspPose at frame zero and stored only as motion
+shape guidance for medium/low-confidence rows, matching Pour17's HYB contract.
 """
 from __future__ import annotations
 
@@ -14,33 +14,28 @@ import os
 
 p = argparse.ArgumentParser()
 p.add_argument("--output", default="tasks/Sweep/2/A_Design/L2_Reference/sweep2_reference_v1.npz")
-p.add_argument("--source_fps", type=float, default=30.0)
 p.add_argument("--control_hz", type=float, default=20.0)
-p.add_argument("--broom_prior", default="tasks/pregrasp/priors/Sweep2_broom_v2.npz")
+p.add_argument("--broom_prior", default="tasks/pregrasp/priors/Sweep2_broom.npz")
 p.add_argument("--pan_prior", default="tasks/pregrasp/priors/Sweep2_dustpan.npz")
-p.add_argument("--anchor", default="tasks/pregrasp/priors/anchor_T_right.json")
-p.add_argument("--broom_yaw_deg", type=float, default=90.0)
-p.add_argument("--pan_yaw_deg", type=float, default=64.2)
-p.add_argument("--world_yaw_deg", type=float, default=120.0,
-               help="Rigid recon-world to sim-world yaw applied to all SE(3) increments")
-p.add_argument("--rot_scale", type=float, default=0.08,
-               help="Retained fraction of reconstructed object rotation increments")
+p.add_argument("--anchor", default="tasks/Sweep/2/A_Design/L2_Reference/anchor_T_sweep2.json")
+p.add_argument("--scene_yaw_deg", type=float, default=-14.0,
+               help="Single shared frame-zero yaw registration; never a per-tool rewrite")
+p.add_argument("--broom_start_x", type=float, default=-0.116)
+p.add_argument("--broom_start_y", type=float, default=-0.177)
+p.add_argument("--max_pos_step_m", type=float, default=0.008,
+               help="Time-expand, without changing the path, above this tool translation step")
+p.add_argument("--max_rot_step_deg", type=float, default=3.5,
+               help="Time-expand, without changing the path, above this tool rotation step")
 p.add_argument("--geometry_only", action="store_true",
                help="Audit cube/brush geometry without running IK or writing output")
-p.add_argument("--scan_world_yaw", action="store_true",
-               help="Print the geometry audit for -180..170 degrees in one load")
 p.add_argument("--audit_side", choices=("right", "left"), default=None,
                help="Run IK diagnostics for one side and exit without writing")
-p.add_argument("--scan_ik_yaw", action="store_true",
-               help="Multi-start audit the main broom-action row over world yaw")
 args = p.parse_args()
 
 import numpy as np
 
 from rl_rebuild.correction.kinematics import ArmIK
-from rl_rebuild.correction.ref_builders.replay_grasp import (GENERIC_JOINT_ORDER,
-                                                             load_replay_grasp)
-from rl_rebuild.correction.schema import ObjectSemantics
+from rl_rebuild.correction.ref_builders.replay_grasp import GENERIC_JOINT_ORDER
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../../"))
 DATA = os.path.join(ROOT, "datasets", "sweep_2_better")
@@ -113,68 +108,88 @@ def load_rts(oi):
 import trimesh  # noqa: E402
 
 
-def scene_pose(oi, hand, prior_path, yaw_deg):
-    """Reproduce GraspTaskEnv's canon-rotation/yaw/affordance placement on CPU."""
-    mesh_path = os.path.join(DATA, "objects", f"object_{oi}",
-                             "object_mesh_scaled_final.obj")
-    du = load_replay_grasp(
-        os.path.join(DATA, "retarget", "replay_world.npz"), mesh_path,
-        usd_path=os.path.join(DATA, "retarget", f"object_{oi}.usd"), hand=hand,
-        scene_layout_json=os.path.join(DATA, "scene_layout.json"),
-        clip_id=f"Sweep2_{'broom' if oi == 1 else 'dustpan'}",
-        target_hz=args.control_hz, table_height=TABLE_Z,
-        semantics=ObjectSemantics(label=hand, mass_kg=0.1, friction=0.6), verbose=False)
-    pose = np.asarray(du.object_init_pose, np.float64).copy()
-    rest_R = q_to_R(pose[3:7])
-    prior = np.load(prior_path)
-    canon_q = np.asarray(prior["canon_rot"], np.float64)
-    yaw = np.radians(yaw_deg)
-    yaw_q = np.array([np.cos(yaw/2), 0.0, 0.0, np.sin(yaw/2)])
-    final_q = qmul(yaw_q, canon_q); final_R = q_to_R(final_q)
-    verts = np.asarray(trimesh.load(mesh_path, force="mesh").vertices, np.float64)
-    pose[2] = TABLE_Z + 0.002 - (verts @ q_to_R(canon_q).T)[:, 2].min()
-    a_obj = verts.mean(0)
-    pose[:2] += (rest_R @ a_obj)[:2] - (final_R @ a_obj)[:2]
-    pose[3:7] = final_q
-    return pose
-
-
-scene = {0: scene_pose(0, "left", args.pan_prior, args.pan_yaw_deg),
-         1: scene_pose(1, "right", args.broom_prior, args.broom_yaw_deg)}
 with open(args.anchor) as f:
     anchor_T = np.asarray(json.load(f)["anchor_T"], np.float64)
 zr = {i: load_rts(i) for i in (0, 1)}
 raw = {i: np.asarray(zr[i]["object_ob_in_world_smooth"], np.float64) for i in (0, 1)}
+replay = np.load(os.path.join(DATA, "retarget", "replay_world.npz"), allow_pickle=True)
+source_fps = float(np.asarray(replay["fps"]))
+assert source_fps == 15.0, f"unexpected Sweep trajectory clock: {source_fps}"
 
-duration = (len(raw[0]) - 1) / args.source_fps
-times_s = np.arange(0.0, duration + 1e-9, 1.0 / args.control_hz)
-source_times = times_s * args.source_fps
+
+def rotation_angle(R0, R1):
+    return float(np.arccos(np.clip((np.trace(R0.T @ R1) - 1.0) / 2.0, -1.0, 1.0)))
+
+
+duration = (len(raw[0]) - 1) / source_fps
+base_times = np.arange(0.0, duration + 1e-9, 1.0 / args.control_hz) * source_fps
+if base_times[-1] < len(raw[0]) - 1:
+    base_times = np.r_[base_times, len(raw[0]) - 1]
+# A regular 20 Hz sample can straddle a 15 Hz reconstruction knot. Preserve the
+# exact knot whenever either tool has a large source-frame jump; otherwise a jump
+# can be hidden between two regular samples and reappear in only one output step.
+critical = {0, len(raw[0]) - 1}
+for row in range(len(raw[0]) - 1):
+    for i in (0, 1):
+        a, b = raw[i][row], raw[i][row + 1]
+        if (np.linalg.norm(b[:3, 3] - a[:3, 3]) > args.max_pos_step_m or
+                rotation_angle(a[:3, :3], b[:3, :3]) >
+                np.radians(args.max_rot_step_deg)):
+            critical.update((row, row + 1))
+base_times = np.unique(np.r_[base_times, sorted(critical)])
+base_tracks = {i: interp_T(raw[i], base_times) for i in (0, 1)}
+
+# Preserve every pose while slowing only jumps that exceed the physical reference
+# contract. This is Pour's time-expansion idea, not trajectory attenuation.
+source_times = [float(base_times[0])]
+for row in range(1, len(base_times)):
+    ratio = 1.0
+    for i in (0, 1):
+        a, b = base_tracks[i][row - 1], base_tracks[i][row]
+        ratio = max(ratio,
+                    np.linalg.norm(b[:3, 3] - a[:3, 3]) / args.max_pos_step_m,
+                    rotation_angle(a[:3, :3], b[:3, :3]) /
+                    np.radians(args.max_rot_step_deg))
+    count = int(np.ceil(ratio))
+    source_times.extend(np.linspace(base_times[row - 1], base_times[row],
+                                    count + 1)[1:].tolist())
+source_times = np.asarray(source_times, np.float64)
+times_s = np.arange(len(source_times), dtype=np.float64) / args.control_hz
 resampled = {i: interp_T(raw[i], source_times) for i in (0, 1)}
+print(f"[reference] source clock={source_fps:.1f}Hz; regular rows={len(base_times)}; "
+      f"time-expanded rows={len(source_times)} ({times_s[-1]:.2f}s)")
+for i in (0, 1):
+    pos_step = np.linalg.norm(np.diff(resampled[i][:, :3, 3], axis=0), axis=1)
+    rot_step = np.asarray([rotation_angle(a[:3, :3], b[:3, :3])
+                           for a, b in zip(resampled[i][:-1], resampled[i][1:])])
+    print(f"[reference] object_{i} path-preserving step audit: "
+          f"pos_max={1000*pos_step.max():.2f}mm "
+          f"rot_max={np.degrees(rot_step.max()):.2f}deg")
+    assert pos_step.max() <= args.max_pos_step_m + 1e-9
+    assert rot_step.max() <= np.radians(args.max_rot_step_deg) + 1e-9
+
+with open(os.path.join(DATA, "scene_layout.json")) as f:
+    layout = json.load(f)
 
 
-def registered_tools(world_yaw_deg):
+def registered_tools(scene_yaw_deg):
     tool_T = {}
-    wy = np.radians(world_yaw_deg)
+    wy = np.radians(scene_yaw_deg)
     R_world = np.array([[np.cos(wy), -np.sin(wy), 0.0],
                         [np.sin(wy), np.cos(wy), 0.0], [0.0, 0.0, 1.0]])
+    source_origin = raw[1][0, :3, 3]
+    scene_origin = np.array([
+        args.broom_start_x,
+        args.broom_start_y,
+        source_origin[2] + TABLE_Z - float(layout["scene_table_z"]),
+    ])
     for i in (0, 1):
         rs = resampled[i]
-        Ts = pose_T(scene[i][:3], scene[i][3:7])
         out_i = np.zeros_like(rs)
         for t, Tr in enumerate(rs):
             out_i[t] = np.eye(4)
-            out_i[t, :3, 3] = scene[i][:3] + R_world @ (
-                Tr[:3, 3] - raw[i][0, :3, 3])
-            dR = Tr[:3, :3] @ raw[i][0, :3, :3].T
-            qd = R_to_q(dR)
-            if qd[0] < 0.0:
-                qd = -qd
-            half = np.arccos(np.clip(qd[0], -1.0, 1.0))
-            if half > 1e-9:
-                axis = qd[1:] / np.sin(half)
-                hs = args.rot_scale * half
-                dR = q_to_R(np.r_[np.cos(hs), axis*np.sin(hs)])
-            out_i[t, :3, :3] = R_world @ dR @ R_world.T @ Ts[:3, :3]
+            out_i[t, :3, 3] = scene_origin + R_world @ (Tr[:3, 3] - source_origin)
+            out_i[t, :3, :3] = R_world @ Tr[:3, :3]
         tool_T[i] = out_i
     return tool_T
 
@@ -188,30 +203,12 @@ bv = np.asarray(bm.vertices, np.float64)
 bv = bv[bv[:, 2] > 0.04]
 bv = bv[np.random.RandomState(0).choice(len(bv), min(600, len(bv)), replace=False)]
 
-if args.scan_ik_yaw:
-    prior = np.load(args.broom_prior)
-    T_oh = pose_T(prior["grasp"][:3], prior["grasp"][3:7])
-    ik = ArmIK("right", anchor_link="arm_center", anchor_T=anchor_T)
-    rng = np.random.default_rng(20260830)
-    seeds = [ik.q_default] + [rng.uniform(ik.lower, ik.upper) for _ in range(16)]
-    key_rows = np.unique(np.r_[np.arange(0, len(times_s), 10), len(times_s)-1]).astype(int)
-    for angle in np.arange(-180.0, 180.0, 20.0):
-        tools = registered_tools(angle)
-        bad = None
-        for row in key_rows:
-            Twh = tools[1][row] @ T_oh
-            ans = ik.solve_best(Twh[:3, 3], Twh[:3, :3], seeds,
-                                iters=300, pos_tol=0.005, rot_tol=0.05)
-            if not ans["ok"]:
-                bad = (row, 100*ans["pos_err"], np.degrees(ans["rot_err"]))
-                break
-        print(f"[ik-yaw-scan] world_yaw={angle:6.1f} "
-              f"all_key_rows={bad is None} first_bad={bad}")
-    raise SystemExit(0)
 def brush_geometry(tool_T):
     pan0 = tool_T[0][0]
     candidates = []
-    for x in np.linspace(-0.04, 0.04, 9):
+    # Keep the full cube footprint inside the pan's lateral mouth corridor while
+    # allowing the fixed start to align with the reconstructed brush edge.
+    for x in np.linspace(-0.05, 0.05, 11):
         for zloc in np.linspace(0.110, 0.140, 7):
             p = (pan0 @ np.array([x, 0.0, zloc, 1.0]))[:3]
             p[2] = TABLE_Z + 0.0055
@@ -228,21 +225,17 @@ def brush_geometry(tool_T):
     return candidates, best
 
 
-if args.scan_world_yaw:
-    for angle in np.arange(-180.0, 180.0, 10.0):
-        _, scan_best = brush_geometry(registered_tools(angle))
-        print(f"[geometry-scan] world_yaw={angle:6.1f} "
-              f"brush_distance_cm={100*scan_best[0]:.3f} row={scan_best[1]}")
-    raise SystemExit(0)
-
-tool_T = registered_tools(args.world_yaw_deg)
+tool_T = registered_tools(args.scene_yaw_deg)
+scene = {i: np.r_[tool_T[i][0, :3, 3], R_to_q(tool_T[i][0, :3, :3])]
+         for i in (0, 1)}
 candidates, best = brush_geometry(tool_T)
 cube_start = candidates[best[2]]
 contact_row = int(best[1])
 brush_contact_local = bv[best[3]]
 brush_contact_world = (tool_T[1][contact_row, :3, :3] @ brush_contact_local +
                        tool_T[1][contact_row, :3, 3])
-print(f"[reference] world_yaw={args.world_yaw_deg:.1f} easy cube={np.round(cube_start, 4).tolist()} | "
+print(f"[reference] shared scene_yaw={args.scene_yaw_deg:.1f}deg "
+      f"easy cube={np.round(cube_start, 4).tolist()} | "
       f"nominal brush distance={best[0]*100:.2f}cm @ row {contact_row}")
 print(f"[reference] brush_contact_world={np.round(brush_contact_world, 4).tolist()} "
       f"delta_to_cube_cm={np.round((brush_contact_world-cube_start)*100, 3).tolist()}")
@@ -251,7 +244,7 @@ if args.geometry_only:
 
 priors = {"right": np.load(args.broom_prior), "left": np.load(args.pan_prior)}
 oid = {"right": 1, "left": 0}
-arm_q, ik_report = {}, {}
+arm_q, ik_report, object_hand0 = {}, {}, {}
 
 
 def solve_continuous(ik, P, Q, seed):
@@ -291,19 +284,37 @@ def solve_continuous(ik, P, Q, seed):
         j = int(parents[k][j]); path.append(pools[k][j])
     path = np.asarray(path[::-1])
     q_seed = PchipInterpolator(key_rows, path, axis=0)(np.arange(len(P)))
+    seed_pe, seed_re = [], []
+    for q, p_tgt, quat_tgt in zip(q_seed, P, Q):
+        p_fk, R_fk = ik.fk(q)
+        seed_pe.append(np.linalg.norm(p_fk - p_tgt))
+        seed_re.append(np.linalg.norm(ik._cost(q, p_tgt, q_to_R(quat_tgt), 0.35)[3]))
+    print("[reference] sparse-DP spline audit: "
+          f"pos_max={100*max(seed_pe):.3f}cm "
+          f"rot_max={np.degrees(max(seed_re)):.3f}deg "
+          f"joint_step_max={np.degrees(np.abs(np.diff(q_seed, axis=0)).max()):.3f}deg")
 
     reports = []
     for row, (p_tgt, quat_tgt, q0) in enumerate(zip(P, Q, q_seed)):
         R_tgt = q_to_R(quat_tgt)
-        ans = ik.solve(p_tgt, R_tgt, q0=q0, iters=250,
-                       pos_tol=0.005, rot_tol=0.05)
-        if not ans["ok"]:
-            trials = [ik.solve(p_tgt, R_tgt, q0=s, iters=300,
-                               pos_tol=0.005, rot_tol=0.05)
-                      for s in [q0] + seed_bank]
+        # Track the preceding dense solution as well as the sparse DP spline.
+        # Solving every row from the spline alone can cross to another redundant
+        # IK branch between key rows even though both neighbouring poses are close.
+        local_seeds = [q0]
+        if reports:
+            local_seeds.append(np.asarray(reports[-1]["q"], np.float64))
+        trials = [ik.solve(p_tgt, R_tgt, q0=s, iters=300,
+                           pos_tol=0.002, rot_tol=0.02) for s in local_seeds]
+        good = [r for r in trials if r["ok"]]
+        target = local_seeds[-1]
+        if not good:
+            trials = [ik.solve(p_tgt, R_tgt, q0=s, iters=350,
+                               pos_tol=0.002, rot_tol=0.02)
+                      for s in seed_bank]
             good = [r for r in trials if r["ok"]]
-            if good:
-                ans = min(good, key=lambda r: np.linalg.norm(r["q"] - q0))
+        ans = (min(good, key=lambda r: np.linalg.norm(r["q"] - target))
+               if good else min(trials, key=lambda r: r["pos_err"]**2
+                                  + (0.35*r["rot_err"])**2))
         reports.append(ans)
     return reports
 
@@ -312,6 +323,7 @@ for side in ((args.audit_side,) if args.audit_side else ("right", "left")):
     T_oh = pose_T(priors[side]["grasp"][:3], priors[side]["grasp"][3:7])
     ik = ArmIK(side, anchor_link="arm_center", anchor_T=anchor_T)
     hand_T = [Twt @ T_oh for Twt in tool_T[oid[side]]]
+    object_hand0[side] = hand_T[0]
     P = np.asarray([T[:3, 3] for T in hand_T])
     Q = np.asarray([R_to_q(T[:3, :3]) for T in hand_T])
     reports = solve_continuous(ik, P, Q, 20260830 + int(side == "left"))
@@ -334,8 +346,51 @@ for side in ((args.audit_side,) if args.audit_side else ("right", "left")):
 if args.audit_side:
     raise SystemExit(0)
 
+
+def aligned_human_targets(side):
+    """Pour first-frame weld: borrow reconstructed motion, never absolute wrist pose."""
+    path = os.path.join(DATA, "retarget", f"ref_qpos_{side}.npz")
+    zh = np.load(path, allow_pickle=True)
+    assert float(np.asarray(zh["fps"])) == source_fps
+    wrist = np.asarray([pose_T(p, q) for p, q in
+                        zip(zh["wrist_pos"], zh["wrist_quat_wxyz"])])
+    wrist = interp_T(wrist, source_times)
+    yaw = np.radians(args.scene_yaw_deg)
+    R_world = np.array([[np.cos(yaw), -np.sin(yaw), 0.0],
+                        [np.sin(yaw), np.cos(yaw), 0.0], [0.0, 0.0, 1.0]])
+    anchor = object_hand0[side]
+    P, Q = [], []
+    for T in wrist:
+        out = np.eye(4)
+        out[:3, 3] = anchor[:3, 3] + R_world @ (T[:3, 3] - wrist[0, :3, 3])
+        dR = R_world @ (T[:3, :3] @ wrist[0, :3, :3].T) @ R_world.T
+        out[:3, :3] = dR @ anchor[:3, :3]
+        P.append(out[:3, 3])
+        Q.append(R_to_q(out[:3, :3]))
+    return np.asarray(P), np.asarray(Q)
+
+
+human_q, human_ik_report = {}, {}
+for side in ("right", "left"):
+    P, Q = aligned_human_targets(side)
+    ik = ArmIK(side, anchor_link="arm_center", anchor_T=anchor_T)
+    reports = solve_continuous(ik, P, Q, 20260840 + int(side == "left"))
+    qs = np.asarray([answer["q"] for answer in reports], np.float64)
+    pe = np.asarray([answer["pos_err"] for answer in reports])
+    re = np.asarray([answer["rot_err"] for answer in reports])
+    ok = np.asarray([answer["ok"] for answer in reports])
+    human_q[side] = qs.astype(np.float32)
+    human_ik_report[side] = {
+        "ok_ratio": float(ok.mean()),
+        "pos_max_cm": float(100 * pe.max()),
+        "rot_max_deg": float(np.degrees(re.max())),
+        "joint_step_max_deg": float(np.degrees(np.abs(np.diff(qs, axis=0)).max())),
+    }
+    print(f"[reference] human-shape {side}: {human_ik_report[side]}")
+
 out = {
     "right_q": arm_q["right"], "left_q": arm_q["left"],
+    "human_right_q": human_q["right"], "human_left_q": human_q["left"],
     "right_f": np.repeat(priors["right"]["grasp"][None, 7:29], len(times_s), axis=0).astype(np.float32),
     "left_f": np.repeat(priors["left"]["grasp"][None, 7:29], len(times_s), axis=0).astype(np.float32),
     "fin_names": np.array(GENERIC_JOINT_ORDER, dtype=object),
@@ -344,15 +399,16 @@ out = {
     "cube_start_w": cube_start.astype(np.float32),
     "contact_row": np.int32(contact_row),
     "nominal_brush_cube_distance_m": np.float32(best[0]),
-    "world_yaw_deg": np.float32(args.world_yaw_deg),
-    "rotation_increment_scale": np.float32(args.rot_scale),
+    "scene_yaw_deg": np.float32(args.scene_yaw_deg),
+    "source_fps": np.float32(source_fps),
     "brush_contact_local": brush_contact_local.astype(np.float32),
     "scene_pose_0": scene[0].astype(np.float32),
     "scene_pose_1": scene[1].astype(np.float32),
-    "meta": ("Sweep2 P-OBJ v1; RTS tools 30Hz->20Hz; full reconstructed position "
-             f"increments; {args.rot_scale:.3f} reconstructed rotation increments; "
-             f"recon-to-sim world yaw {args.world_yaw_deg:.1f}deg; GraspTask canon+yaw "
-             "placement; GraspPose-locked hands; fingers fixed"),
+    "meta": ("Sweep2 P-OBJ/HYB v2; authoritative 15Hz trajectory clock -> 20Hz; "
+             "full RTS bimanual 6DoF path; local time expansion only; shared "
+             f"scene registration yaw {args.scene_yaw_deg:.1f}deg; GraspPose-locked "
+             "frame-zero hands; human wrists first-frame welded for motion-shape only; "
+             "fingers fixed"),
 }
 for i in (0, 1):
     out[f"obj_pos_{i}"] = tool_T[i][:, :3, 3].astype(np.float32)
@@ -360,11 +416,15 @@ for i in (0, 1):
     cf = np.minimum(np.asarray(zr[i]["conf_pos"]), np.asarray(zr[i]["conf_rot"]))
     out[f"confidence_{i}"] = np.interp(source_times, np.arange(len(cf)), cf).astype(np.float32)
 out["ik_report"] = np.array(str(ik_report))
+out["human_ik_report"] = np.array(str(human_ik_report))
 
 assert min(v["ok_ratio"] for v in ik_report.values()) >= 0.99, ik_report
 assert max(v["pos_max_cm"] for v in ik_report.values()) <= 0.5, ik_report
 assert best[0] <= 0.020, f"retargeted brush misses every easy cube candidate: {best[0]:.4f}m"
 assert max(v["joint_step_max_deg"] for v in ik_report.values()) <= 8.0, ik_report
+assert min(v["ok_ratio"] for v in human_ik_report.values()) >= 0.99, human_ik_report
+assert max(v["pos_max_cm"] for v in human_ik_report.values()) <= 1.0, human_ik_report
+assert max(v["joint_step_max_deg"] for v in human_ik_report.values()) <= 12.0, human_ik_report
 os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
 np.savez(args.output, **out)
 print(f"[reference] wrote validated {args.output}: rows={len(times_s)}, "

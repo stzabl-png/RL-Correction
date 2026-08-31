@@ -1,5 +1,13 @@
 # Durable lessons
 
+## GPU 空闲检测必须要求稳定窗口，自动录像不得绕过 guard
+
+- 背景/现象：Deep20 transition collector 启动后，检查发现它与 GPU0 上其他用户的 Isaac 作业短暂重叠。
+- 错误假设或操作：一次性查询 compute app 被当成可占用证明；同时旧 Sweep 自动录像脚本显式设置 `RL_ISAAC_NO_GUARD=1`。
+- 根因：外部作业的 CUDA context 可在采样瞬间变化，一次查询存在竞态；录像脚本没有实现训练侧 pause/yield 协议。
+- 修正：立即只停止本任务 collector；默认启动脚本改为 GPU0 连续 60 秒无 compute app 且 utilization 不高于 5% 才继续；随后用户明确确认有权共享 GPU，才用显式 `SWEEP_ALLOW_SHARED_GPU=1` 重新启动。训练在 epoch 边界调用 `yield_if_paused()`，录像不再绕过 guard。
+- 预防/检查方法：远端流水线启动后必须再次核对 `nvidia-smi` 的 PID/owner；未获得资源所有者明确共享授权时必须稳定等待。即使获准共享，也不得停止、降优先级或操作外部 PID，并仍要保证本任务训练和录像不重叠。
+
 ## Bootstrap must account for client filesystem and rsync versions
 
 - Context/symptom: The first transfer from the authorized macOS clone did not produce a clean Linux worktree.
@@ -347,3 +355,77 @@
   measure and render the asset cross-section, preserve its topology and grasp
   frame, create a non-destructive task copy, and validate with a behavioral A/B
   whose command tensors are hash-locked.
+
+## Do not treat a repeatable early contact as a disposable reset transient
+
+- Context/symptom: the physical-entry v1 replay visibly moved the cube during its
+  first frames, so a parked-cube/tool-settle pre-roll was tried before frame0.
+- Incorrect assumption/action: assumed the early motion could be removed without
+  changing the later near-success state because v1 actions and rows stayed exact.
+- Root cause: the disabled-entry and enabled-entry traces had identical cube world
+  motion for the first 50 frames; the source broom motion, not ramp activation,
+  produces the early contact and establishes the cube state used later.
+- Correction: reject and revert the pre-roll version after it reduced early motion
+  only partially and worsened best containment from 19.06 to 38.20 mm.
+- Prevention/check: before suppressing an apparent initialization transient, A/B
+  its full state trajectory against the best rollout and verify it is not a causal
+  task contact.  Preserve post-contact state equivalence, not only command hashes.
+
+## Commanded task-space depth is not equivalent to cube penetration
+
+- Context/symptom: a 25 mm right-hand inward extension left only 4.63 mm of strict
+  containment deficit, suggesting a larger 40 mm command should finish insertion.
+- Incorrect assumption/action: extrapolated cube motion linearly from commanded
+  Cartesian tool displacement after contact.
+- Root cause: at the pan mouth the brush/cube contact is marginal; increasing the
+  command from 25 to 40 mm changed IK/residual motion but did not preserve an
+  effective inward contact normal.  Best deficit slightly worsened to 4.78 mm.
+- Correction: stop increasing depth amplitude and inspect lateral/work-face contact
+  alignment around frames385--395 as the next isolated variable.
+- Prevention/check: after every task-space amplitude A/B, compare both command and
+  object response.  Treat a flat/non-monotonic object response as contact loss,
+  not evidence that still more command is needed.
+
+## Artifact arguments must include their approved project-root prefix
+
+- Context/symptom: the first formal-expert tmux attempt failed before simulation
+  because `--baseline`, `--trace`, and `--video` were passed as subpaths beneath
+  their approved roots, while the script validates root-relative paths.
+- Root cause: treated the arguments as relative to `logs/`/`outputs_video/`, but
+  `under()` resolves them relative to the project root and then checks containment.
+- Correction: waited for both short-lived failed processes to exit, then relaunched
+  serially with `logs/...` and `outputs_video/...`; no physical rollout or formal
+  artifact had been produced by the failed attempt.
+- Prevention/check: inspect each artifact path constructor before launch and run a
+  cheap path-resolution check before paying Isaac startup cost.
+
+## 2026-08-30 — Transition recollection corrections
+
+- First collector attempt used an internal signal key name that differed from
+  the environment (`pan_clearance` versus `mouth_clearance`).  The strict schema
+  gate stopped before writing a dataset; the collector now uses the canonical key.
+- The first physical expert recollection silently inherited a later-edited cube
+  start from the reference NPZ and therefore did not reproduce the accepted
+  expert.  The collector now restores and pins the archived v1 easy-start cube
+  pose from the canonical action source before reset.
+- Isaac Sim 5.1 plugin teardown hung after durable transition/training artifacts
+  were complete.  Task-owned processes were terminated by exact PID only, and
+  training now exits at the established clean post-checkpoint process boundary.
+
+## 2026-08-31 — 3M 诊断钩子缺少运行时导入
+
+- 现象：训练在 3,014,656 steps 首次跨过 3M 时，已经保存
+  `diag_0003M.pth`，随后在构造诊断 JSON 的 `torch.stack()` 处触发 NameError 并退出。
+- 根因：静态 `py_compile` 无法发现函数运行到特定 3M 分支时才解析的未定义全局名；
+  `train_sweep.py` 使用了 `torch` 却没有 import。
+- 修复：显式导入 `torch`，补齐当次 JSON/video/trace，并从精确 3M checkpoint 恢复。
+  checkpoint 以后同时存 optimizer 与 step/epoch/lr，避免旧格式恢复丢失训练状态。
+- 预防：所有稀疏触发的诊断分支必须在小步 smoke 中用降低阈值强制执行一次；不能把
+  “模块可编译”当成“定时分支已验证”。
+
+## Terminal 后渲染会把 reset 状态误当作成功冻结帧
+
+- 背景：15M entry 回归在 terminal transition step232 成功，但 DirectRLEnv 在 env.step 返回前已自动 reset。
+- 症状：录像器随后 render，生成的 frame_0232 是 reset 画面；正确最后有效图像是 frame_0231。
+- 修正：检测 done 后保存 transition，但跳过 post-reset render，以最后一个有效 pre-reset RGB 图像追加 40 帧。
+- 预防：录像验收同时检查 trace terminal Gate、topdown 最大编号和 MP4 物理帧数；不能只看 success_step 日志。

@@ -4,12 +4,14 @@ device: cuda
 network:
   mlp:
     units: [256, 128]
+  critic_mlp:
+    units: [256, 256, 128]
   priv_mlp:
     units: [64, 32, 8]
   separate_critic: true
   actor_priv_dim: 8
   sigma_floor: 0.02
-  sigma_init: 0.08
+  sigma_init: 0.05
   mu_init_scale: 0.01
 load_path: null
 algorithm:
@@ -40,5 +42,5 @@ algorithm:
   save_frequency: 40
   max_agent_steps: 100000000
   priv_info: true
-  priv_info_dim: 8
+  priv_info_dim: 22
   priv_info_embed_dim: 8

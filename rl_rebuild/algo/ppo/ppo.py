@@ -58,6 +58,8 @@ class PPO(object):
         # ---- Model ----
         net_config = {
             'actor_units': self.network_config["mlp"]["units"],
+            'critic_units': self.network_config.get(
+                "critic_mlp", self.network_config["mlp"])["units"],
             'priv_mlp_units': self.network_config["priv_mlp"]["units"],
             'actions_num': self.actions_num,
             'input_shape': self.obs_shape,
@@ -211,7 +213,8 @@ class PPO(object):
         _t = time.time()
         _last_t = time.time()
         self.obs = self.env.reset()
-        self.agent_steps = self.batch_size
+        self.agent_steps = max(
+            self.batch_size, int(getattr(self, 'initial_agent_steps', 0)))
 
         while self.agent_steps < self.max_agent_steps:
             self.epoch_num += 1
@@ -258,6 +261,10 @@ class PPO(object):
     def save(self, name):
         weights = {
             'model': self.model.state_dict(),
+            'optimizer': self.optimizer.state_dict(),
+            'agent_steps': int(self.agent_steps),
+            'epoch_num': int(self.epoch_num),
+            'last_lr': float(self.last_lr),
         }
         if self.running_mean_std:
             weights['running_mean_std'] = self.running_mean_std.state_dict()
@@ -270,6 +277,14 @@ class PPO(object):
             return
         checkpoint = torch.load(fn)
         self.model.load_state_dict(checkpoint['model'])
+        if 'optimizer' in checkpoint:
+            self.optimizer.load_state_dict(checkpoint['optimizer'])
+        self.initial_agent_steps = int(checkpoint.get('agent_steps', 0))
+        self.epoch_num = int(checkpoint.get('epoch_num', self.epoch_num))
+        if 'last_lr' in checkpoint:
+            self.last_lr = float(checkpoint['last_lr'])
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] = self.last_lr
         self.running_mean_std.load_state_dict(checkpoint['running_mean_std'])
         # Also restore the VALUE normalizer if present (the checkpoint saves it but this method
         # previously ignored it -> on --resume the critic scale reset, causing a reward transient
@@ -315,7 +330,7 @@ class PPO(object):
             ep_kls = []
             for i in range(len(self.storage)):
                 value_preds, old_action_log_probs, advantage, old_mu, old_sigma, \
-                    returns, actions, obs, priv_info, pointcloud, obj_pose = self.storage[i]
+                    returns, actions, obs, priv_info, pointcloud, obj_pose, actor_mask = self.storage[i]
 
                 obs = self.running_mean_std(obs)
                 batch_dict = {
@@ -360,7 +375,13 @@ class PPO(object):
                     b_loss = (mu_loss_low + mu_loss_high).sum(axis=-1)
                 else:
                     b_loss = 0
-                a_loss, c_loss, entropy, b_loss = [torch.mean(loss) for loss in [a_loss, c_loss, entropy, b_loss]]
+                mask = actor_mask.squeeze(-1)
+                mask_denom = mask.sum().clamp_min(1.0)
+                a_loss = (a_loss * mask).sum() / mask_denom
+                entropy = (entropy * mask).sum() / mask_denom
+                if torch.is_tensor(b_loss):
+                    b_loss = (b_loss * mask).sum() / mask_denom
+                c_loss = torch.mean(c_loss)
 
                 # critic warmup: 前 N 个 epoch 只训 critic, actor 完全冻结.
                 # 随机初始化的 critic 给出的 advantage 是噪声, 拿它加权策略梯度会让 mu
@@ -391,7 +412,8 @@ class PPO(object):
                 self.optimizer.step()
 
                 with torch.no_grad():
-                    kl_dist = policy_kl(mu.detach(), sigma.detach(), old_mu, old_sigma)
+                    kl_dist = policy_kl(mu.detach(), sigma.detach(), old_mu, old_sigma,
+                                        actor_mask)
 
                 kl = kl_dist
                 # detach 后再收集: 这些 list 只用于 write_stats 求均值打日志.
@@ -425,6 +447,10 @@ class PPO(object):
             # collect o_t
             self.storage.update_data('obses', n, self.obs['obs'])
             self.storage.update_data('priv_info', n, self.obs['priv_info'])
+            self.storage.update_data(
+                'actor_mask', n,
+                self.obs.get('actor_mask', torch.ones(
+                    self.num_actors, 1, device=self.device)))
             if self.use_pc:
                 self.storage.update_data('pointcloud', n, self.obs['pointcloud'])
             if self.use_wm:
@@ -478,13 +504,16 @@ class PPO(object):
         self.storage.data_dict['returns'] = returns
 
 
-def policy_kl(p0_mu, p0_sigma, p1_mu, p1_sigma):
+def policy_kl(p0_mu, p0_sigma, p1_mu, p1_sigma, mask=None):
     c1 = torch.log(p1_sigma/p0_sigma + 1e-5)
     c2 = (p0_sigma ** 2 + (p1_mu - p0_mu) ** 2) / (2.0 * (p1_sigma ** 2 + 1e-5))
     c3 = -1.0 / 2.0
     kl = c1 + c2 + c3
-    kl = kl.sum(dim=-1)  # returning mean between all steps of sum between all actions
-    return kl.mean()
+    kl = kl.sum(dim=-1)
+    if mask is None:
+        return kl.mean()
+    weight = mask.squeeze(-1)
+    return (kl * weight).sum() / weight.sum().clamp_min(1.0)
 
 
 # from https://github.com/leggedrobotics/rsl_rl/blob/master/rsl_rl/algorithms/ppo.py

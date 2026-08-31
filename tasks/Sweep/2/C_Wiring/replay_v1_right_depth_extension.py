@@ -1,4 +1,4 @@
-"""Replay archived v1 unchanged with matched visual and physical pan entry."""
+"""A/B the immutable v1 replay with one right-hand depth extension."""
 from __future__ import annotations
 
 import argparse
@@ -14,6 +14,8 @@ p.add_argument("--baseline", required=True)
 p.add_argument("--trace", required=True)
 p.add_argument("--metrics", required=True)
 p.add_argument("--video", required=True)
+p.add_argument("--depth_mm", type=float, required=True)
+p.add_argument("--max_bound_excess_deg", type=float, default=3.0)
 AppLauncher.add_app_launcher_args(p)
 args = p.parse_args()
 
@@ -28,11 +30,14 @@ import torch  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import sweep_env as SE  # noqa: E402
 from rl_rebuild.correction import clips  # noqa: E402
+from rl_rebuild.correction.kinematics import ArmIK, quat_to_R  # noqa: E402
 from rl_rebuild.wrapper.sharpa_wave_env_wrapper import GymStyleEnvWrapper  # noqa: E402
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../"))
 LOGS = os.path.join(ROOT, "logs")
 VIDEOS = os.path.join(ROOT, "outputs_video")
+DEPTH = float(args.depth_mm) / 1000.0
+assert DEPTH > 0.0
 
 
 def under(root: str, path: str) -> str:
@@ -91,6 +96,88 @@ arm_ref_sha = sha(arm_ref_before.cpu().numpy())
 tool_ref_sha = {f"pos_{i}": sha(obj_pos_before[i].cpu().numpy()) for i in (0, 1)}
 tool_ref_sha |= {f"quat_{i}": sha(obj_quat_before[i].cpu().numpy()) for i in (0, 1)}
 
+
+def smoothstep(x: float) -> float:
+    x = float(np.clip(x, 0.0, 1.0))
+    return x * x * (3.0 - 2.0 * x)
+
+
+# Reconstruct the archived v1 cumulative residual exactly, then alter only the
+# right hand after row370.  The Cartesian offset is expressed in each row's pan
+# frame: the requested inward depth (-z), then hold.  Retraction/lift is intentionally absent
+# from this first A/B so the sole changed physical variable is insertion depth.
+nominal_cum = np.zeros((len(rows), 14), dtype=np.float64)
+dev_schedule = np.zeros((len(rows), 14), dtype=np.float64)
+cum = np.zeros(14, dtype=np.float64)
+conf_np = raw.conf.detach().cpu().numpy()
+step_hi = raw.step_hi.detach().cpu().numpy()
+step_lo = raw.step_lo.detach().cpu().numpy()
+dev_hi = raw.dev_hi.detach().cpu().numpy()
+dev_lo = raw.dev_lo.detach().cpu().numpy()
+for t, row in enumerate(rows):
+    c14 = np.r_[np.repeat(conf_np[row, 0], 7),
+                np.repeat(conf_np[row, 1], 7)]
+    step = step_hi + c14 * (step_lo - step_hi)
+    dev = dev_hi + c14 * (dev_lo - dev_hi)
+    cum = np.clip(cum + actions[t] * step, -dev, dev)
+    nominal_cum[t] = cum
+    dev_schedule[t] = dev
+
+ik = ArmIK("right", anchor_link="arm_center", anchor_T=raw._anchor_T)
+planned_residual = nominal_cum.copy()
+plan_pos_err, plan_rot_err, plan_depth, plan_lift = [], [], [], []
+prev_q = None
+for t, row in enumerate(rows):
+    depth = (0.0 if row < 370 else
+             DEPTH * smoothstep((row - 370) / 20.0) if row <= 390 else
+             DEPTH if row <= 420 else
+             DEPTH * (1.0 - smoothstep((row - 420) / 30.0))
+             if row <= 450 else 0.0)
+    lift = 0.0
+    plan_depth.append(depth)
+    plan_lift.append(lift)
+    if depth == 0.0 and lift == 0.0:
+        plan_pos_err.append(0.0); plan_rot_err.append(0.0)
+        continue
+    q_nom = (arm_ref_before[row, :7].cpu().numpy().astype(np.float64)
+             + nominal_cum[t, :7])
+    p_nom, R_nom = ik.fk(q_nom)
+    pan_R = quat_to_R(obj_quat_before[0][row].cpu().numpy())
+    p_tgt = p_nom + pan_R @ np.array([0.0, lift, -depth])
+    seeds = [q_nom] + ([] if prev_q is None else [prev_q])
+    trials = [ik.solve(p_tgt, R_nom, q0=seed, iters=300,
+                       pos_tol=0.002, rot_tol=0.02) for seed in seeds]
+    good = [ans for ans in trials if ans["ok"]]
+    assert good, (row, [(ans["pos_err"], ans["rot_err"]) for ans in trials])
+    ans = min(good, key=lambda item: np.linalg.norm(item["q"] - q_nom))
+    prev_q = np.asarray(ans["q"], dtype=np.float64)
+    planned_residual[t, :7] = prev_q - arm_ref_before[row, :7].cpu().numpy()
+    plan_pos_err.append(float(ans["pos_err"]))
+    plan_rot_err.append(float(ans["rot_err"]))
+
+assert np.count_nonzero(planned_residual[:, 7:]) == 0
+assert np.array_equal(planned_residual[:370], nominal_cum[:370])
+right_dev = np.maximum(
+    np.abs(planned_residual[:, :7]) - dev_schedule[:, :7], 0.0)
+worst = np.unravel_index(int(np.argmax(right_dev)), right_dev.shape)
+print("[right-depth-bound] " + json.dumps({
+    "row": int(rows[worst[0]]),
+    "joint": int(worst[1]),
+    "excess_deg": float(np.degrees(right_dev[worst])),
+    "planned_deg": float(np.degrees(planned_residual[worst[0], worst[1]])),
+    "bound_deg": float(np.degrees(dev_schedule[worst[0], worst[1]])),
+    "depth_mm": float(1000.0 * plan_depth[worst[0]]),
+    "lift_mm": float(1000.0 * plan_lift[worst[0]]),
+}, sort_keys=True))
+assert float(right_dev.max()) <= np.radians(args.max_bound_excess_deg), float(right_dev.max())
+joint_step = np.abs(np.diff(planned_residual[:, :7], axis=0))
+print("[right-depth-plan] " + json.dumps({
+    "max_pos_err_mm": 1000.0 * max(plan_pos_err),
+    "max_rot_err_deg": float(np.degrees(max(plan_rot_err))),
+    "max_abs_residual_deg": float(np.degrees(np.abs(planned_residual[:, :7]).max())),
+    "max_residual_step_deg": float(np.degrees(joint_step.max())),
+}, sort_keys=True))
+
 # The reference NPZ's easy-start point was edited after v1.  Restore the actual
 # v1 frame-zero cube world position from the archived observation, so cube setup
 # is controlled rather than silently becoming a second experimental variable.
@@ -134,8 +221,10 @@ raw.episode_length_buf[0] = 0
 
 frames, cube_pan, cube_world = [], [], []
 pan_world, broom_world, gates, stable_run = [], [], [], []
-fully_inside, rel_speed, rewards = [], [], []
+entered, fully_inside, rel_speed, rewards = [], [], [], []
 executed_actions, executed_rows = [], []
+success_frame = None
+success_cube_pan_post = None
 
 with torch.no_grad():
     for t, row in enumerate(rows):
@@ -147,13 +236,19 @@ with torch.no_grad():
         pan_world.append((raw.aux.data.root_pos_w[0] - raw.scene.env_origins[0]).cpu().numpy().copy())
         broom_world.append((raw.object.data.root_pos_w[0] - raw.scene.env_origins[0]).cpu().numpy().copy())
 
-        action = torch.tensor(actions[t:t+1], dtype=torch.float32, device=raw.device)
+        confidence = raw.conf[int(row)]
+        c14 = torch.cat([confidence[:1].expand(7), confidence[1:].expand(7)])
+        step = raw.step_hi + c14 * (raw.step_lo - raw.step_hi)
+        goal = torch.tensor(planned_residual[t], dtype=torch.float32,
+                            device=raw.device)
+        action = ((goal - raw.cum_res[0]) / step).clamp(-1.0, 1.0).unsqueeze(0)
         executed_actions.append(action[0].cpu().numpy().copy())
         executed_rows.append(int(raw.row[0]))
         obs, reward, _, _ = env.step(action)
         tick = raw._tick_out
         gates.append(tick["gates"][0].cpu().numpy().copy())
         stable_run.append(int(tick["stable_run"][0]))
+        entered.append(bool(tick["entered"][0]))
         fully_inside.append(bool(tick["fully_inside"][0]))
         rel_speed.append(float(tick["rel_speed"][0]))
         rewards.append(float(reward[0]))
@@ -161,12 +256,15 @@ with torch.no_grad():
         image = annot.get_data()
         if image is not None and getattr(image, "size", 0):
             frames.append(np.asarray(image)[..., :3].astype(np.uint8))
+        if bool(tick["success"][0]):
+            success_frame = t
+            success_cube_pan_post = tick["cube_pan"][0].cpu().numpy().copy()
+            break
 
 executed_actions = np.asarray(executed_actions, dtype=np.float32)
 executed_rows = np.asarray(executed_rows, dtype=np.int64)
-assert np.array_equal(executed_rows, rows)
-assert np.array_equal(executed_actions, actions)
-assert sha(executed_actions) == expected_action_sha
+assert np.array_equal(executed_rows, rows[:len(executed_rows)])
+assert np.count_nonzero(executed_actions[:, 7:]) == 0
 assert torch.equal(raw.ref_arm, arm_ref_before)
 for i in (0, 1):
     assert torch.equal(raw.ref_pos[i], obj_pos_before[i])
@@ -176,18 +274,35 @@ cube_pan = np.asarray(cube_pan, dtype=np.float32)
 gates = np.asarray(gates, dtype=bool)
 stable_run = np.asarray(stable_run, dtype=np.int64)
 fully_inside = np.asarray(fully_inside, dtype=bool)
+entered = np.asarray(entered, dtype=bool)
+assert success_frame is not None, "planned expert never crossed the entry success boundary"
 base_cube_pan = np.asarray(base["priv_info"][:, :3], dtype=np.float32)
 a_def = containment_deficit(base_cube_pan, raw.geometry)
 b_def = containment_deficit(cube_pan, raw.geometry)
 a_best, b_best = int(np.argmin(a_def)), int(np.argmin(b_def))
 metrics = {
-    "comparison": "A=archived v1; B=identical bilateral trajectory/actions/cube start, smoothed dustpan asset plus matched z80-108mm entry collider",
+    "comparison": f"A=archived v1; B=same scene/left/cube with only a right-hand pan-local {args.depth_mm:g}mm depth extension, stopping on first entry success",
     "action_sha256_A": expected_action_sha,
     "action_sha256_B": sha(executed_actions),
-    "right_action_sha256": expected_right_sha,
+    "right_action_sha256_A": expected_right_sha,
+    "right_action_sha256_B": sha(executed_actions[:, :7]),
+    "left_actions_all_zero": bool(np.count_nonzero(executed_actions[:, 7:]) == 0),
+    "right_plan": {
+        "depth_ramp_rows": [370, 390],
+        "depth_hold_m": DEPTH,
+        "ik_solver": f"ArmIK with URDF limits; confidence residual bound may exceed by at most {args.max_bound_excess_deg:g}deg",
+        "residual_bound_excess_max_deg": float(np.degrees(right_dev.max())),
+        "depth_hold_rows": [390, 420],
+        "depth_release_rows": [420, 450],
+        "lift_m": 0.0,
+        "ik_pos_max_mm": float(1000.0 * max(plan_pos_err)),
+        "ik_rot_max_deg": float(np.degrees(max(plan_rot_err))),
+        "residual_abs_max_deg": float(np.degrees(np.abs(planned_residual[:, :7]).max())),
+        "residual_step_max_deg": float(np.degrees(joint_step.max())),
+    },
     "arm_reference_sha256_before_after": arm_ref_sha,
     "tool_reference_sha256": tool_ref_sha,
-    "rows_exact": bool(np.array_equal(executed_rows, rows)),
+    "rows_exact_prefix": bool(np.array_equal(executed_rows, rows[:len(executed_rows)])),
     "v1_cube_start_world_m": v1_cube_start.cpu().numpy().tolist(),
     "dustpan_asset": os.path.relpath(pan_asset, ROOT),
     "dustpan_asset_sha256": file_sha(pan_asset),
@@ -204,18 +319,24 @@ metrics = {
     "B_best_cube_pan_mm": (cube_pan[b_best] * 1000.0).tolist(),
     "B_gate_first_frames": [int(np.flatnonzero(gates[:, i])[0]) if gates[:, i].any() else None
                             for i in range(4)],
+    "B_ever_entered": bool(entered.any()),
     "B_ever_fully_inside": bool(fully_inside.any()),
     "B_max_stable_run": int(stable_run.max()),
     "B_success": bool(gates[:, 3].any()),
+    "success_frame": int(success_frame),
+    "success_cube_pan_post_mm": (success_cube_pan_post * 1000.0).tolist(),
     "frames": len(frames),
 }
 
 for path in (trace_path, metrics_path, video_path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
 np.savez(trace_path, rows=executed_rows, actions=executed_actions,
+         planned_residual=planned_residual[:len(executed_rows)].astype(np.float32),
+         plan_depth=np.asarray(plan_depth[:len(executed_rows)], dtype=np.float32),
+         plan_lift=np.asarray(plan_lift[:len(executed_rows)], dtype=np.float32),
          cube_pan=cube_pan, cube_world=np.asarray(cube_world),
          pan_world=np.asarray(pan_world), broom_world=np.asarray(broom_world),
-         gates=gates, stable_run=stable_run, fully_inside=fully_inside,
+         gates=gates, stable_run=stable_run, entered=entered, fully_inside=fully_inside,
          rel_speed=np.asarray(rel_speed), rewards=np.asarray(rewards),
          baseline_cube_pan=base_cube_pan)
 with open(metrics_path, "w", encoding="utf-8") as f:

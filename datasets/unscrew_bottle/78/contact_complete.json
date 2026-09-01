@@ -1,0 +1,28 @@
+{
+  "status": "complete",
+  "step": "contact",
+  "dataset": "egodex_part4",
+  "video_id": "screw_unscrew_bottle_cap__78",
+  "extractor": "extract_v2",
+  "schema_version": "contact_v2_summary_v1",
+  "is_prior": false,
+  "n_ok": 2,
+  "attempts": [
+    {
+      "object_id": "object_0",
+      "side": "left",
+      "status": "ok",
+      "why": null,
+      "opposition": 0.7611299711962871,
+      "hand_mask_agreement": 0.38817480719794345
+    },
+    {
+      "object_id": "object_0",
+      "side": "right",
+      "status": "ok",
+      "why": null,
+      "opposition": 0.4768542566832046,
+      "hand_mask_agreement": 0.5571979434447301
+    }
+  ]
+}

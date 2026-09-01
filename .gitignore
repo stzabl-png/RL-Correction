@@ -72,3 +72,7 @@ baseline/pour17/reference/*.npz
 baseline/pour17/perception/*.mp4
 baseline/pour17/perception/*.npz
 baseline/*.tar.gz
+
+# ---- 本机笔记 (旧分支同款忽略) ----
+NOTE.md
+/screw_1_isaac_bundle_20260824.tar.gz

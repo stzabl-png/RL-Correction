@@ -1,0 +1,44 @@
+{
+  "status": "complete",
+  "step": "contact",
+  "dataset": "egodex_part4",
+  "video_id": "screw_unscrew_bottle_cap__17",
+  "extractor": "extract_v2",
+  "schema_version": "contact_v2_summary_v1",
+  "is_prior": false,
+  "n_ok": 0,
+  "attempts": [
+    {
+      "object_id": "object_0",
+      "side": "left",
+      "status": "no_stable_contact",
+      "why": "\u6ca1\u6709\u65e2\u7a33\u53c8\u8d34\u7684\u5e27\u6bb5",
+      "opposition": null,
+      "hand_mask_agreement": null
+    },
+    {
+      "object_id": "object_0",
+      "side": "right",
+      "status": "no_stable_contact",
+      "why": "\u6ca1\u6709\u65e2\u7a33\u53c8\u8d34\u7684\u5e27\u6bb5",
+      "opposition": null,
+      "hand_mask_agreement": null
+    },
+    {
+      "object_id": "object_1",
+      "side": "left",
+      "status": "no_contact_interval",
+      "why": null,
+      "opposition": null,
+      "hand_mask_agreement": null
+    },
+    {
+      "object_id": "object_1",
+      "side": "right",
+      "status": "no_stable_contact",
+      "why": "\u7a97\u53e3 3 \u5e27 < \u95e8\u69db 5 \u5e27, \u5224\u65e0\u7a33\u5b9a\u6293\u63e1",
+      "opposition": null,
+      "hand_mask_agreement": null
+    }
+  ]
+}

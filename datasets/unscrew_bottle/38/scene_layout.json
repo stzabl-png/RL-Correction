@@ -1,0 +1,73 @@
+{
+ "schema_version": "scene_layout_v1",
+ "rl_table_height": 0.87,
+ "scene_table_z": 1.5113744133649925,
+ "scene_table_source": "object_0(conf_pos=85.5) 在 f8~f13 的顶点 1% 分位中位数",
+ "scene_to_rl_shift_z": 0.6413744133649925,
+ "obj_gap": 0.01,
+ "objects": {
+  "object_0": {
+   "pos": [
+    0.4192448201466317,
+    -0.05939341138572923,
+    1.5213744133649925
+   ],
+   "quat_wxyz": [
+    1.0,
+    -0.0,
+    0.0,
+    -0.0
+   ],
+   "anchor_hand": "left",
+   "onset_frame": 28,
+   "anchor_xy": [
+    0.4190098705818709,
+    -0.059446742518711584
+   ],
+   "quat_reason": "稳定候选129 | 筛直立(细长比3.03)->1 | 取概率最高 0.030(候选唯一)",
+   "contact_start": 13,
+   "onset_reason": "运动起始 f28(接触起点 f13, 阈 0.8cm/3帧, 持续3帧)",
+   "mesh": "datasets/unscrew_bottle/38/objects/object_0/object_mesh_scaled_final.obj",
+   "extent_cm": [
+    6.5,
+    6.5,
+    19.7
+   ]
+  },
+  "object_1": {
+   "pos": [
+    0.41131043782498117,
+    -0.2150624050070392,
+    1.5383744133649924
+   ],
+   "quat_wxyz": [
+    -0.0,
+    1.0,
+    0.0,
+    0.0
+   ],
+   "anchor_hand": "right",
+   "onset_frame": 42,
+   "anchor_xy": [
+    0.4112995411583145,
+    -0.21257454905932677
+   ],
+   "quat_reason": "稳定候选37 | 取概率最高 0.324",
+   "contact_start": 44,
+   "onset_reason": "运动起始 f42(接触起点 f44, 阈 0.8cm/3帧, 持续3帧)",
+   "mesh": "datasets/unscrew_bottle/38/objects/object_1/object_mesh_scaled_final.obj",
+   "extent_cm": [
+    3.5,
+    3.5,
+    1.7
+   ]
+  }
+ },
+ "diagnostics": [
+  "场景桌面高度 1.511m (量自 object_0(conf_pos=85.5) 在 f8~f13 的顶点 1% 分位中位数); RL 桌面 0.87m -> 整场景需下移 0.641m",
+  "object_0: 听左手 @f28  XY=(0.419,-0.059)  Z=1.521  尺寸 [6.5, 6.5, 19.7]cm\n          锚帧: 运动起始 f28(接触起点 f13, 阈 0.8cm/3帧, 持续3帧)\n          姿态: 稳定候选129 | 筛直立(细长比3.03)->1 | 取概率最高 0.030(候选唯一)",
+  "object_1: 听右手 @f42  XY=(0.411,-0.215)  Z=1.538  尺寸 [3.5, 3.5, 1.7]cm\n          锚帧: 运动起始 f42(接触起点 f44, 阈 0.8cm/3帧, 持续3帧)\n          姿态: 稳定候选37 | 取概率最高 0.324"
+ ],
+ "rule": "每个物体听自己的那只手: XY=该手在该物体**运动起始帧**(抓稳)的五指尖质心; Z=贴桌; 姿态=稳定候选->筛直立->筛开口朝上->取概率最高(不用重建旋转)",
+ "source_contact": "contact_auto_object_*.json (逐物体, 非并集)"
+}

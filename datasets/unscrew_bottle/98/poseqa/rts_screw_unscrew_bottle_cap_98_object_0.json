@@ -1,0 +1,39 @@
+{
+ "scene": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_part4/screw_unscrew_bottle_cap/98",
+ "n": 136,
+ "A_static_step": {
+  "raw_mm": 0.27670835653530906,
+  "smooth_mm": 0.1164728322023082,
+  "raw_deg": 1.3354485314318503,
+  "smooth_deg": 0.21546420692255885,
+  "n_free": 33
+ },
+ "B_image": {
+  "high_conf": {
+   "n": 48,
+   "explained_raw": 0.926505061137749,
+   "explained_smooth": 0.9207183601318201,
+   "dcent_raw": 0.0682826049910624,
+   "dcent_smooth": 0.08082948802289033
+  },
+  "low_conf": {
+   "n": 20,
+   "explained_raw": 0.8689655372011336,
+   "explained_smooth": 0.8364260352573551,
+   "dcent_raw": 0.08881364111189664,
+   "dcent_smooth": 0.11660412163958747
+  }
+ },
+ "C_innov_spikes_pos": [],
+ "n_rot_refuted": 0,
+ "sigma_pos_mm": {
+  "min": 2.4,
+  "median": 2.8,
+  "max": 9.4
+ },
+ "sigma_rot_deg": {
+  "min": 0.7,
+  "median": 1.1,
+  "max": 3.1
+ }
+}

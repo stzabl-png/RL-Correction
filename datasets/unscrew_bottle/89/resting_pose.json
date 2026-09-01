@@ -1,0 +1,26 @@
+{
+ "body_pos": [
+  0.0,
+  0.15,
+  0.88
+ ],
+ "body_quat_wxyz": [
+  1.0,
+  -0.0,
+  0.0,
+  -0.0
+ ],
+ "cap_pos": [
+  0.0,
+  0.15,
+  1.06
+ ],
+ "cap_quat_wxyz": [
+  1.0,
+  -0.0,
+  0.0,
+  -0.0
+ ],
+ "note": "\u5efa\u573a\u666f\u5360\u4f4d (\u771f\u5b9e\u4f4d\u59ff reset \u65f6\u7531 obj_init_*+reset_screw \u91cd\u7b97); z \u5df2\u6309 scene_to_rl_shift_z \u6362\u5230 RL \u684c\u9ad8, XY \u662f\u5360\u4f4d",
+ "source": "scene_layout.json"
+}

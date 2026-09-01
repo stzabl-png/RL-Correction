@@ -1,0 +1,39 @@
+{
+ "schema_version": "contact_v2_summary_v1",
+ "is_prior": false,
+ "n_ok": 1,
+ "attempts": [
+  {
+   "object_id": "object_0",
+   "side": "left",
+   "status": "ok",
+   "why": null,
+   "opposition": 0.5307841147013801,
+   "hand_mask_agreement": 0.29434447300771205
+  },
+  {
+   "object_id": "object_0",
+   "side": "right",
+   "status": "no_stable_contact",
+   "why": "没有既稳又贴的帧段",
+   "opposition": null,
+   "hand_mask_agreement": null
+  },
+  {
+   "object_id": "object_1",
+   "side": "left",
+   "status": "no_contact_interval",
+   "why": null,
+   "opposition": null,
+   "hand_mask_agreement": null
+  },
+  {
+   "object_id": "object_1",
+   "side": "right",
+   "status": "no_stable_contact",
+   "why": "窗口 1 帧 < 门槛 5 帧, 判无稳定抓握",
+   "opposition": null,
+   "hand_mask_agreement": null
+  }
+ ]
+}

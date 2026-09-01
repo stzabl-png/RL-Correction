@@ -556,6 +556,80 @@ for _n, _d, _pm in (("screw0_cap", f"{_RR_OUT}/egodex_auto/screw_unscrew_bottle_
         pass
 
 
+# ── egodex_part4 拧瓶盖 18 条 (datasets/unscrew_bottle/<n>, 2026-08-29 入库) ──
+# take 目录是**自包含**的 (replay_world.npz 与重建产物同目录, 不走 RR Output 双树),
+# 所以不能直接用 _screw_from_layout 的 ReconstructOutput→RetargetOutput 路径置换,
+# 包一层把 npz 指回 take 目录自己。其余全部走既有 secondary 双物体螺旋通路。
+#
+# CAD 已核对 (md5): 17/18 条的瓶身+瓶盖与 water_bottle_twist_static **字节相同**
+# (bottle_body c9d18519 / bottle_cap c755e07c) —— 螺纹参数/质量/摩擦整段沿用
+# 已验证配方, 不重标。78 号只注册到 1 个物体, 不注册 (README 已知缺口)。
+#
+# 任务口径覆写 (承旧台账 tasks/recon_kailang LEDGER_unscrew, 用户裁定):
+#   turns=0.75            U30b: 演示实测拧 ~266° 即分离, 2.0 圈是标准件假设 (难 2.7×)
+#   mode=preengaged       拧开任务: 盖起始装在瓶上 (VLM part_change 不用猜)
+#   U40 真实螺纹副 (2026-08-30 用户裁定 "最接近真实情况建模"; 老方法线 U40/b/c/d):
+#     旧口径的"接触门 + ω 阻尼"是假摩擦替身 —— 有接触就白给转动, 于是**碰一下
+#     瓶盖就自己转开/脱落**。换成: 咬合期盖用球形重惯量 (指尖→盖可传扭矩由
+#     PhysX 摩擦锥真实裁决, 捏得紧才传得多) + 解析螺纹阻力 (静锁 breakaway
+#     0.04N·m / 库仑 0.015 / 粘滞 0.03 → τ=0.075 时稳态 2rad/s ≈ 人手拧速);
+#     max_ang_vel 退化成 4rad/s 安全夹, 整形交给摩擦模型。
+# 角色拍板 (2026-08-29): screw_primary="body" —— 瓶身=env.object (置于桌面, 听
+# 左手相位摆放 + upright 投影: 重建静置帧带 ~21° FoundationPose 噪声 > 平底圆柱
+# 18.3° 倾倒极限, 旧台账 U24 的总根因, 必须投直); 盖=env.aux, 由 reset_screw 按
+# closed_offset 合拢在瓶顶 —— preengaged 的物理正确开局. 若反过来 primary=cap,
+# 主体摆放机制会把盖摆到它自己的桌面锚点 (f32 时盖还在倾斜的瓶顶 25cm 空中),
+# 瓶身再被反推到斜下方 —— 开局即错.
+def _unscrew_take(take_dir: str):
+    entry = _screw_from_layout(take_dir, screw_primary="body",
+                               robot_hand="left")
+    entry["npz"] = os.path.join(os.path.abspath(take_dir), "replay_world.npz")
+    entry["upright"] = True
+    # 左手×瓶身 affordance (设定 B 对齐目标; 由 expected_area_*_left.npz 转换,
+    # points/weight -> points_raw/heatmap, 见 tasks/Unscrew/part4 台账 T2-1)
+    _aff = os.path.join(os.path.abspath(take_dir), "contact",
+                        "affordance_bottle_left.npz")
+    if os.path.isfile(_aff):
+        entry["affordance"] = _aff
+    entry["resting_pose_json"] = os.path.join(
+        os.path.abspath(take_dir), "resting_pose.json")
+    asm = entry["secondary"]["assembly"]
+    asm["mode"] = "preengaged"
+    # 2026-09-01 用户裁定: 瓶盖转 **30°** 即可拧下 (先说 50, 复核后定 30;
+    # "0.75 圈=270° 太多了")。原值来自 U30b 的演示实测分离角, 现按实物改。
+    asm["turns"] = 30.0 / 360.0
+    asm.update(
+        # U45: 准静态螺纹 (ω=(|τ|−kinetic)⁺/b). 安全夹 4.0→2.5: 人手拧盖约
+        # 2 rad/s, 准静态下顶到 2.5 需持续 τ≈0.09N·m, 是真安全栏非整形器.
+        max_angular_velocity_rad_s=2.5,
+        breakaway_torque_nm=0.04,         # 已破封的松盖量级 (全新盖 0.4-1N·m)
+        kinetic_torque_nm=0.015,
+        viscous_nms=0.03,
+        # U45: 5e-3→5e-4. (a) 更接近真实盖 (≈7e-7, 5g/r1.7cm); (b) 准静态下
+        # I_eff 过大会与"手指用静摩擦强制盖面速度"形成正反馈: τ_ema 每子步
+        # 增益 α·I_eff/(dt·b), 5e-3 约 6.7 (周期2振荡), 5e-4 约 0.67 (稳定).
+        # 观测器不受影响: τ=I·dw/dt 对 I 不变 (dw ∝ 1/I).
+        inertia_eff_kgm2=5e-4,
+        torque_ema_s=0.025,
+        unlock_dwell_s=0.033,
+        lock_omega_eps=0.05,
+        react_on_bottle=True,             # 反作用扭矩回瓶身: 左手须抗扭
+    )
+    return entry
+
+
+_UNSCREW_DIR = os.path.join(_DATASETS, "unscrew_bottle")
+if os.path.isdir(_UNSCREW_DIR):
+    for _c in sorted(os.listdir(_UNSCREW_DIR)):
+        _d = os.path.join(_UNSCREW_DIR, _c)
+        if not os.path.isfile(os.path.join(_d, "scene_layout.json")):
+            continue               # 78 号单物体 / 未跑 layout 的目录: 静默跳过
+        try:
+            CLIPS[f"unscrew{_c}_task"] = _unscrew_take(_d)
+        except Exception as _e:    # 单条坏数据不该让模块导入失败
+            print(f"[clips] ⚠ unscrew{_c}_task 注册失败: {_e}")
+
+
 def configure_cfg(cfg, name: str):
     """把 clip 的资产路径写进 env cfg (在 env 构建之前调用)."""
     e = clip_entry(name)
@@ -768,6 +842,8 @@ def load_data_unit(cfg) -> DataUnit:
         return load_static_reconstruction(
             e["npz"], e["mesh"], usd_path=e["usd"], clip_id=cfg.clip_name,
             hand=e.get("hand"), placement_frame=e.get("placement_frame"),
+            upright=e.get("upright", False),
+            robot_hand=e.get("robot_hand"),
             target_hz=cfg.target_hz,
             table_height=cfg.table_top_z,
             table_half=min(cfg.table_size[0], cfg.table_size[1]) / 2.0,

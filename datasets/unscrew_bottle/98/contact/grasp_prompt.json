@@ -1,0 +1,42 @@
+{
+ "schema_version": "grasp_prompt_v2",
+ "provenance": {
+  "generated_at": "2026-08-28T03:03:48-07:00",
+  "generator_sha1": "79f304b2aa90",
+  "generator_commit": "1b9141e",
+  "generator_host": "msclab-AS-4124GS-TNR",
+  "generator_user": "yanghong"
+ },
+ "take": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_part4/screw_unscrew_bottle_cap/98",
+ "consumer": "GraspPose Agent",
+ "n_grasps": 0,
+ "grasps": [],
+ "rejected": [
+  {
+   "object_id": "object_0",
+   "hand": "left",
+   "status": "no_stable_contact",
+   "why": "没有既稳又贴的帧段"
+  },
+  {
+   "object_id": "object_0",
+   "hand": "right",
+   "status": "no_stable_contact",
+   "why": "没有既稳又贴的帧段"
+  },
+  {
+   "object_id": "object_1",
+   "hand": "left",
+   "status": "no_contact_interval",
+   "why": null
+  },
+  {
+   "object_id": "object_1",
+   "hand": "right",
+   "status": "no_stable_contact",
+   "why": "没有既稳又贴的帧段"
+  }
+ ],
+ "hand_without_target": [],
+ "how_contact_was_obtained": "单目 egocentric 视频重建 -> 逐帧手(MANO)与物体(6DoF)在世界系对齐 -> 在'手物相对位姿稳定 且 贴合 且 对生'的窗口内, 统计物体表面每个采样点被手碰到的帧数比例。判贴合时**丢弃沿相机视线方向的距离分量**(单目深度近乎不可观测), 只用图像平面内的分量。"
+}

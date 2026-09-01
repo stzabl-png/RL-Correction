@@ -1,0 +1,123 @@
+{
+ "schema_version": "contact_fingers_v1",
+ "tau_m": 0.035,
+ "vote": 0.3,
+ "align": false,
+ "hands": {
+  "left": {
+   "objects": {
+    "object_0": {
+     "status": "ok",
+     "n_frames": 85,
+     "fingers": [
+      "thumb",
+      "index",
+      "middle",
+      "ring",
+      "pinky"
+     ],
+     "n_fingers": 5,
+     "palm": false,
+     "tau_rule": {
+      "method": "vote_fallback",
+      "thr_mm": 35.0
+     },
+     "quality": {
+      "hand_confidence": 1.0,
+      "reliable": true
+     },
+     "contact_frac": {
+      "thumb": 0.365,
+      "index": 0.871,
+      "middle": 1.0,
+      "ring": 1.0,
+      "pinky": 1.0,
+      "palm": 0.282
+     },
+     "median_dist_mm": {
+      "thumb": 46.2,
+      "index": 0.6,
+      "middle": 0.5,
+      "ring": 0.5,
+      "pinky": 0.4,
+      "palm": 43.7
+     },
+     "grasp_core_frames": [
+      3,
+      87
+     ],
+     "grasp_established_frame": 3,
+     "offset_mm": {
+      "median": 0.0,
+      "p90": 0.0
+     },
+     "depth_frac": 0.508,
+     "depth_class": "full"
+    },
+    "object_1": {
+     "status": "no_grasp_core",
+     "n_frames": 85,
+     "max_regions": 0
+    }
+   },
+   "primary": "object_0"
+  },
+  "right": {
+   "objects": {
+    "object_0": {
+     "status": "no_grasp_core",
+     "n_frames": 20,
+     "max_regions": 1
+    },
+    "object_1": {
+     "status": "ok",
+     "n_frames": 53,
+     "fingers": [
+      "index",
+      "middle",
+      "ring",
+      "pinky"
+     ],
+     "n_fingers": 4,
+     "palm": false,
+     "tau_rule": {
+      "method": "vote_fallback",
+      "thr_mm": 35.0
+     },
+     "quality": {
+      "hand_confidence": 1.0,
+      "reliable": true
+     },
+     "contact_frac": {
+      "thumb": 0.25,
+      "index": 0.95,
+      "middle": 1.0,
+      "ring": 1.0,
+      "pinky": 0.6,
+      "palm": 0.0
+     },
+     "median_dist_mm": {
+      "thumb": 82.3,
+      "index": 64.5,
+      "middle": 51.4,
+      "ring": 47.0,
+      "pinky": 55.7,
+      "palm": 91.1
+     },
+     "grasp_core_frames": [
+      59,
+      78
+     ],
+     "grasp_established_frame": 59,
+     "offset_mm": {
+      "median": 0.0,
+      "p90": 0.0
+     },
+     "depth_frac": 0.263,
+     "depth_class": "pad"
+    }
+   },
+   "primary": "object_1"
+  }
+ }
+}

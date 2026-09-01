@@ -99,6 +99,34 @@ def stage_static(
         }
         (staging / "meta.json").write_text(
             json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        output_paths = {
+            "mesh": "reconstruction/object_mesh_scaled_final.obj",
+            "world_fused": "reconstruction/world_fused.npz",
+            "replay": "retarget/replay_world.npz",
+            "ref_qpos": "retarget/ref_qpos.npz",
+            "metadata": "meta.json",
+        }
+        run_manifest = {
+            "stage": "step4_static_reconstruction_staging",
+            "status": "ready",
+            "dataset": dataset,
+            "object": name,
+            "src_clip": src_clip,
+            "outputs": {
+                key: {
+                    "path": path,
+                    "exists": (staging / path).is_file(),
+                    "size_bytes": ((staging / path).stat().st_size
+                                   if (staging / path).is_file() else 0),
+                }
+                for key, path in output_paths.items()
+            },
+        }
+        provenance = staging / "provenance"
+        provenance.mkdir()
+        (provenance / "step4_staging_run_manifest.json").write_text(
+            json.dumps(run_manifest, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8")
         os.replace(staging, destination)
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)

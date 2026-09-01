@@ -31,14 +31,72 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 
 import numpy as np
 import torch
 import yaml
 
-ROBOT_YML = ("/home/lyh/luhr/MagicSim/Third_Party/curobo/curobo/content/"
-             "configs/robot/magicsim_vega1p_sharpa.yml")
+# 机器人配置优先显式 CUROBO_ROBOT_YML，其次兼容 MagicSim vendor 树，最后使用
+# 仓库内由 NVlabs/curobo RobotBuilder 生成的自带配置。
+def _robot_yml() -> str:
+    """CUROBO_ROBOT_YML > MagicSim 树 > 仓库自带生成品 (跨机自给自足)。
+
+    2026-08-30 起 cuRobo 不再依赖 MagicSim: `curobo.motion_planner` 这套 API 就是
+    NVlabs/curobo 新版主线 (v0.8+, warp 内核), 机器人配置可由
+    tools/make_vega1p_sharpa_curobo_yml.py 从仓库 URDF 自动生成。
+    """
+    env = os.environ.get("CUROBO_ROBOT_YML")
+    if env:
+        return env
+    mag = os.path.join(
+        os.environ.get("MAGICSIM_ROOT", "/home/lyh/luhr/MagicSim"),
+        "Third_Party", "curobo", "curobo", "content", "configs", "robot",
+        "magicsim_vega1p_sharpa.yml")
+    if os.path.isfile(mag):
+        return mag
+    return os.path.abspath(os.path.join(
+        os.path.dirname(__file__), "..", "..", "datasets", "vega_urdf",
+        "vega_1p_sharpa_curobo.yml"))
+
+
+ROBOT_YML = _robot_yml()
+
+
+def load_robot_yaml(path: str) -> dict:
+    """Load a robot YAML and repair bundled asset paths after relocation."""
+    with open(path, encoding="utf-8") as fh:
+        raw = yaml.safe_load(fh)
+    kin = raw["robot_cfg"]["kinematics"]
+    repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+    def _abs(p):
+        # 入库 yml 存的是仓库相对路径; 按**仓库根**解析 (worker 可能从任意
+        # 工作目录被 spawn —— 靠 cwd 会时灵时不灵)。
+        return p if not p or os.path.isabs(p) else os.path.join(repo, p)
+
+    asset_root = _abs(kin.get("asset_root_path"))
+    urdf_path = _abs(kin.get("urdf_path"))
+    if (asset_root and os.path.isdir(asset_root)
+            and urdf_path and os.path.isfile(urdf_path)):
+        kin["asset_root_path"], kin["urdf_path"] = asset_root, urdf_path
+        return raw
+
+    bundled_root = os.path.abspath(os.path.join(
+        os.path.dirname(__file__), "..", "..", "datasets", "vega_urdf",
+        "vega_1p_sharpa"))
+    bundled_urdf = os.path.join(bundled_root, "vega_1p_sharpa.urdf")
+    if not os.path.isfile(bundled_urdf):
+        raise FileNotFoundError(
+            f"cuRobo robot assets unavailable: yaml={path}, "
+            f"asset_root={asset_root}, urdf={urdf_path}, "
+            f"bundled={bundled_urdf}")
+    kin["asset_root_path"] = bundled_root
+    kin["urdf_path"] = bundled_urdf
+    print(f"[worker] robot YAML 已重定位到仓库资产: {bundled_root}",
+          flush=True)
+    return raw
 
 
 def _quat_to_R(q):
@@ -47,6 +105,22 @@ def _quat_to_R(q):
         [1 - 2*(y*y + z*z), 2*(x*y - w*z),     2*(x*z + w*y)],
         [2*(x*y + w*z),     1 - 2*(x*x + z*z), 2*(y*z - w*x)],
         [2*(x*z - w*y),     2*(y*z + w*x),     1 - 2*(x*x + y*y)]])
+
+
+def _savez_atomic(path, **payload):
+    """Publish a planner result only after the NPZ is complete."""
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    tmp = f"{path}.tmp.{os.getpid()}"
+    try:
+        with open(tmp, "wb") as fh:
+            np.savez(fh, **payload)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
 
 
 def main():
@@ -78,6 +152,10 @@ def main():
                     help="物体障碍充气 (m, 2026-08-20 用户裁定): 碰撞世界里把物体网格沿"
                          "顶点法线外推这么多再规划 (实际物体不变) —— 规划自动多留净空。"
                          "建议 0.01; 只作用于 objects, 桌面不充")
+    ap.add_argument("--exclude_table", type=int, default=0,
+                    help="1=把桌面排除出碰撞世界 (贴物短腿专用: 抓握位形离桌只有"
+                         "几厘米, cuRobo 的手部碰撞球比实物保守会把目标判碰; "
+                         "该腿只在站位高度附近平移, 撞桌风险为零)")
     ap.add_argument("--exclude_objects", type=int, default=0,
                     help="1=joint 模式把两个目标物体排除出碰撞世界 (接触短腿专用: "
                          "PreGrasp→GraspPose 本来就要贴物, 桌子仍是障碍)")
@@ -89,8 +167,7 @@ def main():
     from curobo.motion_planner import MotionPlanner, MotionPlannerCfg
     from curobo.types import DeviceCfg, GoalToolPose, JointState, Pose
 
-    with open(a.robot) as f:
-        raw = yaml.safe_load(f)
+    raw = load_robot_yaml(a.robot)
 
     _tool = list(T["tool_frames"])
     raw["robot_cfg"]["kinematics"]["tool_frames"] = _tool
@@ -111,9 +188,17 @@ def main():
 
     _inflated = {}
     def _mesh_path(o):
-        """--obj_inflate>0: 顶点沿法线外推 inflate 米, 存临时文件 (实际物体不变)。"""
-        if a.obj_inflate <= 0.0:
-            return o["mesh"]
+        """顶点沿法线推 inflate 米 (>0 充气 / <0 收缩), 存临时文件; 实物不变。
+
+        收缩 (<0) 的用处: "贴着抓" 的目标位形若把原尺寸物体留在世界里必被判碰,
+        而整个排除物体又会让这一腿完全失去避障 —— 收缩 1cm 量级两头兼顾:
+        目标位形合法, 路径仍绕开物体本体。
+        """
+        if a.obj_inflate == 0.0:
+            # 必须给**绝对路径**: 相对路径会被 cuRobo 当成它自己 content 目录下的
+            # 资产 (报 "string is not a file: .../curobo/content/assets/<相对路径>")。
+            # 充气>0 时走临时文件天然是绝对路径, 所以这条坑只在 inflate=0 时暴露。
+            return os.path.abspath(o["mesh"])
         p = o["mesh"]
         if p not in _inflated:
             import tempfile
@@ -123,14 +208,18 @@ def main():
             fp = tempfile.NamedTemporaryFile(
                 suffix="_inf.obj", delete=False).name
             m.export(fp)
-            print(f"[inflate] {p} 充气 {a.obj_inflate*1000:.0f}mm -> {fp}")
+            print(f"[inflate] {p} "
+                  f"{'充气' if a.obj_inflate > 0 else '收缩'} "
+                  f"{abs(a.obj_inflate)*1000:.0f}mm -> {fp}")
             _inflated[p] = fp
         return _inflated[p]
 
     def _scene_dict(exclude=(), no_world=False):
         if no_world:
             return {"cuboid": {}, "mesh": {}}
-        d = {"cuboid": {"table": {"pose": [*tp, 1.0, 0.0, 0.0, 0.0], "dims": td}},
+        d = {"cuboid": ({} if int(a.exclude_table)
+                        else {"table": {"pose": [*tp, 1.0, 0.0, 0.0, 0.0],
+                                        "dims": td}}),
              "mesh": {}}
         for nm, o in objects.items():
             if nm in exclude:
@@ -281,9 +370,18 @@ def main():
                 goal_q[_i] = float(CS[_n])
         _gst = JointState.from_position(goal_q.unsqueeze(0), joint_names=pj)
         _cur = JointState.from_position(q0.clone().unsqueeze(0), joint_names=pj)
-        print("[worker] === cspace: 关节空间直达目标 ===", flush=True)
+        # --exclude_objects 在 cspace 模式下同样生效 (2026-08-31): 机器段的
+        # **最后一腿**是"净空点 -> 操作位置", 那一段本来就是要去贴物体, 把两个
+        # 目标物体留在碰撞世界里 => 目标位形必被判碰 (goal in collision), 规划
+        # 无解。桌子仍是障碍。这条口子原来只接在 joint/pose 模式上。
+        _csp = (base if not int(a.exclude_objects)
+                else _get_planner(exclude=set(objects.keys()),
+                                  tag="cspace:排除目标物体"))
+        print(f"[worker] === cspace: 关节空间直达目标"
+              f"{' (目标物体已排除出碰撞世界)' if int(a.exclude_objects) else ''}"
+              f" ===", flush=True)
         _t0 = time.time()
-        _r = base.plan_cspace(_gst, _cur, max_attempts=int(a.attempts),
+        _r = _csp.plan_cspace(_gst, _cur, max_attempts=int(a.attempts),
                               enable_graph_attempt=2)
         _dt = time.time() - _t0
         _ok = _r is not None and bool(
@@ -291,7 +389,7 @@ def main():
         if not _ok:
             print("[worker] ❌ cspace 规划失败 —— 启动分诊", flush=True)
             try:
-                _lo = base.kinematics.get_joint_limits() if hasattr(base, "kinematics") else None
+                _lo = _csp.kinematics.get_joint_limits() if hasattr(_csp, "kinematics") else None
             except Exception:
                 _lo = None
             print(f"[cspace诊] success={getattr(_r,'success',None)} "
@@ -355,7 +453,7 @@ def main():
                     getattr(_ra, "success", torch.tensor([False])).flatten()[0])
                 print(f"[cspace诊] {_tag3}原地微动: {'✅可行' if _oka else '❌被判碰 => 病灶在此'}",
                       flush=True)
-            np.savez(a.out, ok=False, failed_frame="cspace", seconds=_dt,
+            _savez_atomic(a.out, ok=False, failed_frame="cspace", seconds=_dt,
                      noworld_ok=_ok2)
             return
         _arr, _names, _ = _take(_r)
@@ -369,7 +467,7 @@ def main():
             joint_names=pj))
         _owp = {f: _kin.tool_poses.get_link_pose(f, make_contiguous=True)
                 .position.view(-1, 3).detach().cpu().numpy() for f in _tool}
-        np.savez(a.out, ok=True, traj=_arr,
+        _savez_atomic(a.out, ok=True, traj=_arr,
                  joint_names=np.array(_names, dtype=object),
                  tool_frames=np.array(_tool, dtype=object),
                  seg_frames=np.array(["cspace"], dtype=object),
@@ -402,7 +500,7 @@ def main():
         if not ok:
             print("[worker] ❌ joint/pregrasp0 规划失败 (不降级不换候选, 人工定夺)",
                   flush=True)
-            np.savez(a.out, ok=False, failed_frame="joint/pregrasp0", seconds=dt)
+            _savez_atomic(a.out, ok=False, failed_frame="joint/pregrasp0", seconds=dt)
             return
         arr1, names, cur_q = _take(r1)
         segs.append(("both", "pregrasp", arr1))
@@ -474,7 +572,7 @@ def main():
                            else "目标本身够不着(朝向/锁躯干/自碰)")
                     print(f"[worker]   探针② 站姿起点+空世界: "
                           f"{'可行' if ok3 else '仍失败'} -> {_m3}", flush=True)
-                np.savez(a.out, ok=False, failed_frame=f"{f}/{stage}", seconds=dt)
+                _savez_atomic(a.out, ok=False, failed_frame=f"{f}/{stage}", seconds=dt)
                 return
             p_ = r.js_solution.position
             while p_.dim() > 2:
@@ -556,7 +654,7 @@ def main():
             bad.append(f"{f} 腕穿桌 {cl:.1f}cm")
     if bad:
         print(f"[worker] ❌❌ 验收不通过: {bad}", flush=True)
-        np.savez(a.out, ok=False, failed_frame="verify",
+        _savez_atomic(a.out, ok=False, failed_frame="verify",
                  reasons=np.array(bad, dtype=object))
         return
     print("[worker] ✅✅ 验收通过", flush=True)
@@ -571,7 +669,7 @@ def main():
         _vg = _vgoal.get(f) or (np.asarray(T["goals"][f]["pos"], float),
                                 np.asarray(T["goals"][f]["quat"], float))
         _ee[f"end_expect_{f}"] = np.asarray(_vg[0], float)
-    np.savez(a.out, ok=True, traj=traj,
+    _savez_atomic(a.out, ok=True, traj=traj,
              joint_names=np.array(names, dtype=object),
              tool_frames=np.array(_tool, dtype=object),
              seg_lens=np.array([len(s[2]) for s in segs]),

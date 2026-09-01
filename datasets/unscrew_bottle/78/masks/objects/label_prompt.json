@@ -1,0 +1,23 @@
+{
+ "schema_version": "sam2_object_prompt_v2",
+ "objects": [
+  {
+   "object_id": "object_0",
+   "frame_idx": 13,
+   "points": [
+    [
+     969.0,
+     578.0
+    ]
+   ],
+   "labels": [
+    1
+   ],
+   "locked": true,
+   "name": "object"
+  }
+ ],
+ "provenance": {
+  "filter_policy": "v2"
+ }
+}

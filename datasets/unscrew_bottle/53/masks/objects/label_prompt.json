@@ -1,0 +1,55 @@
+{
+  "schema_version": "sam2_object_prompt_v2",
+  "objects": [
+    {
+      "object_id": "object_0",
+      "frame_idx": 87,
+      "points": [
+        [
+          975.0,
+          538.0
+        ]
+      ],
+      "labels": [
+        1
+      ],
+      "locked": true
+    },
+    {
+      "object_id": "object_1",
+      "frame_idx": 74,
+      "points": [
+        [
+          1202.0,
+          868.0
+        ]
+      ],
+      "labels": [
+        1
+      ],
+      "locked": true
+    }
+  ],
+  "provenance": {
+    "source": "hoi_detr_v17a_multi",
+    "manifest": "/home/yanghong/Reconstruct_and_Retarget/experimental/hoi_detr_v17a/data/interim/egodex_part4/screw_unscrew_bottle_cap__53/instance_pipeline_v17a/video_mask_sequence/video_mask_sequence.json",
+    "filter_policy": "v2",
+    "objects": [
+      {
+        "instance": "object_0001",
+        "area_px": 50178,
+        "hand_overlap": null,
+        "object_id": "object_0",
+        "frame_idx": 87
+      },
+      {
+        "instance": "object_0002",
+        "area_px": 5762,
+        "hand_overlap": null,
+        "object_id": "object_1",
+        "frame_idx": 74
+      }
+    ],
+    "note": "every instance tracked in ONE reconstruction pass so they share a world frame; per-object label frames because SAM3D builds each mesh from its own view"
+  }
+}

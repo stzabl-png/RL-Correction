@@ -7,6 +7,9 @@ PY=/home/lyh/luhr/MagicSim/.venv/bin/python; D=tasks/Unscrew/part4
 export UNSCREW_CLIP=17 UNSCREW_DETACH=pull UNSCREW_RIGHT_CL=1 SHARPA_WANDB=0 OMNI_KIT_ACCEPT_EULA=YES PYTHONPATH=. TMPDIR=$HOME/tmp
 mkdir -p launch_logs $TMPDIR
 reap() { P=$(ps -u $USER -o pid=,comm=,args= | awk -v pat="$1" '$2 ~ /^python/ && $0 ~ pat {print $1}'); [ -n "$P" ] && kill -9 $P 2>/dev/null; sleep 10; }
+# 先按当前先验/配置重建 v1 (规划摘要以它为基底; 2026-09-01 10:00 实测: 漏这一步会拿旧站位规划 → 摘要不符断言)
+rm -f $D/A_Design/L1_Data/Motion_Planning/17/Approach.npz $D/A_Design/L1_Data/Motion_Planning/17/Retreat.npz
+echo "[night] $(date +%H:%M) make_reference (pre-plan)"; timeout 1500 $PY -u $D/A_Design/L2_Reference/make_reference.py > launch_logs/u17_v1_preplan.log 2>&1 || { echo "[night] ❌ v1 (pre-plan)"; exit 1; }
 echo "[night] $(date +%H:%M) plan approach"; timeout 2400 $PY -u $D/A_Design/L1_Data/Motion_Planning/plan_machine_segs.py --headless > launch_logs/u17_plan_app.log 2>&1; reap plan_machine_segs
 grep -q "\[plan\] ✅" launch_logs/u17_plan_app.log || { echo "[night] ❌ approach 规划失败"; exit 1; }
 echo "[night] $(date +%H:%M) plan retreat"; timeout 2400 $PY -u $D/A_Design/L1_Data/Motion_Planning/plan_machine_segs.py --retreat --headless > launch_logs/u17_plan_ret.log 2>&1; reap plan_machine_segs

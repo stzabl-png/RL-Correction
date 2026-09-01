@@ -2,7 +2,7 @@
  "schema": "unscrew_trainability_v1",
  "clip": "17",
  "reference_v2": "/home/lyh/Project/RL_Correction/tasks/Unscrew/part4/A_Design/L2_Reference/17/reference_v2.npz",
- "reference_v2_md5": "b88d5f6db578dea496da86ed3437cb6e",
+ "reference_v2_md5": "57b2a03aa85ca3e655a32617632352e4",
  "stable_envs": 4,
  "per_env_stable": [
   1,
@@ -11,22 +11,22 @@
   1
  ],
  "max_pad_force_N": [
-  0.3254,
-  6.7571,
-  8.2748,
-  0.6231
+  0.0,
+  0.0,
+  0.0,
+  0.0
  ],
  "max_object_radius_m": [
   1.0609,
-  1.0746,
+  1.0609,
   1.0609,
   1.0609
  ],
  "max_joint_abs_rad": [
-  2.7325,
-  2.7324,
-  2.7322,
-  2.7321
+  2.7333,
+  2.7333,
+  2.7333,
+  2.7333
  ],
  "baseline": {
   "reference_successes": 0,
@@ -37,10 +37,10 @@
     "env": 0,
     "station_pads_l": 0,
     "station_pads_r": 0,
-    "left_slip_peak_cm": 17.9449,
-    "bottle_end_error_cm": 24.754,
-    "bottle_tilt_error_deg": 89.9688,
-    "cap_end_error_cm": 22.9154,
+    "left_slip_peak_cm": 14.3341,
+    "bottle_end_error_cm": 21.3077,
+    "bottle_tilt_error_deg": 89.6181,
+    "cap_end_error_cm": 32.5026,
     "released": false,
     "screw_deg": 0.0,
     "reference_success": false
@@ -49,10 +49,10 @@
     "env": 1,
     "station_pads_l": 0,
     "station_pads_r": 0,
-    "left_slip_peak_cm": 20.9448,
-    "bottle_end_error_cm": 28.8937,
-    "bottle_tilt_error_deg": 90.0576,
-    "cap_end_error_cm": 33.4755,
+    "left_slip_peak_cm": 21.1586,
+    "bottle_end_error_cm": 34.428,
+    "bottle_tilt_error_deg": 89.8208,
+    "cap_end_error_cm": 13.2484,
     "released": false,
     "screw_deg": 0.0,
     "reference_success": false
@@ -61,10 +61,10 @@
     "env": 2,
     "station_pads_l": 0,
     "station_pads_r": 0,
-    "left_slip_peak_cm": 33.8986,
-    "bottle_end_error_cm": 42.7805,
-    "bottle_tilt_error_deg": 89.7301,
-    "cap_end_error_cm": 40.2989,
+    "left_slip_peak_cm": 18.4658,
+    "bottle_end_error_cm": 23.623,
+    "bottle_tilt_error_deg": 89.6172,
+    "cap_end_error_cm": 28.7373,
     "released": false,
     "screw_deg": 0.0,
     "reference_success": false
@@ -73,10 +73,10 @@
     "env": 3,
     "station_pads_l": 0,
     "station_pads_r": 0,
-    "left_slip_peak_cm": 32.6946,
-    "bottle_end_error_cm": 38.7609,
-    "bottle_tilt_error_deg": 90.9543,
-    "cap_end_error_cm": 35.9868,
+    "left_slip_peak_cm": 13.3672,
+    "bottle_end_error_cm": 22.6806,
+    "bottle_tilt_error_deg": 90.9541,
+    "cap_end_error_cm": 24.8249,
     "released": false,
     "screw_deg": 0.0,
     "reference_success": false
@@ -88,7 +88,7 @@
   "screw_tau_max_mNm": 0.0,
   "reference_ik": {
    "gen": "unscrew_v2",
-   "parent_v1_md5": "e68f91f9",
+   "parent_v1_md5": "93941eb8",
    "betaL": "1.0",
    "betaR": "1.0",
    "ik": "wrist_delta",
@@ -100,7 +100,7 @@
    "frozen_r": "2",
    "frozen_l": "0",
    "marg_r_deg": "3.61",
-   "marg_l_deg": "24.25",
+   "marg_l_deg": "28.05",
    "clip": "17"
   },
   "warnings": [
@@ -113,7 +113,7 @@
  "world": {
   "reference": {
    "path": "/home/lyh/Project/RL_Correction/tasks/Unscrew/part4/A_Design/L2_Reference/17/reference_v2.npz",
-   "md5": "b88d5f6db578dea496da86ed3437cb6e"
+   "md5": "57b2a03aa85ca3e655a32617632352e4"
   },
   "policy_io": {
    "obs_dim": 507,

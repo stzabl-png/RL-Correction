@@ -843,6 +843,19 @@ def main():
     gfin = np.asarray(zp["grasp"], np.float64)[7:29]
     perm = [GENERIC_JOINT_ORDER.index(n) for n in fin_names]
     f_l = np.tile(gfin[perm], (N, 1))
+    # ★ Unscrew/17 (2026-09-01 09:00): 左站位额外捏合量 LEFT_CURL_DEG (与右手 CAP_PINCH_DEG 同性质)。
+    #   Power_Sphere 原生先验在 Isaac 里五垫离瓶面 1~2cm (探针实测 4.2~5.4cm, 贴面 ~4.3),
+    #   而它的 squeeze 层只有 0~4° (βL 放大无用), 径向平移对环抱抓法也无效 —— 缺的是手指弯曲量。
+    _lcurl = float(getattr(TC, "LEFT_CURL_DEG", 0.0))
+    if _lcurl:
+        _cl = np.zeros(22)
+        for _i, _n in enumerate(fin_names):
+            if _n.endswith(("MCP_FE", "PIP", "IP")):
+                _cl[_i] = 1.0
+            elif _n.endswith("DIP"):
+                _cl[_i] = 0.5
+        f_l = f_l + np.radians(_lcurl) * _cl
+        print(f"[v1] 左站位额外捏合 LEFT_CURL_DEG={_lcurl}° (MCP_FE/PIP/IP 满额, DIP 半额)")
     # 右手同法: 候选的 grasp 指值 (右手约定, 按名映射, 不镜像)
     _cap_grasp_fin = np.asarray(_capz["grasp"], np.float64)[7:29][perm].copy()
     # 站位行捏合量: 对准把拇/食指放到盖轴两侧后, 还差 ~1.8cm 跨距 (盖径 3.5cm)

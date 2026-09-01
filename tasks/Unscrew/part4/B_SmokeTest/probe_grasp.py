@@ -119,7 +119,9 @@ print(f"\n[grasp] 瓶 pos={np.round(bp, 3)} 倾角="
       f"{np.degrees(np.arccos(np.clip(Rb[2, 2], -1, 1))):.1f}°", flush=True)
 print(f"[grasp] 左腕 {np.round(E.hand.data.body_pos_w[0, E.wid['L']].cpu().numpy() - org, 3)}"
       f" | 右腕 {np.round(E.hand.data.body_pos_w[0, E.wid['R']].cpu().numpy() - org, 3)}")
-print(f"[grasp] 手最低点-桌 {(float(E.hand.data.body_pos_w[0, E.hand_bids, 2].min()) - float(org[2]) - 0.87) * 100:+.1f}cm (Unscrew/17 补)", flush=True)
+_lb = [i for i in E.hand_bids if E.hand.body_names[i].startswith("left")]
+_lz = E.hand.data.body_pos_w[0, _lb, 2]; _lo = int(_lz.argmin())
+print(f"[grasp] 左手最低点-桌 {(float(_lz.min()) - float(org[2]) - 0.87) * 100:+.1f}cm ({E.hand.body_names[_lb[_lo]]}) | 全手 {(float(E.hand.data.body_pos_w[0, E.hand_bids, 2].min()) - float(org[2]) - 0.87) * 100:+.1f}cm (Unscrew/17 补)", flush=True)
 # ---- 坐标系/跟踪体检: 命令 vs 实际 vs 离线 IK 的三方对账 ----
 import json  # noqa: E402
 from rl_rebuild.correction.kinematics import ArmIK  # noqa: E402

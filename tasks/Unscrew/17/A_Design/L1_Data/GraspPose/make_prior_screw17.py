@@ -9,7 +9,10 @@
 import json, os, sys, numpy as np
 D = "/home/lyh/Project/Dexonomy/output/DELIVER"
 OUT = "tasks/pregrasp/priors"
-PICK = {"Screw17_bottle_left": ("screw17_bottle_left", "1_Large_Diameter__v4_7_14_grasp.npy"),
+PICK = {"Screw17_bottle_left_LD227": ("screw17_bottle_left", "1_Large_Diameter__v3_2_27_grasp.npy"),
+        "Screw17_bottle_left_LD729": ("screw17_bottle_left", "1_Large_Diameter__v3_7_29_grasp.npy"),
+        "Screw17_bottle_left_LD447": ("screw17_bottle_left", "1_Large_Diameter__v4_4_7_grasp.npy"),
+        "Screw17_bottle_left": ("screw17_bottle_left", "1_Large_Diameter__v4_7_14_grasp.npy"),
         "Screw17_cap_right": ("screw17_cap_right", "33_Inferior_Pincer__1_47_grasp.npy"),
         # 2026-09-01 07:30 换左候选: 1_Large_Diameter 族腕在瓶底 3~6cm (拇指朝上, 小指侧/腕链悬在腕下 ~9cm),
         # 装在 DexMate 臂上会撞桌 (缝1 进刀实测腕停在离桌 9~12cm 下不去, 母带 v2 被重锚到高 8.5cm 的假站位);

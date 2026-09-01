@@ -15,7 +15,7 @@ for V in ${VARIANTS:-P30 P45 P30u2}; do
   echo "[pitch] $V v1: $(grep -E '站位.*腕|左腕.*离桌|IK.*左|余量' launch_logs/sandbox/v1_$V.log | tail -2 | tr '\n' ' ' | cut -c1-220)"
   export POUR_REF_NPZ=$OUT UNSCREW_LEFT_PRIOR=Screw17_bottle_left_$V.npz
   run_probe launch_logs/sandbox/grasp_${V}_pin.log --pin_bottle
-  echo "[pitch] $V 钉住: $(grep '站位垫 L' launch_logs/sandbox/grasp_${V}_pin.log | tail -1) | $(grep '手最低点' launch_logs/sandbox/grasp_${V}_pin.log | tail -1) | $(grep -E '^   (thumb|index|middle|ring|pinky) +瓶系' launch_logs/sandbox/grasp_${V}_pin.log | awk '{printf "%s r%s F%s; ", $1, $6, $NF}')"
+  echo "[pitch] $V 钉住: $(grep '站位垫 L' launch_logs/sandbox/grasp_${V}_pin.log | tail -1) | $(grep '最低点' launch_logs/sandbox/grasp_${V}_pin.log | tail -1) | $(grep -E '^   (thumb|index|middle|ring|pinky) +瓶系' launch_logs/sandbox/grasp_${V}_pin.log | awk '{printf "%s r%s F%s; ", $1, $6, $NF}')"
   run_probe launch_logs/sandbox/grasp_${V}_free.log --pin_approach
   echo "[pitch] $V 缝1自由(接近段钉住): $(grep '站位垫 L' launch_logs/sandbox/grasp_${V}_free.log | tail -1) | $(grep '瓶开始倾倒' launch_logs/sandbox/grasp_${V}_free.log | head -1 | cut -c1-90) | $(grep -E '^\[grasp\] 瓶 pos' launch_logs/sandbox/grasp_${V}_free.log | tail -1 | cut -c1-80)"
 done

@@ -138,6 +138,7 @@ class UnscrewRefTaskCfg(UnscrewTaskCfg):
     # 正边际, 且**纯增量不撤旧档** (右手 contact2 当前≈0, 撤档会断重学路径).
     w_left_full = 0.0                 # 左: grip3 之上, 第4/5指各给 1/2 额 (需拇指)
     w_cap_triad = 0.0                 # 右: 拇/食/中 每碰一根给 1/3 额
+    w_thumb_app = 0.0                 # U46: 拇指尖->盖 专项贴近年金
     # ---- U35: 拧盖窗掌轴对准 (2026-08-28 定量取证: 提取腕姿态流在拧盖窗
     # 与携带盖轴夹角均 112.9°, 理想对握 180° —— 上游腕跟踪丢失, 姿态流
     # 与位置流一样不可信; live 61.8° vs 参考 67.1° = 策略忠实跟踪了错参考,
@@ -294,6 +295,8 @@ class UnscrewDynTaskCfg(UnscrewRefTaskCfg):
     # U32 (Dyn17 起): 手型 —— 左五指包握 / 右拇食中精捏.
     w_left_full = 0.03
     w_cap_triad = 0.05
+    # U46 (Dyn26 起): 拇指专项贴近年金 (通往拇指触盖的密集梯子).
+    w_thumb_app = 0.06
     # U34 (Dyn18 起): 拧转速率按 triad 接触指数分级 (配合 clips 里
     # max_angular_velocity 20→2 rad/s: 慢拧 + 找准位置 + 三指).
     screw_triad_drive = True
@@ -991,12 +994,19 @@ class UnscrewRefTaskEnv(UnscrewTaskEnv):
         # U39: 拇指对握门 (U26 左手同款) —— 拇指不触盖, contact/chold 不计酬
         thumb_cap = (capc[:, 0] > 0) if cfg.cap_need_thumb else torch.ones_like(
             capc[:, 0], dtype=torch.bool)
-        r_contact = cfg.w_cap_contact * ((n_cap >= 2) & thumb_cap).float()
-        r_ctouch = cfg.w_cap_touch * (n_cap >= 1).float()   # U28: 碰到盖的台阶
+        # U46: 口径统一为三指 (原 n_cap>=2 允许"拇指+小指"计酬). 改动时
+        # thumb_frac 恒 0 => contact/chold 本来就恒 0, 零副作用, 只塑形未来.
+        _n_tri_pre = capc[:, :3].sum(dim=1)
+        r_contact = cfg.w_cap_contact * ((_n_tri_pre >= 2) & thumb_cap).float()
         # U32b: 精捏手型 —— 拇/食/中 (capc 列序 0/1/2) 每碰一根 1/3 额;
         # 环/小扒盖不计 => 正确三指严格多挣, 且每根都有独立边际 (可爬)
         n_triad = capc[:, :3].sum(dim=1)
         r_ctriad = cfg.w_cap_triad * (n_triad / 3.0)
+        # U46: 盖侧梯子全部改三指口径. Dyn25@24M 尸检: r_ctouch 数**五指**、
+        # r_capp 用**五指最小距**, 于是环/小指蹭一下就白拿 0.04+0.06=0.10/步 ——
+        # 比 run7 整只右手每步总收入 (0.093) 还多, 错指成了最大收入来源
+        # (cap_wrong_frac 0.70, n_triad 跌到 0.72, 拇指恒 0).
+        r_ctouch = cfg.w_cap_touch * (n_triad >= 1).float()   # U28 台阶, 只认三指
         # U42: 单指拨盘不计酬 —— 拧转进度奖须 ≥screw_rew_min_triad 根
         # (拇/食/中) 触盖: 2 指 2/3 额, 3 指全额, 单/零指为 0.
         if cfg.screw_rew_min_triad > 0:
@@ -1005,7 +1015,7 @@ class UnscrewRefTaskEnv(UnscrewTaskEnv):
                 _tri >= cfg.screw_rew_min_triad,
                 (_tri / 3.0).clamp(max=1.0), torch.zeros_like(_tri))
         # U27: 右手持续触盖爬坡 (镜像 U20③; U39 起须含拇指)
-        self._chold = torch.where((n_cap >= 2) & thumb_cap, self._chold + 1,
+        self._chold = torch.where((n_triad >= 2) & thumb_cap, self._chold + 1,
                                   torch.zeros_like(self._chold))
         r_chold = cfg.w_cap_hold * (self._chold.float()
                                     / cfg.hold_horizon).clamp(max=1.0)
@@ -1027,8 +1037,17 @@ class UnscrewRefTaskEnv(UnscrewTaskEnv):
         d_ltip = (ltips - obj_pos[:, None]).norm(dim=-1).min(dim=1).values
         r_lapp = cfg.w_left_app * torch.exp(
             -(d_ltip - cfg.r0_left).clamp(min=0) / cfg.sigma_app)
+        # U46: 贴近年金改**三指**最小距 (d_cap 是五指最小距, 留给 r_app 进度
+        # 差分与 tip_cap_cm 诊断 —— 换口径会断掉跨 run 对比).
+        d_tri = (tips[:, :3] - cap_pos[:, None]).norm(dim=-1).min(dim=1).values
         r_capp = cfg.w_cap_app * torch.exp(
-            -(d_cap - cfg.r0_cap).clamp(min=0) / cfg.sigma_app)
+            -(d_tri - cfg.r0_cap).clamp(min=0) / cfg.sigma_app)
+        # U46: 拇指专项贴近档 —— 通往"拇指触盖"这个从未发生过的事件的**密集
+        # 梯子**. 没有它, 食/中把三指档吃满后拇指的边际是 0 (U28 教训: 事件
+        # 从不发生时, 事件处的边际挂不上梯度).
+        d_thumb = (tips[:, 0] - cap_pos).norm(dim=-1)
+        r_tapp = cfg.w_thumb_app * torch.exp(
+            -(d_thumb - cfg.r0_cap).clamp(min=0) / cfg.sigma_app)
         if cfg.grip_gate:
             # U22: 解锁前右手全部任务奖励清零 (拧躺瓶的盖零收益);
             # 右腕由 r_imit 守在停靠参考位, 不另设罚.
@@ -1037,6 +1056,7 @@ class UnscrewRefTaskEnv(UnscrewTaskEnv):
             r_screw = r_screw * rgate
             r_contact = r_contact * rgate
             r_capp = r_capp * rgate
+            r_tapp = r_tapp * rgate            # U46: 携带段停靠时不得白拿
             r_chold = r_chold * rgate
             r_ctouch = r_ctouch * rgate
             r_ctriad = r_ctriad * rgate
@@ -1096,6 +1116,7 @@ class UnscrewRefTaskEnv(UnscrewTaskEnv):
         self.prev_body_d.copy_(body_d)
 
         total = ((r_app + r_screw + r_contact + r_chold + r_ctouch + r_ctriad
+                  + r_tapp
                   + r_lgrip + r_lfull
                   + r_ltouch + r_lapp + r_capp + r_lslow + r_lhold + r_lact
                   + r_imit + r_fimit + r_place + r_body)
@@ -1148,6 +1169,8 @@ class UnscrewRefTaskEnv(UnscrewTaskEnv):
         # U32 哨兵: 手型 —— 用几根指 / 是不是对的那几根
         d.add("cap_n_triad", n_triad, mask=(n_cap >= 1))         # 触盖时拇食中几根
         d.add("cap_thumb_frac", (capc[:, 0] > 0).float(), mask=(n_cap >= 1))
+        d.add("thumb_cap_cm", d_thumb * 100.0, mask=active)      # U46 梯子哨兵
+        d.add("rew_tapp", r_tapp, mask=active)
         d.add("cap_triad_frac", (n_triad >= 3).float(), mask=active)
         d.add("cap_wrong_frac", ((capc[:, 3:].sum(dim=1) > 0)
                                  & (n_triad < 2)).float(), mask=(n_cap >= 1))

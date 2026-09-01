@@ -21,6 +21,8 @@ stage() { # name script pass_regex extra_args...
 }
 if [ "${START_FROM:-smoke}" = smoke ]; then
 stage smoke "$D/C_Wiring/smoke_zero.py" "机器段死线误触 = 0" --steps 600 || exit 1
+# 2026-09-01 硬门: 缝1 零动作合拢把瓶推倒 (D2) 也阻塞 —— 三发证明策略救不回 "站位前瓶已倒"
+if ! grep -q "缝1 交接段死线 = 0" launch_logs/u17_stage_smoke.log; then echo "[chain] ❌ smoke: 缝1 交接段零动作死线 ≠ 0 (硬门): $(grep -o '缝1 交接段死线 = [0-9]*' launch_logs/u17_stage_smoke.log)"; grep -n "缝1 交接段死线 env" launch_logs/u17_stage_smoke.log | head -4; exit 1; fi
 grep -n "静置对账\|A 静置\|死线\|G链\|缝1" launch_logs/u17_stage_smoke.log | tail -12
 fi
 case "${START_FROM:-smoke}" in smoke|pull) POUR_SQUEEZE_FF=1 stage pull "$D/B_SmokeTest/probe_pull.py" "全部通过" || exit 1;; esac

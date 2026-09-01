@@ -22,6 +22,7 @@ from isaaclab.app import AppLauncher
 
 p = argparse.ArgumentParser()
 p.add_argument("--hold", type=int, default=40, help="站位行保持步数")
+p.add_argument("--pin_approach", action="store_true", help="只在机器段 (row<APP_END) 钉住瓶, 缝1 起放开 (沙盒占位接近段会撞瓶, 只想看合拢推不推倒时用)")
 p.add_argument("--pin_bottle", action="store_true",
                help="把瓶钉在静置位 (分清'最终抓握位姿穿模' vs '进刀路径扫到')")
 AppLauncher.add_app_launcher_args(p)
@@ -68,7 +69,7 @@ def drive(row, sL):
     E.hand.set_joint_position_target(full)
     E._update_screw_drive_gain()
     for _ in range(DECI):
-        if args.pin_bottle:
+        if args.pin_bottle or (args.pin_approach and row < E.APP_END):
             E.object.write_root_pose_to_sim(_pin_pose)
             E.object.write_root_velocity_to_sim(_pin_vel)
         E._SA.apply_screw(E)
@@ -118,6 +119,7 @@ print(f"\n[grasp] 瓶 pos={np.round(bp, 3)} 倾角="
       f"{np.degrees(np.arccos(np.clip(Rb[2, 2], -1, 1))):.1f}°", flush=True)
 print(f"[grasp] 左腕 {np.round(E.hand.data.body_pos_w[0, E.wid['L']].cpu().numpy() - org, 3)}"
       f" | 右腕 {np.round(E.hand.data.body_pos_w[0, E.wid['R']].cpu().numpy() - org, 3)}")
+print(f"[grasp] 手最低点-桌 {(float(E.hand.data.body_pos_w[0, E.hand_bids, 2].min()) - float(org[2]) - 0.87) * 100:+.1f}cm (Unscrew/17 补)", flush=True)
 # ---- 坐标系/跟踪体检: 命令 vs 实际 vs 离线 IK 的三方对账 ----
 import json  # noqa: E402
 from rl_rebuild.correction.kinematics import ArmIK  # noqa: E402

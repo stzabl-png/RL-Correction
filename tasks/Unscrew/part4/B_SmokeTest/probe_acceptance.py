@@ -111,6 +111,17 @@ station_pads_r = (f[:, 5:] > 0.5).sum(dim=1).int().cpu().tolist()
 print(f"[v2gate] 全链{E.T_ROW}行 IA=[{E.IA0},{E.IA1}] | 站位垫: " + " ".join(
     f"e{i}:L{int((f[i, :5] > 0.5).sum())}/R{int((f[i, 5:] > 0.5).sum())}"
     for i in range(N)), flush=True)
+# ---- 2026-09-01 硬门 (Unscrew/17 第三发教训): 零动作走完机器段+缝1 到站位行, 瓶必须还立着、没被推走。
+# 第三发母带零动作在缝1合拢第3行把瓶推倒 33~38° (D2 死线 30°), 训练开场即死 3M 步; 旧口径只记
+# "瓶倾差 89.6°" 为告警不阻塞 —— 那是末行相对量, 且被 T2-4 "reference 不是零动作答案" 放行了。
+_sb0, _ = E._read_objs()
+from progress_batch import _tilt as _tilt_fn  # noqa: E402
+_st_tilt = torch.rad2deg(_tilt_fn(_sb0[:, 3:7], E.PB.up[0]))
+_st_disp = (_sb0[:, :2] - E.rest_pose[0][:2].unsqueeze(0)).norm(dim=1) * 100
+station_bottle = [[round(float(_st_tilt[i]), 1), round(float(_st_disp[i]), 2)] for i in range(N)]
+station_bottle_ok = int(((_st_tilt < 15.0) & (_st_disp < 2.0)).sum())
+print("[v2gate] ★站位行零动作瓶态: " + " ".join(f"e{i}:倾{t:.0f}°/移{d:.1f}cm" for i, (t, d) in enumerate(station_bottle))
+      + f" | 倾<15°且移<2cm: {station_bottle_ok}/{N} (要求≥3, 硬门)", flush=True)
 slipL_max = torch.zeros(N, device=dev)
 for r in range(E.IA0, E.IA1 + 1):
     drive(r, 1.0)
@@ -164,7 +175,7 @@ for i in range(N):
           f"拧角={screw_deg:.0f}° "
           f"-> {'✅' if okb and okc and okr else '❌'}", flush=True)
 stable_envs = int(stable.sum().item())
-ok = stable_envs >= 3
+ok = stable_envs >= 3 and station_bottle_ok >= 3
 # ---- 可训练性台账 (T2-4 裁定下"绿灯"必须仍然有信息量) ----
 # 只查"有限/不发散"的闸对**任何**母带都会亮绿 —— 包括瓶已经躺在地上的那种。
 # reference 不必自己成功 (那是 RL correction 的活), 但下面这几条是"策略有没有
@@ -215,6 +226,8 @@ if ok:
         "reference_v2": os.path.abspath(PE.MASTER),
         "reference_v2_md5": TC.file_md5(PE.MASTER),
         "stable_envs": stable_envs,
+        "station_bottle_tilt_disp": station_bottle,
+        "station_bottle_ok": station_bottle_ok,
         "per_env_stable": stable.int().cpu().tolist(),
         "max_pad_force_N": [round(float(v), 4) for v in max_pad_force.cpu()],
         "max_object_radius_m": [round(float(v), 4) for v in max_obj_radius.cpu()],
@@ -244,7 +257,7 @@ if warn:
         print(f"[v2gate]   - {_w}", flush=True)
 else:
     print("[v2gate] 可训练性告警: 无", flush=True)
-print(f"[v2gate] ★训练稳定性: {stable_envs}/{N}（要求≥3） => {'✅' if ok else '❌'}", flush=True)
+print(f"[v2gate] ★训练稳定性: {stable_envs}/{N}（要求≥3） | 站位瓶立: {station_bottle_ok}/{N}（要求≥3） => {'✅' if ok else '❌'}", flush=True)
 try:
     _slot.release()
 except Exception:

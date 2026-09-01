@@ -1,10 +1,10 @@
 # Codex 任务台账：Sweep2 Full-Inside 残差训练
 
-更新时间：2026-08-31。本文件只描述当前有效方案；Deep20 试验已停止，原因与历史保留在 Codex_commit.md 和 Codex_mistakes.md。
+更新时间：2026-09-01。本文件只描述当前有效方案；Deep20 试验已停止，原因与历史保留在 Codex_commit.md 和 Codex_mistakes.md。
 
 ## 当前目标
 
-把 sweep_2_better 的重建工具轨迹转换为 DexMate 双臂 reference，并训练 14 DoF joint residual policy，使固定 cube 第一次有效进入 dustpan。成功必须来自 Isaac 物理状态，不能由 reference row、奖励值或视觉观感代替。
+把 sweep_2_better 的重建工具轨迹转换为 DexMate 双臂 reference，并训练 14 DoF joint residual policy，使固定 cube 的完整 footprint 进入 dustpan。成功必须来自 Isaac 物理状态，不能由 reference row、奖励值或视觉观感代替。
 
 成功契约：
 
@@ -12,7 +12,7 @@
 - Gate2 broom near 且 cube moved >= 5 mm。
 - Gate3 entered：cube 中心跨过 mouth，并满足横向 footprint、承载高度和盆内深度下界。
 - Gate4 在 fully_inside 后成立，成功当步立即终止。
-- fully_inside/deep_inside 只做诊断。
+- fully_inside 是 Gate4/success 的硬判据；deep_inside/deep_margin 只做诊断。
 - 最终 512 deterministic episodes，success rate >= 0.50。
 
 ## 训练数据流
@@ -21,10 +21,10 @@ datasets/sweep_2_better
 -> build_reference.py 与 GraspPose/IK
 -> sweep2_reference_v1.npz
 -> 固定 cube、平滑开放 dustpan collider、双 FixedJoint
--> 25/40 mm right-arm entry experts + canonical failure
--> logs/expert/transitions/
--> 40 mm Actor BC
--> 25/40/failure Critic return regression
+-> 两条 fully-inside expert + 25 mm near-success + canonical failure
+-> logs/expert/transitions_fullinside/
+-> 两条 expert Actor BC
+-> 两条 full-success/near-success/failure Critic return regression
 -> 1024-env pure on-policy PPO
 -> 每 3M 完整诊断包
 -> 512 deterministic evaluation
@@ -37,7 +37,7 @@ datasets/sweep_2_better
 - human pose 只形成中低 confidence 区域的运动方向 shape prior。
 - 手指固定为 GraspPose。
 - 当前训练只读取 logs/expert/transitions_fullinside/，禁止读取旧 entry 或 Deep20 transition。
-- 不恢复旧 15M/48M policy；当前 run 从头初始化。
+- 不恢复任何历史 policy；当前 run 从随机网络初始化。
 
 ## 当前运行
 
@@ -74,9 +74,8 @@ logs/Sweep2_fullinside_v3_fixed1024_seed42_20260901/launch_pipeline.sh
 截至最近检查：
 
 - 1-env random smoke PASS。
-- 1024-env 场景创建完成。
-- 仿真正在启动。
-- 尚未产生 PPO agent steps。
+- 1024-env 初始化、Actor BC 与 Critic 数据预热完成。
+- 已进入 PPO；最近检查为 196,608 agent steps。
 - 不得重复启动同名或第二个 1024-env run。
 
 ## 诊断产物
@@ -96,28 +95,17 @@ outputs_video/Sweep2FullInsideV3__20260901_policy_<XXXXM>/
 录像规则：
 
 - 成功物理 rollout 当步终止。
-- DirectRLEnv terminal 后会自动 reset，因此 recorder 不得渲染 done 返回后的状态。
-- 冻结源是最后一个有效 pre-reset RGB 图像。
+- recorder 在专用录制模式下抑制 terminal 自动 reset，并渲染真实 terminal physics state。
+- 冻结源必须是 fully_inside 成立当步的真实终态 RGB 图像。
 - 以 20 FPS 重复 40 帧，形成 2 秒展示冻结。
-- 15M 回归的正确冻结源为 frame_0231.png，不是 reset 后的 frame_0232.png。
+- 录像必须冻结真实 terminal physics frame，不得使用 terminal 前帧或 reset 后帧。
 
-## 已验证基线
+## 已验证专家与录像
 
-旧 15M checkpoint 回归：
-
-- terminal transition step=232。
-- trace success=True，Gate=[1,1,1,1]。
-- cube_pan.z≈63.073 mm。
-- topdown 最后一帧 frame_0231.png。
-- MP4 总计 272 帧：232 个有效画面 + 40 个冻结帧。
-- 路径：logs/entry_restore_regression_20260831/ 和 outputs_video/Sweep2_entry_restore_regression_20260831/。
-
-旧保留节点：
-
-- logs/checkpoints/Sweep2__20260830_policy_{0003M,0012M,0015M,0048M}/
-- outputs_video/Sweep2__20260830_policy_{0003M,0012M,0015M,0048M}/
-
-这些是历史基线，不能冒充当前 v2 run 的结果。
+- 两条 expert 均按当前 fully_inside 判据通过统一环境回放。
+- trace 必须同时满足 success=True、Gate=[1,1,1,1] 与完整 footprint 入盆。
+- 录像采用机器人左前方略高的中景；成功终态追加 40 个相同帧。
+- 历史实验已按最小可复现集清理；当前保留两条 expert 所需输入、near-success、failure、标准回放和当前 v3 run。
 
 ## 安全与运维
 

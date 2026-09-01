@@ -26,16 +26,9 @@ dustpan 使用视觉 mesh 加开放 compound collider：盆底、连续入口 ra
 
 以最接近成功的回放为基线，一次只改一个变量。资产正确后，保持左臂/reference/世界不变，只对右臂末段沿 pan-local inward axis 做平滑 IK depth extension。
 
-当前 Sweep2 保存：
+当前 Sweep2 保存两条 fully-inside expert、一条 25 mm near-success 和一条 canonical failure。Actor BC 使用两条 expert；Critic 使用两条 full-success、near-success 与 failure。所有当前 transition 位于 logs/expert/transitions_fullinside/。
 
-- 25 mm entry expert。
-- 40 mm entry expert。
-- canonical failure。
-- Actor BC 使用 40 mm 与旧 15M 两条 fully-inside demonstration。
-- Critic 使用 40 mm/15M full-success、25 mm near-success 与 failure。
-- 所有当前 transition 位于 logs/expert/transitions/。
-
-专家第一次 entered 即可终止。broom 可先推动，随后由 pan 相对运动完成 entry；success 由 cube-pan 几何决定，不强制持续扫把接触。
+专家只有在完整 footprint 满足 fully_inside 后才可终止。broom 可先推动，随后由 pan 相对运动完成入盆；success 由 cube-pan 几何决定，不强制持续扫把接触。
 
 ## 六、成功契约
 
@@ -72,8 +65,8 @@ reference row 在 nominal contact 前 open-loop 前进；之后只有 broom near
 
 ## 八、训练
 
-1. 用 40 mm transition 训练 Actor；非零修正帧权重 1，零前缀权重 0.05。
-2. 用 25/40/failure 的 discounted return 预热 Critic。
+1. 用两条 fully-inside expert transition 训练 Actor；非零修正帧权重 1，零前缀权重 0.05。
+2. 用两条 full-success、25 mm near-success 与 failure 的 discounted return 预热 Critic。
 3. PPO 前若配置 critic-only warmup，Actor 保持冻结。
 4. 随后 pure on-policy PPO。
 5. scripted prelude transition 可训练 Critic，但 actor_mask=0，因此不进入 Actor loss、entropy、bounds、KL 或 Actor advantage normalization。
@@ -83,9 +76,9 @@ reference row 在 nominal contact 前 open-loop 前进；之后只有 broom near
 
 ## 九、Reward 与失败
 
-Reward 只服务 entry 目标：
+Reward 只服务 fully-inside 目标：
 
-- earn-only mouth progress。
+- earn-only mouth progress 与 full_progress。
 - Gate 首次奖励。
 - broom 接近/推动质量。
 - pan level/clear/still 质量。
@@ -101,11 +94,11 @@ Deep20 progress 不进入 task reward。失败包括 cube 掉下桌面和 dustpa
 
 1. 保存 terminal transition 到 trace。
 2. 不渲染 done 返回后的 reset 状态。
-3. 使用上一张有效 pre-reset RGB 图像作为展示终帧。
+3. 在专用录制模式抑制该次 reset，渲染 fully_inside 成立当步的真实 terminal RGB 图像。
 4. 在 MP4 末尾追加 40 个相同源帧，20 FPS 下为 2 秒。
 5. topdown context 的最后文件必须是有效物理帧。
 
-15M 回归的正确最后画面是 frame_0231.png；frame_0232 是旧实现误录的 reset 状态，已禁止。
+录像必须渲染真实 terminal physics state；terminal 前状态和自动 reset 后状态都不得作为冻结源。
 
 ## 十一、诊断与验收
 
@@ -124,7 +117,7 @@ Deep20 progress 不进入 task reward。失败包括 cube 掉下桌面和 dustpa
 
 ## 十二、Sweep2 当前实例
 
-当前 v2 run：
+当前 v3 run：
 
 - tmux：sweep2_fullinside_v3_1024_20260901
 - run：logs/Sweep2_fullinside_v3_fixed1024_seed42_20260901/
@@ -134,4 +127,4 @@ Deep20 progress 不进入 task reward。失败包括 cube 掉下桌面和 dustpa
 - 每 3M 自动诊断
 - 最终 512 deterministic 验收
 
-旧 15M 回归于 terminal transition step232 成功，最后有效图像为 frame_0231.png，视频追加 40 帧冻结。该回归证明恢复的 entry contract 与旧成功 checkpoint 一致，不代表当前 v2 已完成训练。
+两条 expert 均在统一 fully-inside contract 下回放成功；视频在真实 terminal 图像后追加 40 帧冻结。这只验证 expert 与判据一致，不代表当前 v3 已完成训练。

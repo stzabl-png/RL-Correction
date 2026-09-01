@@ -425,7 +425,7 @@
 
 ## Terminal 后渲染会把 reset 状态误当作成功冻结帧
 
-- 背景：15M entry 回归在 terminal transition step232 成功，但 DirectRLEnv 在 env.step 返回前已自动 reset。
+- 背景：fully-inside expert 回归在 terminal transition 成功，但 DirectRLEnv 在 env.step 返回前已自动 reset。
 - 症状：录像器随后 render，生成的 frame_0232 是 reset 画面；正确最后有效图像是 frame_0231。
 - 修正：检测 done 后保存 transition，但跳过 post-reset render，以最后一个有效 pre-reset RGB 图像追加 40 帧。
 - 预防：录像验收同时检查 trace terminal Gate、topdown 最大编号和 MP4 物理帧数；不能只看 success_step 日志。

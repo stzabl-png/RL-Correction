@@ -1,5 +1,5 @@
 # 想套用我们的训练设计? 从这里开始
-> Sweep 当前入口：sweep-task 分支的 CODEX_HANDOFF.md 与 SWEEP_TRAJECTORY_PLAYBOOK.md。Sweep2 当前采用旧 15M 的 entry-success 标准；Deep20 已停止，不是当前训练目标。
+> Sweep 当前入口：sweep-task 分支的 CODEX_HANDOFF.md 与 SWEEP_TRAJECTORY_PLAYBOOK.md。Sweep2 当前采用 fully-inside 标准；Deep20 已停止，不是当前训练目标。
 
 
 > 一句话: **代码和台账全在 `Step4_RL_Correction` 分支**,默认分支 `main` 只有 pipeline 总览图。

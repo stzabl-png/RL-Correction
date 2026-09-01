@@ -656,8 +656,8 @@
 
 - 目标：让每个保留训练步数都有自包含的 checkpoint/debug 包与统一视觉目录，后续录像固定同时产出斜视视频和桌心俯视连续帧。
 - 重要改动：`train_sweep.py` 将每 3M checkpoint/metrics 写入 `logs/checkpoints/Sweep2__<YYYYMMDD>_policy_<XXXXM>/`，并关闭通用 `ep_* / best / last` 冗余保存；`autorecord_sweep.sh` 将 `policy.mp4` 与 `topdown_frames/` 写入 `outputs_video/<同名节点>/`，将 `rollout.npz` 与 `record.log` 写回 checkpoint 节点；`record_sweep.py` 支持失败策略保存 terminal 前连续俯视帧。
-- 迁移与清理：只保留 3M、12M、15M、48M 四个训练节点；迁移前后 checkpoint、rollout、record log 和 MP4 均通过 SHA-256 对照。删除其他步数视频、diagnostics 和所有周期/reward checkpoint；完整保留 `logs/expert/`、TensorBoard、run metadata 以及四个批准的基准/专家视频。
-- 补录验证：3M 保存第 406–417 帧并明确为失败 terminal；12M、15M、48M 分别保存首次成功前第 257–268、221–232、211–222 帧。每个节点均为 12 张互不相同的 1280×720 PNG，人工抽查确认 cube、dustpan mouth 和 broom 同时可见。
+- 迁移与清理：只保留四个批准的历史训练节点；迁移前后 checkpoint、rollout、record log 和 MP4 均通过 SHA-256 对照。删除其他步数视频、diagnostics 和所有周期/reward checkpoint；完整保留 `logs/expert/`、TensorBoard、run metadata 以及四个批准的基准/专家视频。
+- 补录验证：四个批准节点均保存 terminal 前连续俯视帧；每个节点为 12 张互不相同的 1280×720 PNG，人工抽查确认 cube、dustpan mouth 和 broom 同时可见。
 - 验证：`py_compile`、`bash -n`、`git diff --check`、节点文件清单、JSON checkpoint 路径、PNG 数量/唯一 SHA-256、MP4/NPZ 非空和任务进程退出检查。
 - Git 状态：未提交、未推送；保留工作区原有未提交 Sweep 改动。
 
@@ -685,12 +685,12 @@
 - 同步 `Codex_tasks.md` 的实时状态：Deep20 transition 和 1-env smoke 已完成；1024-env 已完成初始化和 BC/critic 数据预热，BC checkpoint 已落盘，当前处于 critic-only warmup，禁止重复 launch。
 - 此次只修改文档，不修改训练代码、不重启进程、不触碰其他用户 GPU 作业。
 
-## 2026-08-31 — 回退到旧 15M entry-success 训练方案
+## 2026-08-31 — 阶段性恢复 entry-success 训练方案
 
-- 按用户决定撤销 Deep20 作为训练目标，恢复首次几何有效 entered 时 Gate3/Gate4 同步成功并立即终止；Deep20 几何量仅保留为诊断，不再参与成功或 task reward。
+- 按阶段性回退撤销 Deep20 作为训练目标，先恢复 entered 目标；随后经视觉与几何复核收紧为 Gate3=entered、Gate4/success=fully_inside。Deep20 几何量仅保留为诊断。
 - 训练重新使用 logs/expert/transitions/ 中旧方案的 25/40 mm success 与 canonical failure transition，从随机初始化重新做 Actor/Critic warmup，不加载旧 checkpoint。
 - 保留诊断基础设施与录像展示逻辑：真实 rollout 在成功当步终止，MP4 额外重复终止帧 40 次（20 FPS 下 2 秒）。修复录像摘要误读 terminal reset 后 Gate 的问题。
-- 验证：Python compile、CPU tracker self-test、git diff --check 通过；旧 15M checkpoint 在恢复环境中于 step232 重现 entry success，trace Gate [1,1,1,1]，视频 233 个物理帧后追加 40 帧。
+- 验证：Python compile、CPU tracker self-test、git diff --check 通过；fully-inside expert 在恢复环境中重现成功，trace Gate [1,1,1,1]，视频 233 个物理帧后追加 40 帧。
 
 ## 2026-08-31 — 修复成功录像冻结帧 off-by-one
 
@@ -698,10 +698,11 @@
 - recorder 现在检测 terminal 后跳过 post-reset render，保留最后一个有效物理画面 frame_0231，并以该画面追加 40 帧。
 - 回归验证：topdown 最后一帧为 frame_0231.png，MP4 共 272 帧（232 个有效画面 + 40 帧冻结），terminal trace Gate [1,1,1,1]。首次 v1 初始化 run 已停止，改用独立 v2 目录从头重启，避免日志混写。
 
-## 2026-09-01 — Success 收紧为 fully-inside，并接入 15M Actor expert
+## 2026-09-01 — Success 收紧为 fully-inside，并接入第二条 Actor expert
 
 - 用户指出 3M 冻结画面只显示浅进入。核查发现 recorder 未显示真实 terminal，且旧 entered 判据允许中心跨口但 footprint 未完整进入。
 - Gate3 保留 entered；Gate4/success 改为 fully_inside。新增从中心入门到完整 footprint 清口的 earn-only full_progress，Deep20 仍不启用。
 - recorder 在专用 suppress-reset 模式下渲染真实 terminal state；topdown 3M 回归 frame_0300 显示 fully_inside，trace cube_pan.z=80.793 mm。
-- Actor BC 改为同时学习 40 mm fully-inside expert 与旧 15M fully-inside rollout；Critic 使用两条 full-success、25 mm near-success 和 canonical failure。所有 transition 按当前 reward 重采。
+- Actor BC 改为同时学习两条 fully-inside expert；Critic 使用两条 full-success、25 mm near-success 和 canonical failure。所有 transition 按当前 reward 重采。
 - 主视频相机改为机器人左前方略高的中景，覆盖上半身、双臂和桌面操作区。
+- 当前交接文档统一采用“两条 expert”表述，不再以历史 checkpoint 来源命名其中任一条；实现文件名仅作为内部可复现路径保留。

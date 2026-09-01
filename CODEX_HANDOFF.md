@@ -1,6 +1,6 @@
 # Sweep2 Full-Inside 交接说明
 
-更新时间：2026-08-31。当前权威目标已经从 Deep20 回退为旧 15M 所用的首次有效进入（full-inside）。Deep20 是已停止的历史实验，不再是训练或验收标准。
+更新时间：2026-09-01。当前权威目标为 fully-inside：方块完整 footprint 进入簸箕后才算成功。Deep20 是已停止的历史实验，不再是训练或验收标准。
 
 ## 1. 阅读顺序
 
@@ -33,8 +33,8 @@
 - Gate3：cube 中心第一次满足有横向、深度和承载高度约束的 entered。
 - Gate4：cube 完整 footprint 进入后锁存，表示 operational success。
 - 成功当步立即终止物理 rollout。
-- fully_inside、deep_inside、deep_margin 仅为诊断字段，不影响成功或 task reward。
-- deterministic 视频不继续仿真；只把最后一个有效 pre-reset 图像重复 40 帧，在 20 FPS 下冻结 2 秒。
+- fully_inside 是 Gate4/success 的硬判据；deep_inside、deep_margin 仅为诊断字段，不影响成功或 task reward。
+- deterministic 视频在真实 terminal physics state 上停止；将该终态图像重复 40 帧，在 20 FPS 下冻结 2 秒。
 
 最终验收仍需至少 512 个 deterministic episodes，full-inside rate >= 0.50。训练窗口成功率不能代替最终验收。
 
@@ -43,7 +43,7 @@
 数据流：
 
 ego reconstruction -> build_reference.py -> sweep2_reference_v1.npz
--> sweep_env.py 冻结物理世界 -> 25/40 mm right-arm expert
+-> sweep_env.py 冻结物理世界 -> 两条 full-success expert、near-success 与 failure
 -> build_expert_dataset.py -> Actor/Critic warmup -> pure on-policy PPO
 -> 每 3M checkpoint/metrics/trace/video -> 512 回合验收
 
@@ -52,19 +52,19 @@ ego reconstruction -> build_reference.py -> sweep2_reference_v1.npz
 - reference：tasks/Sweep/2/A_Design/L2_Reference/
 - tracker：tasks/Sweep/2/A_Design/L3_Learning/progress_batch.py
 - environment：tasks/Sweep/2/C_Wiring/sweep_env.py
-- transitions：logs/expert/transitions/
+- transitions：logs/expert/transitions_fullinside/
 - warmup：tasks/Sweep/2/C_Wiring/bc_warmup.py
 - training：tasks/Sweep/2/C_Wiring/train_sweep.py
 - recording：tasks/Sweep/2/C_Wiring/record_sweep.py
 - evaluation：tasks/Sweep/2/C_Wiring/eval_sweep.py
 
-Actor observation 为 191 维，Critic privileged state 为 22 维，action 为双臂 14 维。前 80 control steps 强制零 residual，且从 Actor objective、entropy、bounds、KL 和 advantage normalization 中排除。Actor BC 同时使用 40 mm fully-inside expert 与旧 15M fully-inside rollout；Critic 使用 40 mm/15M full-success、25 mm near-success 与 canonical failure return。
+Actor observation 为 191 维，Critic privileged state 为 22 维，action 为双臂 14 维。前 80 control steps 强制零 residual，且从 Actor objective、entropy、bounds、KL 和 advantage normalization 中排除。Actor BC 使用两条 fully-inside expert；Critic 使用两条 full-success expert、25 mm near-success 与 canonical failure return。
 
 冻结输入：
 
 - reference：tasks/Sweep/2/A_Design/L2_Reference/sweep2_reference_v1.npz
 - full-inside transitions：logs/expert/transitions_fullinside/
-- expert 视频：outputs_video/sweep2_expert_entry25_v1.mp4、sweep2_expert_entry40_v1.mp4
+- expert 数据：两条 fully-inside expert；另保留 25 mm near-success 与 canonical failure 供 Critic 预热
 - canonical replay：outputs_video/sweep2_v1_smooth_asset_physical_entry_replay.mp4
 - cube world start：[-0.0259767957, -0.1788897067, 0.8830000162] m
 
@@ -84,7 +84,7 @@ Actor observation 为 191 维，Critic privileged state 为 22 维，action 为�
 - train log：logs/Sweep2_fullinside_v3_fixed1024_seed42_20260901/train.log
 - checkpoint root：logs/checkpoints/Sweep2FullInsideV3__20260901_policy_*
 
-1-env random smoke 已通过。最近一次交接检查时 1024-env 场景已创建并正在启动仿真，尚未写 progress_steps.txt；不得重复启动第二个 run。
+1-env random smoke 已通过。1024-env 已完成初始化与预热并进入 PPO；最近检查为 196,608 agent steps。不得重复启动第二个 run。
 
 监控：
 
@@ -95,12 +95,11 @@ ssh msc-a6000 'cat /home/msc-auto/RL_sweep/logs/Sweep2_fullinside_v3_fixed1024_s
 ## 6. 已完成回归
 
 - CPU tracker self-test PASS。
-- 旧 15M checkpoint 在恢复后的环境中于 step232 重现 entry success。
+- 第二条 fully-inside expert 在统一环境回放中通过成功判据。
 - terminal trace Gate 为 [1,1,1,1]，cube_pan.z 约 63.07 mm。
-- 正确的最后有效图像是 topdown frame_0231.png。
-- recorder 已跳过 terminal 后自动 reset 的 frame_0232。
-- 回归 MP4 共 272 帧：232 个有效图像加 40 个冻结帧。
-- 回归产物：logs/entry_restore_regression_20260831/ 与 outputs_video/Sweep2_entry_restore_regression_20260831/。
+- 两条 expert 均在统一 fully-inside contract 下回放成功。
+- recorder 可渲染真实 terminal physics state，并抑制该次自动 reset；terminal 前帧和 reset 后帧均不得作为成功冻结源。
+- 主视频采用机器人左前方略高的中景，覆盖上半身、双臂与桌面操作区；终态追加 40 帧冻结。
 
 ## 7. 最近操作顺序
 

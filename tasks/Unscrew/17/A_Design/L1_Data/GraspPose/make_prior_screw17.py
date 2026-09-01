@@ -10,7 +10,11 @@ import json, os, sys, numpy as np
 D = "/home/lyh/Project/Dexonomy/output/DELIVER"
 OUT = "tasks/pregrasp/priors"
 PICK = {"Screw17_bottle_left": ("screw17_bottle_left", "1_Large_Diameter__v4_7_14_grasp.npy"),
-        "Screw17_cap_right": ("screw17_cap_right", "33_Inferior_Pincer__1_47_grasp.npy")}
+        "Screw17_cap_right": ("screw17_cap_right", "33_Inferior_Pincer__1_47_grasp.npy"),
+        # 2026-09-01 07:30 换左候选: 1_Large_Diameter 族腕在瓶底 3~6cm (拇指朝上, 小指侧/腕链悬在腕下 ~9cm),
+        # 装在 DexMate 臂上会撞桌 (缝1 进刀实测腕停在离桌 9~12cm 下不去, 母带 v2 被重锚到高 8.5cm 的假站位);
+        # Dexonomy 是浮手, 桌面净距滤不出这条. 改 11_Power_Sphere 族 (腕 10.6cm, 接触 5~12cm, 放倒可达组合 40).
+        "Screw17_bottle_left_PS": ("screw17_bottle_left", "11_Power_Sphere__v3_4_12_grasp.npy")}
 for name, (deliver, f) in PICK.items():
     rr = json.load(open(f"{D}/{deliver}/region_rank.json"))
     com = np.asarray(rr["canonical_frame"]["com_offset"], np.float64)

@@ -173,3 +173,15 @@
 | **首发** | `U17_pull_cl_s51` 06:13 本地 512 env, HYB, `UNSCREW_DETACH=pull UNSCREW_RIGHT_CL=1 POUR_UNLOCK=1,2,3`, FPS ~2500; `logs/U17_pull_cl_s51/` |
 
 **左站位抓握几何 (probe_grasp, 瓶钉住)**: 指垫瓶系径向 index 2.8 / middle 3.6 / thumb 3.5 / ring 4.2 / pinky 4.6cm (瓶半径 3.25) → index 已穿入、pinky 差 1.3cm: 手绕掌法线有 ~7° 偏转, 不是整体径向差 (径向收紧 ±6mm 扫描都 L0/5)。离线 FK (prior grasp 角) 五垫径向都 4.3~4.7cm (贴面), 说明是 **squeeze 剂量不均 + 接触后偏转**, 下一轮试 βL=0.5 或按垫分配 squeeze。
+
+### 9.2 左站位抓握沙盒扫描 (2026-09-01 06:30~07:25, 与训练并行, `B_SmokeTest/trim_sweep.sh` / `beta_sweep.sh`)
+- 径向收紧 ±6/+12mm (沙盒 v1, 离线锚): **不可比** —— 沙盒 v1 比正式 v2 整体深 1.3cm, 五垫全穿入 0 力; 只证明径向平移不是杠杆。
+- βL squeeze 剂量 (正式 v2, 瓶钉住): 0.5 → L1 (仅小指 1.7N); **0.7 → L3** (拇 2.4 / 无名 1.2 / 小指 3.9N); 1.0 → L3 (拇 5.6 / 无名 2.1 / 小指 7.9N, index 穿入 0.45cm); 1.3 → L3 (拇 9.7 / 小指 11.8N)。index/middle 在所有档都 0 力。
+- 判读: 手绕掌法线偏转 ~7° (index 高且深, pinky 低且远), 合拢先由拇/小指顶到瓶, 自由瓶被推倒 → 零动作 L0。**下一轮杠杆 = 腕姿态闭环对准** (同事右手 `probe_capgrasp --fit` 的左手版: 量五垫径向 → 绕指列轴微转腕 → 重解 IK → 复测), 不是径向/剂量。βL=0.7 作为更温和的备选剂量。
+
+### 9.3 首发尸检 + 换左候选 (2026-09-01 07:00~07:40)
+- 首发 `U17_pull_cl_s51` 4M 步: G1 t0 口径 0.9 (残差能合手), **G2 认证 0/24** (`probe_certfail`: 瓶/盖 Δz ≈0, 滑移 0.5cm ok, 垫 3~4 ok, **左腕实际抬 −0.4cm vs 参考 +1.5cm**) → 时钟冻在 G2 前, 右手/拔盖全程没开始 (`cap_any=0`)。
+- 根因 (`probe_seam` 零动作逐行): 缝1 进刀"先对高度"要把左腕从 0.964 降到 0.906m, **实际腕停在 0.96~0.99 下不去** (关节差 12°), v2 重铸把整段交互重锚到这个假站位 (v2 站位比 v1 高 **8.5cm**, 右手只差 0.2cm)。认证行 IK 本身正确 (+14mm), 但臂被顶住抬不起来。
+- 再往下: 1_Large_Diameter 族 (选型 §8 的 v4_7_14) 腕在瓶底 3.3cm、拇指朝上, 小指侧掌缘/腕链悬在 C_MC 下 ~9cm —— **Dexonomy 是浮手**, 桌面净距滤的是手本身, 装到 DexMate 臂上就撞桌。§8 的离线 IK 筛只查腕可达, 没查"手/腕链最低点离桌" —— 选型判据缺一条。
+- 换 `11_Power_Sphere__v3_4_12` (腕 10.6cm, 接触 5~12cm, demo 44°, 放倒可达组合 40): 新 v1 左站位腕离桌 10.7cm, 左 IK 100%/余量 18.8°。以 `UNSCREW_LEFT_PRIOR=Screw17_bottle_left_PS.npz` 起第二发 `U17_pull_PS_s51` (首发保留到第二发起来再停)。
+- 首发产物归档: `launch_logs/run2/{Approach,Retreat}_run1.npz`, `reference_v{1,2}_run1.npz`, `acceptance_v2_run1.json`; 录像 `logs/U17_pull_cl_s51/videos/U17_pull_cl_s51_2M.mp4`。

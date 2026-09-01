@@ -7,9 +7,9 @@ cd "$(dirname "$0")/../../../.."
 NAME=${1:?name}; SEED=${2:-51}; NE=${3:-512}; VAR=${4:-HYB}; CL=${5:-1}
 PY=${PY:-/home/lyh/luhr/MagicSim/.venv/bin/python}
 mkdir -p logs launch_logs
-export UNSCREW_CLIP=17 UNSCREW_DETACH=pull UNSCREW_RIGHT_CL=$CL UNSCREW_PULL_N=${UNSCREW_PULL_N:-3.0}
+export UNSCREW_CLIP=17 UNSCREW_DETACH=pull UNSCREW_RIGHT_CL=$CL UNSCREW_PULL_N=${UNSCREW_PULL_N:-3.0} UNSCREW_LEFT_PRIOR=${UNSCREW_LEFT_PRIOR:-Screw17_bottle_left.npz}
 export SHARPA_WANDB=0 OMNI_KIT_ACCEPT_EULA=YES PYTHONPATH=. TMPDIR=${TMPDIR:-$HOME/tmp}
 export POUR_UNLOCK=1,2,3 POUR_SQUEEZE_FF=1 POUR_BONUS_NOW=1 POUR_BONUS_DIST=1 POUR_VARIANT=$VAR
 mkdir -p "$TMPDIR"
-echo "[launch] $NAME seed=$SEED envs=$NE var=$VAR right_cl=$CL detach=pull pull_n=$UNSCREW_PULL_N" | tee -a launch_logs/${NAME}.log
+echo "[launch] $NAME seed=$SEED envs=$NE var=$VAR right_cl=$CL detach=pull pull_n=$UNSCREW_PULL_N left_prior=$UNSCREW_LEFT_PRIOR" | tee -a launch_logs/${NAME}.log
 exec $PY -u tasks/Unscrew/part4/C_Wiring/train_task.py --name "$NAME" --seed "$SEED" --num_envs "$NE" --no_autorec --headless "${@:6}" >> launch_logs/${NAME}.log 2>&1

@@ -83,7 +83,7 @@ AFFORDANCE_CAP = os.path.join(TAKE_DIR, "contact", "expected_area_object_1_right
 # 不使用 >1 的关节外推。接触/穿模由策略在有界残差内修正。
 BETA_R = 1.0     # [TASK] 右手盖: 2026-09-01 起接上 Screw27_cap 候选的 squeeze
                  #        (原为 0 = 没有重定向, 右手全程碰不到盖 -> 拧转收入恒 0)
-BETA_L = 1.0     # [TASK] 左手瓶: 2026-08-31 实测定档 —— 锚点/进刀/预张开修好后
+BETA_L = float(os.environ.get("UNSCREW_BETA_L", "1.0"))     # [TASK] 左手瓶: 2026-08-31 实测定档 (UNSCREW_BETA_L 可覆写, Unscrew/17 站位探针用) —— 锚点/进刀/预张开修好后
                  #        β=1.0 站位行 **4 垫接触** (G1 只要 3), 瓶全程不倒;
                  #        β=0.6 反而掉到 2 垫 (拇指 30N、其余脱开)。拇指偏硬
                  #        (45N, 右手 prior 按名镜像到左手时拇指最不对称) 是**已知
@@ -388,7 +388,8 @@ LEFT_YAW_PREF_DEG = None                 # 左抓方位扫描的偏好 (None = �
 LEFT_YAW_PREF_TOL = 20.0
 RIGHT_CL = os.environ.get("UNSCREW_RIGHT_CL", "0") == "1"    # U9 右手闭环 (env 内差分 IK 伺服)
 if NATIVE_PRIORS:
-    PRIOR_AUX = os.path.join(REPO, "tasks", "pregrasp", "priors", "Screw17_bottle_left.npz")
+    PRIOR_AUX = os.path.join(REPO, "tasks", "pregrasp", "priors",
+                             os.environ.get("UNSCREW_LEFT_PRIOR", "Screw17_bottle_left.npz"))
     PRIOR_CAP_DIR = os.path.join(REPO, "tasks", "pregrasp", "priors", "Screw17_cap_candidates")
     CAP_GRASP_PICK = os.environ.get("UNSCREW_CAP_GRASP", "")   # 目录里只有选定的那一个
     CAP_GRASP_TRIM = (0.0, 0.0, 0.0)      # 同事的量是给镜像 Screw27 候选的; 原生先验从零起, 探针复测再填

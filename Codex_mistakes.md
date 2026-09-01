@@ -436,3 +436,11 @@
 - 根因：DirectRLEnv 在 done 返回前 reset；上一版为避免 reset 画面直接跳过 terminal render，因此展示的是 terminal action 前状态。
 - 修正：录制环境专用 suppress_terminal_reset，保持训练判据不变但允许渲染真实 terminal physics，再按 tick terminal 边界退出。
 - 预防：同时核对 terminal cube_pan/fully_inside、topdown terminal 图像与视频冻结源。
+
+## 放宽穿桌终止阈值时必须同步惩罚整条失败路径
+
+- 现象：v3 约 2M 的 Gate4 一度达到 `18.2%`，随后塌缩；3M/6M deterministic 都在 Gate2 后把簸箕 mouth 压入桌面并提前终止，但总 reward 仍为正。
+- 错误假设：认为把穿桌硬失败阈值从 `-1 mm` 放宽即可允许轻微接触，且 pan-quality shaping 会自然约束左臂。实际上策略先获取 acquired/task/shape 正奖励，再以较小 terminal 代价结束，形成比完整进入更便宜的捷径。
+- 修正：从 clearance `+0.5 mm` 开始施加连续二次惩罚，在 `-3 mm` 达到 `-4/step`，并保留 `-3 mm` 硬失败。既有 3M/6M 失败轨迹离线重算后由正回报变为负回报；新 run 在 6M 得到 Gate4 deterministic 成功且最小 clearance 为正。
+- 预防：任何 terminal 放宽都必须同时审计 terminal 前整段累计回报。发射前用已知失败 rollout 重算每个 reward component，要求捷径回报低于真实成功；训练中并列观察 Gate funnel、episode 长度、clearance 和分项 reward，不能用均值 reward 代替成功率。
+- 数据边界：reward 改变后通常应重采 Critic return。本次复用旧 transition 是明确批准的实验例外，后续任务不得把它当作默认流程。

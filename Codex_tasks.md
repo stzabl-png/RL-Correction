@@ -1,4 +1,4 @@
-# Codex 任务台账：Sweep2 Full-Inside 残差训练
+# Codex 任务：Sweep2 Full-Inside 残差训练
 
 更新时间：2026-09-01。本文件是 Sweep2 当前实例的权威算法说明和运行台账。阅读者应能从这里理解：原始重建数据如何变成 reference，策略每一步看到什么、输出什么，Gate/reward 如何由物理状态产生，expert transition 如何预热 Actor/Critic，以及 PPO、诊断和最终验收如何衔接。
 
@@ -166,18 +166,18 @@ Isaac state
 终止条件：
 
 - success：Gate4 新成立或已成立。
-- failure：cube 低于桌面 30 mm，或 dustpan mouth 穿桌超过 1 mm。
+- failure：cube 低于桌面 30 mm，或 dustpan mouth clearance 低于 `-3.0 mm`。
 - timeout：达到最大 episode length 且未 success/failure。
 
 录像模式是唯一例外：它抑制 DirectRLEnv 的 terminal auto-reset，以便渲染真实 terminal physics state；这不会改变训练的物理轨迹或成功定义。
 
 ## 8. Reward 的组成与因果
 
-总 reward 是九项之和：
+总 reward 是十项之和：
 
 ```text
 reward = task + acquire + push + pan_quality + success_quality
-       + track + shape + action + left_anchor
+       + mouth_floor + track + shape + action + left_anchor
 ```
 
 ### 8.1 Task reward
@@ -201,6 +201,7 @@ task = 4 * mouth_delta * corridor
 - `push = 4 * assisted_delta`：只有 inward progress 同时满足扫把接触质量、正确后方/横向/高度和入口 corridor 才奖励。
 - `pan_quality`：pan level、mouth clearance、低线速度和低角速度联合 potential 的首次改善。
 - `success_quality = 2 * pan_quality * new_Gate4`：完整进入当步奖励稳定、平整、离桌合理的 pan。
+- `mouth_floor`：当 mouth clearance 低于 `+0.5 mm` 后施加直接二次惩罚：`-4*((0.5mm-clearance)/3.5mm)^2`。在 `-3.0 mm` 达到 `-4/step` 并触发失败，使 3M/6M 曾出现的下压短回合不再获得正收益。
 - `track`：confidence-weighted 工具 reference 超差惩罚。confidence 越低，容差越大；它永远不是 success proxy。
 - `shape = 0.2 * w_hand * max(cos(actual_joint_delta, human_joint_delta),0)`：仅中低 confidence 生效；`confidence>=0.70` 时权重 0，`0.40–0.70` 为 0.5，更低为 0.8。
 - `action = -0.002||a_t||² - 0.001||a_t-a_{t-1}||²`。
@@ -302,24 +303,32 @@ run 内 `world.json` 冻结 success、policy I/O、time、reference/asset/transi
 
 ## 13. 当前训练与监控
 
-- tmux：`sweep2_fullinside_v3_1024_20260901`
-- run：`logs/Sweep2_fullinside_v3_fixed1024_seed42_20260901/`
-- artifact prefix：`Sweep2FullInsideV3__20260901_policy`
+- tmux：`sweep2_floorpenalty_v4_1024_20260901`
+- run：`logs/Sweep2_floorpenalty_v4_fixed1024_seed42_20260901/`
+- artifact prefix：`Sweep2FloorPenaltyV4__20260901_policy`
 - seed：42
 - max agent steps：100M
 - GPU：GPU0，与 feiyang 共享已获用户授权；禁止操作对方进程、tmux 或资源优先级。
-- launch：`logs/Sweep2_fullinside_v3_fixed1024_seed42_20260901/launch_pipeline.sh`
-- train log：`logs/Sweep2_fullinside_v3_fixed1024_seed42_20260901/train.log`
-- checkpoint root：`logs/checkpoints/Sweep2FullInsideV3__20260901_policy_*`
+- launch：`logs/Sweep2_floorpenalty_v4_fixed1024_seed42_20260901/launch_pipeline.sh`
+- train log：`logs/Sweep2_floorpenalty_v4_fixed1024_seed42_20260901/train.log`
+- checkpoint root：`logs/checkpoints/Sweep2FloorPenaltyV4__20260901_policy_*`
 
-1-env random smoke、Actor BC、Critic return regression 和前 10 PPO critic-only epochs均已完成，当前处于完整 PPO。不得重复启动第二个 1024-env run。
+v3 在 8,192,000 steps 停止：其约 2M Gate4 峰值为 18.2%，但 3M/6M deterministic rollout 均在 Gate2 后因 mouth 穿桌提前失败，之后窗口 Gate4 塌缩到约 1%。v4 保持 Gate、expert action 和 PPO 不变，只加入 mouth-floor 强惩罚并把硬失败下限放宽到 `-3 mm`。
+
+按用户决定，v4 直接复用现有四条 transition，不重放 expert、不重采 `return_target`，并跳过 1-env smoke，直接从随机网络进行 1024-env 初始化、BC/Critic 预热和 PPO。由于 reward 已改变，复用的 Critic 离线 return 与新在线 reward 不完全一致；这是本次明确接受的实验条件。1024-env 初始化、Actor BC、离线 Critic 回归和前 10 个 critic-only epochs 均已完成，当前处于完整 on-policy PPO。
+
+已验证里程碑：
+
+- 3M：训练窗口 Gate4 `8.74%`；deterministic rollout 在 step 322 因 mouth clearance `-3.25 mm` 失败，Gate `[1,1,0,0]`，总 reward `-4.96`。这说明新惩罚已经把原先可获正回报的穿桌捷径改成负回报，但此时策略尚未学会完整进入。
+- 6M：checkpoint 实际为 `6,029,312` steps。训练窗口 Gate1/Gate2/Gate3/Gate4 分别为 `100% / 98.20% / 72.97% / 69.37%`，`fully_inside=70.27%`（111 episodes）。deterministic rollout 在 step 299 达成 Gate4，最小 mouth clearance `+1.34 mm`、终态 `+1.54 mm`，总 reward `+24.60`；录像含 300 帧真实物理过程和 40 帧终态冻结。
+- 约 6M–7M：训练窗口 Gate4 均值约 `72.2%`，单窗口峰值 `83.3%`；reward 与 Gate4 同向改善，不再出现 v3 的“失败但高回报”分离。
 
 监控：
 
 ```bash
-ssh msc-a6000 'tmux capture-pane -pt sweep2_fullinside_v3_1024_20260901:0 -S -80'
-ssh msc-a6000 'tail -n 100 /home/msc-auto/RL_sweep/logs/Sweep2_fullinside_v3_fixed1024_seed42_20260901/train.log'
-ssh msc-a6000 'cat /home/msc-auto/RL_sweep/logs/Sweep2_fullinside_v3_fixed1024_seed42_20260901/progress_steps.txt 2>/dev/null || true'
+ssh msc-a6000 'tmux capture-pane -pt sweep2_floorpenalty_v4_1024_20260901:0 -S -80'
+ssh msc-a6000 'tail -n 100 /home/msc-auto/RL_sweep/logs/Sweep2_floorpenalty_v4_fixed1024_seed42_20260901/train.log'
+ssh msc-a6000 'cat /home/msc-auto/RL_sweep/logs/Sweep2_floorpenalty_v4_fixed1024_seed42_20260901/progress_steps.txt 2>/dev/null || true'
 ```
 
 停止时必须先核对精确 tmux 与 PID，只能向本任务 session 发送 Ctrl-C；禁止 `pkill`、`killall` 或 GPU reset。
@@ -329,13 +338,13 @@ ssh msc-a6000 'cat /home/msc-auto/RL_sweep/logs/Sweep2_fullinside_v3_fixed1024_s
 每 3M 节点必须包含：
 
 ```text
-logs/checkpoints/Sweep2FullInsideV3__20260901_policy_<XXXXM>/
+logs/checkpoints/Sweep2FloorPenaltyV4__20260901_policy_<XXXXM>/
   checkpoint.pth
   metrics.json
   rollout.npz
   record.log
 
-outputs_video/Sweep2FullInsideV3__20260901_policy_<XXXXM>/
+outputs_video/Sweep2FloorPenaltyV4__20260901_policy_<XXXXM>/
   policy.mp4
   topdown_frames/frame_*.png
 ```
@@ -354,11 +363,13 @@ outputs_video/Sweep2FullInsideV3__20260901_policy_<XXXXM>/
 
 ## 15. 当前状态与下一步
 
-训练 tmux 当前存活，PPO 正在推进；实时步数以 `progress_steps.txt` 为准，不在本文固化易过期数字。
+v3 已停止；其根因、3M/6M 诊断结论和关键数值已写入本文、`Codex_commit.md` 与 `Codex_mistakes.md`。确认不再被训练、expert manifest 或回退路径引用后，旧 v3 原始 run 日志目录已清理。当前 v4 checkpoint、3M/6M 诊断、视频、expert 数据及其来源证据全部保留。
+
+v4 在 `sweep2_floorpenalty_v4_1024_20260901` 中持续运行，最近核查已超过 7M agent steps；实时状态以 tmux、`train.log` 和 `progress_steps.txt` 为准。
 
 下一步：
 
-1. 到 3M 读取完整诊断包，按上述顺序判断失败阶段。
-2. 核对 deterministic 视频的真实 Gate4 terminal、新视角与 2 秒冻结。
-3. 根据 3M 证据决定继续训练或修正，不凭 reward 或单条视频下结论。
-4. 对候选 checkpoint 执行 512 回合 deterministic 最终验收。
+1. 到 9M 读取下一份完整诊断包，与 6M 比较 Gate3/Gate4、mouth clearance、效率和 deterministic 行为。
+2. 若 9M 未显著优于 6M，保留 6M 作为早期候选；不能只按训练步数选择 checkpoint。
+3. 对候选 checkpoint 执行至少 512 回合 deterministic 最终验收，报告成功率和效率分布。
+4. 只有 `fully_inside rate >= 0.50` 才进入表格 A；明显失败的 ablation 不进入 DP distillation 表格 B。

@@ -146,7 +146,21 @@ Gate 必须 earn-only 锁存。success 当步终止物理 rollout。更换物体
 
 两个 progress 都遵守：使用绝对几何量、只奖励历史最大值增量、reset/播种不付钱。任何 shaped reward 都不能替代 success Gate。
 
-## 十一、小规模验证与训练放大
+## 十一、已验证案例：限制簸箕 mouth 穿桌捷径
+
+一个已经出现过且很容易误判的失败模式是：训练 reward 持续升高，但 Gate4 成功率下降；deterministic 策略在 Gate2 后把簸箕 mouth 压入桌面，短回合仍从 acquired、task、shape 等正奖励中获利。只放宽穿桌 terminal 阈值不能解决问题，因为它给策略留下了“先吃正奖励、再廉价终止”的路径。
+
+本次 Sweep2 采用连续路径惩罚与硬边界组合：mouth clearance 低于 `+0.5 mm` 时施加
+
+```text
+mouth_floor = -4 * relu((0.0005 - clearance) / 0.0035)^2
+```
+
+并在低于 `-3.0 mm` 时硬失败。离线把该公式重算到既有 3M/6M 失败 rollout 后，总 reward 分别由 `+2.539 / +3.090` 变为 `-0.084 / -0.753`，先证明捷径不再赚钱，再发射正式训练。新 run 的 6M deterministic rollout 在 step 299 达成 fully-inside，最小 clearance `+1.34 mm`；训练窗口 Gate4 从 3M 的 `8.74%` 提升到 6M 的 `69.37%`，6M–7M 均值约 `72.2%`。
+
+迁移到其他 Sweep 任务时应复用方法而不是照抄毫米数：重新测量桌面、簸箕 mouth 和接触 offset，确定软惩罚起点、增长区间与不可接受硬下限；用至少一条已知失败 rollout 离线重算 reward，并要求失败捷径的总回报显著低于真正成功。reward 改变后原则上应重采 Critic return；本案例复用旧 transition 是用户明确接受的实验例外，不应自动推广。
+
+## 十二、小规模验证与训练放大
 
 按以下顺序放行：
 
@@ -159,7 +173,7 @@ Gate 必须 earn-only 锁存。success 当步终止物理 rollout。更换物体
 
 在共享 GPU 上，只能操作本任务明确拥有的 session、PID 和目录。网络断开后先检查已有 tmux，不得因看不到原 shell 就重复启动。
 
-## 十二、诊断、录像与最终验收
+## 十三、诊断、录像与最终验收
 
 每个周期节点至少保存 checkpoint、metrics、rollout、record log、policy video 和连续 context frames。优先检查 Gate funnel、terminal step、mouth collision、cube-pan 几何、push/pan quality 和 residual 使用，而不是只看 reward。
 
@@ -167,7 +181,9 @@ Gate 必须 earn-only 锁存。success 当步终止物理 rollout。更换物体
 
 最终验收使用足量 deterministic episodes，并预先写明成功率门槛。训练窗口成功率、单条成功视频或 expert 回放只用于诊断，不能替代最终统计验收。
 
-## 十三、新 Sweep 轨迹迁移清单
+旧 run 的清理必须发生在诊断结论写入台账之后。先逐项确认目录不被当前训练、expert manifest、checkpoint 回退或论文证据引用；保留当前 run、关键节点诊断、expert 数据及来源证据，只删除已被取代且不再引用的日志树。
+
+## 十四、新 Sweep 轨迹迁移清单
 
 1. 建立新的任务目录和独立 `Codex_tasks.md` 实例段，记录输入与坐标系。
 2. 重新生成 reference，完成 IK 与 GraspPose 出厂检查。

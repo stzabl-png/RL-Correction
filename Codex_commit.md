@@ -713,3 +713,11 @@
 - 改动：保留 pan level/clear/still shaping；mouth clearance 低于 `+0.5 mm` 后新增二次强惩罚，在 `-3.0 mm` 达到 `-4/step`，并将穿桌硬失败阈值从 `-1 mm` 放宽到 `-3 mm`。不增加左臂动作冻结。
 - 数据决定：按用户要求直接复用现有两条 full-success、25 mm near-success 和 canonical failure transition，不重放 expert、不重采离线 return；跳过 1-env smoke，静态检查后直接启动新的 1024-env 随机初始化 run。
 - 边界：Gate3/Gate4、fully-inside 成功、Actor BC、Critic/PPO 结构、相机与 2 秒终态冻结均保持不变。
+
+## 2026-09-01 — v4 6M 成功验证与旧 run 清理
+
+- 6M checkpoint 实际为 `6,029,312` agent steps；训练窗口 Gate4 `69.37%`、`fully_inside=70.27%`（111 episodes）。约 6M–7M 的 Gate4 均值为 `72.2%`，单窗口峰值 `83.3%`。
+- 6M deterministic rollout 在 step 299 达成 Gate4，最小/终态 mouth clearance 为 `+1.34/+1.54 mm`，总 reward `+24.60`；视频保存 300 帧真实过程和 40 帧终态冻结，确认不是浅进入或 reset 后画面。
+- `Codex_tasks.md` 更新为当前 v4 的完整实例数据流、运行路径、3M/6M 结果与下一阶段验收；`SWEEP_TRAJECTORY_PLAYBOOK.md` 只固化可迁移的 reward 捷径诊断、离线重算和清理方法。
+- 清理已被 v4 取代且不再被任何 manifest/回退路径引用的 `logs/Sweep2_fullinside_v3_fixed1024_seed42_20260901/`。保留当前 v4 全部日志、checkpoint、3M/6M 诊断与视频，以及 expert 数据和来源证据。
+- v4 训练未中断，继续由 tmux `sweep2_floorpenalty_v4_1024_20260901` 运行；代码修正保存于 Git commit `07e0f94`，本文档里程碑另行提交，便于分别回退代码与台账。

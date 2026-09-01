@@ -36,6 +36,10 @@ OBS_DIM = 191
 PRIV_DIM = 22
 SCRIPTED_PRELUDE_STEPS = 80
 SWEEP2_FIXED_CUBE_START = (-0.0259767957, -0.1788897067, 0.8830000162)
+MOUTH_PENALTY_START_M = 0.0005
+MOUTH_PENALTY_SPAN_M = 0.0035
+MOUTH_PENALTY_SCALE = 4.0
+MOUTH_FAILURE_CLEARANCE_M = -0.003
 PRIOR_BROOM = "tasks/pregrasp/priors/Sweep2_broom.npz"
 PRIOR_PAN = "tasks/pregrasp/priors/Sweep2_dustpan.npz"
 
@@ -165,7 +169,7 @@ class SweepEnv(GraspTaskEnv):
                        | {"episodes": 0, "fully_inside": 0})
         self._reward_names = (
             "task", "acquire", "push", "pan_quality", "success_quality",
-            "track", "shape", "action", "left_anchor")
+            "mouth_floor", "track", "shape", "action", "left_anchor")
         self._reward_sums = {name: torch.zeros((), device=dev)
                              for name in self._reward_names}
         self._reward_n = 0
@@ -612,6 +616,13 @@ class SweepEnv(GraspTaskEnv):
         pan_quality = (pan_pot - self.best_pan_quality).clamp_min(0.0)
         self.best_pan_quality = torch.maximum(self.best_pan_quality, pan_pot)
         success_quality = 2.0 * pan_pot * out["new_gate"][:, 3].float()
+        # Keep the useful level/low-pan shaping, but make table penetration
+        # unambiguously worse than the short failing trajectory it previously
+        # created.  The penalty starts before contact and grows quadratically to
+        # -4 at the approved -3 mm hard limit.
+        mouth_depth = ((MOUTH_PENALTY_START_M - sig["mouth_clearance"])
+                       / MOUTH_PENALTY_SPAN_M).clamp_min(0.0)
+        mouth_floor = -MOUTH_PENALTY_SCALE * mouth_depth.square()
         action_pen = (-0.002 * self.last_act.square().sum(1)
                       - 0.001 * (self.last_act - self.prev_act).square().sum(1))
         left_anchor = -0.001 * (
@@ -619,7 +630,8 @@ class SweepEnv(GraspTaskEnv):
         reward_terms = {
             "task": out["task_reward"], "acquire": acquire, "push": push,
             "pan_quality": pan_quality, "success_quality": success_quality,
-            "track": track, "shape": shape, "action": action_pen,
+            "mouth_floor": mouth_floor, "track": track, "shape": shape,
+            "action": action_pen,
             "left_anchor": left_anchor,
         }
         reward = sum(reward_terms.values())
@@ -632,7 +644,7 @@ class SweepEnv(GraspTaskEnv):
         self.row = torch.where(advance, (self.row + 1).clamp(max=self.T - 1), self.row)
         cube_z = self.cube.data.root_pos_w[:, 2]
         failed = ((cube_z < self.cfg.table_top_z - 0.03)
-                  | (sig["mouth_clearance"] < -0.001))
+                  | (sig["mouth_clearance"] < MOUTH_FAILURE_CLEARANCE_M))
         timeout = self.episode_length_buf >= int(self.max_episode_length - 1)
         terminated = (torch.zeros_like(out["success"]) if replay_only else
                       (out["success"] | failed))

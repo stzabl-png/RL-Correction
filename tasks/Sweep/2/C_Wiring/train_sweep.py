@@ -96,6 +96,12 @@ world = {
                 "immediate_termination": True,
                 "recording_only_freeze_seconds": 2.0,
                 "final_eval_episodes": 512, "required_rate": 0.50},
+    "mouth_floor": {
+        "penalty_start_clearance_m": SE.MOUTH_PENALTY_START_M,
+        "penalty_span_m": SE.MOUTH_PENALTY_SPAN_M,
+        "penalty_scale": SE.MOUTH_PENALTY_SCALE,
+        "failure_clearance_m": SE.MOUTH_FAILURE_CLEARANCE_M,
+    },
     "transitions": [{"path": p, "sha256": _sha256(p)} for p in expert_paths],
     "reference": {
         "path": SE.REFERENCE, "sha256": _sha256(SE.REFERENCE)},

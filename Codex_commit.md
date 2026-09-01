@@ -706,3 +706,10 @@
 - Actor BC 改为同时学习两条 fully-inside expert；Critic 使用两条 full-success、25 mm near-success 和 canonical failure。所有 transition 按当前 reward 重采。
 - 主视频相机改为机器人左前方略高的中景，覆盖上半身、双臂和桌面操作区。
 - 当前交接文档统一采用“两条 expert”表述，不再以历史 checkpoint 来源命名其中任一条；实现文件名仅作为内部可复现路径保留。
+
+## 2026-09-01 — Mouth-floor reward 修正
+
+- 诊断：v3 在约 2M 时 Gate4 峰值达到 18.2%，但随后退化；3M/6M deterministic rollout 分别在 step142/108、Gate `[1,1,0,0]` 时因 mouth clearance `-1.76/-2.70 mm` 提前终止，失败 rollout 总 reward 仍为正。
+- 改动：保留 pan level/clear/still shaping；mouth clearance 低于 `+0.5 mm` 后新增二次强惩罚，在 `-3.0 mm` 达到 `-4/step`，并将穿桌硬失败阈值从 `-1 mm` 放宽到 `-3 mm`。不增加左臂动作冻结。
+- 数据决定：按用户要求直接复用现有两条 full-success、25 mm near-success 和 canonical failure transition，不重放 expert、不重采离线 return；跳过 1-env smoke，静态检查后直接启动新的 1024-env 随机初始化 run。
+- 边界：Gate3/Gate4、fully-inside 成功、Actor BC、Critic/PPO 结构、相机与 2 秒终态冻结均保持不变。

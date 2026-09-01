@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import glob
 import json
 import os
 import sys
@@ -342,24 +343,80 @@ def main():
     fin_names = [str(n) for n in qr["joint_names"]]
     assert all(n.startswith("right_") for n in fin_names), fin_names[:3]
 
-    # 右腕: U35b 对握锚 = 盖心 + reach·螺轴; U35 姿态 = 活流 + hand_z→-螺轴
-    reach = 2 * TC.CAP_HALF_H + CAP_CLEARANCE + HAND_DROP
-    wr_P = cap_p + reach * axis
-    wr_P[:, 2] = np.maximum(wr_P[:, 2], TABLE_Z + 0.02)
-    wr_Q = smooth_quats(np.asarray(qr["wrist_quat_wxyz"], float)[w0:w1 + 1])
-    ez = np.tile([0.0, 0.0, 1.0], (N, 1))
-    hz = qrot(wr_Q, ez)
-    tgt = -axis / np.linalg.norm(axis, axis=1, keepdims=True)
-    crx = np.cross(hz, tgt)
-    ang = np.arctan2(np.linalg.norm(crx, axis=1), (hz * tgt).sum(1))
-    ax_n = crx / np.maximum(np.linalg.norm(crx, axis=1, keepdims=True), 1e-9)
-    # 掌轴对准全程生效 (原先脱离后冻结修正量 —— 但位置口径本来就是"手在盖正
-    # 上方 reach·螺轴", 姿态却继续跟人腕自由飘, 两者自相矛盾; 钉住掌轴才与
-    # 位置同一假设)。
-    half = 0.5 * ang
-    fixq = np.concatenate([np.cos(half)[:, None], np.sin(half)[:, None] * ax_n], 1)
-    wr_Q = qmul(fixq, wr_Q)
-    wr_Q /= np.linalg.norm(wr_Q, axis=1, keepdims=True)
+    # ---- 右腕 = **盖 GraspPose 先验锚在盖行上** (2026-09-01, 与左手对称) ----
+    # 旧法是几何构造 (盖心 + reach·螺轴 + 掌轴对准 + 人手指流), 没有抓取先验 ——
+    # probe_pinch 实测三指落在盖系径向 6.4~11.2cm (盖半径 1.75cm), 合到 45° 仍
+    # 零接触, 食/中指越合越往外: 缺的是"人手抓法 -> 这只手关节角"的那一层。
+    # Screw27_cap 候选本来就是**右手**约定 (不镜像), 接触点半径 1.9cm 落在盖面上。
+    _mc = trimesh.load(objs[CAP_ID]["mesh"], process=False, force="mesh")
+    _zc = np.asarray(_mc.vertices)[:, 2]
+    _cap_dz = float(0.5 * (_zc.min() + _zc.max()) - _zc.min())   # 物体系原点修正
+    _cands = sorted(glob.glob(os.path.join(TC.PRIOR_CAP_DIR, "*.npz")))
+    if TC.CAP_GRASP_PICK:
+        _cands = [c for c in _cands
+                  if os.path.basename(c).startswith(TC.CAP_GRASP_PICK)] or _cands
+    assert _cands, f"没有盖抓取候选: {TC.PRIOR_CAP_DIR}"
+    ik_r0 = _mk_ik("right")
+
+    def _cap_track(cz):
+        """候选 -> (腕位轨迹, 腕姿轨迹): 抓取位姿刚性锚在盖行上。
+
+        ⚠ 这批候选的来源是 `bottle_cap_sharpa_wave_**left**` —— 是**左手**抓法,
+        给右手用必须镜像 (与左手用 Screw27_body 右手约定时要镜像, 方向相反但
+        同一变换): 位姿 (x,-y,z)/(w,-x,y,-z), 指值按名映射。不镜像直接套上去,
+        实测指垫落在盖系径向 4.9~9.9cm (盖半径 1.75cm), 合到 45° 也碰不到。
+        """
+        gp = np.asarray(cz["grasp"], np.float64)[:3].copy()
+        gq = np.asarray(cz["grasp"], np.float64)[3:7].copy()
+        gp[1] = -gp[1]                                  # 镜像: 左手抓法 -> 右手
+        gq = np.array([gq[0], -gq[1], gq[2], -gq[3]])
+        gq /= np.linalg.norm(gq)
+        gp[2] += _cap_dz
+        gp += np.asarray(TC.CAP_GRASP_TRIM, np.float64)   # 闭环实测的对准量
+        Pp = cap_p + qrot(cap_q, np.tile(gp, (N, 1)))
+        Qq = qmul(cap_q, np.tile(gq / np.linalg.norm(gq), (N, 1)))
+        Qq /= np.linalg.norm(Qq, axis=1, keepdims=True)
+        Pp[:, 2] = np.maximum(Pp[:, 2], TABLE_Z + 0.02)
+        return Pp, Qq
+
+    _best_c = None
+    for _cf in _cands:
+        _cz = np.load(_cf)
+        _P, _Q = _cap_track(_cz)
+        _s0 = ik_r0.solve_traj(_P[:1], _Q[:1], w_rot=0.25, n_restart=16)[0]
+        _m0 = float(np.minimum(_s0["q"] - ik_r0.lower,
+                               ik_r0.upper - _s0["q"]).min())
+        _st_ok = (_s0["pos_err"] < 0.02 and _s0["rot_err"] < np.radians(10.0)
+                  and _m0 > np.radians(3.0))
+        _sols = ik_r0.solve_traj(_P[::4], _Q[::4], w_rot=0.25, n_restart=2)
+        _pe = np.array([v["pos_err"] for v in _sols])
+        _re = np.array([v["rot_err"] for v in _sols])
+        _qs = np.stack([v["q"] for v in _sols])
+        _mg = np.minimum(_qs - ik_r0.lower, ik_r0.upper - _qs).min(axis=1)
+        _good = (_pe < 0.02) & (_re < np.radians(10.0)) & (_mg > np.radians(3.0))
+        _key = (1 if _st_ok else 0, float(_good.mean()),
+                -float(np.median(_pe)))
+        if _best_c is None or _key > _best_c[0]:
+            _best_c = (_key, _cf, _cz, float(_s0["pos_err"]),
+                       float(np.degrees(_s0["rot_err"])))
+    _key, _cf, _capz, _e0, _r0d = _best_c
+    print(f"[v1] 右抓候选扫描 ({len(_cands)} 个): 选中 "
+          f"{os.path.basename(_cf)} 站位行 {_e0 * 100:.2f}cm/{_r0d:.1f}° "
+          f"({'可达' if _key[0] else '⚠ 不可达'}) 拧盖窗可达率 {_key[1] * 100:.0f}% "
+          f"| 盖系原点修正 {_cap_dz * 100:+.2f}cm")
+    wr_P, wr_Q = _cap_track(_capz)
+    # 脱离后: 腕姿态**冻结**在脱离时刻, 位置保持与盖的世界系刚性偏移。
+    # 理由: 盖脱手后由手携带 (下面的 rigid ride 让盖姿态跟手走), 而重建的盖
+    # 自身翻滚 107° 是不可信的自转/翻滚 —— 腕跟着刚性翻会直接超出可达域
+    # (实测全程可达率掉到 12%、姿态中位差 89°)。冻结姿态 + 位置跟盖 = 携带段
+    # 平滑且可达, 盖的落地姿态由脱离时的握法决定 (物理上就该如此)。
+    if k_sep < N - 1:
+        _off_w = wr_P[k_sep] - cap_p[k_sep]
+        wr_Q[k_sep:] = wr_Q[k_sep]
+        wr_P[k_sep:] = cap_p[k_sep:] + _off_w
+        wr_P[:, 2] = np.maximum(wr_P[:, 2], TABLE_Z + 0.02)
+        print(f"[v1] 右腕携带段: 姿态冻结于脱离行 {k_sep}, 位置跟盖 "
+              f"(世界系偏移 {np.round(_off_w * 100, 1)}cm)")
 
     # ---- 右腕绕螺轴的自转角 = **规范自由度**, 解出来而不是照抄人腕 ----
     # 依据 (2026-08-30 用户裁定 + 数据事实):
@@ -646,12 +703,33 @@ def main():
     # 手指行: 右手 = 活的人手流 (拧盖手法, 本批实证活通道, P-HYB 形状指引同源);
     # 左手 = prior 抓形模板 (与镜像腕位姿配套 —— 人手指流描述的是**人的**握法,
     # 锚在死腕点上, 与 prior 握位几何不配; β squeeze 由 env 前馈负责加压)
-    f_r = smooth(np.asarray(qr["finger_qpos"], float)[w0:w1 + 1], 2.0)
+    # 右指形 = 候选的 grasp 模板 (与左手同法)。人手指流仍存进 human_right_f,
+    # 供 P-HYB 的指形指引奖使用 —— 但**参考**必须是这只手能形成握的那组角。
+    f_r_human = smooth(np.asarray(qr["finger_qpos"], float)[w0:w1 + 1], 2.0)
     from rl_rebuild.correction.ref_builders.replay_grasp import (
         GENERIC_JOINT_ORDER)
     gfin = np.asarray(zp["grasp"], np.float64)[7:29]
     perm = [GENERIC_JOINT_ORDER.index(n) for n in fin_names]
     f_l = np.tile(gfin[perm], (N, 1))
+    # 右手同法: 候选的 grasp 指值 (右手约定, 按名映射, 不镜像)
+    _cap_grasp_fin = np.asarray(_capz["grasp"], np.float64)[7:29][perm].copy()
+    # 站位行捏合量: 对准把拇/食指放到盖轴两侧后, 还差 ~1.8cm 跨距 (盖径 3.5cm)
+    _curl = np.zeros(22)
+    for _i, _n in enumerate(fin_names):
+        if not _n.startswith(("right_thumb", "right_index", "right_middle")):
+            continue
+        if _n.endswith(("MCP_FE", "PIP", "IP")):
+            _curl[_i] = 1.0
+        elif _n.endswith("DIP"):
+            _curl[_i] = 0.5
+        elif _n == "right_thumb_CMC_AA":
+            _curl[_i] = 1.0
+    _cap_grasp_fin = _cap_grasp_fin + np.radians(TC.CAP_PINCH_DEG) * _curl
+    f_r = np.tile(_cap_grasp_fin, (N, 1))
+    _cap_sq = np.asarray(_capz["squeeze"], np.float64)[7:29][perm]
+    print(f"[v1] 右指形 = 候选 grasp 模板 (中位 "
+          f"{np.degrees(np.median(f_r[0])):.1f}°); squeeze 增量中位 "
+          f"{np.degrees(np.median(np.abs(_cap_sq - f_r[0]))):.1f}° (βR={TC.BETA_R})")
 
     # ---- 机器段 (占位: 关节 smoothstep; 正式训练前换规划轨迹, 见 docstring) ----
     if rest and rest.get("stance_arm14") is not None:

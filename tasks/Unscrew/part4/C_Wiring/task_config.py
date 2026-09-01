@@ -47,6 +47,30 @@ PRIOR_MAIN = ""
 PRIOR_AUX = os.path.join(
     REPO, "tasks", "pregrasp", "priors", "Screw27_body.npz")
 PRIOR_APPROACH_DEG = -1.0        # 不覆写 yaw (canon_rot 原样)
+# ★ 右手盖侧 GraspPose 候选 (2026-09-01 用户裁定"右手没做重定向? 必须马上做")。
+# 原设计 βR=0、右指直接用人手指流 —— 而人手在拧盖窗内合拢中位仅 +1.0°, 配人手
+# 腕位/指长够用, 搬到 SharpaWave 上就成了"手张在盖外围一圈": probe_pinch 实测
+# 三指落在盖系径向 6.4~11.2cm (盖半径仅 1.75cm), 合到 45° 仍零接触, 且食/中指
+# 越合越往外 —— 说明缺的是抓取先验, 不是合拢量。
+# 这批候选与左手 Screw27_body 同格式 (grasp/squeeze/pregrasp/contact_pos),
+# 且本来就是**右手**约定, 不需镜像; 接触点半径 1.9cm 正落在盖面上。
+PRIOR_CAP_DIR = os.path.join(REPO, "tasks", "pregrasp", "priors",
+                             "Screw27_cap_candidates")
+# 逐 clip 定档 (make_reference 按可达率扫; 空=扫描选优, 非空=钉死某个候选)
+# 2026-09-01 实测定档: 8_0_calib 是唯一"IK 0.01cm 可达 + 径向对准盖轴"的候选
+CAP_GRASP_PICK = os.environ.get("UNSCREW_CAP_GRASP", "8_0_calib")
+# 沿盖轴的下压微调 (与左手的 PRIOR_RADIAL_TRIM 同性质): prior 说接触点在盖系
+# z≈+0.5cm, 而镜像套到这只手上 probe_pinch 实测指垫在 z+2.8~+6.3cm —— 指长/
+# 掌形差异, 手停高了。用 probe_pinch 量出来回填 (换 clip/换手都要复测)。
+# 抓握对准量 (盖坐标系, m): probe_capgrasp --fit 闭环实测 —— 量到指垫实际位置后
+# 把腕平移到"拇/食指垫中点落在盖心、盖半高", 两轮收敛的累计平移。先验的腕高对
+# 这只手偏高 ~6cm, 这个量就是补它的。换 clip/换手用 --fit 复测。
+CAP_GRASP_TRIM = (-0.003, 0.007, -0.059)
+CAP_GRASP_Z_TRIM = 0.0        # 已并入 CAP_GRASP_TRIM, 保留键名兼容
+# 站位行的额外捏合量 (度): 对准只把拇/食指放到盖轴两侧, 跨距仍比盖径大 ~1.8cm,
+# 靠这一档补上。probe_capgrasp --curl 实测 25° 首次接触 (三指1/3, 5.8N)。
+# 剩下的收拢交给 RL 的手指残差 (±68.8° 总量, 绰绰有余) —— 参考给到位, RL 修完。
+CAP_PINCH_DEG = 25.0
 # 数据集自带的盖侧 affordance (60k 点接触频率热区, 逐 clip)
 AFFORDANCE_CAP = os.path.join(TAKE_DIR, "contact", "expected_area_object_1_right.npz")
 
@@ -54,7 +78,8 @@ AFFORDANCE_CAP = os.path.join(TAKE_DIR, "contact", "expected_area_object_1_right
 # reference 是 RL correction 的先验，不要求零动作抓稳。probe_beta 在 clip32 上
 # β=1/1.5/2/3 均未通过零动作持握；这里取 β=1，恰好回放 prior 自身的 squeeze，
 # 不使用 >1 的关节外推。接触/穿模由策略在有界残差内修正。
-BETA_R = 0.0     # [TASK] 右手盖: 无 squeeze prior (三指精捏交给人手指流+残差)
+BETA_R = 1.0     # [TASK] 右手盖: 2026-09-01 起接上 Screw27_cap 候选的 squeeze
+                 #        (原为 0 = 没有重定向, 右手全程碰不到盖 -> 拧转收入恒 0)
 BETA_L = 1.0     # [TASK] 左手瓶: 2026-08-31 实测定档 —— 锚点/进刀/预张开修好后
                  #        β=1.0 站位行 **4 垫接触** (G1 只要 3), 瓶全程不倒;
                  #        β=0.6 反而掉到 2 垫 (拇指 30N、其余脱开)。拇指偏硬
@@ -84,11 +109,12 @@ CAP_HALF_H = 0.0085              # 盖半高 (1.7cm/2)
 UP_LOCAL_BOTTLE = (0.0, 0.0, 1.0)   # 瓶局部竖直轴 = z (螺轴, 与 screw_assembly 一致)
 UP_LOCAL_CAP = (0.0, 0.0, 1.0)
 CAP_RADIUS = 0.0175              # 盖半径 (贴近奖/判据几何)
-# 右腕锚的"腕→指尖垂距": 决定手停在盖上方多高。0.203 是旧值, 与本手当前指形
-# 不符 —— 2026-08-31 用 probe_grasp 在站位行实测: 五指垫在腕下方 9.8~16.6cm,
-# 中位 15.7cm; 用 0.203 会把手停高 ~5cm, 指尖悬在盖顶上方 6cm, 右手全程零接触
-# (真实螺纹副下 = 扭矩传不进去, 拧不动)。改动前后都要用 probe_grasp 复测。
-HAND_DROP = 0.157
+# 右腕锚的"腕→指尖垂距": 决定手停在盖上方多高。演进: 0.203(旧, 张开平手的值)
+# -> 0.157(2026-08-31 probe_grasp 实测捏握手型) -> 0.100(2026-09-01)。
+# 为什么还要再降: probe_pinch 实测**合到 40° 仍零接触** —— 掌心朝下时手指屈曲是
+# 把指尖往掌心收(向上), 而盖在下方, 越合越够不着。必须把腕降到"盖落在指间"的高度,
+# 合拢才有意义。改动后必须用 probe_pinch 复测 (它会报三指接触数与指力)。
+HAND_DROP = 0.100
 # 缝1 的"先到位再合手"分点: 前 SEAM_MOVE_FRAC 手臂进刀 + 手保持张开, 之后手臂
 # 停住只合手指并加 squeeze。母带 (make_reference) 与 env/探针的加压曲线必须用
 # 同一个分点, 否则手还在路上就被压上去 —— 实测那样会把 0.53kg 的瓶推倒。
@@ -118,7 +144,9 @@ def seam_squeeze_profile(u):
 # ---- 螺纹口径 (数据引擎逐条可覆写; 默认承旧台账用户裁定) ----
 # turns=0.75 (U30b: 演示实测 ~266° 分离; 2.0 圈是标准件假设, 难 2.7×)
 # 释放判据 = screw_assembly 的 detach (拧满 turns 即脱开, screw_detach_at_full)
-SCREW_TURNS = float(os.environ.get("UNSCREW_TURNS", "0.75"))
+# 2026-09-01 用户裁定: 瓶盖转 **30°** 即可拧下 (已破封的松盖). 原 0.75 圈
+# (270°, U30b 演示实测分离角) 对机器手是三倍难度且需换把。
+SCREW_TURNS = float(os.environ.get("UNSCREW_TURNS", str(30.0 / 360.0)))
 
 # ---- 机器段 (cuRobo 规划产物; plan_machine_segs.py 逐 clip 产出) ----
 # 没有规划产物时 make_reference 退回关节 smoothstep 占位 (无碰撞背书, 只够冒烟)。

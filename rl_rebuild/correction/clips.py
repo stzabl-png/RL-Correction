@@ -591,7 +591,9 @@ def _unscrew_take(take_dir: str):
         os.path.abspath(take_dir), "resting_pose.json")
     asm = entry["secondary"]["assembly"]
     asm["mode"] = "preengaged"
-    asm["turns"] = 0.75
+    # 2026-09-01 用户裁定: 瓶盖转 **30°** 即可拧下 (先说 50, 复核后定 30;
+    # "0.75 圈=270° 太多了")。原值来自 U30b 的演示实测分离角, 现按实物改。
+    asm["turns"] = 30.0 / 360.0
     asm.update(
         # U45: 准静态螺纹 (ω=(|τ|−kinetic)⁺/b). 安全夹 4.0→2.5: 人手拧盖约
         # 2 rad/s, 准静态下顶到 2.5 需持续 τ≈0.09N·m, 是真安全栏非整形器.

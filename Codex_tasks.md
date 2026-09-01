@@ -322,6 +322,7 @@ v3 在 8,192,000 steps 停止：其约 2M Gate4 峰值为 18.2%，但 3M/6M dete
 - 3M：训练窗口 Gate4 `8.74%`；deterministic rollout 在 step 322 因 mouth clearance `-3.25 mm` 失败，Gate `[1,1,0,0]`，总 reward `-4.96`。这说明新惩罚已经把原先可获正回报的穿桌捷径改成负回报，但此时策略尚未学会完整进入。
 - 6M：checkpoint 实际为 `6,029,312` steps。训练窗口 Gate1/Gate2/Gate3/Gate4 分别为 `100% / 98.20% / 72.97% / 69.37%`，`fully_inside=70.27%`（111 episodes）。deterministic rollout 在 step 299 达成 Gate4，最小 mouth clearance `+1.34 mm`、终态 `+1.54 mm`，总 reward `+24.60`；录像含 300 帧真实物理过程和 40 帧终态冻结。
 - 约 6M–7M：训练窗口 Gate4 均值约 `72.2%`，单窗口峰值 `83.3%`；reward 与 Gate4 同向改善，不再出现 v3 的“失败但高回报”分离。
+- 9M：checkpoint 实际为 `9,011,200` steps。训练窗口 Gate3/Gate4/fully-inside 为 `78.18% / 75.45% / 75.45%`（110 episodes）。deterministic rollout 在 step 302 达成 Gate4，总 reward `27.22`；录像含 303 帧真实物理过程和 40 帧终态冻结。约 10.3M 的最近 10 个窗口 Gate4/fully-inside 均值约 `78.8% / 80.0%`。
 
 监控：
 
@@ -365,11 +366,43 @@ outputs_video/Sweep2FloorPenaltyV4__20260901_policy_<XXXXM>/
 
 v3 已停止；其根因、3M/6M 诊断结论和关键数值已写入本文、`Codex_commit.md` 与 `Codex_mistakes.md`。确认不再被训练、expert manifest 或回退路径引用后，旧 v3 原始 run 日志目录已清理。当前 v4 checkpoint、3M/6M 诊断、视频、expert 数据及其来源证据全部保留。
 
-v4 在 `sweep2_floorpenalty_v4_1024_20260901` 中持续运行，最近核查已超过 7M agent steps；实时状态以 tmux、`train.log` 和 `progress_steps.txt` 为准。
+v4 在 `sweep2_floorpenalty_v4_1024_20260901` 中持续运行，最近核查已超过 10M agent steps；实时状态以 tmux、`train.log` 和 `progress_steps.txt` 为准。
 
 下一步：
 
-1. 到 9M 读取下一份完整诊断包，与 6M 比较 Gate3/Gate4、mouth clearance、效率和 deterministic 行为。
-2. 若 9M 未显著优于 6M，保留 6M 作为早期候选；不能只按训练步数选择 checkpoint。
+1. 到 12M 读取下一份完整诊断包，与 9M 比较 Gate3/Gate4、mouth clearance、效率和 deterministic 行为。
+2. 同时保留 6M 与 9M 作为候选；不能只按训练步数选择 checkpoint。
 3. 对候选 checkpoint 执行至少 512 回合 deterministic 最终验收，报告成功率和效率分布。
 4. 只有 `fully_inside rate >= 0.50` 才进入表格 A；明显失败的 ablation 不进入 DP distillation 表格 B。
+
+## 16. GitHub 发布与复现清单
+
+当前 Sweep 实现发布到：
+
+- repository：`git@github.com:stzabl-png/RL-Correction.git`
+- branch：`task_sweep`
+- 基线：本地 `sweep-task` 在创建发布分支时的完整 Git 历史
+- 认证：服务器专用 SSH identity；不得把私钥、token 或凭据写入仓库
+
+发布内容包括当前 Sweep 代码、文档、reference、任务资产，以及以下被 `.gitignore` 默认排除但为复现而显式加入的文件：
+
+```text
+logs/expert/transitions_fullinside/
+  manifest.json
+  sweep2_entry25_transitions.npz
+  sweep2_entry40_transitions.npz
+  sweep2_full15_transitions.npz
+  sweep2_canonical_failure_transitions.npz
+logs/expert/sweep2_expert_entry25_v1.npz
+logs/expert/sweep2_expert_entry40_v1.npz
+logs/expert/source/sweep2_v1_action_source.npz
+logs/checkpoints/Sweep2FloorPenaltyV4__20260901_policy_0009M/
+  checkpoint.pth
+  metrics.json
+  rollout.npz
+outputs_video/Sweep2FloorPenaltyV4__20260901_policy_0009M/
+  policy.mp4
+  topdown_frames/frame_*.png
+```
+
+`.npz`、`.pth`、`.mp4` 和 `.png` 由 Git LFS 管理。完整训练日志、TensorBoard event、BC/3M/6M checkpoint、其他视频、临时 recorder log 和当前仍在写入的 run 目录均不发布。推送前后都必须核对 staged manifest、LFS pointer 和远端 commit；不得顺带提交其他人的工作树修改。

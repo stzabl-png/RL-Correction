@@ -1,0 +1,51 @@
+{
+  "schema": 2,
+  "obs_dim": 191,
+  "priv_dim": 22,
+  "action_dim": 14,
+  "scripted_prelude_steps": 80,
+  "gamma": 0.99,
+  "reward_scale": 0.01,
+  "datasets": [
+    {
+      "source": "/home/msc-auto/RL_sweep/logs/expert/sweep2_expert_entry25_v1.npz",
+      "source_sha256": "9028da5240c93b34f1b63603035fe600448db4e0c76a4e2ebb2fa4a359f64221",
+      "output": "/home/msc-auto/RL_sweep/logs/expert/transitions_fullinside/sweep2_entry25_transitions.npz",
+      "output_sha256": "a16f6723bcb81e2a7fe10f57bfcd0bfbc1884a7c60e62b6f298bc32abafc2acc",
+      "samples": 385,
+      "entered_frame": 384,
+      "success_frame": -1,
+      "demo_role": "near_success"
+    },
+    {
+      "source": "/home/msc-auto/RL_sweep/logs/expert/sweep2_expert_entry40_v1.npz",
+      "source_sha256": "7f8604b1b6586463116df08ef36ed4e5b2d970a8d9d8cbed0cbbb23378c69267",
+      "output": "/home/msc-auto/RL_sweep/logs/expert/transitions_fullinside/sweep2_entry40_transitions.npz",
+      "output_sha256": "6e85addfa87809826422ef049763f69cabc0a5fb2049a92e747748141ca509bb",
+      "samples": 381,
+      "entered_frame": 376,
+      "success_frame": 380,
+      "demo_role": "full_success"
+    },
+    {
+      "source": "/home/msc-auto/RL_sweep/logs/checkpoints/Sweep2__20260830_policy_0015M/rollout.npz",
+      "source_sha256": "42c45abeb0b07b1e7356ecb198a656888df29799cda1e33654bc4b1fccb7472f",
+      "output": "/home/msc-auto/RL_sweep/logs/expert/transitions_fullinside/sweep2_full15_transitions.npz",
+      "output_sha256": "462aa3571d7c4080316ecd0750cb9d448da34ae151fa82c94e67a64610df5785",
+      "samples": 232,
+      "entered_frame": 229,
+      "success_frame": 231,
+      "demo_role": "full_success"
+    },
+    {
+      "source": "/home/msc-auto/RL_sweep/logs/expert/source/sweep2_v1_action_source.npz",
+      "source_sha256": "6e6cc5bbfdfa789f6358cbfa5915f2289b81feaeb1a347189fefc0765be3ae3b",
+      "output": "/home/msc-auto/RL_sweep/logs/expert/transitions_fullinside/sweep2_canonical_failure_transitions.npz",
+      "output_sha256": "0b08cd09455e973d92b1650e05383c4eb48f9d1199302413f229d9c00a51b039",
+      "samples": 500,
+      "entered_frame": -1,
+      "success_frame": -1,
+      "demo_role": "failure"
+    }
+  ]
+}

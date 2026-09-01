@@ -385,8 +385,15 @@ def _thread_friction_step(env, relative_ang, axis_w, integrate_angle):
         # 零接触强制归零。F = m_eff·Δv/dt, EMA + 持续超阈 dwell 才脱扣 (抗冲击尖峰)。
         cap_f = 10.0 * spec.breakaway_pull_n
         dv_max = cap_f * dt / spec.mass_eff_kg
+        # ⚠ 重力修正 (probe_pull A/C/D 实测): 盖每子步被写回瓶速后, 物理子步里重力照样
+        #   给它 g·dt 的自由增量 —— 力矩估计没这项 (重力对轴无矩), 轴向力估计**必须减掉**,
+        #   否则立瓶静置就读出 -m_eff·g = -1.96N 的幻影拉力 (瓶横放时沿轴分量≈0 但倾斜时不为 0)。
+        _g = getattr(getattr(env.cfg, "sim", None), "gravity", None) or (0.0, 0.0, -9.81)
+        _gv = torch.tensor(_g, dtype=torch.float32, device=env.device)
+        g_ax = (axis_w * _gv.unsqueeze(0)).sum(dim=1) * dt
         dvl = ((cap.data.root_lin_vel_w - env._screw_capv_vec) * axis_w
-               ).sum(dim=1).clamp(-dv_max, dv_max)
+               ).sum(dim=1) - g_ax
+        dvl = dvl.clamp(-dv_max, dv_max)
         if _gate is not None and getattr(env, "_thread_tau_contact_gate", True):
             dvl = dvl * (_gate() > 0).float()
         f_in = spec.mass_eff_kg * dvl / dt

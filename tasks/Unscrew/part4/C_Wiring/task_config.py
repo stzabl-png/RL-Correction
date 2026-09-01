@@ -393,7 +393,7 @@ if NATIVE_PRIORS:
     CAP_GRASP_PICK = os.environ.get("UNSCREW_CAP_GRASP", "")   # 目录里只有选定的那一个
     CAP_GRASP_TRIM = (0.0, 0.0, 0.0)      # 同事的量是给镜像 Screw27 候选的; 原生先验从零起, 探针复测再填
     CAP_PINCH_DEG = 0.0                   # 原生候选 grasp 本身就合在盖沿上 (3 接触点)
-    PRIOR_RADIAL_TRIM = 0.0
+    PRIOR_RADIAL_TRIM = float(os.environ.get("UNSCREW_RADIAL_TRIM", "0.0"))   # 站位探针标定 (正=向瓶轴收)
     LEFT_YAW_PREF_DEG = 280.0             # 台账 §8: 人手接近方位 (144°) 对应的候选 yaw (旧口径, 保留)
     LEFT_AZ_PREF_DEG = 140.0              # 左腕相对瓶心的**世界**方位角偏好 (人手 144°, 候选 yaw280 → 140°)
     # 接触行 盖→腕 目标方向 (世界系, 台账 §8 1_47 @ psi312: 近侧(-x)、水平略高): 定瓶滚转规范

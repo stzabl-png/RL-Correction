@@ -43,6 +43,7 @@ CRITICAL = (
     "assembly.detach_mode", "assembly.breakaway_pull_n", "assembly.mass_eff_kg",
     "robot.pad_friction",
     "switches.tier_floor_start", "switches.tier_shuffle", "switches.tier_reverse",
+    "switches.right_cl",
     "sensors.pad_force_threshold_N", "sensors.pads_min_per_hand",
     "method.clip", "method.variant", "method.squeeze_ff_enabled",
     "method.beta_r", "method.beta_l",
@@ -130,7 +131,11 @@ def collect(env) -> dict:
     for oid, art in (("object_0", env.object), ("object_1", env.aux)):
         d = {}
         try:
-            d["mass_kg"] = _f(art.root_physx_view.get_masses()[0].sum())
+            # 拔出模式 (Unscrew/17): 咬合期盖质量被临时换成 m_eff, 指纹必须记**实物**质量
+            #   (否则验收在咬合态记 0.2、训练开场读 0.003, 同一世界被判不匹配 —— 2026-09-01 实测)
+            _orig = getattr(env, "_cap_mass_orig", None) if oid == "object_1" else None
+            d["mass_kg"] = _f(_orig[0].sum()) if _orig is not None else \
+                _f(art.root_physx_view.get_masses()[0].sum())
         except Exception:
             d["mass_kg"] = None
         try:
@@ -223,7 +228,8 @@ def collect(env) -> dict:
         "scene": {"env_spacing_m": _f(getattr(cfg.scene, "env_spacing", None)),
                   "replicate_physics": bool(
                       getattr(cfg.scene, "replicate_physics", False))},
-        "switches": {"tier_floor_start": _ti.get("tier_floor_start"),
+        "switches": {"right_cl": bool(getattr(env, "_right_cl", False)),
+                     "tier_floor_start": _ti.get("tier_floor_start"),
                      "tier_shuffle": _ti.get("tier_shuffle"),
                      "tier_reverse": _ti.get("tier_reverse"),
                      "approach_only": bool(getattr(cfg, "approach_only", False)),

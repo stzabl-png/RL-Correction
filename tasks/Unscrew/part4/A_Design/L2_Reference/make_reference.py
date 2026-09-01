@@ -758,6 +758,22 @@ def main():
               f"| 最大逐行跳变 {jump:.1f}°")
         return q, float(good.mean()), pe, re, marg
 
+    # ★ 站位解按**限位余量最大**择优 (48 种子; 台账 §8; 在 U8 等待位/自转漂移之后, 对**最终站位** wr_P[0] 求): 单种子/最小误差解常落在贴限分支
+    #   (右臂 j2 顶限), 之后整段热启被拖在坏分支里, 净空点向上 10cm 都抬不起来 (同分支
+    #   5~7cm 解不出), 机器段只能跨分支 (缝1 甩 150°)。先把站位放进宽裕分支再热启。
+    _rng0 = np.random.default_rng(5)
+    _bestq = None
+    for _i in range(48):
+        _q0 = _q_station_r if _i == 0 else _rng0.uniform(ik_r0.lower, ik_r0.upper)
+        _r = ik_r0.solve(wr_P[0], quat_to_R(wr_Q[0]), q0=_q0, iters=250, w_rot=0.25)
+        if _r["pos_err"] < 0.01 and _r["rot_err"] < np.radians(8):
+            _m = float(np.minimum(_r["q"] - ik_r0.lower, ik_r0.upper - _r["q"]).min())
+            if _bestq is None or _m > _bestq[0]:
+                _bestq = (_m, np.asarray(_r["q"], np.float64))
+    if _bestq is not None:
+        _m_old = float(np.minimum(_q_station_r - ik_r0.lower, ik_r0.upper - _q_station_r).min())
+        print(f"[v1] 右站位解按限位余量择优: {np.degrees(_m_old):.1f}° -> {np.degrees(_bestq[0]):.1f}°")
+        _q_station_r = _bestq[1]
     q_r, ok_r, pe_r, re_r, mg_r = solve_side("right", wr_P, wr_Q,
                                             seed=_q_station_r)
     q_l, ok_l, pe_l, re_l, mg_l = solve_side("left", wl_P, wl_Q)
@@ -789,13 +805,24 @@ def main():
         _ikp[_sd].lower = _ikp[_sd].lower + _m3
         _ikp[_sd].upper = _ikp[_sd].upper - _m3
     pre_alts = {"left": [], "right": []}
+    _q_station = {"left": np.asarray(q_l[0], np.float64), "right": np.asarray(q_r[0], np.float64)}
     for _lr, _ll, _rl in PRE_LADDER:
         for _side, _pp, _qq in (
                 ("left", wl_P[0] + _lr * _radL + [0.0, 0.0, _ll], wl_Q[0]),
                 ("right", wr_P[0] + [0.0, 0.0, _rl], wr_Q[0])):
-            _sp = _ikp[_side].solve_traj(np.asarray(_pp, float)[None],
-                                         np.asarray(_qq, float)[None],
-                                         w_rot=0.25, n_restart=24)[0]
+            # ★ 2026-09-01 (Unscrew/17): 净空内点先用**站位解**热启, 只在同一 IK 分支里找
+            #   —— 多重启取最优误差会跨分支 (实测右臂净空点距站位 151.6°, 缝1 9 行进刀
+            #   要甩 17°/行, 肘会扫过桌/瓶). 同分支解不出来 (>2cm) 才退回多重启。
+            _sp = _ikp[_side].solve(np.asarray(_pp, float), quat_to_R(np.asarray(_qq, float)),
+                                    q0=_q_station[_side], iters=300, w_rot=0.25)
+            _dq = float(np.degrees(np.abs(np.asarray(_sp["q"]) - _q_station[_side]).max()))
+            if not (_sp["pos_err"] < 0.02 and _sp["rot_err"] < np.radians(12) and _dq < 90.0):
+                _sp2 = _ikp[_side].solve_traj(np.asarray(_pp, float)[None],
+                                              np.asarray(_qq, float)[None],
+                                              w_rot=0.25, n_restart=24)[0]
+                print(f"[v1]   ⚠ {_side} 净空点同分支解不出 (err {_sp['pos_err']*100:.1f}cm, 距站位 {_dq:.0f}°), 退回多重启 "
+                      f"(距站位 {np.degrees(np.abs(np.asarray(_sp2['q']) - _q_station[_side]).max()):.0f}°)")
+                _sp = _sp2
             pre_alts[_side].append(np.asarray(_sp["q"], np.float64))
         print(f"[v1] 机器段 pregrasp 候选 (L径向{_lr * 100:.0f}cm/抬{_ll * 100:.0f}cm, "
               f"R抬{_rl * 100:.0f}cm): 左距锚 "
@@ -887,6 +914,9 @@ def main():
     }
     have_approach = _plan_usable(TC.APPROACH_NPZ)
     have_retreat = _plan_usable(TC.RETREAT_NPZ)
+    if os.environ.get("UNSCREW_NO_PLAN") == "1":     # 沙盒试验 (站位微调探针): 不剪规划行, 占位机器段
+        have_approach = have_retreat = False
+        print("[v1] ⚠ UNSCREW_NO_PLAN=1: 机器段占位 (只供站位几何探针, 不可训练)")
     have_machine_plan = have_approach or have_retreat
     planning_basis = (TC.reference_planning_digest(_basis_now)
                       if have_machine_plan else None)

@@ -499,12 +499,16 @@ def _screw_from_layout(recon_dir: str, *, screw_primary: str = "cap",
                     robot_hand=objs[oid]["anchor_hand"],
                     placement_frame=objs[oid]["onset_frame"],
                     semantics=ObjectSemantics(label=label, mass_kg=mass, friction=fric))
+    # ★ 2026-09-01 用户裁定 (Unscrew/17 台账 U4 修订): 盖 = kailang 质量 3g, 摩擦 **5.0**
+    #   (原 0.4)。瓶身的 0.53/0.5 只是占位 —— 主体物在 correction_env 基类里被 G-A
+    #   PHYS_RULE 覆写成 0.1kg/μ5; 盖是 aux, 材质走 screw_assembly 的 ScrewAux,
+    #   **只有这里**能改它的摩擦 (指垫 multiply 优先级高于 average ⟹ 手↔盖合成 25)。
     prim, sec_id = _part(prim_id, 0.53 if prim_id == body_id else 0.003,
-                         0.5 if prim_id == body_id else 0.4,
+                         0.5 if prim_id == body_id else 5.0,
                          "bottle_body" if prim_id == body_id else "bottle_cap"), \
         (body_id if prim_id == cap_id else cap_id)
     sec = _part(sec_id, 0.53 if sec_id == body_id else 0.003,
-                0.5 if sec_id == body_id else 0.4,
+                0.5 if sec_id == body_id else 5.0,
                 "bottle_body" if sec_id == body_id else "bottle_cap")
     # 螺纹参数直接沿用 screw27 —— **我们用的就是它那套 CAD**(同出 27_cad2), 不是近似。
     # `mode` 由 VLM 的分件判定推出, 不用人填:

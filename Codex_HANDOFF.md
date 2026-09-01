@@ -22,6 +22,16 @@
 - 禁止 reset --hard、checkout 丢弃改动、GPU reset 和广域进程终止。
 - 未经用户明确要求不 push。
 
+### GitHub 身份
+
+- 用户 GitHub 账号：`HARROLDX`。
+- 固定 SSH alias：`github-harroldx`。
+- 仓库地址：`git@github-harroldx:stzabl-png/RL-Correction.git`。
+- 服务器 alias 强制使用 `~/.ssh/rl_correction_sweep_deploy` 与 `IdentitiesOnly yes`；不得读取、复制、提交或输出私钥。
+- 禁止使用裸 `github.com` 推送该仓库；共享服务器的默认 `github.com` 身份属于其他用户。
+- 身份检查：`ssh -T github-harroldx` 必须返回 `HARROLDX`；仓库检查使用 `git ls-remote git@github-harroldx:stzabl-png/RL-Correction.git`。
+- 当前发布分支：`task_sweep`。
+
 ## 3. 当前任务
 
 输入为 datasets/sweep_2_better 的 ego 视频重建结果。右手固定抓扫把、左手固定抓簸箕；工具轨迹经 IK 形成双臂 reference，策略只学习 14 DoF 累计关节 residual。confidence 调节 residual envelope，人手轨迹在中低 confidence 区域提供运动方向 shape prior。

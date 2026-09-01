@@ -379,10 +379,10 @@ v4 在 `sweep2_floorpenalty_v4_1024_20260901` 中持续运行，最近核查已�
 
 当前 Sweep 实现发布到：
 
-- repository：`git@github.com:stzabl-png/RL-Correction.git`
+- repository：`git@github-harroldx:stzabl-png/RL-Correction.git`
 - branch：`task_sweep`
 - 基线：本地 `sweep-task` 在创建发布分支时的完整 Git 历史
-- 认证：服务器专用 SSH identity；不得把私钥、token 或凭据写入仓库
+- 认证：服务器 SSH alias `github-harroldx`，固定对应用户账号 `HARROLDX`；不得使用裸 `github.com`，也不得把私钥、token 或凭据写入仓库
 
 发布内容包括当前 Sweep 代码、文档、reference、任务资产，以及以下被 `.gitignore` 默认排除但为复现而显式加入的文件：
 

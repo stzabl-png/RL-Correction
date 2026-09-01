@@ -588,8 +588,8 @@ class SweepEnv(GraspTaskEnv):
         self.best_contact = torch.maximum(self.best_contact, contact_pot)
         height_ok = ((sig["margins"][:, 2] >= 0.0)
                      & (sig["margins"][:, 3] >= 0.0)).float()
-        # Restored entry task: shaping ends at the mouth.
-        inward_progress = sig["progress"]
+        # Attribute broom quality through complete-footprint entry, but not Deep20.
+        inward_progress = 0.5 * (sig["progress"] + sig["full_progress"])
         inward_delta = (inward_progress - self.best_inward_progress).clamp_min(0.0)
         self.best_inward_progress = torch.maximum(
             self.best_inward_progress, inward_progress)
@@ -661,6 +661,11 @@ class SweepEnv(GraspTaskEnv):
             1000.0 * sig["deep_margin"][success_now]).sum()
         self._quality_sums["broom_assisted_fraction"] += (
             self.broom_assisted_progress[success_now]).sum()
+        if bool(getattr(self, "suppress_terminal_reset", False)):
+            # Recorder needs to render the real terminal physics state.  DirectRLEnv
+            # otherwise resets before env.step returns.
+            zeros = torch.zeros_like(self._tick_out["terminated"])
+            return zeros, zeros
         return self._tick_out["terminated"], self._tick_out["timeout"]
 
     def _get_rewards(self):

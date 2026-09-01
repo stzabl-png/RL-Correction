@@ -697,3 +697,11 @@
 - 发现 DirectRLEnv 在 terminal step 返回前已经自动 reset；旧 recorder 在 env.step 后渲染，误把 reset 画面 frame_0232 当作成功冻结源。
 - recorder 现在检测 terminal 后跳过 post-reset render，保留最后一个有效物理画面 frame_0231，并以该画面追加 40 帧。
 - 回归验证：topdown 最后一帧为 frame_0231.png，MP4 共 272 帧（232 个有效画面 + 40 帧冻结），terminal trace Gate [1,1,1,1]。首次 v1 初始化 run 已停止，改用独立 v2 目录从头重启，避免日志混写。
+
+## 2026-09-01 — Success 收紧为 fully-inside，并接入 15M Actor expert
+
+- 用户指出 3M 冻结画面只显示浅进入。核查发现 recorder 未显示真实 terminal，且旧 entered 判据允许中心跨口但 footprint 未完整进入。
+- Gate3 保留 entered；Gate4/success 改为 fully_inside。新增从中心入门到完整 footprint 清口的 earn-only full_progress，Deep20 仍不启用。
+- recorder 在专用 suppress-reset 模式下渲染真实 terminal state；topdown 3M 回归 frame_0300 显示 fully_inside，trace cube_pan.z=80.793 mm。
+- Actor BC 改为同时学习 40 mm fully-inside expert 与旧 15M fully-inside rollout；Critic 使用两条 full-success、25 mm near-success 和 canonical failure。所有 transition 按当前 reward 重采。
+- 主视频相机改为机器人左前方略高的中景，覆盖上半身、双臂和桌面操作区。

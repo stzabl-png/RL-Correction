@@ -57,6 +57,9 @@ if trace:
     assert os.path.commonpath([logs_root, trace]) == logs_root
 
 raw = SE.SweepEnv(SE.build_cfg(1))
+# Keep the physical terminal state alive through rendering; the trace still uses
+# tick["terminated"]/tick["timeout"] as the rollout boundary.
+raw.suppress_terminal_reset = True
 env = GymStyleEnvWrapper(raw, clip_actions=1.0)
 agent = None
 if args.checkpoint:
@@ -80,8 +83,10 @@ annot = None
 if out:
     cam = UsdGeom.Camera.Define(stage, "/World/SweepRecCam")
     cam.CreateFocalLengthAttr().Set(18.0)
-    m = Gf.Matrix4d(); m.SetLookAt(Gf.Vec3d(0.95, -1.15, 1.45),
-                                   Gf.Vec3d(0.25, 0.0, 0.90), Gf.Vec3d(0, 0, 1))
+    # User-approved overview: robot front-left, slightly elevated, with the
+    # upper body, both arms, and manipulation area visible.
+    m = Gf.Matrix4d(); m.SetLookAt(Gf.Vec3d(1.25, -1.65, 1.55),
+                                   Gf.Vec3d(0.02, 0.0, 1.02), Gf.Vec3d(0, 0, 1))
     UsdGeom.Xformable(cam).AddTransformOp().Set(m.GetInverse())
     rp = rep.create.render_product("/World/SweepRecCam", (1280, 720))
     annot = rep.AnnotatorRegistry.get_annotator("rgb"); annot.attach(rp)
@@ -105,7 +110,8 @@ rollout = {k: [] for k in ("obs", "priv_info", "actions", "rewards",
                             "rows", "gates", "success", "cube_pan",
                             "actor_mask", "cum_res", "next_obs", "next_priv_info",
                             "entered", "fully_inside", "deep_inside", "deep_margin",
-                            "deep_progress", "broom_assisted_progress")}
+                            "full_progress", "deep_progress",
+                            "broom_assisted_progress")}
 record_steps = args.steps if args.steps > 0 else raw.T + 40
 with torch.no_grad():
     for t in range(record_steps):
@@ -132,19 +138,16 @@ with torch.no_grad():
         rollout["fully_inside"].append(bool(tick["fully_inside"][0]))
         rollout["deep_inside"].append(bool(tick["deep_inside"][0]))
         rollout["deep_margin"].append(float(tick["deep_margin"][0]))
+        rollout["full_progress"].append(float(tick["full_progress"][0]))
         rollout["deep_progress"].append(float(tick["deep_progress"][0]))
         rollout["broom_assisted_progress"].append(
             float(raw.broom_assisted_progress[0]))
         rollout["cum_res"].append(raw.cum_res[0].cpu().numpy().copy())
         # DirectRLEnv may reset progress before returning on terminal.
         for i in range(4): gmax[i] = max(gmax[i], int(tick["gates"][0, i]))
+        terminal = bool(tick["terminated"][0] or tick["timeout"][0])
         if bool(tick["success"][0]) and success_step is None:
             success_step = t
-        # env.step() auto-resets a terminal environment before returning.  Rendering
-        # here would capture the reset pose as the apparent success frame.  Keep the
-        # last pre-terminal image instead (for the 15M regression this is frame 0231).
-        if bool(done[0]):
-            break
         raw.sim.render()
         if annot is not None:
             data = annot.get_data()
@@ -154,6 +157,8 @@ with torch.no_grad():
             top_data = top_annot.get_data()
             if top_data is not None and getattr(top_data, "size", 0):
                 top_frames.append((t, np.asarray(top_data)[..., :3].astype(np.uint8)))
+        if terminal:
+            break
 if out:
     os.makedirs(os.path.dirname(out), exist_ok=True)
     freeze_frames = int(round(max(args.success_freeze_seconds, 0.0) * 20.0))

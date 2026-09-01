@@ -15,6 +15,8 @@ from isaaclab.app import AppLauncher
 p = argparse.ArgumentParser()
 p.add_argument("--expert25", required=True)
 p.add_argument("--expert40", required=True)
+p.add_argument("--expert_full", required=True,
+               help="validated fully-inside policy rollout, e.g. old 15M")
 p.add_argument("--failure", required=True)
 p.add_argument("--out_dir", required=True)
 AppLauncher.add_app_launcher_args(p)
@@ -115,7 +117,8 @@ def collect(label, source, expect_entered, expect_deep_success):
     return {"source": source, "source_sha256": sha256(source), "output": target,
             "output_sha256": sha256(target), "samples": len(arrays["rows"]),
             "entered_frame": entered_frame, "success_frame": success_frame,
-            "demo_role": ("near_success" if expect_entered else "failure")}
+            "demo_role": ("full_success" if expect_deep_success else
+                          ("near_success" if expect_entered else "failure"))}
 
 
 manifest = {
@@ -123,7 +126,8 @@ manifest = {
     "action_dim": SE.ACT_DIM, "scripted_prelude_steps": SE.SCRIPTED_PRELUDE_STEPS,
     "gamma": 0.99, "reward_scale": 0.01, "datasets": [
         collect("sweep2_entry25", args.expert25, True, False),
-        collect("sweep2_entry40", args.expert40, True, False),
+        collect("sweep2_entry40", args.expert40, True, True),
+        collect("sweep2_full15", args.expert_full, True, True),
         collect("sweep2_canonical_failure", args.failure, False, False),
     ]}
 with open(os.path.join(out_dir, "manifest.json"), "w") as f:

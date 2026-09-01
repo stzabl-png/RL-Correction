@@ -1,4 +1,4 @@
-# Codex 任务台账：Sweep2 Entry-Success 残差训练
+# Codex 任务台账：Sweep2 Full-Inside 残差训练
 
 更新时间：2026-08-31。本文件只描述当前有效方案；Deep20 试验已停止，原因与历史保留在 Codex_commit.md 和 Codex_mistakes.md。
 
@@ -11,7 +11,7 @@
 - Gate1 ready。
 - Gate2 broom near 且 cube moved >= 5 mm。
 - Gate3 entered：cube 中心跨过 mouth，并满足横向 footprint、承载高度和盆内深度下界。
-- Gate4 与 Gate3 同步，成功当步立即终止。
+- Gate4 在 fully_inside 后成立，成功当步立即终止。
 - fully_inside/deep_inside 只做诊断。
 - 最终 512 deterministic episodes，success rate >= 0.50。
 
@@ -36,18 +36,18 @@ datasets/sweep_2_better
 - confidence 控制 residual step/deviation bound。
 - human pose 只形成中低 confidence 区域的运动方向 shape prior。
 - 手指固定为 GraspPose。
-- 当前训练只读取 logs/expert/transitions/，禁止读取 transitions_deep20。
+- 当前训练只读取 logs/expert/transitions_fullinside/，禁止读取旧 entry 或 Deep20 transition。
 - 不恢复旧 15M/48M policy；当前 run 从头初始化。
 
 ## 当前运行
 
-tmux：sweep2_entryrestore_v2_1024_20260831
+tmux：sweep2_fullinside_v3_1024_20260901
 
 run：
-/home/msc-auto/RL_sweep/logs/Sweep2_entryrestore_v2_fixed1024_seed42_20260831
+/home/msc-auto/RL_sweep/logs/Sweep2_fullinside_v3_fixed1024_seed42_20260901
 
 artifact prefix：
-Sweep2EntryRestoreV2__20260831_policy
+Sweep2FullInsideV3__20260901_policy
 
 配置：
 
@@ -59,7 +59,7 @@ Sweep2EntryRestoreV2__20260831_policy
 - 自动录像前训练在 epoch 边界 yield，录像结束后恢复
 
 启动脚本：
-logs/Sweep2_entryrestore_v2_fixed1024_seed42_20260831/launch_pipeline.sh
+logs/Sweep2_fullinside_v3_fixed1024_seed42_20260901/launch_pipeline.sh
 
 日志：
 
@@ -83,13 +83,13 @@ logs/Sweep2_entryrestore_v2_fixed1024_seed42_20260831/launch_pipeline.sh
 
 每 3M 节点：
 
-logs/checkpoints/Sweep2EntryRestoreV2__20260831_policy_<XXXXM>/
+logs/checkpoints/Sweep2FullInsideV3__20260901_policy_<XXXXM>/
 - checkpoint.pth
 - metrics.json
 - rollout.npz
 - record.log
 
-outputs_video/Sweep2EntryRestoreV2__20260831_policy_<XXXXM>/
+outputs_video/Sweep2FullInsideV3__20260901_policy_<XXXXM>/
 - policy.mp4
 - topdown_frames/frame_*.png
 
@@ -129,16 +129,16 @@ outputs_video/Sweep2EntryRestoreV2__20260831_policy_<XXXXM>/
 
 监控命令：
 
-ssh msc-a6000 'tmux capture-pane -pt sweep2_entryrestore_v2_1024_20260831:0 -S -80'
-ssh msc-a6000 'tail -n 100 /home/msc-auto/RL_sweep/logs/Sweep2_entryrestore_v2_fixed1024_seed42_20260831/train.log'
-ssh msc-a6000 'cat /home/msc-auto/RL_sweep/logs/Sweep2_entryrestore_v2_fixed1024_seed42_20260831/progress_steps.txt 2>/dev/null || true'
+ssh msc-a6000 'tmux capture-pane -pt sweep2_fullinside_v3_1024_20260901:0 -S -80'
+ssh msc-a6000 'tail -n 100 /home/msc-auto/RL_sweep/logs/Sweep2_fullinside_v3_fixed1024_seed42_20260901/train.log'
+ssh msc-a6000 'cat /home/msc-auto/RL_sweep/logs/Sweep2_fullinside_v3_fixed1024_seed42_20260901/progress_steps.txt 2>/dev/null || true'
 
-停止时必须先核对精确 session 与 PID，然后只向 sweep2_entryrestore_v2_1024_20260831 发送 Ctrl-C。
+停止时必须先核对精确 session 与 PID，然后只向 sweep2_fullinside_v3_1024_20260901 发送 Ctrl-C。
 
 ## 下一步
 
 1. 等待 BC/Critic warmup 和 PPO 开始。
-2. 3M 检查 Gate3/Gate4 必须同步。
+2. 3M 检查 Gate3 浅进入与 Gate4 fully-inside 的漏斗差异。
 3. 检查失败 episode 是否仍集中在 step104 mouth collision。
 4. 检查 deterministic 视频冻结源及 trace terminal state。
 5. 选择候选 checkpoint 做 512 回合 deterministic 验收。

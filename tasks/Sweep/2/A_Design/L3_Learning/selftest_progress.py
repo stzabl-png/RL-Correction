@@ -32,7 +32,7 @@ def main():
     assert out["gates"].tolist() == [[True, False, False, False]]
     assert float(out["task_reward"]) == 0.0
 
-    # A geometrically valid centre crossing is immediate operational success.
+    # Centre crossing is Gate3 only; full footprint containment is success.
     rewards = []
     entered_step = None
     for i, z in enumerate(torch.linspace(0.119, 0.094, 12).tolist()):
@@ -42,8 +42,8 @@ def main():
             entered_step = i
             break
     assert entered_step is not None
-    assert out["gates"][0].tolist() == [True, True, True, True]
-    assert bool(out["success"][0])
+    assert out["gates"][0].tolist() == [True, True, True, False]
+    assert not bool(out["success"][0])
     assert bool(out["entered"][0]) and not bool(out["fully_inside"][0])
     assert max(rewards) > 0.0
 
@@ -51,6 +51,20 @@ def main():
     s = sig(0.080)
     assert bool(s["entered"][0]) and bool(s["fully_inside"][0])
     assert not bool(s["deep_inside"][0])
+    out = p.step(s, torch.tensor([True]), torch.tensor([True]))
+    assert out["gates"][0].tolist() == [True, True, True, True]
+    assert bool(out["success"][0])
+    assert abs(float(out["full_progress"][0]) - 1.0) < 1.0e-6
+    assert float(out["full_delta"][0]) > 0.0
+
+
+    old15 = sig(0.063073)
+    assert bool(old15["fully_inside"][0])
+    q = SweepProgressBatch(1, "cpu", g); q.reset(ids)
+    q.step(sig(0.125), torch.tensor([True]), torch.tensor([False]))
+    q.step(sig(0.100, -0.02), torch.tensor([True]), torch.tensor([True]))
+    old15_out = q.step(old15, torch.tensor([True]), torch.tensor([True]))
+    assert bool(old15_out["success"][0])
 
     # Deep progress is diagnostics-only under the restored contract.
     deep = sig(0.0625, -0.02)

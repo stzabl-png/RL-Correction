@@ -18,7 +18,8 @@ p.add_argument("--artifact_prefix", default="",
 p.add_argument("--num_envs", type=int, default=1024)
 p.add_argument("--seed", type=int, default=42)
 p.add_argument("--expert25", required=True, help="25 mm transition NPZ under logs/")
-p.add_argument("--expert40", required=True, help="40 mm transition NPZ under logs/")
+p.add_argument("--expert40", required=True, help="40 mm near-success transition")
+p.add_argument("--expert_full", required=True, help="old 15M fully-inside transition")
 p.add_argument("--failure", required=True, help="canonical failure transition NPZ under logs/")
 p.add_argument("--actor_epochs", type=int, default=300)
 p.add_argument("--critic_epochs", type=int, default=200)
@@ -49,7 +50,8 @@ from rl_rebuild.wrapper.config_wrapper import ConfigWrapper  # noqa: E402
 from rl_rebuild.wrapper.sharpa_wave_env_wrapper import GymStyleEnvWrapper  # noqa: E402
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../"))
-expert_paths = [os.path.abspath(p) for p in (args.expert25, args.expert40, args.failure)]
+expert_paths = [os.path.abspath(p) for p in (
+    args.expert25, args.expert40, args.expert_full, args.failure)]
 for path in expert_paths:
     assert os.path.commonpath([os.path.join(ROOT, "logs"), path]) == os.path.join(ROOT, "logs")
     assert os.path.isfile(path), path
@@ -83,14 +85,14 @@ def _sha256(path):
     return h.hexdigest()
 
 world = {
-    "schema": 2, "task": "Sweep2_fixed_cube_entry", "seed": args.seed,
+    "schema": 2, "task": "Sweep2_fixed_cube_fullinside", "seed": args.seed,
     "policy_io": {"obs_dim": SE.OBS_DIM, "priv_dim": SE.PRIV_DIM,
                   "act_dim": SE.ACT_DIM},
     "time": {"control_dt_s": 0.05,
              "scripted_prelude_steps": SE.SCRIPTED_PRELUDE_STEPS},
     "cube_start_world_m": list(SE.SWEEP2_FIXED_CUBE_START),
-    "success": {"definition": "entered",
-                "whole_cube_inside": False, "mouth_clearance_margin_m": 0.0,
+    "success": {"definition": "fully_inside",
+                "whole_cube_inside": True, "mouth_clearance_margin_m": 0.0,
                 "immediate_termination": True,
                 "recording_only_freeze_seconds": 2.0,
                 "final_eval_episodes": 512, "required_rate": 0.50},

@@ -1,4 +1,4 @@
-# Sweep 重建轨迹通用处理与 Entry-Success 训练手册
+# Sweep 重建轨迹通用处理与 Full-Inside 训练手册
 
 本手册描述当前有效的 Sweep residual-RL 流程。每条新重建轨迹单独生成 reference、专家、transition、policy 和评测；不得直接复制 Sweep2 动作或 checkpoint。Deep20 是已停止的历史扩展，不属于当前成功标准。
 
@@ -31,8 +31,8 @@ dustpan 使用视觉 mesh 加开放 compound collider：盆底、连续入口 ra
 - 25 mm entry expert。
 - 40 mm entry expert。
 - canonical failure。
-- Actor 只 BC 40 mm。
-- Critic 使用 25/40 success 与 failure。
+- Actor BC 使用 40 mm 与旧 15M 两条 fully-inside demonstration。
+- Critic 使用 40 mm/15M full-success、25 mm near-success 与 failure。
 - 所有当前 transition 位于 logs/expert/transitions/。
 
 专家第一次 entered 即可终止。broom 可先推动，随后由 pan 相对运动完成 entry；success 由 cube-pan 几何决定，不强制持续扫把接触。
@@ -53,7 +53,7 @@ entered 同时要求：
 - cube centre y 位于实测承载高度范围。
 - Gate1 ready 与 Gate2 moved/broom-near 已先成立。
 
-Gate3 在首次 entered 锁存，Gate4 同步锁存为 success，当步立即终止。fully_inside、deep_inside 和 deep_margin 可继续输出用于分析，但不决定奖励或验收。
+Gate3 在首次 entered 锁存；Gate4 只有 complete footprint 满足 fully_inside 后才锁存为 success。deep_inside 和 deep_margin 只做额外诊断。
 
 ## 七、Observation 与 Action
 
@@ -120,17 +120,17 @@ Deep20 progress 不进入 task reward。失败包括 cube 掉下桌面和 dustpa
 - Actor/left residual usage。
 - deterministic terminal trace 与冻结画面。
 
-候选 checkpoint 必须运行至少 512 deterministic episodes，entry-success rate >= 0.50。训练窗口 rate 只用于筛选。
+候选 checkpoint 必须运行至少 512 deterministic episodes，full-inside rate >= 0.50。训练窗口 rate 只用于筛选。
 
 ## 十二、Sweep2 当前实例
 
 当前 v2 run：
 
-- tmux：sweep2_entryrestore_v2_1024_20260831
-- run：logs/Sweep2_entryrestore_v2_fixed1024_seed42_20260831/
-- artifact：Sweep2EntryRestoreV2__20260831_policy
+- tmux：sweep2_fullinside_v3_1024_20260901
+- run：logs/Sweep2_fullinside_v3_fixed1024_seed42_20260901/
+- artifact：Sweep2FullInsideV3__20260901_policy
 - envs=1024，seed=42，max=100M
-- old-entry transitions：logs/expert/transitions/
+- full-inside transitions：logs/expert/transitions_fullinside/
 - 每 3M 自动诊断
 - 最终 512 deterministic 验收
 

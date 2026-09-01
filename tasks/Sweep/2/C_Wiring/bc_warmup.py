@@ -7,22 +7,25 @@ import torch
 
 def _load(path: str, device: str):
     z = np.load(path)
-    required = {"obs", "priv_info", "actions", "return_target"}
+    required = {"obs", "priv_info", "actions", "actor_mask", "return_target"}
     assert required.issubset(z.files), (path, required - set(z.files))
     return {key: torch.tensor(z[key], dtype=torch.float32, device=device)
             for key in required}
 
 
 def warm_actor_critic(agent, expert25_npz: str, expert40_npz: str,
-                      failure_npz: str, actor_epochs: int = 300,
-                      critic_epochs: int = 200, batch_size: int = 256):
-    """BC the actor on 40 mm, then fit the critic on 25/40/failure returns."""
+                      expert_full_npz: str, failure_npz: str,
+                      actor_epochs: int = 300, critic_epochs: int = 200,
+                      batch_size: int = 256):
+    """BC on 40 mm + full 15M, then fit critic on success/near/failure."""
     d25 = _load(expert25_npz, agent.device)
     d40 = _load(expert40_npz, agent.device)
+    dfull = _load(expert_full_npz, agent.device)
     dfail = _load(failure_npz, agent.device)
-    obs = d40["obs"]
-    priv = d40["priv_info"]
-    act = d40["actions"]
+    obs = torch.cat([d40["obs"], dfull["obs"]], 0)
+    priv = torch.cat([d40["priv_info"], dfull["priv_info"]], 0)
+    act = torch.cat([d40["actions"], dfull["actions"]], 0)
+    actor_mask = torch.cat([d40["actor_mask"], dfull["actor_mask"]], 0).reshape(-1)
     assert obs.shape[1] == agent.obs_shape[0]
     assert priv.shape[1] == agent.priv_info_dim
     assert act.shape[1] == agent.actions_num
@@ -30,15 +33,18 @@ def warm_actor_critic(agent, expert25_npz: str, expert40_npz: str,
     # canonical failure, even though only 40 mm supervises the Actor.
     agent.running_mean_std.train()
     with torch.no_grad():
-        agent.running_mean_std(torch.cat([d25["obs"], d40["obs"], dfail["obs"]], 0))
+        agent.running_mean_std(torch.cat(
+            [d25["obs"], d40["obs"], dfull["obs"], dfail["obs"]], 0))
     agent.running_mean_std.eval()
-    nonzero40 = d40["actions"].abs().amax(1) > 1.0e-6
-    # The more assertive 40 mm trajectory is the sole Actor demonstration.
-    # Keep its reference-only prefix at low weight so it cannot drown the short
-    # non-zero correction window.
+    nonzero = act.abs().amax(1) > 1.0e-6
+    # Preserve both demonstrations' zero prefixes at low weight; emphasize their
+    # interaction actions, including the old 15M fully-inside completion.
     weight = torch.where(
-        nonzero40, torch.ones_like(nonzero40, dtype=torch.float32),
-        torch.full_like(nonzero40, 0.05, dtype=torch.float32))
+        nonzero, torch.ones_like(nonzero, dtype=torch.float32),
+        torch.full_like(nonzero, 0.05, dtype=torch.float32))
+    # Policy rollouts contain sampled actions during the scripted prefix even
+    # though the environment executed zero.  Never imitate those masked actions.
+    weight = weight * (actor_mask > 0.5).float()
     params = list(agent.model.actor_mlp.parameters()) + list(agent.model.mu.parameters())
     if hasattr(agent.model, "env_mlp"): params += list(agent.model.env_mlp.parameters())
     opt = torch.optim.Adam(params, lr=3e-4)
@@ -60,10 +66,11 @@ def warm_actor_critic(agent, expert25_npz: str, expert40_npz: str,
         if epoch % 25 == 0 or epoch == actor_epochs - 1:
             print(f"[BC actor] epoch={epoch:03d} weighted_mse={actor_final:.6f}", flush=True)
 
-    c_obs = torch.cat([d25["obs"], d40["obs"], dfail["obs"]], 0)
-    c_priv = torch.cat([d25["priv_info"], d40["priv_info"], dfail["priv_info"]], 0)
+    c_obs = torch.cat([d25["obs"], d40["obs"], dfull["obs"], dfail["obs"]], 0)
+    c_priv = torch.cat(
+        [d25["priv_info"], d40["priv_info"], dfull["priv_info"], dfail["priv_info"]], 0)
     c_ret_raw = torch.cat([d25["return_target"], d40["return_target"],
-                           dfail["return_target"]], 0).reshape(-1, 1)
+                           dfull["return_target"], dfail["return_target"]], 0).reshape(-1, 1)
     agent.value_mean_std.train()
     with torch.no_grad(): agent.value_mean_std(c_ret_raw)
     agent.value_mean_std.eval()

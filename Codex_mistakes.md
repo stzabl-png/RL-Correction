@@ -429,3 +429,10 @@
 - 症状：录像器随后 render，生成的 frame_0232 是 reset 画面；正确最后有效图像是 frame_0231。
 - 修正：检测 done 后保存 transition，但跳过 post-reset render，以最后一个有效 pre-reset RGB 图像追加 40 帧。
 - 预防：录像验收同时检查 trace terminal Gate、topdown 最大编号和 MP4 物理帧数；不能只看 success_step 日志。
+
+## 只看最后一张已渲染帧会误判 terminal 几何
+
+- 现象：3M trace 在 step300 fully_inside，但视频最后只显示 step299 的浅进入。
+- 根因：DirectRLEnv 在 done 返回前 reset；上一版为避免 reset 画面直接跳过 terminal render，因此展示的是 terminal action 前状态。
+- 修正：录制环境专用 suppress_terminal_reset，保持训练判据不变但允许渲染真实 terminal physics，再按 tick terminal 边界退出。
+- 预防：同时核对 terminal cube_pan/fully_inside、topdown terminal 图像与视频冻结源。

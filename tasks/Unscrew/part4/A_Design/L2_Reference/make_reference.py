@@ -398,8 +398,9 @@ def main():
                 -float(np.median(_pe)))
         if _best_c is None or _key > _best_c[0]:
             _best_c = (_key, _cf, _cz, float(_s0["pos_err"]),
-                       float(np.degrees(_s0["rot_err"])))
-    _key, _cf, _capz, _e0, _r0d = _best_c
+                       float(np.degrees(_s0["rot_err"])),
+                       np.asarray(_s0["q"], np.float64))
+    _key, _cf, _capz, _e0, _r0d, _q_station_r = _best_c
     print(f"[v1] 右抓候选扫描 ({len(_cands)} 个): 选中 "
           f"{os.path.basename(_cf)} 站位行 {_e0 * 100:.2f}cm/{_r0d:.1f}° "
           f"({'可达' if _key[0] else '⚠ 不可达'}) 拧盖窗可达率 {_key[1] * 100:.0f}% "
@@ -447,18 +448,12 @@ def main():
         return float(good.mean()), float(np.median(pe)), float(np.median(re)), sols
 
     ks1 = k_sep + 1
-    best_g = None
-    for ydeg in range(0, 360, 30):        # ① 抓握自转扫描 (与左手 yaw* 同法)
-        Qg = _roll_q(wr_Q[:ks1], axis_n[:ks1], np.full(ks1, np.radians(ydeg)))
-        g, mp, mr, _ = _score_rows(wr_P[:ks1], Qg)
-        if best_g is None or (g, -mp) > (best_g[1], -best_g[2]):
-            best_g = (ydeg, g, mp, mr)
-    yaw_g = np.radians(best_g[0])
-    print(f"[v1] 右抓自转扫描 (拧盖窗 {ks1} 行): yaw*={best_g[0]}° 可达率(含限位"
-          f"内点) {best_g[1] * 100:.0f}% 中位 {best_g[2] * 100:.2f}cm/"
-          f"{np.degrees(best_g[3]):.1f}°")
+    # ⚠ 抓握自转**不再扫描**: 腕姿现在由盖抓取先验确定 (T2-10), 自转不是自由
+    # 参数了。这套扫描是几何构造时代的遗产 (那时腕姿=掌轴对准+人腕自转, 绕轴
+    # 自转确实自由); 保留它会把先验的捏握姿态再转一个网格档 —— 2026-09-01 实测
+    # 正好转了 60°, 站位腕位对得上而**姿态差 59.95°**, 指垫因此落到 r5~9cm。
+    yaw_g = 0.0
     roll = np.full(N, yaw_g)
-    wr_Q = _roll_q(wr_Q, axis_n, roll)
 
     # ② 脱离后逐行限速漂移: 手与盖一起转 (不滑手), 盖的自转本就不可判
     q_seed = np.asarray(ik_r.solve_traj(wr_P[:ks1], wr_Q[:ks1], w_rot=0.25,
@@ -608,7 +603,25 @@ def main():
             r = best[1]
             ok_k = (np.isfinite(r["q"]).all() and r["pos_err"] < 0.02
                     and r["rot_err"] < np.radians(10.0))
-            if ok_k and q_prev is not None and frozen_run < 2:
+            if k == 0 and q_prev is not None and not ok_k:
+                # 站位行是抓握的锚, 不能"因为是第一行"就无条件收下坏解:
+                # 多试几个随机重启, 还不行就用种子本身 (扫描验证过的好解)。
+                for _t in range(24):
+                    _rr = ik.solve(P[k], quat_to_R(Q[k]),
+                                   q0=rng_s.uniform(ik.lower, ik.upper),
+                                   iters=250, w_rot=0.25)
+                    if (_rr["pos_err"] < 0.02
+                            and _rr["rot_err"] < np.radians(10.0)):
+                        r, ok_k = _rr, True
+                        break
+                if not ok_k:
+                    r = {"q": q_prev, "pos_err": 0.0, "rot_err": 0.0}
+                    fp0, fR0 = ik.fk(q_prev)
+                    r["pos_err"] = float(np.linalg.norm(fp0 - P[k]))
+                    r["rot_err"] = float(np.arccos(np.clip(
+                        (np.trace(fR0.T @ quat_to_R(Q[k])) - 1) * 0.5, -1, 1)))
+                    ok_k = True
+            if ok_k and q_prev is not None and frozen_run < 2 and k > 0:
                 # 单行跳变上限 60°: 相邻行跳一支解 = PD 跟不上 (会把物体打飞)。
                 # 但**连冻 2 行就放行** —— 否则一次抖动会把整条热启链锁死在
                 # 冻结态 (实测把左臂 66% 打到 0%: 冻住后真解越离越远, 永不回来)。
@@ -657,7 +670,8 @@ def main():
               f"| 最大逐行跳变 {jump:.1f}°")
         return q, float(good.mean()), pe, re, marg
 
-    q_r, ok_r, pe_r, re_r, mg_r = solve_side("right", wr_P, wr_Q)
+    q_r, ok_r, pe_r, re_r, mg_r = solve_side("right", wr_P, wr_Q,
+                                            seed=_q_station_r)
     q_l, ok_l, pe_l, re_l, mg_l = solve_side("left", wl_P, wl_Q)
 
     # ---- 机器段 pregrasp 内点构型 (2026-08-30 cuRobo 排障定稿, 台账 T2-2) ----
@@ -726,6 +740,10 @@ def main():
             _curl[_i] = 1.0
     _cap_grasp_fin = _cap_grasp_fin + np.radians(TC.CAP_PINCH_DEG) * _curl
     f_r = np.tile(_cap_grasp_fin, (N, 1))
+    # 右手 squeeze 增量随母带走 (env 的 βR 前馈读它): 候选自己的 squeeze-grasp,
+    # 与左手对称。原来 env 里写死 beta_r*zeros(22), βR 提上去也不生效。
+    sq_delta_r = (np.asarray(_capz["squeeze"], np.float64)[7:29][perm]
+                  - np.asarray(_capz["grasp"], np.float64)[7:29][perm])
     _cap_sq = np.asarray(_capz["squeeze"], np.float64)[7:29][perm]
     print(f"[v1] 右指形 = 候选 grasp 模板 (中位 "
           f"{np.degrees(np.median(f_r[0])):.1f}°); squeeze 增量中位 "
@@ -1029,6 +1047,7 @@ def main():
     out = dict(
         # 站位腕靶 (plan_machine_segs 的规划目标) + 交互腕靶全轨 (v2/诊断)
         station_wr=np.r_[wr_P[0], wr_Q[0]], station_wl=np.r_[wl_P[0], wl_Q[0]],
+        sq_delta_r=sq_delta_r, cap_grasp_src=np.array(os.path.basename(_cf)),
         machine_pre_q_r=machine_pre["right"],
         machine_pre_q_l=machine_pre["left"],
         machine_pre_alts_r=pre_alts["right"],

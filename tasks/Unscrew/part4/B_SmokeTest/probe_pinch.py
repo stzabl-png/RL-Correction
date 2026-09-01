@@ -133,6 +133,17 @@ print(f"[对比] 先验 {os.path.basename(_cf_used[0])} 的接触点在**抓取�
 print(f"   {len(_loc)} 点, 离腕 {np.linalg.norm(_loc, axis=1).min() * 100:.1f}"
       f"~{np.linalg.norm(_loc, axis=1).max() * 100:.1f}cm, 质心 "
       f"{np.round(_loc.mean(0) * 100, 1)}")
+# 回放到位了吗: 实际腕 vs 母带站位行的 FK 目标 (差大 = 执行问题不是几何问题)
+from rl_rebuild.correction.kinematics import ArmIK as _AIK  # noqa: E402
+_ikr = _AIK("right", anchor_link="arm_center", anchor_T=TC.rest_anchor_T("right"))
+_q_ref = np.asarray(np.load(TC.REF_V1, allow_pickle=True)["right_q"],
+                    np.float64)[IA0]
+_tgt_w = _ikr.fk(_q_ref)[0]
+_ach_w = E.hand.data.body_pos_w[0, E.wid["R"]].cpu().numpy() - org
+_q_now = E.hand.data.joint_pos[0, E.map_ids_t][:7].cpu().numpy()
+print(f"[对账] 右腕 母带目标 {np.round(_tgt_w, 4)} 实际 {np.round(_ach_w, 4)} "
+      f"差 {np.linalg.norm(_tgt_w - _ach_w) * 100:.2f}cm | 关节最大差 "
+      f"{np.degrees(np.abs(_q_now - _q_ref)).max():.2f}°", flush=True)
 print("  合拢角  右垫  三指  最大指力   盖位移   瓶倾角   螺纹角")
 best = None
 for deg in [float(x) for x in args.levels.split(",")]:

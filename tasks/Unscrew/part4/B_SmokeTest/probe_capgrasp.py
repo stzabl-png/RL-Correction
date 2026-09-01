@@ -192,6 +192,19 @@ for cf, _zt in ((c, t) for c in _files for t in _trims):
             print(f"    捏合 {_d:4.0f}°: 垫R{int((_f[5:] > 0.5).sum())}/5 三指"
                   f"{int((_f[5:][list(PE.SCREW_TRIAD)] > 0.5).sum())}/3 峰值"
                   f"{float(_f[5:].max()):6.2f}N | " + "  ".join(_s2), flush=True)
+    if args.fit:
+        # 对准后腕位在**盖坐标系**里的最终偏移 —— 直接拿这个数回填
+        # task_config.CAP_GRASP_TRIM 用的那一项 (不要用世界系的累计平移:
+        # 盖的朝向带 yaw, 世界系的量当局部量用会转错)。
+        _capf = E.aux.data.root_pos_w[0].cpu().numpy() - org
+        _Rcf = quat_to_R(E.aux.data.root_quat_w[0].cpu().numpy())
+        _wf = E.hand.data.body_pos_w[0, E.wid["R"]].cpu().numpy() - org
+        _loc = _Rcf.T @ (_wf - _capf)
+        _nom = gp - np.asarray([0.0, 0.0, 0.0])
+        print(f"    ★对准后腕位(盖系) = {np.round(_loc, 4)} | 候选标称 "
+              f"{np.round(gp, 4)} | 应回填 CAP_GRASP_TRIM = "
+              f"{np.round(_loc - (gp - np.asarray(TC.CAP_GRASP_TRIM)), 4)}",
+              flush=True)
     f = E._pads_f().norm(dim=-1)[0]
     n_pad = int((f[5:] > 0.5).sum())
     n_tri = int((f[5:][list(PE.SCREW_TRIAD)] > 0.5).sum())

@@ -271,8 +271,15 @@ class UnscrewEnv(GraspTaskEnv):
         if self.squeeze_ff_enabled:
             _sql = np.asarray(np.load(TC.PRIOR_AUX)["squeeze"],
                               np.float64).reshape(-1)[7:29]
+            # 右手 squeeze: 用**母带自带**的增量 (盖抓取候选的 squeeze-grasp)。
+            # 2026-09-01 之前这里写死 zeros(22) —— βR 提到 1.0 也不生效, 是
+            # "右手没做重定向"的最后一段 (T2-10)。旧母带无此键时退回 0。
+            with np.load(MASTER, allow_pickle=True) as _mz:
+                _sqr = (np.asarray(_mz["sq_delta_r"], np.float64)
+                        if "sq_delta_r" in _mz.files else np.zeros(22))
             _dsq = np.concatenate([
-                self.beta_r * np.zeros(22),             # 右手盖: 无 squeeze prior
+                np.clip(self.beta_r * _sqr, -TC.SQUEEZE_DELTA_CAP,
+                        TC.SQUEEZE_DELTA_CAP),
                 np.clip(self.beta_l * (_sql - ref[self.IA0, 36:58]),
                         -TC.SQUEEZE_DELTA_CAP, TC.SQUEEZE_DELTA_CAP)])
             print(f"[UnscrewEnv] squeeze 剂量: βL={self.beta_l} "

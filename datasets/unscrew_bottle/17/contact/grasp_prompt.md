@@ -1,6 +1,6 @@
 # 抓取接触先验 · 给 GraspPose Agent
 
-来源 take: `/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_part4/screw_unscrew_bottle_cap/17`
+来源 take: `/home/lyh/Project/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_part4/screw_unscrew_bottle_cap/17`
 
 ## 这份东西是什么
 

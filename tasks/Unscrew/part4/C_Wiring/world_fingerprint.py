@@ -39,6 +39,10 @@ CRITICAL = (
     "assembly.inertia_eff_kgm2", "assembly.torque_ema_s",
     "assembly.unlock_dwell_s", "assembly.lock_omega_eps",
     "assembly.react_on_bottle",
+    # Unscrew/17 拔盖变体 + 通用设计 (G-A 指垫摩擦 / G-B 档位开关)
+    "assembly.detach_mode", "assembly.breakaway_pull_n", "assembly.mass_eff_kg",
+    "robot.pad_friction",
+    "switches.tier_floor_start", "switches.tier_shuffle", "switches.tier_reverse",
     "sensors.pad_force_threshold_N", "sensors.pads_min_per_hand",
     "method.clip", "method.variant", "method.squeeze_ff_enabled",
     "method.beta_r", "method.beta_l",
@@ -171,7 +175,13 @@ def collect(env) -> dict:
                           if _brk is not None else 0.0),
         react_on_bottle=bool(getattr(screw, "react_on_bottle", False)
                              if _brk is not None else False),
+        detach_mode=str(getattr(screw, "detach_mode", "twist")),
+        breakaway_pull_n=_f(getattr(screw, "breakaway_pull_n", 0.0)
+                            if getattr(screw, "detach_mode", "twist") == "pull" else 0.0),
+        mass_eff_kg=_f(getattr(screw, "mass_eff_kg", 0.0)
+                       if getattr(screw, "detach_mode", "twist") == "pull" else 0.0),
     )
+    _ti = getattr(getattr(env, "PB", None), "tier_info", None) or {}
     method = {
         "clip": getattr(cfg, "clip_name", None),
         "variant": getattr(env, "_variant", None),
@@ -201,6 +211,7 @@ def collect(env) -> dict:
                   "table_size_m": list(getattr(cfg, "table_size", ()))},
         "objects": objs,
         "robot": {"usd": usd, "usd_md5": _md5(usd) if usd else None,
+                  "pad_friction": _f(os.environ.get("POUR_PAD_FRIC") or 3.0),
                   "num_joints_articulation": len(jn),
                   "controlled_joint_names_in_order": ctrl,
                   "self_collision": self_collision,
@@ -212,7 +223,10 @@ def collect(env) -> dict:
         "scene": {"env_spacing_m": _f(getattr(cfg.scene, "env_spacing", None)),
                   "replicate_physics": bool(
                       getattr(cfg.scene, "replicate_physics", False))},
-        "switches": {"approach_only": bool(getattr(cfg, "approach_only", False)),
+        "switches": {"tier_floor_start": _ti.get("tier_floor_start"),
+                     "tier_shuffle": _ti.get("tier_shuffle"),
+                     "tier_reverse": _ti.get("tier_reverse"),
+                     "approach_only": bool(getattr(cfg, "approach_only", False)),
                      "obj_jitter_xy": _f(getattr(cfg, "obj_jitter_xy", None)),
                      "friction_curriculum": bool(
                          getattr(cfg, "friction_curriculum", False))},

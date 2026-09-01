@@ -3,9 +3,9 @@
   "step": "confidence",
   "dataset": "egodex_part4",
   "video_id": "screw_unscrew_bottle_cap__17",
-  "poseqa_root": "/home/yanghong/Reconstruct_and_Retarget/Data/VideoPrior/poseqa",
+  "poseqa_root": "/home/lyh/Project/Reconstruct_and_Retarget/Data/VideoPrior/poseqa",
   "poseqa_mirror": {
-    "files": 9,
+    "files": 7,
     "audit_records": 2
   },
   "object_valid_measured": {
@@ -48,25 +48,25 @@
       "conf_pos_median": 87.0,
       "conf_rot_median": 69.0,
       "position_grade": "good",
-      "rotation_usable": false,
+      "rotation_usable": true,
       "refuted_frames": 0,
-      "manifest_status": "superseded"
+      "manifest_status": "active"
     },
     "object_1": {
       "conf_pos_median": 79.0,
       "conf_rot_median": 37.0,
       "position_grade": "good",
-      "rotation_usable": false,
+      "rotation_usable": true,
       "refuted_frames": 12,
-      "manifest_status": "superseded"
+      "manifest_status": "active"
     }
   },
-  "manifest_status": "superseded",
+  "manifest_status": "active",
   "summary_object": "object_0",
   "n_objects": 2,
   "conf_pos_median": 87.0,
   "conf_rot_median": 69.0,
   "position_grade": "good",
-  "rotation_usable": false,
+  "rotation_usable": true,
   "refuted_frames": 0
 }

@@ -21,12 +21,12 @@
   "ct_refute": 0.2,
   "cap_scale_unreliable": 35
  },
- "mirrored_from": "/home/yanghong/Reconstruct_and_Retarget/Data/VideoPrior/poseqa",
- "take_dir": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_part4/screw_unscrew_bottle_cap/17",
+ "mirrored_from": "/home/lyh/Project/Reconstruct_and_Retarget/Data/VideoPrior/poseqa",
+ "take_dir": "/home/lyh/Project/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_part4/screw_unscrew_bottle_cap/17",
  "note": "只读快照, confidence 步每次重打分覆盖; 权威中央库在 mirrored_from",
  "takes": [
   {
-   "take": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_part4/screw_unscrew_bottle_cap/17",
+   "take": "/home/lyh/Project/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_part4/screw_unscrew_bottle_cap/17",
    "object": "object_0",
    "object_index": 0,
    "n_objects": 2,
@@ -585,7 +585,7 @@
      "soft": [],
      "conf": 22,
      "conf_pos": 23,
-     "conf_rot": 20,
+     "conf_rot": 21,
      "rot_refuted": false
     },
     {
@@ -1887,7 +1887,7 @@
    ]
   },
   {
-   "take": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_part4/screw_unscrew_bottle_cap/17",
+   "take": "/home/lyh/Project/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_part4/screw_unscrew_bottle_cap/17",
    "object": "object_1",
    "object_index": 1,
    "n_objects": 2,
@@ -2410,7 +2410,7 @@
      "soft": [],
      "conf": 62,
      "conf_pos": 98,
-     "conf_rot": 10,
+     "conf_rot": 9,
      "rot_refuted": true
     },
     {

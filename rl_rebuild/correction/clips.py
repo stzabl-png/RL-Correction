@@ -615,6 +615,13 @@ def _unscrew_take(take_dir: str):
         lock_omega_eps=0.05,
         react_on_bottle=True,             # 反作用扭矩回瓶身: 左手须抗扭
     )
+    # ★ Unscrew/17 拔盖变体 (2026-09-01 用户裁定 "不拧只拔"): UNSCREW_DETACH=pull 时
+    #   旋转脱扣关闭, 唯一脱扣通路 = 轴向拉力 ≥ UNSCREW_PULL_N (探针标定量, 初值 3N);
+    #   默认 twist = 同事 clip32 原口径不变。台账 tasks/Unscrew/17/A_Design/DECISIONS.md §2。
+    if os.environ.get("UNSCREW_DETACH", "twist") == "pull":
+        asm.update(detach_mode="pull",
+                   breakaway_pull_n=float(os.environ.get("UNSCREW_PULL_N", "3.0")),
+                   mass_eff_kg=float(os.environ.get("UNSCREW_PULL_MEFF", "0.2")))
     return entry
 
 

@@ -145,3 +145,18 @@
 
 **不需要调整物体轨迹**: 左 yaw 取人手方位, 放倒滚转取人手自己的 +32° (左腕朝向流沿瓶轴分量), 右候选在该滚转处可用且有余量。
 **风险**: 右候选滚转窗 ±20° —— 左手策略放倒时的滚转偏差要落在窗内 (闭环右手管位置不管这个); 观察针 `diag/cap_roll_dev`。
+
+## 9. Phase A 执行日志 (2026-09-01 夜, 用户裁定"开工, 本地自训, 早上看")
+
+分支 `unscrew17_pull` (off Step4_RL_Correction): 合并 `origin/unscrew_v5` (零冲突, 合并前后 pour 零动作冒烟横幅逐行只差时间戳 ✅)。
+| 步 | 结果 |
+|---|---|
+| A2 入库 | `datasets/unscrew_bottle/17` 换成修补后 take (replay/ref_qpos/conf/manifest 均更新; world_fused 同); scene_layout 按 env 桌高 0.87 重算, 瓶锚与同事逐字同; 注册 `unscrew17_task` (盖 0.003/μ5, preengaged) |
+| A3 先验 | `tasks/pregrasp/priors/Screw17_bottle_left.npz` / `Screw17_cap_right.npz` (+ `Screw17_cap_candidates/`), 转换器 `A_Design/L1_Data/GraspPose/make_prior_screw17.py` **含 com_offset 平移** (通用 make_prior 假设无平移, 这批不成立); 腕位与离线筛选逐位对拍 ✅ |
+| A4 拔出物理 | `ScrewSpec.detach_mode/breakaway_pull_n/mass_eff_kg`; `screw_assembly`: pull 模式旋转永不解锁, 轴向拉力估计 (盖侧线速度增量·轴, 接触门, EMA, dwell) → 脱扣; 咬合期盖质量 m_eff, 脱扣还原; 反作用力回瓶。开关 `UNSCREW_DETACH=pull` (默认 twist = 同事口径不变)。探针 `B_SmokeTest/probe_pull.py` 五段 (静置/零接触门/阈下/阈上脱扣+质量还原/向内推) |
+| A5 判据 | `task_env`: r_pull (K=9.4, φ=拉力/阈值 双向差分, 脱扣 φ≡1), 观测拔出块, diag `pull_N/pull_detach/pull_phantom_N/cl_on`; G-B 黄窗接入 progress+progress_batch (r_lift 按瓶行); 指纹加 `assembly.detach_mode/breakaway_pull_n/mass_eff_kg`, `robot.pad_friction`, `switches.tier_*`; 自检五件全绿 (variants ⑤ 测试前提修: 本 clip 母带末行盖离桌 0.6cm 在放下带内, 自由落体起点改带顶+5cm) |
+| A6 母带 | `make_reference`: 原生先验不镜像/不补原点; **瓶滚转规范化** (回转体滚转不可观 → 常量局部滚转让接触行 盖→腕 落到 §8 方向; 实测未规范前右腕在盖**下方**离桌 2cm, 规范后 [-0.137,-0.014,+0.036] 腕离桌 12.4cm); 左抓方位按**世界方位角** 140±20° 择优 (yaw*=345 于滚转 290 系); 右手接触前等待位 (行 0~10 静止于接触行盖上抓姿退 4cm); 右手净空梯抬升 10~20cm (站位腕离桌仅 3cm, cuRobo 保守碰撞球判桌碰 — 首轮 6 档全灭的根因) |
+| U9 闭环 | `task_env._right_cl_servo`: `UNSCREW_RIGHT_CL=1` 时接触触发 (行≥接触行−3 且 实际盖离母带接触行盖位 ≤8.7cm) 后右臂前馈 = 朝 实际盖×盖系 GraspPose 梯 的一步阻尼最小二乘 (PhysX 雅可比, 步长 2cm/10°, 20°/步), 脱扣后退回母带行 |
+| env 实测 | 瓶静置 env (-0.124, 0.089, 0.87); 交互窗 f23..f100 (78 行); 盖脱离行 17 (f40); 右接触行 11 (f34) |
+
+**偏离台账原计划 (如实记)**: 机器段用同事 `plan_machine_segs` (两腿 cspace) 而非 pour `build_motion` 成形段 —— 时间所限先用已接线的; U8 的"接触前跟人手全通道"简化为"接触行盖上抓姿静止等待" (人手 knuckle 代理只动 3cm, 等价于静止; 未做人手系换基)。

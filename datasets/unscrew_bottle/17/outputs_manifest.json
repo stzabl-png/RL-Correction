@@ -1,7 +1,7 @@
 {
  "manifest_version": "outputs_manifest_v1_20260826",
- "generated_at": "2026-08-29T00:50:39Z",
- "take_dir": "../../../Output/ReconstructOutput/egodex_part4/screw_unscrew_bottle_cap/17",
+ "generated_at": "2026-09-01T02:59:37Z",
+ "take_dir": "/home/lyh/Project/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_part4/screw_unscrew_bottle_cap/17",
  "schema_version": "recon_world_v5",
  "num_frames": 101,
  "object_ids": [
@@ -19,40 +19,40 @@
    "mtime": 1787956762
   },
   "replay_world.npz": {
-   "bytes": 1764505,
-   "mtime": 1787863157
+   "bytes": 1781426,
+   "mtime": 1788231556
   },
   "reconstruction_complete.json": {
    "bytes": 671,
    "mtime": 1787956838
   },
   "confidence_complete.json": {
-   "bytes": 1617,
-   "mtime": 1787956829
+   "bytes": 1605,
+   "mtime": 1788231461
   },
   "contact_complete.json": {
    "bytes": 1167,
-   "mtime": 1787863180
+   "mtime": 1788231559
   },
   "hand_confidence.npz": {
-   "bytes": 46177,
-   "mtime": 1787956821
+   "bytes": 46162,
+   "mtime": 1788231456
   },
   "hand_confidence.json": {
    "bytes": 681,
-   "mtime": 1787956821
+   "mtime": 1788231456
   },
   "object_valid_measured.npz": {
-   "bytes": 2988,
-   "mtime": 1787956827
+   "bytes": 2987,
+   "mtime": 1788231459
   },
   "ref_qpos_left.npz": {
    "bytes": 16300,
-   "mtime": 1787964043
+   "mtime": 1788231560
   },
   "ref_qpos_right.npz": {
    "bytes": 16392,
-   "mtime": 1787964044
+   "mtime": 1788231561
   },
   "contact_auto.json": {
    "bytes": 2505,
@@ -67,12 +67,12 @@
    "mtime": 1787956829
   },
   "conf_screw_unscrew_bottle_cap_17.mp4": {
-   "bytes": 2609049,
-   "mtime": 1787964584
+   "bytes": 2608531,
+   "mtime": 1788231461
   },
   "recon_render_screw_unscrew_bottle_cap_17.mp4": {
-   "bytes": 1520291,
-   "mtime": 1787964456
+   "bytes": 1519768,
+   "mtime": 1788231577
   },
   "contact_auto_object_0.json": {
    "bytes": 2411,
@@ -92,7 +92,7 @@
   "hand_masks": true,
   "hand_confidence": true,
   "object_valid_measured": true,
-  "replay_fresh_vs_world_fused": false,
+  "replay_fresh_vs_world_fused": true,
   "ref_qpos": {
    "left": true,
    "right": true
@@ -105,7 +105,10 @@
    "affordance_object_1_right.png"
   ],
   "poseqa_mirror": true,
-  "retarget_usd": [],
+  "retarget_usd": [
+   "object_0.usd",
+   "object_1.usd"
+  ],
   "contact_routes": {
    "c1_mano": true,
    "align_heatmap": false,

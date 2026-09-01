@@ -81,7 +81,16 @@ class UnscrewProgressBatch:
                                 dtype=torch.long, device=device)
         self.tp = {oi: tiers(f"conf_pos_{oi}") for oi in (0, 1)}
         self.tr = {oi: tiers(f"conf_rot_{oi}") for oi in (0, 1)}
-        # [TASK] 主档 = 双物体短板 (标量版 tmix 同口径)
+        # ★ 通用设计 G-B (接触起始黄窗) + 对照变换, 共享 helper (与 Pour17 同一函数;
+        #   标量版 progress.py 走同一处)。r_lift 按**瓶**行 (obj_0 = 瓶, 与 Pour 编号相反)。
+        from rl_rebuild.correction import tier_floor as _TF
+        _tp = {oi: self.tp[oi].cpu().numpy() for oi in (0, 1)}
+        _tr = {oi: self.tr[oi].cpu().numpy() for oi in (0, 1)}
+        _tp, _tr, _tm_unused, self.tier_info = _TF.transform(
+            _tp, _tr, np.asarray(z["obj_pos_0"], np.float64)[rows], CERT_RISE, tag="PB")
+        self.tp = {oi: torch.tensor(_tp[oi], dtype=torch.long, device=device) for oi in (0, 1)}
+        self.tr = {oi: torch.tensor(_tr[oi], dtype=torch.long, device=device) for oi in (0, 1)}
+        # [TASK] 主档 = 双物体短板 (标量版 tmix 同口径; helper 返回的 tmix 只看 obj_1, 不用)
         self.tmix = torch.minimum(torch.minimum(self.tp[0], self.tr[0]),
                                   torch.minimum(self.tp[1], self.tr[1]))
         # [TASK] 人手置信度形状门控权重列 (列缺席=全绿)

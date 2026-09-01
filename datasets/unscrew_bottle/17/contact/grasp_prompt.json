@@ -1,13 +1,13 @@
 {
  "schema_version": "grasp_prompt_v2",
  "provenance": {
-  "generated_at": "2026-08-27T13:39:40-07:00",
+  "generated_at": "2026-08-31T19:59:19-07:00",
   "generator_sha1": "79f304b2aa90",
-  "generator_commit": "1b9141e",
-  "generator_host": "msclab-AS-4124GS-TNR",
-  "generator_user": "yanghong"
+  "generator_commit": "cb8fd80",
+  "generator_host": "lyh-System-Product-Name",
+  "generator_user": "lyh"
  },
- "take": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_part4/screw_unscrew_bottle_cap/17",
+ "take": "/home/lyh/Project/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_part4/screw_unscrew_bottle_cap/17",
  "consumer": "GraspPose Agent",
  "n_grasps": 0,
  "grasps": [],

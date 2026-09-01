@@ -273,6 +273,12 @@ def init_thread_state(env):
     env._bottle_react_t = torch.zeros(N, 1, 3, device=dev)
     env._cap_heavy_state = None                       # 惯量缓冲惰性初始化
     env._react_zeroed = False
+    # ---- 拔出模式状态 (detach_mode="pull"; twist 模式下全零不参与) ----
+    env.screw_pull_ema = torch.zeros(N, device=dev)      # 指尖传入的轴向拉力 (N, +外)
+    env._screw_capv_vec = torch.zeros(N, 3, device=dev)  # 上一子步实写给盖的线速度矢量
+    env._screw_pull_dwell = torch.zeros(N, device=dev)
+    env.screw_pull_detach = torch.zeros(N, dtype=torch.bool, device=dev)
+    env._cap_heavy_mass_state = None                  # 质量缓冲惰性初始化
 
 
 def reset_thread_state(env, env_ids):
@@ -285,6 +291,10 @@ def reset_thread_state(env, env_ids):
     env.screw_locked[env_ids] = True
     env._screw_capw_vec[env_ids] = 0.0
     env._screw_unlock_dwell[env_ids] = 0.0
+    env.screw_pull_ema[env_ids] = 0.0
+    env._screw_capv_vec[env_ids] = 0.0
+    env._screw_pull_dwell[env_ids] = 0.0
+    env.screw_pull_detach[env_ids] = False
 
 
 def reset_screw(env, env_ids):
@@ -367,6 +377,24 @@ def _thread_friction_step(env, relative_ang, axis_w, integrate_angle):
     above = env.screw_tau_ema.abs() > spec.breakaway_torque_nm
     env._screw_unlock_dwell = (env._screw_unlock_dwell + dt) * above.float()
     unlock = env.screw_locked & (env._screw_unlock_dwell >= spec.unlock_dwell_s)
+    if spec.detach_mode == "pull":
+        # 拔出模式: 螺纹**永远锁死** (拧不动), 力矩估计只作诊断; 脱扣只认轴向拉力。
+        unlock = torch.zeros_like(unlock)
+        # 轴向拉力估计 (与力矩三条防幻影同构): 只看盖侧线速度相对上一子步写回矢量的
+        # 增量, 沿当前螺轴投影 (瓶被左手带着动: 写回矢量含写时瓶速, 瓶加速自动抵消),
+        # 零接触强制归零。F = m_eff·Δv/dt, EMA + 持续超阈 dwell 才脱扣 (抗冲击尖峰)。
+        cap_f = 10.0 * spec.breakaway_pull_n
+        dv_max = cap_f * dt / spec.mass_eff_kg
+        dvl = ((cap.data.root_lin_vel_w - env._screw_capv_vec) * axis_w
+               ).sum(dim=1).clamp(-dv_max, dv_max)
+        if _gate is not None and getattr(env, "_thread_tau_contact_gate", True):
+            dvl = dvl * (_gate() > 0).float()
+        f_in = spec.mass_eff_kg * dvl / dt
+        env.screw_pull_ema += alpha * (f_in - env.screw_pull_ema)
+        pull_above = env.screw_pull_ema > spec.breakaway_pull_n      # 只认向外
+        env._screw_pull_dwell = (env._screw_pull_dwell + dt) * pull_above.float()
+        env.screw_pull_detach = env.screw_engaged & (
+            env._screw_pull_dwell >= spec.unlock_dwell_s)
     env.screw_locked = env.screw_locked & ~unlock
     # U45 (2026-08-31, 用户裁定"贴近人手 + 物理与真实相同"): 螺纹转动改
     # **准静态 (过阻尼)**. 真实盖 I/b ≈ 7e-7/0.03 ≈ 2e-5 s, 远小于一个子步
@@ -400,6 +428,27 @@ def _thread_friction_finish(env, axis_w, written, body, cap):
     written_vec = body.data.root_ang_vel_w + written[:, None] * axis_w
     env._screw_capw_vec = torch.where(
         env.screw_engaged[:, None], written_vec, cap.data.root_ang_vel_w)
+    if spec.detach_mode == "pull":
+        # 拔出模式: 记实写线速度矢量 (瓶速 + 导程·ω·轴; 锁死时 ω=0 即瓶速)
+        lead = spec.direction * spec.pitch_m / (2.0 * np.pi)
+        written_lin = body.data.root_lin_vel_w + (lead * written)[:, None] * axis_w
+        env._screw_capv_vec = torch.where(
+            env.screw_engaged[:, None], written_lin, cap.data.root_lin_vel_w)
+        # 咬合 ↔ 脱扣边界: 盖质量在 mass_eff 与实物之间切换 (与惯量同理)
+        if env._cap_heavy_mass_state is None:
+            m_orig = cap.root_physx_view.get_masses().clone()
+            m_heavy = torch.full_like(m_orig, spec.mass_eff_kg)
+            env._cap_mass_orig, env._cap_mass_heavy = m_orig, m_heavy
+            env._cap_heavy_mass_state = torch.zeros(
+                m_orig.shape[0], dtype=torch.bool, device=m_orig.device)
+        want_m = env.screw_engaged.to(env._cap_heavy_mass_state.device)
+        flip_m = want_m != env._cap_heavy_mass_state
+        if flip_m.any():
+            data_m = torch.where(want_m.unsqueeze(1), env._cap_mass_heavy,
+                                 env._cap_mass_orig)
+            cap.root_physx_view.set_masses(
+                data_m, flip_m.nonzero(as_tuple=False).squeeze(1))
+            env._cap_heavy_mass_state = want_m
 
     # 咬合 ↔ 脱扣边界: 盖惯量在 I_eff (球形) 与实物之间切换 —— 脱扣后的自由盖
     # 必须还原实物惯量, 否则抓放手感全错。U40d: 三主轴全部加重, 只加重 Izz 时
@@ -434,9 +483,16 @@ def _thread_friction_finish(env, axis_w, written, body, cap):
                                            * env.screw_omega.abs()))
         tau = torch.where(env.screw_engaged, tau, torch.zeros_like(tau))
         env._bottle_react_t[:, 0, :] = tau.unsqueeze(1) * axis_w
+        if spec.detach_mode == "pull":
+            # 拔出模式的反作用力: 锁死螺纹把指尖拉力透传给瓶身 (≤breakaway_pull),
+            # 左手持瓶必须抗住这份拉 (不然瓶被一起拽走 = 物理上就该如此)。
+            f_pull = torch.where(env.screw_engaged,
+                                 env.screw_pull_ema.clamp(0.0, spec.breakaway_pull_n),
+                                 torch.zeros_like(env.screw_pull_ema))
+            env._bottle_react_f[:, 0, :] = f_pull.unsqueeze(1) * axis_w
         # 全零扭矩且上一子步也已清零 -> 不必再调 (外力是持久量, 写零一次就够)。
         # 省掉的是无接触期每子步一次的 API 调用 (以及它每 5s 刷一行的弃用告警)。
-        nz = bool((tau != 0).any())
+        nz = bool((tau != 0).any()) or bool((env._bottle_react_f != 0).any())
         if nz or not getattr(env, "_react_zeroed", False):
             body.set_external_force_and_torque(
                 env._bottle_react_f, env._bottle_react_t, body_ids=[0],
@@ -546,6 +602,9 @@ def apply_screw(env, *, integrate_angle: bool = True):
     else:
         detach = (active & env.screw_has_depth
                   & (proposed >= max_angle) & (angular_velocity > 0.0))
+    if real_thread and spec.detach_mode == "pull":
+        # 拔出模式: 旋转永远锁死 (上面 angle 不会长), 唯一脱扣通路 = 轴向拉力锁存
+        detach = active & env.screw_has_depth & env.screw_pull_detach
     env.screw_engaged[detach] = False
     active = env.screw_engaged
     outward_w = (env.screw_angle >= max_angle) & (angular_velocity > 0.0)

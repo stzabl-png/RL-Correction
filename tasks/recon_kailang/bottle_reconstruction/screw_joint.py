@@ -44,6 +44,14 @@ class ScrewSpec:
     unlock_dwell_s: float = 0.033              # EMA 需持续超阈这么久才解锁 (抗冲击)
     lock_omega_eps: float = 0.05               # |ω| 低于此且 τ<阈值 → 回锁
     react_on_bottle: bool = True               # 螺纹反作用扭矩施加回瓶身
+    # ---- 拔出模式 (Unscrew/17 台账 U2/U7, 2026-09-01): detach_mode="pull" 时旋转脱扣
+    #      **关闭** (螺纹永远锁死, 拧不动), 唯一脱扣通路 = 沿螺轴向外的持续拉力
+    #      ≥ breakaway_pull_n (估计器与力矩估计同构: 只看盖侧 / 矢量差分 / 零接触真值门).
+    #      咬合期盖质量换成 mass_eff_kg (与 inertia_eff 同理: 让 F = m·Δv/dt 可测且稳定),
+    #      脱扣后还原实物质量. ----
+    detach_mode: str = "twist"                 # "twist" (原样) | "pull" (拔出)
+    breakaway_pull_n: float = 3.0              # 轴向拔出阈值 (N), 只认向外 (+螺轴)
+    mass_eff_kg: float = 0.2                   # 咬合期盖等效质量
 
     def __post_init__(self):
         if self.pitch_m <= 0.0:
@@ -72,6 +80,14 @@ class ScrewSpec:
             if min(self.inertia_eff_kgm2, self.torque_ema_s,
                    self.lock_omega_eps) <= 0.0:
                 raise ValueError("thread friction scales must be positive")
+        if self.detach_mode not in ("twist", "pull"):
+            raise ValueError("detach_mode must be 'twist' or 'pull'")
+        if self.detach_mode == "pull":
+            if self.breakaway_torque_nm is None:
+                raise ValueError("detach_mode='pull' requires the real thread "
+                                 "(breakaway_torque_nm) to keep the cap locked")
+            if self.breakaway_pull_n <= 0.0 or self.mass_eff_kg <= 0.0:
+                raise ValueError("breakaway_pull_n / mass_eff_kg must be positive")
 
     @property
     def travel_m(self) -> float:
@@ -115,6 +131,9 @@ class ScrewSpec:
             unlock_dwell_s=float(value.get("unlock_dwell_s", 0.033)),
             lock_omega_eps=float(value.get("lock_omega_eps", 0.05)),
             react_on_bottle=bool(value.get("react_on_bottle", True)),
+            detach_mode=str(value.get("detach_mode", "twist")),
+            breakaway_pull_n=float(value.get("breakaway_pull_n", 3.0)),
+            mass_eff_kg=float(value.get("mass_eff_kg", 0.2)),
         )
 
 

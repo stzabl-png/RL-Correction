@@ -85,7 +85,11 @@ def run(off_scale=0.0, feed_released=True, cap_end_off=0.0, max_t=1500,
                 # 该由 U41② 持盖步数拦下)
                 step = 0.025 if escort == "drop" else 0.004
                 if drop_z is None:
-                    drop_z = (float(o1[2]) if escort == "drop"
+                    # ⑤ drop 的起点必须在带顶之上才有"过带"可测: 有的 clip (17: 瓶放倒
+                    # 后低位拔盖, 母带末行盖离桌仅 0.6cm) 时钟走完时盖本来就在带内,
+                    # 从那儿"摔"没有过带事件 —— 那不是判据漏洞, 是测试前提不成立。
+                    # 统一从带顶上方 5cm (=离桌 8cm, 手滑脱的量级; 首步先扣 2.5cm 再判, 故需 >带顶+2.5cm) 起落。
+                    drop_z = (max(float(o1[2]), _top + 0.05) if escort == "drop"
                               else max(float(o1[2]), _top))
                 drop_z = max(drop_z - step, float(P.end[1][2]))
                 o1 = P.end[1].copy()

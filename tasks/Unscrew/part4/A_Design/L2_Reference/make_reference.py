@@ -303,6 +303,47 @@ def main():
     axis = qrot(body_q, np.tile([0.0, 0.0, 1.0], (N, 1)))     # 螺轴 (自转无关)
     print(f"[v1] 瓶自转冻结 (脱离行 {k_sep} 起): 原演示末行相对脱离行转过 "
           f"{_spin_before:.0f}°, 现只保留轴向摆动 (自转不可判)")
+    # ★ 瓶滚转规范化 (Unscrew/17 台账 §8, 2026-09-01): 瓶绕自身轴的滚转在数据里**不可观**
+    #   (回转体, rot_observability 轴向 0.01), 重建给的是任意值; 而右手候选只在滚转的
+    #   ±20° 窗口里可用 (盖系抓姿刚性跟盖转)。这里给整段瓶行加一个**常量**局部滚转 Δ,
+    #   让接触行的 盖→腕 方向落到离线筛选定档的方向 (近侧、水平: 台账 §8 的 1_47)。
+    #   常量滚转不改轴摆动 (数据), 只定这个不可观自由度 —— 等价于选左手 yaw 的自由度。
+    _roll_tgt = getattr(TC, "CAP_WRIST_DIR_WORLD", None)
+    if _roll_tgt is not None and getattr(TC, "NATIVE_PRIORS", False):
+        try:
+            _ca0 = json.load(open(os.path.join(take, "contact_auto.json")))
+            _iv0 = [iv for iv in _ca0["annotations"]["right"] if iv[1] >= w0]
+            _kc0 = int(np.clip(int(_iv0[0][0]) - w0, 0, N - 1)) if _iv0 else 0
+        except Exception:
+            _kc0 = 0
+        _cfs = sorted(glob.glob(os.path.join(TC.PRIOR_CAP_DIR, "*.npz")))
+        if TC.CAP_GRASP_PICK:
+            _cfs = [c for c in _cfs if os.path.basename(c).startswith(TC.CAP_GRASP_PICK)] or _cfs
+        _gl = np.asarray(np.load(_cfs[0])["grasp"], np.float64)[:3]      # 盖 CAD 系腕位
+        _dstar = np.asarray(_roll_tgt, np.float64)
+        _dstar /= np.linalg.norm(_dstar)
+        _best = None
+        for _dd in range(0, 360, 2):
+            _h = 0.5 * np.radians(_dd)
+            _qz = np.array([np.cos(_h), 0.0, 0.0, np.sin(_h)])
+            _qb = qmul(body_q[_kc0:_kc0 + 1], _qz[None])[0]
+            _dw = qrot(_qb[None], _gl[None])[0]        # 盖→腕 (世界), 与盖心无关
+            _sc = float(np.dot(_dw / np.linalg.norm(_dw), _dstar))
+            if _best is None or _sc > _best[0]:
+                _best = (_sc, _dd, _dw)
+        _h = 0.5 * np.radians(_best[1])
+        _qz = np.tile(np.array([np.cos(_h), 0.0, 0.0, np.sin(_h)]), (N, 1))
+        body_q = qmul(body_q, _qz)
+        body_q /= np.linalg.norm(body_q, axis=1, keepdims=True)
+        axis = qrot(body_q, np.tile([0.0, 0.0, 1.0], (N, 1)))
+        # 静置姿也同滚转 (机器段/复位用的是交互首行, 二者同源)
+        rest_b = np.r_[rest_b[:3], qmul(rest_b[None, 3:7], _qz[:1])[0]]
+        rest_c = np.r_[rest_c[:3], qmul(rest_c[None, 3:7], _qz[:1])[0]]
+        print(f"[v1] 瓶滚转规范化: 常量局部滚转 {_best[1]}° -> 接触行 (行 {_kc0}) 盖→腕 "
+              f"{np.round(_best[2], 3)} (目标方向 {np.round(_dstar, 2)}, cos={_best[0]:.3f})")
+        hold_roll_deg = float(_best[1])
+    else:
+        hold_roll_deg = 0.0
 
     # 盖行: 脱离前=瓶推导 (盖钉在瓶顶, 与螺旋投影同语义); 脱离后=盖自身轨迹
     # 按**世界平移**换基 (与瓶同一平移 —— 保住"盖终点落在桌面"的不变量:
@@ -368,10 +409,15 @@ def main():
         """
         gp = np.asarray(cz["grasp"], np.float64)[:3].copy()
         gq = np.asarray(cz["grasp"], np.float64)[3:7].copy()
-        gp[1] = -gp[1]                                  # 镜像: 左手抓法 -> 右手
-        gq = np.array([gq[0], -gq[1], gq[2], -gq[3]])
-        gq /= np.linalg.norm(gq)
-        gp[2] += _cap_dz
+        # ★ 原生右手先验 (Unscrew/17: Dexonomy screw17_cap_right, 物体系 = 盖 CAD 系,
+        #   装配态, 带 com_offset 键) —— **不镜像、不做原点修正**; 老 Screw27 候选
+        #   (左手抓法, 居中物体系) 照旧镜像 + 补 bbox 中心。
+        _native = "com_offset" in getattr(cz, "files", ())
+        if not _native:
+            gp[1] = -gp[1]                              # 镜像: 左手抓法 -> 右手
+            gq = np.array([gq[0], -gq[1], gq[2], -gq[3]])
+            gq /= np.linalg.norm(gq)
+            gp[2] += _cap_dz
         gp += np.asarray(TC.CAP_GRASP_TRIM, np.float64)   # 闭环实测的对准量
         Pp = cap_p + qrot(cap_q, np.tile(gp, (N, 1)))
         Qq = qmul(cap_q, np.tile(gq / np.linalg.norm(gq), (N, 1)))
@@ -406,6 +452,35 @@ def main():
           f"({'可达' if _key[0] else '⚠ 不可达'}) 拧盖窗可达率 {_key[1] * 100:.0f}% "
           f"| 盖系原点修正 {_cap_dz * 100:+.2f}cm")
     wr_P, wr_Q = _cap_track(_capz)
+    # ★ U8 (2026-09-01 用户裁定): 右手**接触前原地等**, 盖由左手送过来 —— 数据实证
+    #   f25→f35 盖走 16.4cm、右 knuckle 0.1cm、右腕朝向 0~1°。接触前的右腕参考 =
+    #   人手接触起点行 (contact_auto 右 onset) 的盖上抓握位姿, 沿盖 PreGrasp 退让方向
+    #   后退 PRE_R_WAIT_M, **静止**; 接触行起才跟盖 (开环行; env 内 U9 闭环伺服可覆盖)。
+    #   人手 knuckle 代理只动 3cm, 与"静止等待"同义, 不再另建人手系换基。
+    _k_contact = 0
+    try:
+        _ca = json.load(open(os.path.join(take, "contact_auto.json")))
+        _iv = [iv for iv in _ca["annotations"]["right"] if iv[1] >= w0]
+        if _iv:
+            _k_contact = int(np.clip(int(_iv[0][0]) - w0, 0, N - 1))
+    except Exception as _e:
+        print(f"[v1] ⚠ contact_auto 右手区间不可读 ({_e}), 等待位退化为首行")
+    _PRE_R_WAIT_M = float(getattr(TC, "PRE_R_WAIT_M", 0.04))
+    if _k_contact > 0:
+        _pg = np.asarray(_capz["pregrasp"], np.float64)
+        _g0 = np.asarray(_capz["grasp"], np.float64)
+        _kf = int(np.argmax(np.linalg.norm(_pg[:, :3] - _g0[:3], axis=1)))
+        _back_local = _pg[_kf, :3] - _g0[:3]              # 盖系退让方向
+        _bn = np.linalg.norm(_back_local)
+        _back_local = _back_local / _bn * _PRE_R_WAIT_M if _bn > 1e-6 else np.zeros(3)
+        _wait_p = wr_P[_k_contact] + qrot(cap_q[_k_contact:_k_contact + 1],
+                                           _back_local[None])[0]
+        _wait_p[2] = max(_wait_p[2], TABLE_Z + 0.03)
+        wr_P[:_k_contact] = _wait_p
+        wr_Q[:_k_contact] = wr_Q[_k_contact]
+        print(f"[v1] 右腕接触前等待位 (U8): 行 0~{_k_contact - 1} 静止在接触行 "
+              f"{_k_contact} (f{w0 + _k_contact}) 盖上抓握位姿沿 PreGrasp 方向退 "
+              f"{_PRE_R_WAIT_M * 100:.0f}cm; 接触行起跟盖")
     # 脱离后: 腕姿态**冻结**在脱离时刻, 位置保持与盖的世界系刚性偏移。
     # 理由: 盖脱手后由手携带 (下面的 rigid ride 让盖姿态跟手走), 而重建的盖
     # 自身翻滚 107° 是不可信的自转/翻滚 —— 腕跟着刚性翻会直接超出可达域
@@ -513,9 +588,16 @@ def main():
     _frame_dz = float(0.5 * (_zb.min() + _zb.max()) - _zb.min())
     print(f"[v1] prior 物体系对齐: 瓶 mesh z∈[{_zb.min():.3f},{_zb.max():.3f}] "
           f"(原点在底), prior 居中 -> 锚点 z 补 {_frame_dz * 100:+.2f}cm")
-    gp_m = np.array([gp[0], -gp[1], gp[2] + _frame_dz])
-    gq_m = np.array([gq[0], -gq[1], gq[2], -gq[3]])
-    gq_m /= np.linalg.norm(gq_m)
+    if "com_offset" in zp.files:
+        # ★ 原生左手先验 (Unscrew/17: Dexonomy screw17_bottle_left, sharpa_wave_v2_left,
+        #   物体系 = 瓶 CAD 系, 瓶底原点): 不镜像、不补原点 (台账 §8 离线 IK 已按此系筛过)
+        gp_m = np.array(gp, np.float64)
+        gq_m = np.array(gq, np.float64) / np.linalg.norm(gq)
+        print("[v1] 左先验 = 原生左手 (不镜像/不补原点):", os.path.basename(TC.PRIOR_AUX))
+    else:
+        gp_m = np.array([gp[0], -gp[1], gp[2] + _frame_dz])
+        gq_m = np.array([gq[0], -gq[1], gq[2], -gq[3]])
+        gq_m /= np.linalg.norm(gq_m)
 
     def _left_track(yaw):
         qy = np.array([np.cos(yaw / 2), 0.0, 0.0, np.sin(yaw / 2)])
@@ -557,6 +639,12 @@ def main():
         # Tie-break with the same position/rotation geometry used by ArmIK.
         cost = float(np.median(pe ** 2 + (0.25 * re) ** 2))
         key = (1 if st_ok else 0, score, -cost)
+        _pref = getattr(TC, "LEFT_AZ_PREF_DEG", None)
+        if _pref is not None:
+            # ★ U6/§8: 左抓方位优先落在人手接近方位 (数据定, 世界方位角), 容差内比可达率
+            _az = np.degrees(np.arctan2(P[0, 1] - body_p[0, 1], P[0, 0] - body_p[0, 0]))
+            _dpsi = abs((_az - _pref + 180) % 360 - 180)
+            key = (1 if _dpsi <= TC.LEFT_YAW_PREF_TOL else 0, ) + key
         if best is None or key > best[6]:
             best = (ydeg, score, cost, float(np.median(pe)),
                     float(np.median(re)), float(np.degrees(np.median(marg))),
@@ -689,6 +777,9 @@ def main():
                   (0.12, 0.06, 0.04), (0.16, 0.06, 0.05),
                   (0.20, 0.10, 0.05), (0.24, 0.14, 0.03),
                   (0.28, 0.18, 0.02)]
+    if getattr(TC, "PRE_LADDER_OVERRIDE", None):
+        PRE_LADDER = list(TC.PRE_LADDER_OVERRIDE)
+        print(f"[v1] 机器段 pregrasp 净空梯 (任务覆写): {PRE_LADDER}")
     _m3 = np.radians(3.0)
     _radL = wl_P[0] - body_p[0]
     _radL[2] = 0.0
@@ -1016,6 +1107,9 @@ def main():
         "gen": "make_reference_v1_20260829",
         "windows": {"w0": w0, "w1": w1, "sep_src": sep_src, "k_sep": k_sep},
         "hold_yaw_deg": hold_yaw,
+        "bottle_roll_gauge_deg": hold_roll_deg,
+        "right_wait": {"k_contact": int(_k_contact), "back_m": _PRE_R_WAIT_M,
+                       "native_priors": bool(getattr(TC, "NATIVE_PRIORS", False))},
         "gauge": {"right_grasp_roll_deg": float(np.degrees(yaw_g)),
                   "right_roll_drift_deg": float(np.degrees(roll[-1] - yaw_g)),
                   "bottle_spin_frozen_from_row": int(k_sep),

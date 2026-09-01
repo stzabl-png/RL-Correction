@@ -1,11 +1,11 @@
 {
- "scene": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_part4/screw_unscrew_bottle_cap/17",
+ "scene": "/home/lyh/Project/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_part4/screw_unscrew_bottle_cap/17",
  "n": 101,
  "A_static_step": {
   "raw_mm": 0.3425429483479862,
   "smooth_mm": 0.26976499783536007,
   "raw_deg": 1.7941506560384737,
-  "smooth_deg": 0.9510682168074828,
+  "smooth_deg": 0.9510682168082194,
   "n_free": 5
  },
  "B_image": {

@@ -191,6 +191,16 @@ class UnscrewProgress:
                    for oi in (0, 1)}
         self.tr = {oi: [_tier(v) for v in np.asarray(z[f"conf_rot_{oi}"])[rows]]
                    for oi in (0, 1)}
+        # ★ G-B 起始黄窗 (与 batch 版同一 helper; None 档按绿=2 进变换后原样存回)
+        from rl_rebuild.correction import tier_floor as _TF
+        _tp = {oi: np.array([(t if t is not None else 2) for t in self.tp[oi]], np.int64)
+               for oi in (0, 1)}
+        _tr = {oi: np.array([(t if t is not None else 2) for t in self.tr[oi]], np.int64)
+               for oi in (0, 1)}
+        _tp, _tr, _tm_unused, self.tier_info = _TF.transform(
+            _tp, _tr, np.asarray(z["obj_pos_0"], np.float64)[rows], CERT_RISE, tag="PS")
+        self.tp = {oi: _tp[oi].tolist() for oi in (0, 1)}
+        self.tr = {oi: _tr[oi].tolist() for oi in (0, 1)}
         # [TASK] 主档 = 双物体短板: min over {瓶,盖}×{pos,rot} (机器行按绿处理)
         def _m(a):
             return a if a is not None else 2

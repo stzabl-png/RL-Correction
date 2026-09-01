@@ -371,3 +371,36 @@ def require_training_reference(path):
 
 # ---- 时钟/重采样 ----
 FPS_RECON = 15.0                 # 重建帧率 (replay_world.fps; 单时钟=母带行轴)
+
+# ============ Unscrew/17 拔盖变体 (2026-09-01, 台账 tasks/Unscrew/17/A_Design/DECISIONS.md) ============
+# 用户裁定: 不拧只拔 (U2) / 盖 3g·μ5 (U4) / cuRobo 只给左手·右手参考由数据定 (U6) /
+# 右手接触前跟人手活通道、接触后盖定位置 (U8) / 右手闭环 (U9) / GraspPose 选型 §8。
+# 开关全部 env 驱动, 默认 = 同事 clip32 原口径不变。
+DETACH_MODE = os.environ.get("UNSCREW_DETACH", "twist")     # twist | pull
+PULL_N = float(os.environ.get("UNSCREW_PULL_N", "3.0"))      # 拔出阈值 (N), 探针标定量
+PULL_MEFF = float(os.environ.get("UNSCREW_PULL_MEFF", "0.2"))
+# 原生先验 (Dexonomy 直接为这只手/这套 CAD 生成, 物体系=CAD 系, 不镜像、不做原点修正):
+#   左 Screw17_bottle_left = 1_Large_Diameter__v4_7_14 (立瓶 yaw 280 = 人手方位 140°)
+#   右 Screw17_cap_candidates/33_Inferior_Pincer__1_47 (装配态盖系, 近侧水平捏盖沿)
+# 选型依据与离线 IK 数据: tasks/Unscrew/17/A_Design/L1_Data/GraspPose/ (台账 §8)。
+NATIVE_PRIORS = os.environ.get("UNSCREW_NATIVE_PRIORS", "1" if CLIP_ID == "17" else "0") == "1"
+LEFT_YAW_PREF_DEG = None                 # 左抓方位扫描的偏好 (None = 纯可达率择优)
+LEFT_YAW_PREF_TOL = 20.0
+RIGHT_CL = os.environ.get("UNSCREW_RIGHT_CL", "0") == "1"    # U9 右手闭环 (env 内差分 IK 伺服)
+if NATIVE_PRIORS:
+    PRIOR_AUX = os.path.join(REPO, "tasks", "pregrasp", "priors", "Screw17_bottle_left.npz")
+    PRIOR_CAP_DIR = os.path.join(REPO, "tasks", "pregrasp", "priors", "Screw17_cap_candidates")
+    CAP_GRASP_PICK = os.environ.get("UNSCREW_CAP_GRASP", "")   # 目录里只有选定的那一个
+    CAP_GRASP_TRIM = (0.0, 0.0, 0.0)      # 同事的量是给镜像 Screw27 候选的; 原生先验从零起, 探针复测再填
+    CAP_PINCH_DEG = 0.0                   # 原生候选 grasp 本身就合在盖沿上 (3 接触点)
+    PRIOR_RADIAL_TRIM = 0.0
+    LEFT_YAW_PREF_DEG = 280.0             # 台账 §8: 人手接近方位 (144°) 对应的候选 yaw (旧口径, 保留)
+    LEFT_AZ_PREF_DEG = 140.0              # 左腕相对瓶心的**世界**方位角偏好 (人手 144°, 候选 yaw280 → 140°)
+    # 接触行 盖→腕 目标方向 (世界系, 台账 §8 1_47 @ psi312: 近侧(-x)、水平略高): 定瓶滚转规范
+    CAP_WRIST_DIR_WORLD = (-0.14, -0.02, 0.03)
+    # 机器段净空梯 (左径向, 左抬升, 右抬升): 右腕站位离桌仅 3cm, cuRobo 保守碰撞球判桌碰,
+    # 右抬升给到 10~20cm (离线 IK 余量 20~27°, 台账 §8 复核)
+    PRE_LADDER_OVERRIDE = [(0.12, 0.00, 0.10), (0.12, 0.06, 0.12), (0.16, 0.06, 0.15),
+                           (0.20, 0.10, 0.15), (0.24, 0.14, 0.18), (0.28, 0.18, 0.20)]
+    HOLD_YAW_BY_CLIP.setdefault(CLIP_ID, 0.0)
+    HOLD_YAW_DEG = float(os.environ.get("UNSCREW_HOLD_YAW", HOLD_YAW_BY_CLIP.get(CLIP_ID, 0.0)))

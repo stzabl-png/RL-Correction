@@ -55,7 +55,12 @@ ACT_DIM = 58
 LOOK_KS = (1, 2, 4, 8, 16)
 DEV_ARM_MACHINE, DEV_ARM_HUMAN = 0.05, 0.08
 FAIL_PEN, D6_PEN, D6_CAP = -10.0, -0.5, -10.0
-K_SCREW = 2.0                       # [TASK] 拧转势: 270°×2.0 ≈ 9.4 总额
+# [TASK] 拧转势系数: 让"从 0 拧到脱扣"的累计收入 ≈ SCREW_BUDGET, 与 G3 的 +10
+# 同量级 (设计口径见 REWARD_DOC)。**必须随 turns 推导**: 2026-09-01 turns 从
+# 0.75 圈(270°) 改成 30° 之后, 原来钉死的 K_SCREW=2.0 会让总额从 9.4 掉到 1.05
+# —— 拧转的引导信号被压掉 10 倍, 而 G3 的一次性奖励不变, 势必被稀释。
+SCREW_BUDGET = 9.4
+K_SCREW = SCREW_BUDGET / max(2 * np.pi * TC.SCREW_TURNS, 1e-6)
 # 诊断台账初值 (screw_tau_mNm/screw_unlocked 按**咬合 env 步**归一, 别用 n)
 _DIAG0 = {"screw_deg": 0.0, "released": 0, "n_triad": 0.0, "gain": 0.0,
           "cap_any": 0.0, "escort_fail": 0.0, "carry_steps": 0.0,

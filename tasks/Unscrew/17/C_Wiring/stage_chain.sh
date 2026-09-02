@@ -4,7 +4,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/../../../.."
 PY=${PY:-/home/lyh/luhr/MagicSim/.venv/bin/python}
-export UNSCREW_CLIP=17 UNSCREW_DETACH=pull UNSCREW_RIGHT_CL=${UNSCREW_RIGHT_CL:-1} SHARPA_WANDB=0 OMNI_KIT_ACCEPT_EULA=YES PYTHONPATH=. TMPDIR=${TMPDIR:-$HOME/tmp}
+export UNSCREW_CLIP=17 UNSCREW_DETACH=${UNSCREW_DETACH:-twist} UNSCREW_RIGHT_CL=${UNSCREW_RIGHT_CL:-1} SHARPA_WANDB=0 OMNI_KIT_ACCEPT_EULA=YES PYTHONPATH=. TMPDIR=${TMPDIR:-$HOME/tmp}
 mkdir -p launch_logs "$TMPDIR"
 D=tasks/Unscrew/part4
 reap() { P=$(ps -u $USER -o pid=,comm=,args= | awk -v pat="$1" '$2 ~ /^python/ && $0 ~ pat {print $1}'); [ -n "$P" ] && kill -9 $P 2>/dev/null; sleep 10; }
@@ -25,7 +25,9 @@ stage smoke "$D/C_Wiring/smoke_zero.py" "机器段死线误触 = 0" --steps 600 
 if ! grep -q "缝1 交接段死线 = 0" launch_logs/u17_stage_smoke.log; then echo "[chain] ❌ smoke: 缝1 交接段零动作死线 ≠ 0 (硬门): $(grep -o '缝1 交接段死线 = [0-9]*' launch_logs/u17_stage_smoke.log)"; grep -n "缝1 交接段死线 env" launch_logs/u17_stage_smoke.log | head -4; exit 1; fi
 grep -n "静置对账\|A 静置\|死线\|G链\|缝1" launch_logs/u17_stage_smoke.log | tail -12
 fi
-case "${START_FROM:-smoke}" in smoke|pull) POUR_SQUEEZE_FF=1 stage pull "$D/B_SmokeTest/probe_pull.py" "全部通过" || exit 1;; esac
+# U10 (2026-09-02): 默认 twist 30° -> 螺纹副探针; pull 变体仍走 probe_pull
+if [ "${UNSCREW_DETACH:-twist}" = pull ]; then _TPROBE=probe_pull.py; else _TPROBE=probe_thread.py; fi
+case "${START_FROM:-smoke}" in smoke|pull) POUR_SQUEEZE_FF=1 stage pull "$D/B_SmokeTest/$_TPROBE" "全部通过" || exit 1;; esac
 case "${START_FROM:-smoke}" in smoke|pull|v2) stage v2 "$D/B_SmokeTest/build_reference.py" "已写" || exit 1; grep -n "\[v2\]" launch_logs/u17_stage_v2.log | tail -6;; esac
 stage accept "$D/B_SmokeTest/probe_acceptance.py" "=> ✅" || exit 1
 grep -n "★训练稳定性\|可训练性\|告警\|站位垫\|回放" launch_logs/u17_stage_accept.log | tail -10

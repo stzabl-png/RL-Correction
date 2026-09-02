@@ -2,7 +2,7 @@
 # 左先验变体扫描 (沙盒 v1, 机器段占位): 每个变体 → 瓶钉住量指垫几何/力 + 手最低点; 再瓶自由看合拢会不会推倒
 set -uo pipefail; cd "$(dirname "$0")/../../../.."
 PY=/home/lyh/luhr/MagicSim/.venv/bin/python
-export UNSCREW_CLIP=17 UNSCREW_DETACH=pull UNSCREW_RIGHT_CL=1 POUR_UNLOCK=1,2,3 SHARPA_WANDB=0 OMNI_KIT_ACCEPT_EULA=YES PYTHONPATH=. RL_ISAAC_NO_GUARD=1 UNSCREW_NO_PLAN=1
+export UNSCREW_CLIP=17 UNSCREW_DETACH=${UNSCREW_DETACH:-twist} UNSCREW_RIGHT_CL=1 POUR_UNLOCK=1,2,3 SHARPA_WANDB=0 OMNI_KIT_ACCEPT_EULA=YES PYTHONPATH=. RL_ISAAC_NO_GUARD=1 UNSCREW_NO_PLAN=1
 run_probe() {  # $1 log  $2.. args
   local LOG=$1; shift
   timeout 900 $PY -u tasks/Unscrew/part4/B_SmokeTest/probe_grasp.py "$@" --headless > $LOG 2>&1 &

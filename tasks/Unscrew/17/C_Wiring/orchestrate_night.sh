@@ -4,7 +4,7 @@ set -uo pipefail
 cd "$(dirname "$0")/../../../.."
 NAME=${1:-U17_pull_cl_s51}; SEED=${2:-51}
 PY=/home/lyh/luhr/MagicSim/.venv/bin/python; D=tasks/Unscrew/part4
-export UNSCREW_CLIP=17 UNSCREW_DETACH=pull UNSCREW_RIGHT_CL=1 SHARPA_WANDB=0 OMNI_KIT_ACCEPT_EULA=YES PYTHONPATH=. TMPDIR=$HOME/tmp
+export UNSCREW_CLIP=17 UNSCREW_DETACH=${UNSCREW_DETACH:-twist} UNSCREW_RIGHT_CL=1 SHARPA_WANDB=0 OMNI_KIT_ACCEPT_EULA=YES PYTHONPATH=. TMPDIR=$HOME/tmp
 mkdir -p launch_logs $TMPDIR
 reap() { P=$(ps -u $USER -o pid=,comm=,args= | awk -v pat="$1" '$2 ~ /^python/ && $0 ~ pat {print $1}'); [ -n "$P" ] && kill -9 $P 2>/dev/null; sleep 10; }
 # 先按当前先验/配置重建 v1 (规划摘要以它为基底; 2026-09-01 10:00 实测: 漏这一步会拿旧站位规划 → 摘要不符断言)

@@ -270,3 +270,8 @@
 - 造带链 `C_Wiring/build_full_ref.sh` (只造不发射): v1 pre-plan → cuRobo Approach(81行)/Retreat(81行, 倒放兜底) → v1 终版 (`d54405f1`, 291 行 = app81/seam1 25/ia78/seam2 25/ret81; 左 IK 100% 余量中位 15.0°, 缝1 进刀差 R18.4°/L18.0°) → **v2 重锚 `e8099b14`** (交互 IK pos>1cm 1/156, 关键窗坏行 0, 余量中位 R3.6°/L14.3°, 认证行 IK 亚毫米)。左先验 = `Screw17_bottle_left_LD227.npz`。⚠ 右抓站位行扫描标"不可达"后由 48 种子择优救回 (0→7.4°), 与前几发同口径。
 - 活样机 `B_SmokeTest/view_reference.py` + `view_ref.sh` (照 Pour L2-6 物理体制): approach/retreat = 机器人碰撞开(108 体)+物体钳静置; seam1/interact/seam2 = 碰撞关+物体逐帧钳到母带物轨行+手走 ref58 行; conf 三档轨迹曲线; 终端回车暂停/继续; `--selftest --headless` 抽帧冒烟。
 - 修运维: 造带脚本给规划器配"✅ 即收割" (接近段规划曾卡 app.close 白等满 40min timeout, 教训③再现)。
+
+### U10 裁定 (2026-09-02): 盖装在瓶上, 预留 30° 拧转即脱 —— 取代 U2 的"纯拔出"
+- 用户原话: "瓶盖要放在瓶子上 预留30度的旋转就能拿下"。装配 preengaged 不变 (盖本就在瓶上, 母带 row0 盖-瓶 Δz=18.0cm ✓)。
+- **机制是同事 T2-11 现成的** (commit 200d0808): `SCREW_TURNS=UNSCREW_TURNS 默认 30/360`, 经 `screw_turns_override` 进 runtime ScrewSpec (env init 断言), K_SCREW 按 30° 预算缩放, 母带 meta/世界判据/selftest_regime⑦ 全查 turns; `DETACH_MODE` 默认本就是 twist —— 是我们 U2 期的脚本用 `UNSCREW_DETACH=pull` 盖掉了它。
+- 落实 = 17 侧全部脚本 `UNSCREW_DETACH=pull` → `${UNSCREW_DETACH:-twist}`; 把关链螺纹探针按模式选 (twist→probe_thread A~E 五段, pull→probe_pull); r_pull 退役、r_screw (拧转势) 复位, 拔出物理整套保留为 `UNSCREW_DETACH=pull` 变体开关。现役 LD227 母带 turns 已是 30° (T2-11 之后造的), 不用重造。

@@ -3,7 +3,7 @@
 set -uo pipefail; cd "$(dirname "$0")/../../../.."
 while pgrep -f trim_sweep.sh >/dev/null; do sleep 30; done
 PY=/home/lyh/luhr/MagicSim/.venv/bin/python
-export UNSCREW_CLIP=17 UNSCREW_DETACH=pull UNSCREW_RIGHT_CL=1 POUR_UNLOCK=1,2,3 SHARPA_WANDB=0 OMNI_KIT_ACCEPT_EULA=YES PYTHONPATH=. RL_ISAAC_NO_GUARD=1
+export UNSCREW_CLIP=17 UNSCREW_DETACH=${UNSCREW_DETACH:-twist} UNSCREW_RIGHT_CL=1 POUR_UNLOCK=1,2,3 SHARPA_WANDB=0 OMNI_KIT_ACCEPT_EULA=YES PYTHONPATH=. RL_ISAAC_NO_GUARD=1
 for B in ${BETAS:-0.5 0.7 1.3}; do
   UNSCREW_BETA_L=$B timeout 900 $PY -u tasks/Unscrew/part4/B_SmokeTest/probe_grasp.py --pin_bottle --headless > launch_logs/sandbox/grasp_beta${B}.log 2>&1 &
   wp=$!; while kill -0 $wp 2>/dev/null; do grep -q "站位垫 L" launch_logs/sandbox/grasp_beta${B}.log && { sleep 15; break; }; sleep 10; done

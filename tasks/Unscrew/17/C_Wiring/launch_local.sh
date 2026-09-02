@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Unscrew/17 拔盖变体 本地发射 (4080S 16GB). 用法: bash tasks/Unscrew/17/C_Wiring/launch_local.sh NAME SEED [NUM_ENVS] [HYB|OBJ] [RIGHT_CL 0/1]
-#   台账 tasks/Unscrew/17/A_Design/DECISIONS.md §5/§6. 开关: UNSCREW_DETACH=pull (U2), 原生先验 (§8), U9 闭环 (RIGHT_CL).
+#   台账 tasks/Unscrew/17/A_Design/DECISIONS.md §5/§6. 开关: UNSCREW_DETACH=${UNSCREW_DETACH:-twist} (U2), 原生先验 (§8), U9 闭环 (RIGHT_CL).
 #   POUR_UNLOCK=1,2,3 必带 (同事 T2-9 课程死锁尸检). autorec 关 (它绕过 gpu_guard 并行录像, 16GB 顶不住), 录像事后补.
 set -euo pipefail
 cd "$(dirname "$0")/../../../.."
 NAME=${1:?name}; SEED=${2:-51}; NE=${3:-512}; VAR=${4:-HYB}; CL=${5:-1}
 PY=${PY:-/home/lyh/luhr/MagicSim/.venv/bin/python}
 mkdir -p logs launch_logs
-export UNSCREW_CLIP=17 UNSCREW_DETACH=pull UNSCREW_RIGHT_CL=$CL UNSCREW_PULL_N=${UNSCREW_PULL_N:-3.0} UNSCREW_LEFT_PRIOR=${UNSCREW_LEFT_PRIOR:-Screw17_bottle_left.npz}
+export UNSCREW_CLIP=17 UNSCREW_DETACH=${UNSCREW_DETACH:-twist} UNSCREW_RIGHT_CL=$CL UNSCREW_PULL_N=${UNSCREW_PULL_N:-3.0} UNSCREW_LEFT_PRIOR=${UNSCREW_LEFT_PRIOR:-Screw17_bottle_left.npz}
 export SHARPA_WANDB=0 OMNI_KIT_ACCEPT_EULA=YES PYTHONPATH=. TMPDIR=${TMPDIR:-$HOME/tmp}
 export POUR_UNLOCK=1,2,3 POUR_SQUEEZE_FF=1 POUR_BONUS_NOW=1 POUR_BONUS_DIST=1 POUR_VARIANT=$VAR
 mkdir -p "$TMPDIR"

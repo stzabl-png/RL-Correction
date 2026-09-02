@@ -2,7 +2,7 @@
 # LD227 squeeze 剂量扫描: 复用沙盒 v1_LD227.npz, 钉住量五垫力; 最佳剂量再跑缝1自由看推不推倒
 set -uo pipefail; cd "$(dirname "$0")/../../../.."
 PY=/home/lyh/luhr/MagicSim/.venv/bin/python
-export UNSCREW_CLIP=17 UNSCREW_DETACH=pull UNSCREW_RIGHT_CL=1 POUR_UNLOCK=1,2,3 SHARPA_WANDB=0 OMNI_KIT_ACCEPT_EULA=YES PYTHONPATH=. RL_ISAAC_NO_GUARD=1 UNSCREW_NO_PLAN=1
+export UNSCREW_CLIP=17 UNSCREW_DETACH=${UNSCREW_DETACH:-twist} UNSCREW_RIGHT_CL=1 POUR_UNLOCK=1,2,3 SHARPA_WANDB=0 OMNI_KIT_ACCEPT_EULA=YES PYTHONPATH=. RL_ISAAC_NO_GUARD=1 UNSCREW_NO_PLAN=1
 export POUR_REF_NPZ=launch_logs/sandbox/v1_LD227.npz UNSCREW_LEFT_PRIOR=Screw17_bottle_left_LD227.npz
 run_probe() { local LOG=$1; shift
   timeout 900 $PY -u tasks/Unscrew/part4/B_SmokeTest/probe_grasp.py "$@" --headless > $LOG 2>&1 &

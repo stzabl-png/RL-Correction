@@ -61,6 +61,32 @@ def _planar_st(pts, scale=1.0):
                      (p[:, 1] - p[:, 1].min()) * scale], 1)
 
 
+def _attach_visual(stage, root, vis_json, tag):
+    """U16: 视觉网格直接换成 SAM3D 带纹理 USD (挂 root 子节点, 跟随刚体), 原 CAD 视觉隐藏、碰撞保留。
+    UV 迁移的碎花病根 (图集跨块插值) 由此绕开。"""
+    import json as _json
+    from pxr import Gf, Sdf, Usd, UsdGeom
+    cfg = _json.load(open(vis_json))
+    xp = root + "/TexturedVis"
+    x = UsdGeom.Xform.Define(stage, xp)
+    x.GetPrim().GetReferences().AddReference(cfg["usd"])
+    M = cfg["matrix"]
+    # U16.1 定案 (2026-09-02, 离线合成探针): USD 行向量约定 p·M, 递 M_math^T。
+    # (unscrew 瓶实测: 转置 6.1mm/z[0,0.197] ✓, 不转置 78mm 躺倒 ✗。此前"去转置"
+    #  是被 pour 配对错误的坏矩阵污染的误判 —— 两个 bug 叠加互为烟雾弹。)
+    m = Gf.Matrix4d(*[M[r][c] for r in range(4) for c in range(4)]).GetTranspose()
+    x.ClearXformOpOrder()
+    x.AddTransformOp().Set(m)
+    n_hide = 0
+    for pr in Usd.PrimRange(stage.GetPrimAtPath(root)):
+        if str(pr.GetPath()).startswith(xp):
+            continue
+        if pr.IsA(UsdGeom.Mesh):
+            UsdGeom.Imageable(pr).MakeInvisible()
+            n_hide += 1
+    print(f"[U16纹理] {tag}: 视觉=SAM3D USD (NN {cfg.get('nn_med_mm','?')}mm, physAPI {cfg.get('phys_apis')}), 隐藏原视觉 {n_hide} mesh", flush=True)
+
+
 def apply_textures(E, tex_dir=None, names=(("object", "bottle", "瓶"), ("aux", "cap", "盖"))):
     import omni.usd
     from pxr import UsdGeom
@@ -77,6 +103,14 @@ def apply_textures(E, tex_dir=None, names=(("object", "bottle", "瓶"), ("aux", 
             continue
         # 真实 SAM3D 纹理优先 (U15): egodex_auto 的 textured glb 抽出的 UV+贴图,
         # 最近邻迁移到场景 USD 顶点; 缺档退程序化图案。
+        vis_json = os.path.join(_D2, f"real_{name}_visual.json")
+        if os.path.isfile(vis_json):
+            try:
+                _attach_visual(stage, root, vis_json, tag)
+                n_ok += 1
+                continue
+            except Exception as _ae:
+                print(f"[U16纹理] {tag} 挂载失败 ({_ae}), 退 UV 迁移", flush=True)
         real_npz = os.path.join(_D2, f"real_{name}_uv.npz")
         real_png = os.path.join(_D2, f"real_{name}.png")
         use_real = os.path.isfile(real_npz) and os.path.isfile(real_png)

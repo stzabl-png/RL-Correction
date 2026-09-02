@@ -92,17 +92,26 @@ def readout():
         pw = E.hand.data.body_pos_w[0, E._pad_bids[i]] - org
         r = float(((pw[:2] - bp[:2])).norm())
         pads.append(f"{nm} r{r*100:4.1f}cm F{float(f[i]):5.2f}N")
+    dzc = float(E.aux.data.root_pos_w[0, 2] - E.object.data.root_pos_w[0, 2])
     print(f"[grasp目检] 左垫 {int((f[:5] > 0.5).sum())}/5 | " + " | ".join(pads)
-          + f" | 瓶倾 {tilt:4.1f}° | 左手最低-桌 {hz*100:+.1f}cm", flush=True)
+          + f" | 瓶倾 {tilt:4.1f}° | 盖-瓶Δz {dzc*100:+.1f}cm | 左手最低-桌 {hz*100:+.1f}cm", flush=True)
 
-def substeps():
-    for _ in range(DECI):
+_prev_tgt = [None]
+def drive_to(full_new):
+    """目标在 DECI 子步间线性插值 (消卡顿); 每子步走真实螺纹副 (盖骑瓶, 自由模式不再掉)。"""
+    f0 = _prev_tgt[0] if _prev_tgt[0] is not None else full_new
+    for i in range(DECI):
+        u = (i + 1) / DECI
+        E.hand.set_joint_position_target(f0 * (1 - u) + full_new * u)
         if not args.free:
             E.object.write_root_pose_to_sim(_pinb); E.object.write_root_velocity_to_sim(_zero6)
-            E.aux.write_root_pose_to_sim(_pinc); E.aux.write_root_velocity_to_sim(_zero6)
+        E._SA.apply_screw(E, integrate_angle=False)
         E.scene.write_data_to_sim()
         E.sim.step(render=not args.headless)
         E.scene.update(E.sim.get_physics_dt())
+        if not args.selftest:
+            time.sleep(0.004)
+    _prev_tgt[0] = full_new.clone()
 
 def reset_cycle():
     E.object.write_root_pose_to_sim(_pinb); E.object.write_root_velocity_to_sim(_zero6)
@@ -115,6 +124,7 @@ def reset_cycle():
         full[0, E.map_ids_t] = tgt_open
     E.hand.write_joint_state_to_sim(full, torch.zeros_like(full))
     E.hand.set_joint_position_target(full)
+    _prev_tgt[0] = full.clone()
 
 t0 = time.time(); n = 0
 STEPS = args.selftest if args.selftest else 10**9
@@ -141,18 +151,14 @@ while n < STEPS:
             cur[36:58] += u2 * torch.tensor(np.clip(args.squeeze * (_sql22 - _fin_g),
                           -TC.SQUEEZE_DELTA_CAP, TC.SQUEEZE_DELTA_CAP), dtype=torch.float32, device=dev)
             full[0, E.map_ids_t] = cur
-        E.hand.set_joint_position_target(full)
-        substeps()
+        drive_to(full)
         if k == CYCLE - 1:
             readout()
     else:
-        E.hand.set_joint_position_target(full)
-        substeps()
+        drive_to(full)
     n += 1
     if time.time() - t0 > 2.0:
         readout(); t0 = time.time()
-    if not args.selftest:
-        time.sleep(0.02)
 readout()
 print("[grasp目检] done", flush=True)
 app.close(); os._exit(0)

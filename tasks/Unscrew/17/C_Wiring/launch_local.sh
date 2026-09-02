@@ -7,6 +7,7 @@ cd "$(dirname "$0")/../../../.."
 NAME=${1:?name}; SEED=${2:-51}; NE=${3:-512}; VAR=${4:-HYB}; CL=${5:-1}
 PY=${PY:-/home/lyh/luhr/MagicSim/.venv/bin/python}
 mkdir -p logs launch_logs
+export UNSCREW_LEFT_APPROACH_NPZ=${UNSCREW_LEFT_APPROACH_NPZ:-tasks/Unscrew/17/A_Design/L1_Data/Motion_Planning/LeftApproach_LD227.npz}
 export UNSCREW_CLIP=17 UNSCREW_DETACH=${UNSCREW_DETACH:-twist} UNSCREW_RIGHT_CL=$CL UNSCREW_PULL_N=${UNSCREW_PULL_N:-3.0} UNSCREW_LEFT_PRIOR=${UNSCREW_LEFT_PRIOR:-Screw17_bottle_left.npz}
 export SHARPA_WANDB=0 OMNI_KIT_ACCEPT_EULA=YES PYTHONPATH=. TMPDIR=${TMPDIR:-$HOME/tmp}
 export POUR_UNLOCK=1,2,3 POUR_SQUEEZE_FF=1 POUR_BONUS_NOW=1 POUR_BONUS_DIST=1 POUR_VARIANT=$VAR

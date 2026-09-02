@@ -3,6 +3,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/../../../.."
 PY=/home/lyh/luhr/MagicSim/.venv/bin/python; D=tasks/Unscrew/part4
+export UNSCREW_LEFT_APPROACH_NPZ=${UNSCREW_LEFT_APPROACH_NPZ:-tasks/Unscrew/17/A_Design/L1_Data/Motion_Planning/LeftApproach_LD227.npz}
 export UNSCREW_CLIP=17 UNSCREW_DETACH=${UNSCREW_DETACH:-twist} UNSCREW_RIGHT_CL=1 SHARPA_WANDB=0 OMNI_KIT_ACCEPT_EULA=YES PYTHONPATH=. TMPDIR=$HOME/tmp RL_ISAAC_NO_GUARD=1
 export UNSCREW_LEFT_PRIOR=${UNSCREW_LEFT_PRIOR:-Screw17_bottle_left_LD227.npz}
 mkdir -p launch_logs $TMPDIR

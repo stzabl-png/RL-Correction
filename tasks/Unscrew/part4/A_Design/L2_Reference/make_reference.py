@@ -1102,6 +1102,26 @@ def main():
             s1_l, s1_fl = _arm, _fin
         else:
             s1_r, s1_fr = _arm, _fin
+    # ★ U12 (2026-09-02 用户裁定"左手不错, 剪进去"): 左臂接近段整体替换为
+    #   build_left_approach 产物 (cuRobo 满障碍 + Dexonomy 六级梯 PCHIP, 合拢在成形段内
+    #   缓慢完成 —— 实测自由瓶只倾 1.6°, 旧缝1 10 行快合拢会推到 28.6°, §10.5/10.6)。
+    #   缝1 从"进刀+合拢"降级为"静持 + squeeze 渐入窗" (env 的 βL 前馈仍按 APP..IA0 斜坡)。
+    _lap = os.environ.get("UNSCREW_LEFT_APPROACH_NPZ") or ""
+    if _lap:
+        _zl = np.load(_lap, allow_pickle=True)
+        _fnl = [str(n) for n in _zl["fin_names"]]
+        assert _fnl == fin_names, "LeftApproach fin_names 与母带列序不一致"
+        app_l = np.asarray(_zl["left_q"], np.float64)
+        app_fl = np.asarray(_zl["left_f"], np.float64)
+        app_r = np.asarray(_zl["right_q"], np.float64)
+        app_fr = np.asarray(_zl["right_f"], np.float64)
+        assert np.degrees(np.abs(app_l[-1] - q_l[0]).max()) < 2.0, "LeftApproach 末行 ≠ 左站位"
+        s1_l = np.tile(np.asarray(q_l[0], np.float64), (SEAM1, 1))
+        s1_fl = np.tile(np.asarray(f_l[0], np.float64), (SEAM1, 1))
+        s1_r = np.tile(np.asarray(app_r[-1], np.float64), (SEAM1, 1))   # 右臂在家静持
+        s1_fr = ramp(np.asarray(app_fr[-1], np.float64), np.asarray(f_r[0], np.float64), SEAM1)
+        print(f"[v1] ★左接近段替换 (U12): {os.path.basename(_lap)} {len(app_l)} 行 "
+              f"(cuRobo+六级梯, 合拢在段内; 缝1={SEAM1} 行静持+squeeze 窗)")
     # Retreat: cuRobo cspace 规划产物优先 (物体已在终位, 躲避着回站姿)
     if have_retreat:
         ret_r, ret_l = _load_plan(TC.RETREAT_NPZ, "retreat")

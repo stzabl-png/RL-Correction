@@ -23,6 +23,11 @@ import task_env as PE
 
 cfg = PE.build_cfg(num_envs=1)
 E = PE.UnscrewEnv(cfg); E.force_entry = [0]; E.reset()
+try:
+    from texture_objects import apply_textures
+    apply_textures(E)
+except Exception as _te:
+    print(f"[U14纹理] 跳过 ({_te})", flush=True)
 dev = E.device; DECI = int(getattr(E.cfg, "decimation", 12))
 org = E.scene.env_origins[0]
 # ★钉位姿必须在任何自由物理步之前抓 (2026-09-02 修: 静置期没走螺纹装配, 盖自由落体掉进瓶口)

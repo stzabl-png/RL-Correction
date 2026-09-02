@@ -25,6 +25,11 @@ import task_env as PE
 
 cfg = PE.build_cfg(num_envs=1)
 E = PE.UnscrewEnv(cfg); E.force_entry = [0]; E.reset()
+try:
+    from texture_objects import apply_textures
+    apply_textures(E)
+except Exception as _te:
+    print(f"[U14纹理] 跳过 ({_te})", flush=True)
 dev = E.device; DECI = int(getattr(E.cfg, "decimation", 12))
 for _ in range(30):
     E.scene.write_data_to_sim(); E.sim.step(render=False); E.scene.update(E.sim.get_physics_dt())

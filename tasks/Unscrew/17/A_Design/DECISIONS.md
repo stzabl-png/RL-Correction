@@ -299,3 +299,8 @@
 - 修 = Pour L2-6 官方口径**网格最低点钳制** (≥桌+2mm, 9 帧平滑不低于必要抬升) 进 make_reference, 瓶在盖行派生**之前**钳 (咬合段盖跟瓶一起抬, 螺旋刚性不变), 盖在自由段平滑后钳。首铸: 盖 63/78 行抬, 最大 +1.7cm。
 - **采样陷阱 (U13.1)**: 钳制器/审计各自随机采 600/800 顶点 + trimesh process 开关不一, 互相漏底圈极值顶点 → "钳过了"与"还穿 −0.57cm"同时为真。改**全顶点**求最低 (78 行×全网格矩阵乘, 秒级)。审计口径同步。
 - 连锁: 物体行变 → 规划摘要变 → 出处断言拦旧 cuRobo 产物 (设计内, 正常工作) → 整链重规划。
+
+### 10.9 U14 (2026-09-02 用户裁定): Sim 物体全部上图案纹理
+- 资产现状: 重建 OBJ 无 UV/无 mtl/无贴图, cache USD 无材质 —— 真贴图无从映射。
+- 方案: 回转体**运行时圆柱投影生成 primvars:st** + UsdPreviewSurface×UsdUVTexture 绑程序化图案 PNG (`datasets/unscrew_bottle/17/cache/textures/{bottle,cap,table}.png`): 瓶=棋盘+四色竖带+轴向细线; 盖=四象限大色块+白指针条纹 (**拧 30° 一眼可见**); 桌=木色细网格 (平面投影)。实现 `B_SmokeTest/texture_objects.py::apply_textures(E)`, 两个查看器场景 build 后调用 (try/except 降级)。
+- 已知限制: ①环向 UV 接缝一条色带 (vertex 插值 atan2 回绕), 只影响观感; ②桌若是 Cube 非 Mesh 则跳过; ③训练 env 不渲染, 不受影响; 录像器要同款上妆时 import 同一 helper 即可。

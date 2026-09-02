@@ -67,19 +67,35 @@ def apply_textures(E):
     from pxr import UsdGeom
     stage = omni.usd.get_context().get_stage()
     n_ok = 0
-    for ob, png, tag, wrap in ((getattr(E, "object", None), "bottle.png", "瓶", 1.0),
-                               (getattr(E, "aux", None), "cap.png", "盖", 1.0)):
+    for ob, name, tag in ((getattr(E, "object", None), "bottle", "瓶"),
+                          (getattr(E, "aux", None), "cap", "盖")):
         if ob is None:
             continue
         try:
             root = ob.cfg.prim_path.replace("env_.*", "env_0")
         except Exception:
             continue
+        # 真实 SAM3D 纹理优先 (U15): egodex_auto 的 textured glb 抽出的 UV+贴图,
+        # 最近邻迁移到场景 USD 顶点; 缺档退程序化图案。
+        real_npz = os.path.join(_D, f"real_{name}_uv.npz")
+        real_png = os.path.join(_D, f"real_{name}.png")
+        use_real = os.path.isfile(real_npz) and os.path.isfile(real_png)
+        if use_real:
+            from scipy.spatial import cKDTree
+            _z = np.load(real_npz)
+            _tree = cKDTree(_z["verts"])
+            _uv = np.asarray(_z["uv"], float)
         for i, mp in enumerate(_meshes_under(stage, root)):
             pts = np.asarray(UsdGeom.Mesh(mp).GetPointsAttr().Get(), float)
-            _bind_tex(stage, mp, os.path.join(_D, png), f"{tag}_{i}", _cyl_st(pts, wrap))
+            if use_real:
+                _d, _j = _tree.query(pts, k=1)
+                st = _uv[_j]
+                _bind_tex(stage, mp, real_png, f"{tag}_{i}", st)
+            else:
+                _bind_tex(stage, mp, os.path.join(_D, f"{name}.png"), f"{tag}_{i}", _cyl_st(pts))
             n_ok += 1
-        print(f"[U14纹理] {tag}: {root} 绑图案 ({png})", flush=True)
+        print(f"[U14纹理] {tag}: {root} 绑{'真实 SAM3D 纹理' if use_real else '程序图案'}"
+              + (f" (最近邻中位 {np.median(_d)*1000:.1f}mm)" if use_real else ""), flush=True)
     # 桌面: /World 下找名字含 Table 的 mesh
     from pxr import Usd
     for p in Usd.PrimRange(stage.GetPrimAtPath("/World")):

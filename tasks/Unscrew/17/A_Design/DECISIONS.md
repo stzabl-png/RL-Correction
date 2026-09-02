@@ -304,3 +304,4 @@
 - 资产现状: 重建 OBJ 无 UV/无 mtl/无贴图, cache USD 无材质 —— 真贴图无从映射。
 - 方案: 回转体**运行时圆柱投影生成 primvars:st** + UsdPreviewSurface×UsdUVTexture 绑程序化图案 PNG (`datasets/unscrew_bottle/17/cache/textures/{bottle,cap,table}.png`): 瓶=棋盘+四色竖带+轴向细线; 盖=四象限大色块+白指针条纹 (**拧 30° 一眼可见**); 桌=木色细网格 (平面投影)。实现 `B_SmokeTest/texture_objects.py::apply_textures(E)`, 两个查看器场景 build 后调用 (try/except 降级)。
 - 已知限制: ①环向 UV 接缝一条色带 (vertex 插值 atan2 回绕), 只影响观感; ②桌若是 Cube 非 Mesh 则跳过; ③训练 env 不渲染, 不受影响; 录像器要同款上妆时 import 同一 helper 即可。
+- **U15 补 (2026-09-02 用户更正: 要 SAM3D 自带纹理, 不是程序图案)**: 带纹理产物在 `egodex_auto/.../17/objects/object_*/textured/*.glb` (UV+2048² 贴图; part4 树没有这层)。几何是另一套细分且 GLTF y-up 居中 (盖高还差 3mm) → **帧对齐 + 最近邻 UV 迁移**: `extract_real_textures.py` 离线对齐 (上下符号按 NN 距离中位硬判 —— 剖面 L2 判据实测会把瓶选倒), `texture_objects.apply_textures` 运行时对 USD 顶点 KDTree 取 UV 绑真贴图 (瓶 NN 中位 5.2mm, 盖 1.5mm), 缺档退程序图案。回转体 yaw 偏置无害。

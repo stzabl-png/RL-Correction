@@ -40,6 +40,7 @@ _slot = isaac_slot("view_raw_window")
 app = AppLauncher(args).app
 
 import select  # noqa: E402
+import os  # noqa: E402
 import sys  # noqa: E402
 import time  # noqa: E402
 
@@ -75,6 +76,12 @@ cfg.scene.num_envs = 1
 cfg.obj_jitter_xy = 0.0
 E = GraspTaskEnv(cfg)
 E.reset()
+try:                                            # U15 (2026-09-02): SAM3D 真实纹理
+    from rl_rebuild.correction.texture_objects import apply_textures
+    apply_textures(E, tex_dir=os.path.abspath("datasets/pour17/cache/textures"),
+                   names=(("object", "bottle", "瓶"), ("aux", "cup", "杯")))
+except Exception as _te:
+    print(f"[U15纹理] 跳过 ({_te})", flush=True)
 for _ in range(90):
     E.scene.write_data_to_sim()
     E.sim.step(render=False)

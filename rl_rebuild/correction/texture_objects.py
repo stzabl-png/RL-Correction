@@ -7,9 +7,8 @@
 import os
 import numpy as np
 
-_D = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                  "..", "..", "..", "..", "datasets", "unscrew_bottle", "17",
-                                  "cache", "textures"))
+_REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+_D = os.path.join(_REPO, "datasets", "unscrew_bottle", "17", "cache", "textures")   # 默认 = unscrew17
 
 
 def _bind_tex(stage, mesh_prim, tex_png, name, st):
@@ -62,13 +61,14 @@ def _planar_st(pts, scale=1.0):
                      (p[:, 1] - p[:, 1].min()) * scale], 1)
 
 
-def apply_textures(E):
+def apply_textures(E, tex_dir=None, names=(("object", "bottle", "瓶"), ("aux", "cap", "盖"))):
     import omni.usd
     from pxr import UsdGeom
     stage = omni.usd.get_context().get_stage()
     n_ok = 0
-    for ob, name, tag in ((getattr(E, "object", None), "bottle", "瓶"),
-                          (getattr(E, "aux", None), "cap", "盖")):
+    _D2 = tex_dir or _D
+    for attr, name, tag in names:
+        ob = getattr(E, attr, None)
         if ob is None:
             continue
         try:
@@ -77,8 +77,8 @@ def apply_textures(E):
             continue
         # 真实 SAM3D 纹理优先 (U15): egodex_auto 的 textured glb 抽出的 UV+贴图,
         # 最近邻迁移到场景 USD 顶点; 缺档退程序化图案。
-        real_npz = os.path.join(_D, f"real_{name}_uv.npz")
-        real_png = os.path.join(_D, f"real_{name}.png")
+        real_npz = os.path.join(_D2, f"real_{name}_uv.npz")
+        real_png = os.path.join(_D2, f"real_{name}.png")
         use_real = os.path.isfile(real_npz) and os.path.isfile(real_png)
         if use_real:
             from scipy.spatial import cKDTree
@@ -92,7 +92,7 @@ def apply_textures(E):
                 st = _uv[_j]
                 _bind_tex(stage, mp, real_png, f"{tag}_{i}", st)
             else:
-                _bind_tex(stage, mp, os.path.join(_D, f"{name}.png"), f"{tag}_{i}", _cyl_st(pts))
+                _bind_tex(stage, mp, os.path.join(_D2, f"{name}.png"), f"{tag}_{i}", _cyl_st(pts))
             n_ok += 1
         print(f"[U14纹理] {tag}: {root} 绑{'真实 SAM3D 纹理' if use_real else '程序图案'}"
               + (f" (最近邻中位 {np.median(_d)*1000:.1f}mm)" if use_real else ""), flush=True)
@@ -101,7 +101,7 @@ def apply_textures(E):
     for p in Usd.PrimRange(stage.GetPrimAtPath("/World")):
         if "table" in p.GetName().lower() and p.IsA(UsdGeom.Mesh):
             pts = np.asarray(UsdGeom.Mesh(p).GetPointsAttr().Get(), float)
-            _bind_tex(stage, p, os.path.join(_D, "table.png"), "table", _planar_st(pts, 4.0))
+            _bind_tex(stage, p, os.path.join(_D2, "table.png"), "table", _planar_st(pts, 4.0))
             print(f"[U14纹理] 桌: {p.GetPath()}", flush=True)
             n_ok += 1
             break

@@ -7,15 +7,26 @@
 """
 import numpy as np, trimesh, os
 from scipy.spatial import cKDTree
-G = "/home/lyh/Project/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_auto/screw_unscrew_bottle_cap/17/objects"
-D = "datasets/unscrew_bottle/17/cache/textures"
+import sys
+TASK = sys.argv[1] if len(sys.argv) > 1 else "unscrew17"
+PRESET = {
+    "unscrew17": dict(G="/home/lyh/Project/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_auto/screw_unscrew_bottle_cap/17/objects",
+                      D="datasets/unscrew_bottle/17/cache/textures",
+                      objs=[(0, "bottle", "datasets/unscrew_bottle/17/objects/object_0/object_mesh_scaled_final.obj"),
+                            (1, "cap", "datasets/unscrew_bottle/17/objects/object_1/object_mesh_scaled_final.obj")]),
+    "pour17": dict(G="/home/lyh/Project/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_auto/pour/17/objects",
+                   D="datasets/pour17/cache/textures",
+                   objs=[(1, "bottle", "datasets/pour17/objects/object_1/object_mesh_scaled_final.obj"),
+                         (0, "cup", "datasets/pour17/objects/object_0/object_mesh_scaled_final.obj")]),
+}[TASK]
+G, D = PRESET["G"], PRESET["D"]
 os.makedirs(D, exist_ok=True)
-for oi, tag in ((0, "bottle"), (1, "cap")):
+for oi, tag, staged in PRESET["objs"]:
     glb = trimesh.load(f"{G}/object_{oi}/textured/object_mesh_scaled_final_textured.glb", force="mesh", process=False)
     V = np.asarray(glb.vertices, np.float64)
     UV = np.asarray(glb.visual.uv, np.float32)
     glb.visual.material.baseColorTexture.save(f"{D}/real_{tag}.png")
-    obj = trimesh.load(f"datasets/unscrew_bottle/17/objects/object_{oi}/object_mesh_scaled_final.obj", force="mesh", process=False)
+    obj = trimesh.load(staged, force="mesh", process=False)
     OV = np.asarray(obj.vertices); zo0, zo1 = OV[:, 2].min(), OV[:, 2].max()
     sub = OV[np.random.RandomState(0).choice(len(OV), min(8000, len(OV)), replace=False)]
     best = None

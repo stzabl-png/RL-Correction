@@ -24,7 +24,7 @@ import task_env as PE
 cfg = PE.build_cfg(num_envs=1)
 E = PE.UnscrewEnv(cfg); E.force_entry = [0]; E.reset()
 try:
-    from texture_objects import apply_textures
+    from rl_rebuild.correction.texture_objects import apply_textures
     apply_textures(E)
 except Exception as _te:
     print(f"[U14纹理] 跳过 ({_te})", flush=True)

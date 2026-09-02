@@ -893,6 +893,22 @@ def main():
     else:
         sf_r = sf_l = np.zeros(22)
 
+    # ★ U11 (2026-09-02 用户看活样机裁定): 右臂"在家" —— 机器段/缝1 保持站姿,
+    #   交互行 0..k_contact 平滑飞向接触行抓姿 (瓶被左手放倒转过来的那段)。
+    #   训练时钟 G2 前不走 ⟹ 右手起飞发生在左手认证抓稳之后, 正合 U6 时序;
+    #   顺带消掉右臂净空梯/站位悬停 (§9 三发里右腕悬停离盖 21.6cm 的画面)。
+    RIGHT_HOME = (os.environ.get("UNSCREW_RIGHT_HOME") or "1").strip() not in ("0",)
+    if RIGHT_HOME:
+        _kc = int(np.clip(_k_contact, 6, N - 1))
+        _s9 = np.linspace(0, 1, _kc, endpoint=False)
+        _s9 = _s9 * _s9 * (3 - 2 * _s9)
+        q_r[:_kc] = st_r[None] * (1 - _s9)[:, None] + q_r[_kc][None] * _s9[:, None]
+        machine_pre["right"] = st_r.copy()
+        pre_alts["right"] = [st_r.copy() for _ in pre_alts["right"]]
+        _jmp9 = float(np.degrees(np.abs(np.diff(q_r[:_kc + 1], axis=0)).max()))
+        print(f"[v1] ★右臂在家 (U11): 机器段/缝1=站姿; 交互行 0~{_kc - 1} 平滑飞向"
+              f"接触行 {_k_contact} (峰值行跳 {_jmp9:.1f}°/行)")
+
     def ramp(a, b, K):
         s = np.linspace(0, 1, K, endpoint=False)
         s = s * s * (3 - 2 * s)

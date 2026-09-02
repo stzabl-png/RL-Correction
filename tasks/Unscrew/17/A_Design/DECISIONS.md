@@ -275,3 +275,10 @@
 - 用户原话: "瓶盖要放在瓶子上 预留30度的旋转就能拿下"。装配 preengaged 不变 (盖本就在瓶上, 母带 row0 盖-瓶 Δz=18.0cm ✓)。
 - **机制是同事 T2-11 现成的** (commit 200d0808): `SCREW_TURNS=UNSCREW_TURNS 默认 30/360`, 经 `screw_turns_override` 进 runtime ScrewSpec (env init 断言), K_SCREW 按 30° 预算缩放, 母带 meta/世界判据/selftest_regime⑦ 全查 turns; `DETACH_MODE` 默认本就是 twist —— 是我们 U2 期的脚本用 `UNSCREW_DETACH=pull` 盖掉了它。
 - 落实 = 17 侧全部脚本 `UNSCREW_DETACH=pull` → `${UNSCREW_DETACH:-twist}`; 把关链螺纹探针按模式选 (twist→probe_thread A~E 五段, pull→probe_pull); r_pull 退役、r_screw (拧转势) 复位, 拔出物理整套保留为 `UNSCREW_DETACH=pull` 变体开关。现役 LD227 母带 turns 已是 30° (T2-11 之后造的), 不用重造。
+
+### U11 裁定 (2026-09-02, 用户看活样机反馈) + 两个查看器修复
+- 用户看全链活样机: "在用右手接近物体 GraspPose, 动作一卡一卡"; 看静态目检: "瓶盖貌似在瓶子里面"。
+- **U11 右臂在家** (`UNSCREW_RIGHT_HOME` 默认开, make_reference 烙进母带, 参考 md5 覆盖不加指纹开关): 机器段/缝1 右臂 = 站姿 (cuRobo 右腿退化为原地, 右净空梯/站位悬停整段消失 —— 实测原站位右腕悬停离盖 21.6cm、接近段右臂摆 71°+68°, 就是用户看到的"右手在接近"); 交互行 0..k_contact(11) 平滑飞向接触行抓姿。训练时钟 G2 前不走 ⟹ 右手起飞在左手认证抓稳之后, 正合 U6 时序。
+- 盖掉进瓶里 = view_grasp bug: 钉位姿在 30 步自由静置**之后**抓, 而静置没走螺纹装配, 盖自由落体 (~0.1s ≈7cm) 掉进瓶口。修: reset 后立即抓钉、静置期也钉。世界本身没病 (check_u10 reset 即读 Δz=18.0cm ✓)。
+- 卡顿 = 查看器每行 12 子步渲染完再 sleep。修: 子步间参考行线性插值 + 匀速渲染; 另加 `--record` (replicator rgb, Pour 同款)。
+- build_full_ref.sh 规划段补"✅ 落盘即收割" (接近段曾卡 app.close 白等满 40min)。

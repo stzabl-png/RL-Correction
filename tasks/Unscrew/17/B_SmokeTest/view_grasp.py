@@ -21,9 +21,16 @@ import task_env as PE
 cfg = PE.build_cfg(num_envs=1)
 E = PE.UnscrewEnv(cfg); E.force_entry = [0]; E.reset()
 dev = E.device; DECI = int(getattr(E.cfg, "decimation", 12))
-for _ in range(30):
-    E.scene.write_data_to_sim(); E.sim.step(render=False); E.scene.update(E.sim.get_physics_dt())
 org = E.scene.env_origins[0]
+# ★钉位姿必须在任何自由物理步之前抓 (2026-09-02 修: 静置期没走螺纹装配, 盖自由落体掉进瓶口)
+_pinb = torch.cat([E.object.data.root_pos_w, E.object.data.root_quat_w], dim=1).clone()
+_pinc = torch.cat([E.aux.data.root_pos_w, E.aux.data.root_quat_w], dim=1).clone()
+_zero6 = torch.zeros(1, 6, device=dev)
+for _ in range(30):
+    if not args.free:
+        E.object.write_root_pose_to_sim(_pinb); E.object.write_root_velocity_to_sim(_zero6)
+        E.aux.write_root_pose_to_sim(_pinc); E.aux.write_root_velocity_to_sim(_zero6)
+    E.scene.write_data_to_sim(); E.sim.step(render=False); E.scene.update(E.sim.get_physics_dt())
 
 # 目标位形: 右 = 站姿行0; 左臂/左指 = 站位行 IA0 (= GraspPose 落位)
 tgt = E.ref58[0].clone()
@@ -41,9 +48,6 @@ E.hand.set_joint_position_target(full)
 print(f"[grasp目检] 左先验 = {os.path.basename(TC.PRIOR_AUX)} | 右手 = 初始站姿 | "
       f"瓶 {'自由' if args.free else '钉住'} | squeeze βL={args.squeeze}", flush=True)
 
-_pinb = torch.cat([E.object.data.root_pos_w, E.object.data.root_quat_w], dim=1).clone()
-_pinc = torch.cat([E.aux.data.root_pos_w, E.aux.data.root_quat_w], dim=1).clone()
-_zero6 = torch.zeros(1, 6, device=dev)
 _PADS = ("thumb", "index", "middle", "ring", "pinky")
 
 def readout():

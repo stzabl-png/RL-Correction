@@ -13,6 +13,7 @@ p.add_argument("--start_row", type=int, default=0)
 p.add_argument("--loop", type=int, default=1, help="1=播完静置3s重来; 0=播完定格")
 p.add_argument("--squeeze", type=float, default=0.0, help=">0 = 缝1起加 squeeze 剂量 βL (默认0=纯母带行)")
 p.add_argument("--selftest", action="store_true", help="无头抽帧冒烟: 各段跑通+钳位误差")
+p.add_argument("--record", default="", help="录 mp4 路径 (需 --enable_cameras, 可无头)")
 AppLauncher.add_app_launcher_args(p)
 args = p.parse_args()
 app = AppLauncher(args).app
@@ -89,17 +90,21 @@ def pin_objs(row):
         ob.write_root_pose_to_sim(st)
         ob.write_root_velocity_to_sim(torch.zeros(1, 6, device=dev))
 
-def drive(row, sL):
-    tgt = E.ref58[min(row, T - 1)].clone()
-    tgt[36:58] += sL * dsq
+def drive(row, sL, spf=0.0):
+    r0, r1 = min(row, T - 1), min(row + 1, T - 1)
     full = E.hand.data.joint_pos.clone()
-    full[0, E.map_ids_t] = tgt
-    E.hand.set_joint_position_target(full)
-    for _ in range(DECI):
-        pin_objs(min(row, T - 1))
+    for i in range(DECI):
+        u = (i + 1) / DECI
+        tgt = (1 - u) * E.ref58[r0] + u * E.ref58[r1]      # 子步插值 -> 不卡顿
+        tgt = tgt.clone(); tgt[36:58] += sL * dsq
+        full[0, E.map_ids_t] = tgt
+        E.hand.set_joint_position_target(full)
+        pin_objs(r0 if u < 0.5 else r1)
         E.scene.write_data_to_sim()
         E.sim.step(render=not args.headless)
         E.scene.update(E.sim.get_physics_dt())
+        if spf > 0:
+            time.sleep(spf)
 
 paused = [False]
 def poll_pause():
@@ -114,13 +119,12 @@ def play(abbr=False):
         set_collision(col)
         rng = range(max(a, args.start_row), b, max(1, (b - a) // 8) if abbr else 1)
         for row in rng:
-            sL = args.squeeze and (0.0 if row < APP else 1.0)
-            drive(row, 1.0 if (args.squeeze and row >= APP) else 0.0)
+            spf = 0.0 if abbr else max(0.0, (1.0 / args.fps) / DECI - 0.004)
+            drive(row, 1.0 if (args.squeeze and row >= APP) else 0.0, spf)
             if not abbr:
                 poll_pause()
                 while paused[0]:
                     time.sleep(0.1); poll_pause()
-                time.sleep(max(0.0, 1.0 / args.fps - 0.01))
         # 段末钳位误差 (自检读数)
         bp = E.object.data.root_pos_w[0] - org
         e_ = float((bp - OBJ[0][0][min(b - 1, T - 1)]).norm())
@@ -128,6 +132,35 @@ def play(abbr=False):
         print(f"[view] 段 {name:8s} 完 (行 {a}..{b - 1}) | 瓶钳位误差 {e_*100:.2f}cm", flush=True)
     return err_max
 
+if args.record:
+    import imageio
+    import omni.replicator.core as rep
+    from pxr import Gf, UsdGeom
+    _st2 = omni.usd.get_context().get_stage()
+    _camp = UsdGeom.Camera.Define(_st2, "/World/RecCam")
+    _camp.CreateFocalLengthAttr().Set(16.0)
+    _m = Gf.Matrix4d()
+    _m.SetLookAt(Gf.Vec3d(0.85, -1.15, 1.60), Gf.Vec3d(-0.15, 0.10, 0.95), Gf.Vec3d(0, 0, 1))
+    UsdGeom.Xformable(_camp).AddTransformOp().Set(_m.GetInverse())
+    _rp = rep.create.render_product("/World/RecCam", (1280, 720))
+    _annot = rep.AnnotatorRegistry.get_annotator("rgb")
+    _annot.attach(_rp)
+    _frames = []
+    _rec_n = [0]
+    def _grab_rows():
+        pass
+    # 逐行播 (每行抓一帧): 用 abbr=False 全行, 但把 spf=0 抓帧
+    for name, a, b, col in SEG:
+        set_collision(col)
+        for row in range(a, b):
+            drive(row, 0.0, 0.0)
+            E.sim.render()
+            d = _annot.get_data()
+            if d is not None and getattr(d, "size", 0):
+                _frames.append(np.asarray(d)[..., :3].astype(np.uint8))
+    imageio.mimsave(args.record, _frames, fps=15)
+    print(f"[view] 录像 {args.record} | {len(_frames)} 帧 @15fps", flush=True)
+    app.close(); os._exit(0)
 if args.selftest:
     e = play(abbr=True)
     print(f"[view] 自检: 五段跑通, 瓶钳位误差峰 {e*100:.2f}cm {'✅' if e < 0.01 else '⚠'}", flush=True)

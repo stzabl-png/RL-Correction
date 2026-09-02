@@ -10,9 +10,15 @@ reap() { P=$(ps -u $USER -o pid=,comm=,args= | awk -v pat="$1" '$2 ~ /^python/ &
 rm -f $D/A_Design/L1_Data/Motion_Planning/17/Approach.npz $D/A_Design/L1_Data/Motion_Planning/17/Retreat.npz
 echo "[ref] $(date +%H:%M) v1 pre-plan (prior=$UNSCREW_LEFT_PRIOR)"
 timeout 1500 $PY -u $D/A_Design/L2_Reference/make_reference.py > launch_logs/u17_ref_v1pre.log 2>&1 || { echo "[ref] ❌ v1 pre-plan"; exit 1; }
-echo "[ref] $(date +%H:%M) plan approach"; timeout 2400 $PY -u $D/A_Design/L1_Data/Motion_Planning/plan_machine_segs.py --headless > launch_logs/u17_ref_planapp.log 2>&1; reap plan_machine_segs
+plan_stage() { # $1 log $2.. extra args — ✅ 落盘即收割 (卡 app.close 白等 40min 的教训)
+  local LOG=$1; shift
+  timeout 2400 $PY -u $D/A_Design/L1_Data/Motion_Planning/plan_machine_segs.py "$@" --headless > $LOG 2>&1 &
+  local wp=$!; while kill -0 $wp 2>/dev/null; do grep -qE "\[plan\] ✅|反向兜底成功|倒放|❌" $LOG 2>/dev/null && { sleep 20; break; }; sleep 10; done
+  reap plan_machine_segs; wait $wp 2>/dev/null || true
+}
+echo "[ref] $(date +%H:%M) plan approach"; plan_stage launch_logs/u17_ref_planapp.log
 grep -q "\[plan\] ✅" launch_logs/u17_ref_planapp.log || { echo "[ref] ❌ approach 规划失败"; exit 1; }
-echo "[ref] $(date +%H:%M) plan retreat"; timeout 2400 $PY -u $D/A_Design/L1_Data/Motion_Planning/plan_machine_segs.py --retreat --headless > launch_logs/u17_ref_planret.log 2>&1; reap plan_machine_segs
+echo "[ref] $(date +%H:%M) plan retreat"; plan_stage launch_logs/u17_ref_planret.log --retreat
 grep -q "\[plan\] ✅\|反向兜底成功\|倒放" launch_logs/u17_ref_planret.log || { echo "[ref] ❌ retreat 规划失败"; exit 1; }
 echo "[ref] $(date +%H:%M) v1 final"; timeout 1500 $PY -u $D/A_Design/L2_Reference/make_reference.py > launch_logs/u17_ref_v1.log 2>&1 || { echo "[ref] ❌ v1 final"; exit 1; }
 grep -E "left IK|right IK|已写|站位|G-B" launch_logs/u17_ref_v1.log | tail -6 | cut -c1-150

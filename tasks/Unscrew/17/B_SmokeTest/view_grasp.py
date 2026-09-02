@@ -103,10 +103,6 @@ while n < STEPS:
             reset_cycle()
         if k < args.close:                      # ① 合拢: 张开 -> 抓姿
             u = (k + 1) / args.close
-            cur = (1 - u) * tgt_open + u * tgt if args.squeeze <= 0 else                   (1 - u) * tgt_open + u * torch.cat([tgt[:36], tgt[36:58] - torch.tensor(
-                      np.clip(args.squeeze * (_sql22 - _fin_g), -TC.SQUEEZE_DELTA_CAP, TC.SQUEEZE_DELTA_CAP),
-                      dtype=torch.float32, device=dev) * 0])
-            cur = (1 - u) * tgt_open + u * tgt
             full[0, E.map_ids_t] = cur
         elif args.squeeze > 0 and k < args.close + max(args.close // 2, 1):   # ② squeeze 渐入
             u2 = (k - args.close + 1) / max(args.close // 2, 1)

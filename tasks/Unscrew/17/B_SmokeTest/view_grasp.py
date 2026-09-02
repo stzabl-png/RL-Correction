@@ -8,7 +8,9 @@ from isaaclab.app import AppLauncher
 p = argparse.ArgumentParser()
 p.add_argument("--squeeze", type=float, default=0.0, help="βL squeeze 剂量 (0=纯 GraspPose)")
 p.add_argument("--free", action="store_true", help="瓶不钉 (看真实物理推挤)")
-p.add_argument("--selftest", type=int, default=0, help=">0: 无头跑 N 步打读数退出")
+p.add_argument("--close", type=int, default=40, help="合拢动画步数 (0=旧口径: 直接瞬移成抓姿)")
+p.add_argument("--hold", type=int, default=60, help="合拢后保持步数 (循环: 保持完复位瓶重来)")
+p.add_argument("--selftest", type=int, default=0, help=">0: 无头跑 N 个控制步打读数退出")
 AppLauncher.add_app_launcher_args(p)
 args = p.parse_args()
 app = AppLauncher(args).app
@@ -41,10 +43,16 @@ if args.squeeze > 0:
     dsq = np.clip(args.squeeze * (sql - E.ref58[E.IA0, 36:58].cpu().numpy()),
                   -TC.SQUEEZE_DELTA_CAP, TC.SQUEEZE_DELTA_CAP)
     tgt[36:58] += torch.tensor(dsq, dtype=torch.float32, device=dev)
+# 预张开杯状手 (缝1 同款配方: 抓握指值沿合拢方向反推, 逐关节封顶 25°)
+_sql22 = np.asarray(np.load(TC.PRIOR_AUX)["squeeze"], np.float64).reshape(-1)[7:29]
+_fin_g = tgt[36:58].cpu().numpy().copy()
+_fin_open = _fin_g - np.clip(2.0 * (_sql22 - _fin_g), -np.radians(25), np.radians(25))
+tgt_open = tgt.clone(); tgt_open[36:58] = torch.tensor(_fin_open, dtype=torch.float32, device=dev)
 full = E.hand.data.default_joint_pos.clone()
-full[0, E.map_ids_t] = tgt
-E.hand.write_joint_state_to_sim(full, torch.zeros_like(full))   # 直接摆位 (无扫掠)
+full[0, E.map_ids_t] = tgt_open if args.close > 0 else tgt
+E.hand.write_joint_state_to_sim(full, torch.zeros_like(full))   # 直接摆位 (无扫掠), 合拢模式下手是张开的
 E.hand.set_joint_position_target(full)
+print(f"[grasp目检] 模式: {'合拢动画 ' + str(args.close) + ' 步 (张开->抓姿' + ('->squeeze' if args.squeeze > 0 else '') + '), 保持 ' + str(args.hold) + ' 步后复位循环' if args.close > 0 else '静态瞬移摆位'}", flush=True)
 print(f"[grasp目检] 左先验 = {os.path.basename(TC.PRIOR_AUX)} | 右手 = 初始站姿 | "
       f"瓶 {'自由' if args.free else '钉住'} | squeeze βL={args.squeeze}", flush=True)
 
@@ -67,10 +75,7 @@ def readout():
     print(f"[grasp目检] 左垫 {int((f[:5] > 0.5).sum())}/5 | " + " | ".join(pads)
           + f" | 瓶倾 {tilt:4.1f}° | 左手最低-桌 {hz*100:+.1f}cm", flush=True)
 
-t0 = time.time(); n = 0
-STEPS = args.selftest if args.selftest else 10**9
-while n < STEPS:
-    E.hand.set_joint_position_target(full)
+def substeps():
     for _ in range(DECI):
         if not args.free:
             E.object.write_root_pose_to_sim(_pinb); E.object.write_root_velocity_to_sim(_zero6)
@@ -78,6 +83,44 @@ while n < STEPS:
         E.scene.write_data_to_sim()
         E.sim.step(render=not args.headless)
         E.scene.update(E.sim.get_physics_dt())
+
+def reset_cycle():
+    E.object.write_root_pose_to_sim(_pinb); E.object.write_root_velocity_to_sim(_zero6)
+    E.aux.write_root_pose_to_sim(_pinc); E.aux.write_root_velocity_to_sim(_zero6)
+    full[0, E.map_ids_t] = tgt_open
+    E.hand.write_joint_state_to_sim(full, torch.zeros_like(full))
+    E.hand.set_joint_position_target(full)
+
+t0 = time.time(); n = 0
+STEPS = args.selftest if args.selftest else 10**9
+CYCLE = (args.close + max(args.close // 2, 1) + args.hold) if args.close > 0 else 0
+while n < STEPS:
+    if CYCLE:
+        k = n % CYCLE
+        if k == 0 and n > 0:
+            print("[grasp目检] —— 复位瓶, 重新合拢 ——", flush=True)
+        if k == 0:
+            reset_cycle()
+        if k < args.close:                      # ① 合拢: 张开 -> 抓姿
+            u = (k + 1) / args.close
+            cur = (1 - u) * tgt_open + u * tgt if args.squeeze <= 0 else                   (1 - u) * tgt_open + u * torch.cat([tgt[:36], tgt[36:58] - torch.tensor(
+                      np.clip(args.squeeze * (_sql22 - _fin_g), -TC.SQUEEZE_DELTA_CAP, TC.SQUEEZE_DELTA_CAP),
+                      dtype=torch.float32, device=dev) * 0])
+            cur = (1 - u) * tgt_open + u * tgt
+            full[0, E.map_ids_t] = cur
+        elif args.squeeze > 0 and k < args.close + max(args.close // 2, 1):   # ② squeeze 渐入
+            u2 = (k - args.close + 1) / max(args.close // 2, 1)
+            cur = tgt.clone()
+            cur[36:58] += u2 * torch.tensor(np.clip(args.squeeze * (_sql22 - _fin_g),
+                          -TC.SQUEEZE_DELTA_CAP, TC.SQUEEZE_DELTA_CAP), dtype=torch.float32, device=dev)
+            full[0, E.map_ids_t] = cur
+        E.hand.set_joint_position_target(full)
+        substeps()
+        if k == CYCLE - 1:
+            readout()
+    else:
+        E.hand.set_joint_position_target(full)
+        substeps()
     n += 1
     if time.time() - t0 > 2.0:
         readout(); t0 = time.time()

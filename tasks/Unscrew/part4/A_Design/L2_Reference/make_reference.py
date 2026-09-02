@@ -350,6 +350,25 @@ def main():
     # 若按脱离点连续性拼接, U24a 投影造成的座位高度差会把整段送放轨迹整体
     # 压低 ~5cm, 盖末行 z 掉破 D1 死线, 放音自检实锤)。脱离窗 8 行线性混合
     # 消拼接跳变 (该窗 conf 本来就低, 皮筋红档容差吸收)。
+    # ★ U13 (2026-09-02 用户抓包"轨迹到桌下"): 桌面净空钳制升级为 Pour L2-6 官方口径 ——
+    #   **网格最低点** ≥ 桌+2mm (原来只钳盖原点 z, 盖躺倒时网格底比原点低, 实测穿桌 1.4cm/19行;
+    #   瓶末段也 -0.4cm)。9 帧平滑但不低于必要抬升。瓶钳制在盖行派生**之前**做,
+    #   咬合段盖跟瓶一起抬, 螺旋刚性不变。
+    def _table_lift(P9, Q9, mesh_path9, tag9):
+        import trimesh as _tm9
+        from rl_rebuild.correction.kinematics import quat_to_R as _q2R9
+        _V9 = np.asarray(_tm9.load(mesh_path9, process=False, force="mesh").vertices)  # 全顶点: 采样会漏底圈极值 (U13.1)
+        _lift9 = np.zeros(len(P9))
+        for _r9 in range(len(P9)):
+            _zm9 = (_V9 @ _q2R9(Q9[_r9]).T)[:, 2].min() + P9[_r9, 2]
+            _lift9[_r9] = max(0.0, TABLE_Z + 0.002 - _zm9)
+        _sm9 = np.convolve(np.pad(_lift9, 4, mode="edge"), np.ones(9) / 9, mode="valid")[:len(P9)]
+        _lift9 = np.maximum(_sm9, _lift9)
+        P9[:, 2] += _lift9
+        _n9 = int((_lift9 > 1e-4).sum())
+        print(f"[v1] {tag9} 桌面净空钳制(网格最低点): 触发 {_n9}/{len(P9)} 行 | 最大抬升 {_lift9.max()*100:.1f}cm")
+        return P9
+    body_p = _table_lift(body_p, body_q, objs[BODY_ID]["mesh"], "瓶")
     cap_p = body_p + 0.18 * axis
     cap_q = body_q.copy()
     if k_sep < N - 1:
@@ -368,6 +387,7 @@ def main():
     # 盖不许低于"平躺在桌面"的中心高 (送放段重建噪声会往下扎)
     cap_p[:, 2] = np.maximum(cap_p[:, 2], TABLE_Z + 0.006)
     cap_q = smooth_quats(cap_q, 1.5)
+    cap_p = _table_lift(cap_p, cap_q, objs[CAP_ID]["mesh"], "盖")
 
     def _mk_ik(side):
         if rest and rest.get(f"anchor_T_{side}"):

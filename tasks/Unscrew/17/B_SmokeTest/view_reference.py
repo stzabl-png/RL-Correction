@@ -33,8 +33,11 @@ org = E.scene.env_origins[0]
 # ---- 母带与分段 ----
 Z = np.load(PE.MASTER, allow_pickle=True)
 T, APP, IA0, IA1, RET0 = E.T_ROW, E.APP_END, E.IA0, E.IA1, E.RETREAT0
-SEG = [("approach", 0, APP, True), ("seam1", APP, IA0, False),
-       ("interact", IA0, IA1 + 1, False), ("seam2", IA1 + 1, RET0, False),
+# 2026-09-02 用户裁定: 缝1 合拢也要开碰撞 (瓶钉住不会被推动, 手指被表面挡住 =
+# 真实抓握形态; 原 Pour 口径缝1 关碰撞 -> 手指穿瓶进 GraspPose, 用户目检抓包)。
+# 只有交互段关碰撞 (物体沿轨迹钳走, 铁手×钳物必然打架)。缝2 同理开。
+SEG = [("approach", 0, APP, True), ("seam1", APP, IA0, True),
+       ("interact", IA0, IA1 + 1, False), ("seam2", IA1 + 1, RET0, True),
        ("retreat", RET0, T, True)]
 print(f"[view] 母带 {os.path.basename(PE.MASTER)} 全链 {T} 行 | " +
       " ".join(f"{n}[{a},{b})碰撞{'开' if c else '关'}" for n, a, b, c in SEG), flush=True)

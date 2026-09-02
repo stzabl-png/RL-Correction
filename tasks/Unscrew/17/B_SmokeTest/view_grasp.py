@@ -9,6 +9,7 @@ p = argparse.ArgumentParser()
 p.add_argument("--squeeze", type=float, default=0.0, help="βL squeeze 剂量 (0=纯 GraspPose)")
 p.add_argument("--free", action="store_true", help="瓶不钉 (看真实物理推挤)")
 p.add_argument("--close", type=int, default=40, help="合拢动画步数 (0=旧口径: 直接瞬移成抓姿)")
+p.add_argument("--path", default="", help="接近路径 npz (build_left_approach 产物): 循环=站姿->cuRobo->六级梯->squeeze->保持")
 p.add_argument("--hold", type=int, default=60, help="合拢后保持步数 (循环: 保持完复位瓶重来)")
 p.add_argument("--selftest", type=int, default=0, help=">0: 无头跑 N 个控制步打读数退出")
 AppLauncher.add_app_launcher_args(p)
@@ -48,8 +49,27 @@ _sql22 = np.asarray(np.load(TC.PRIOR_AUX)["squeeze"], np.float64).reshape(-1)[7:
 _fin_g = tgt[36:58].cpu().numpy().copy()
 _fin_open = _fin_g - np.clip(2.0 * (_sql22 - _fin_g), -np.radians(25), np.radians(25))
 tgt_open = tgt.clone(); tgt_open[36:58] = torch.tensor(_fin_open, dtype=torch.float32, device=dev)
+PATH = None
+if args.path:
+    _zp2 = np.load(args.path, allow_pickle=True)
+    _fn2 = [str(n) for n in _zp2["fin_names"]]
+    _jl = [E.hand.joint_names.index(f"L_arm_j{i}") for i in range(1, 8)]
+    _jr = [E.hand.joint_names.index(f"R_arm_j{i}") for i in range(1, 8)]
+    _jfl = [E.hand.joint_names.index(n.replace("right_", "left_")) for n in _fn2]
+    _jfr = [E.hand.joint_names.index(n) for n in _fn2]
+    PATH = dict(lq=torch.tensor(np.asarray(_zp2["left_q"]), dtype=torch.float32, device=dev),
+                lf=torch.tensor(np.asarray(_zp2["left_f"]), dtype=torch.float32, device=dev),
+                rq=torch.tensor(np.asarray(_zp2["right_q"]), dtype=torch.float32, device=dev),
+                rf=torch.tensor(np.asarray(_zp2["right_f"]), dtype=torch.float32, device=dev),
+                ids=(_jl, _jfl, _jr, _jfr), T=len(_zp2["left_q"]))
+    print(f"[grasp目检] 接近路径: {os.path.basename(args.path)} {PATH['T']} 行 (段 {list(_zp2['seg_lens'])})", flush=True)
 full = E.hand.data.default_joint_pos.clone()
 full[0, E.map_ids_t] = tgt_open if args.close > 0 else tgt
+if PATH is not None:
+    full = E.hand.data.default_joint_pos.clone()      # 路径模式: 从站姿行 0 出发
+    _jl, _jfl, _jr, _jfr = PATH["ids"]
+    full[0, _jl] = PATH["lq"][0]; full[0, _jfl] = PATH["lf"][0]
+    full[0, _jr] = PATH["rq"][0]; full[0, _jfr] = PATH["rf"][0]
 E.hand.write_joint_state_to_sim(full, torch.zeros_like(full))   # 直接摆位 (无扫掠), 合拢模式下手是张开的
 E.hand.set_joint_position_target(full)
 print(f"[grasp目检] 模式: {'合拢动画 ' + str(args.close) + ' 步 (张开->抓姿' + ('->squeeze' if args.squeeze > 0 else '') + '), 保持 ' + str(args.hold) + ' 步后复位循环' if args.close > 0 else '静态瞬移摆位'}", flush=True)
@@ -87,13 +107,19 @@ def substeps():
 def reset_cycle():
     E.object.write_root_pose_to_sim(_pinb); E.object.write_root_velocity_to_sim(_zero6)
     E.aux.write_root_pose_to_sim(_pinc); E.aux.write_root_velocity_to_sim(_zero6)
-    full[0, E.map_ids_t] = tgt_open
+    if PATH is not None:
+        _jl, _jfl, _jr, _jfr = PATH["ids"]
+        full[0, _jl] = PATH["lq"][0]; full[0, _jfl] = PATH["lf"][0]
+        full[0, _jr] = PATH["rq"][0]; full[0, _jfr] = PATH["rf"][0]
+    else:
+        full[0, E.map_ids_t] = tgt_open
     E.hand.write_joint_state_to_sim(full, torch.zeros_like(full))
     E.hand.set_joint_position_target(full)
 
 t0 = time.time(); n = 0
 STEPS = args.selftest if args.selftest else 10**9
-CYCLE = (args.close + max(args.close // 2, 1) + args.hold) if args.close > 0 else 0
+N1 = PATH["T"] if PATH is not None else args.close          # ① 段长: 路径行数 或 合拢步数
+CYCLE = (N1 + max(args.close // 2, 1) + args.hold) if (args.close > 0 or PATH is not None) else 0
 while n < STEPS:
     if CYCLE:
         k = n % CYCLE
@@ -101,12 +127,16 @@ while n < STEPS:
             print("[grasp目检] —— 复位瓶, 重新合拢 ——", flush=True)
         if k == 0:
             reset_cycle()
-        if k < args.close:                      # ① 合拢: 张开 -> 抓姿
-            u = (k + 1) / args.close
+        if PATH is not None and k < N1:          # ① 路径: 站姿 -> cuRobo -> 六级梯 -> 抓姿
+            _jl, _jfl, _jr, _jfr = PATH["ids"]
+            full[0, _jl] = PATH["lq"][k]; full[0, _jfl] = PATH["lf"][k]
+            full[0, _jr] = PATH["rq"][k]; full[0, _jfr] = PATH["rf"][k]
+        elif PATH is None and k < N1:            # ① 合拢: 张开 -> 抓姿
+            u = (k + 1) / N1
             cur = (1 - u) * tgt_open + u * tgt
             full[0, E.map_ids_t] = cur
-        elif args.squeeze > 0 and k < args.close + max(args.close // 2, 1):   # ② squeeze 渐入
-            u2 = (k - args.close + 1) / max(args.close // 2, 1)
+        elif args.squeeze > 0 and k < N1 + max(args.close // 2, 1):   # ② squeeze 渐入
+            u2 = (k - N1 + 1) / max(args.close // 2, 1)
             cur = tgt.clone()
             cur[36:58] += u2 * torch.tensor(np.clip(args.squeeze * (_sql22 - _fin_g),
                           -TC.SQUEEZE_DELTA_CAP, TC.SQUEEZE_DELTA_CAP), dtype=torch.float32, device=dev)

@@ -282,3 +282,9 @@
 - 盖掉进瓶里 = view_grasp bug: 钉位姿在 30 步自由静置**之后**抓, 而静置没走螺纹装配, 盖自由落体 (~0.1s ≈7cm) 掉进瓶口。修: reset 后立即抓钉、静置期也钉。世界本身没病 (check_u10 reset 即读 Δz=18.0cm ✓)。
 - 卡顿 = 查看器每行 12 子步渲染完再 sleep。修: 子步间参考行线性插值 + 匀速渲染; 另加 `--record` (replicator rgb, Pour 同款)。
 - build_full_ref.sh 规划段补"✅ 落盘即收割" (接近段曾卡 app.close 白等满 40min)。
+
+### 10.6 U-P1 首件: 左臂 站姿→GraspPose 路径 (2026-09-02, 用户指示"按我之前的设计 plan 路径")
+- `17/A_Design/L1_Data/Motion_Planning/build_left_approach.py` 照 Pour L1-4 用户定稿: 站姿 --cuRobo cspace 满障碍(桌+立瓶+盖, 充气1cm)--> Dexonomy 原生 pregrasp 梯级0 --PCHIP 单调样条六级梯(腕指同步, 单次缓入缓出)--> GraspPose(母带站位行)。右臂全程站姿 (U11)。梯级位姿 = 站位腕 FK ∘ (prior grasp)⁻¹ ∘ pregrasp_k 刚性相对变换 (免场景换基)。
+- 产物 `LeftApproach_LD227.npz` (81+84 行): 六级 IK 全站位同分支 (距站位 ≤5°, 误差 0.01~0.46cm), cuRobo 目标候选 #0 一把过, 成形段峰值行跳 **0.9°**, 终点腕误差 0.00cm。
+- `view_grasp --path` 播放模式: 循环 = 路径 → squeeze 渐入 → 保持 → 复位。自由瓶全周期实测 **倾 1.6°** (L2/5: index 6.1N/middle 3.2N/ring 0.4N) —— 比 40 步瞬移合拢 (2.6°) 更稳, 佐证 10.5 的"合拢速度分水岭": 六级梯的慢合拢天然不推瓶。
+- 沿途修三坑: UnscrewEnv 无 `_anchor_T` (用 env_rest.json 的 anchor_T_left, 与 make_reference._mk_ik 同源); worker 产物列名 = joint_names/traj (照 _load_plan); 梯级顺序按退距降序排 (不可信任 npz 原序)。

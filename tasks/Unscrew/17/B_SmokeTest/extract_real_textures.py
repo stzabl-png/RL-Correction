@@ -61,7 +61,8 @@ PRESET = {
                       R="/home/lyh/Project/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_auto/screw_unscrew_bottle_cap/17/retarget",
                       D="datasets/unscrew_bottle/17/cache/textures",
                       objs=[(0, "bottle", "datasets/unscrew_bottle/17/objects/object_0/object_mesh_scaled_final.obj"),
-                            (1, "cap", "datasets/unscrew_bottle/17/objects/object_1/object_mesh_scaled_final.obj")]),
+                            (1, "cap", "datasets/unscrew_bottle/17/objects/object_1/object_mesh_scaled_final.obj")],
+                      trim={"bottle": 0.179}),   # U17: SAM3D 瓶带画上去的盖(全高19.8), 裁掉盖区让真盖露出
     "pour17": dict(G="/home/lyh/Project/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_auto/pour/17/objects",
                    R="/home/lyh/Project/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_auto/pour/17/retarget",
                    D="datasets/pour17/cache/textures",
@@ -99,6 +100,45 @@ if RD:
             phys += sum(1 for sc in pr.GetAppliedSchemas() if "Physics" in sc)
         obj = trimesh.load(staged, force="mesh", process=False); OV = np.asarray(obj.vertices)
         med, M, _W2 = align_by_long_axis(V, OV, f"{tag}(visual)")
-        json.dump({"usd": up, "matrix": M.tolist(), "nn_med_mm": round(med * 1000, 2),
+        use_usd = up
+        cut = (PRESET.get("trim") or {}).get(tag)
+        if cut is not None:
+            # 裁剪: staged 帧 z>=cut 的面整面删 (U17); 直接用 pxr 重作 usd (点/面/uv/材质)
+            gm = trimesh.load(f"{G}/object_{oi}/textured/object_mesh_scaled_final_textured.glb",
+                              force="mesh", process=False)
+            Vg = np.asarray(gm.vertices, float); Fg = np.asarray(gm.faces)
+            UVg = np.asarray(gm.visual.uv, float)
+            zs = (Vg @ M[:3, :3].T + M[:3, 3])[:, 2]
+            keep = ~(zs[Fg] >= cut).all(axis=1)
+            F2 = Fg[keep]
+            from pxr import Usd, UsdGeom, UsdShade, Sdf
+            tp = os.path.abspath(f"{D}/real_{tag}_trimmed.usd")
+            st2 = Usd.Stage.CreateNew(tp)
+            UsdGeom.SetStageUpAxis(st2, UsdGeom.Tokens.z)
+            root = UsdGeom.Xform.Define(st2, "/Object")
+            st2.SetDefaultPrim(root.GetPrim())
+            mesh2 = UsdGeom.Mesh.Define(st2, "/Object/mesh")
+            mesh2.CreatePointsAttr([tuple(v) for v in Vg])
+            mesh2.CreateFaceVertexCountsAttr([3] * len(F2))
+            mesh2.CreateFaceVertexIndicesAttr(F2.reshape(-1).tolist())
+            pv = UsdGeom.PrimvarsAPI(mesh2.GetPrim()).CreatePrimvar(
+                "st", Sdf.ValueTypeNames.TexCoord2fArray, UsdGeom.Tokens.vertex)
+            pv.Set([tuple(u) for u in UVg])
+            lp = "/Object/Looks/mat"
+            mat = UsdShade.Material.Define(st2, lp)
+            sh = UsdShade.Shader.Define(st2, lp + "/pbr"); sh.CreateIdAttr("UsdPreviewSurface")
+            sh.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(0.6)
+            rd = UsdShade.Shader.Define(st2, lp + "/st"); rd.CreateIdAttr("UsdPrimvarReader_float2")
+            rd.CreateInput("varname", Sdf.ValueTypeNames.Token).Set("st")
+            tx = UsdShade.Shader.Define(st2, lp + "/tex"); tx.CreateIdAttr("UsdUVTexture")
+            tx.CreateInput("file", Sdf.ValueTypeNames.Asset).Set(os.path.abspath(f"{D}/real_{tag}.png"))
+            tx.CreateInput("st", Sdf.ValueTypeNames.Float2).ConnectToSource(rd.ConnectableAPI(), "result")
+            sh.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).ConnectToSource(tx.ConnectableAPI(), "rgb")
+            mat.CreateSurfaceOutput().ConnectToSource(sh.ConnectableAPI(), "surface")
+            UsdShade.MaterialBindingAPI.Apply(mesh2.GetPrim()).Bind(mat)
+            st2.GetRootLayer().Save()
+            use_usd = tp
+            print(f"[{tag}] ★裁盖区 z>={cut}: 面 {len(Fg)} -> {len(F2)} -> {tp}")
+        json.dump({"usd": use_usd, "matrix": M.tolist(), "nn_med_mm": round(med * 1000, 2),
                    "phys_apis": phys}, open(f"{D}/real_{tag}_visual.json", "w"), indent=1)
         print(f"[{tag}] visual json: NN中位 {med*1000:.1f}mm physAPI={phys}")

@@ -2321,7 +2321,52 @@ gh2 v2 配对: 冠军 seed 0.5586→**0.1135** (时钟只走完 0.52, 20M 没爬
   判读: placed 非零 ≥2/3 · ep_rew/place 显著 · 冠军 seed ≥0.4 · HOLD 线不设自动停线, 终判 20M 评测。
   **已发射**: pid 1827831/1828175/1828590 (msc GPU2/3/4, 2026-09-02)。
 
+#### 36.8 ★★ 2.6 终局: 双棘轮修对机制、判读线没过、冠军 seed 崩 (2026-09-02)
+
+确定性评测 (512 t0): ghp success s51 **0.0098** / s52 0.0137 / s53 0.0469 (对照 gh v1 = 0.5586/0.0039/0.0000)。
+- **机制成功**: 放回三条**都**非零 (v1 只冠军非零), ep_rew/place 0.001→0.003, sr/placed 近0→0.13~0.18 —— 杯放回真空填上。
+- **判读线 0/3 未过**; **★冠军 s51 从 0.5586 崩到 0.0098** (倒水仍 0.699, 放回 0.010)。机制: v1 冠军是"瓶有梯度回位 +
+  杯靠运气放对"过的双物 placed 判据; 双棘轮逼双物各挣棘轮, 打散了冠军的运气配置, 20M 没重学会双物同放。
+- **净判决**: 方向对 (放回不再零梯度), 但强度/耦合没调好且伤冠军 (同 HOLD v2 类型)。**"钉稳单带"仍未达成**,
+  最佳单条仍 = gh v1 s51 0.5586 (离群, 不可复现)。全表见 `ImproveBase/PLAN.md` 2.6 终局节。
+- 待议: ①双棘轮 K 3→5 / 放回加末尾黄窗; ②瓶主杯辅不对称 K (保 v1 强项); ③RSI 放回段出生打破串行脆性 (根治 seed 方差)。
+
 ## U15 纹理 (2026-09-02, 用户裁定"Sim 物体都要 SAM3D 自带纹理; pour17_full_chain.mp4 重造")
 - 带纹理产物: `Output/ReconstructOutput/egodex_auto/pour/17/objects/object_*/textured/*.glb` (UV+贴图)。
 - 工具链 (Unscrew/17 U15 同款, 共享化到 `rl_rebuild/correction/texture_objects.py`): `extract_real_textures.py pour17` 离线对齐 (上下符号按 NN 距离硬判; 瓶 5.2mm/杯 12mm—杯的 SAM3D 形状与入库 CAD 差得多, 贴图略糊属预期) → view_reference 运行时最近邻 UV 迁移绑真贴图。
 - `pour17_full_chain.mp4` 用带纹理场景重录替换 (515 行编舞不变, 只换观感)。
+
+## L5-37 位置泛化启动: 3 套位置 + cuRobo 等价重规划 + 直线平滑 gap (2026-09-02, 浩然指导 + 用户裁定)
+
+**背景 (浩然聊天要点)**: 先做**位置泛化**(不是物体形状); "先都平移"; 物体移动→轨迹跟着移动;
+接近段与 interact 段之间"因平移出现 gap, RL 学 spout↔cup 对齐, 先写死直线"; 1024 env 随机在 3 个
+不同位置/参考下训练; 视觉(dinov3 encoder)后续再加, 现在网络输入 = 双臂双手 + 物体 state。
+
+**机制核准 (代码级)**:
+- pour_env 自己写物体位姿 (rest_pose + 母带轨迹), `obj_jitter_xy` 是死旗 (L5-31.8) —— 位置泛化
+  **不能靠 env 抖动**, 必须**造 3 条不同位置母带, 训练随机抽**。
+- cuRobo 段是预算固定规划 (`curobo_stance2pregrasp.npz`); **纯平移下不用重跑 cuRobo** ——
+  `dp_make_variants.py` 已验证机制: 物体平移 → 刚体搬移腕轨迹 → 逐行 ArmIK 重解 = 等价接近规划。
+  IK 超差/超限位的位置整套丢弃 (只留机器人工作区内)。
+- gap 平滑 = seam 段 (现有 25 帧, view_reference 已有), 用直线插值填 approach末姿↔interact首姿。
+
+**母带布局** (approach165+seam1_25+interact273+seam2_25+retreat165, 与 v3 逐字段同):
+每套 = 物体新静置位平移 dx,dy → approach 刚体搬移+ArmIK重解 → interact 逐物体换基到新位 →
+seam 直线平滑 → 导出 `pour17_reference_posK.npz` (K=0/1/2)。
+
+**3 个位置 (瓶杯同移, 保持相对几何; base 在 env 系 (-0.5,0,0), 臂长~0.755)**:
+```
+pos0 原位   dx=+0.00 dy=+0.00  瓶前方0.36m侧+0.01  (= 当前 v3, 基准)
+pos1 右前   dx=+0.06 dy=-0.10  瓶前方0.42m侧-0.09  (更远更右)
+pos2 左后   dx=-0.05 dy=+0.09  瓶前方0.31m侧+0.10  (更近更左)
+```
+偏移量 ≤10cm, 保证仍在工作区 (P1 用 ArmIK 逐行可达性预检确认, 超差的位置换偏移量)。
+
+**执行阶段**: P0 定位置+可达预检(本节) → P1 写 `build_ref_pos.py`(吃 --obj_shift, 出一条变体母带+
+五道出厂检查) → P2 跑3条+录像人工验 → P3 多母带训练env(母带列表, reset随机抽, 出生表/指纹按母带集合) →
+P4 发训练 + held-out 位置泛化评测。**当前在跑的 ghpt 三条(placed终止)不受影响, 位置泛化是独立线。**
+**判读**: 3 位置训练后, 对 held-out 位置(第4个没训过的)success 非零 = 位置泛化成立。
+
+## L5-37 补丁 (2026-09-03): 多母带重构漏改 squeeze 前馈块
+- 上会话未提交的 L5-37 多母带重构把 `ref` 并入 `_refstack`, 漏改 `POUR_SQUEEZE_FF` 块两行 → 任何带 SQUEEZE_FF 的进程 (评测/录像/训练) 在 env init 直接 NameError。最小修复 `_refstack[0][...]` (首条=结构基准, 单母带逐位同 HEAD)。
+- 顺带记两条 (冠军 ckpt 本机 rollout 排障中攒的): ①`restore_physics_env` 只还原物理量, **不还原开关旗/母带路径** —— 回放要按 `run_ib*.sh` 全旗单配齐 (VARIANT/REF/TIER_FLOOR/PLACE_SHAPE/MOUTH_BONUS/OBJ_CONTACT/COLLIDE/BONUS_DIST/BONUS_NOW/SQUEEZE_FF/GRIP_SHAPE/HOLD_POSE); ②`POUR_BONUS_NOW`(phase_b)/`POUR_SQUEEZE_FF` 是执行相关旗但不在世界指纹 CRITICAL —— 契约缺口, 缺旗时闸放行而行为退化 (实测: 抓住不提贴桌到老, G 链全 0)。

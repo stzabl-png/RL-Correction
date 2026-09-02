@@ -30,6 +30,8 @@ import torch  # noqa: E402
 import yaml  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import world_fingerprint as _WF  # noqa: E402
+_WF.restore_physics_env(_WF.world_json_of(args.checkpoint))  # L5-34: 先还原再建环境
 import pour_env as PE  # noqa: E402
 from rl_rebuild.algo.ppo.ppo import PPO  # noqa: E402
 from rl_rebuild.wrapper.config_wrapper import ConfigWrapper  # noqa: E402
@@ -38,6 +40,12 @@ from rl_rebuild.wrapper.sharpa_wave_env_wrapper import GymStyleEnvWrapper  # noq
 _HERE = os.path.dirname(os.path.abspath(__file__))
 cfg = PE.build_cfg(num_envs=1)
 raw = PE.PourEnv(cfg)
+try:                                            # U16: SAM3D 真实纹理 (2026-09-02 用户要求录像带纹理)
+    from rl_rebuild.correction.texture_objects import apply_textures
+    apply_textures(raw, tex_dir=os.path.abspath("datasets/pour17/cache/textures"),
+                   names=(("object", "bottle", "瓶"), ("aux", "cup", "杯")))
+except Exception as _te:
+    print(f"[U16纹理] 跳过 ({_te})", flush=True)
 raw.force_entry = [0]
 env = GymStyleEnvWrapper(raw, clip_actions=1.0)
 with open(os.path.join(_HERE, "ppo_pour.yaml")) as f:

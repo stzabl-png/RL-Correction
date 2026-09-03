@@ -73,6 +73,20 @@ PY=/home/lyh/luhr/MagicSim/.venv/bin/python    # 唯一带 isaacsim+isaaclab 的
    - `--video_every` 默认 **2000**（原 1000）。
    逃生阀：`RL_ISAAC_NO_GUARD=1` 整个关掉。
    吞吐参考：5090 约 2600~3600 FPS，4080S 约 1800~2400 —— 墙钟要乘 1.5。
+8. **两条通用设计（2026-08-31 用户裁定，适用所有任务，台账 L5-34/L5-36）**：
+   - **G-A 物理规矩：物体 0.1kg、物体摩擦 5、指垫摩擦 5**（multiply 合成手↔物 25）。
+     默认值在 `rl_rebuild/correction/env/correction_env.py` 的 `PHYS_RULE`（导入期 setdefault，
+     基类 `__init__` 覆写主体物，pour 补杯），**不要靠发射脚本手填**——L5-31~33 三批就是
+     这么静默丢回硬物理的（瓶 0.53/μ3.0、杯 0.15/μ0.5、指垫 3.0）。核验：训练日志 grep
+     `难度覆写`，必须有 `质量=0.100kg 摩擦=5.00/5.00` 两行 + `指垫摩擦覆写 = 5.0`。
+   - **G-B 接触起始黄窗：交互行 `[0, r_lift+3]` 档位上限黄**（`tier=min(tier,1)`，只放松不收紧），
+     `r_lift` = 参考物体首次抬升 ≥ CERT_RISE 的行，**按母带算不写死**（v3 = 0~18 行）。
+     实现 `rl_rebuild/correction/tier_floor.py`，`POUR_TIER_FLOOR_START=auto|<n>|0`；
+     对照开关 `POUR_TIER_SHUFFLE=<seed>`（主对照，替代拍平）/ `POUR_TIER_REVERSE=1`。
+     核验：日志 grep `G-B 接触起始黄窗: 交互行 0~18`。
+   - 回放/探针脚本一律走 `world_fingerprint.restore_physics_env()` 按 ckpt 的 world.json 还原
+     物理；档位三项进指纹 CRITICAL。新老世界成绩**不可比**（L5-13 判读限制）。
+   - 当前计划与数据在 `ImproveBase/`（PLAN.md / runs/ / launch_logs/ / probes/）。
 
 ## 当前结论的边界
 这 `99.9%` 建立在几个**绕过去而非解决**的问题之上，别当作已解决（详见 `MANUAL.md` §7）：

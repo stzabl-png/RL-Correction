@@ -157,7 +157,10 @@ os.makedirs(log_dir, exist_ok=True)
 import hashlib  # noqa: E402
 import world_fingerprint as WF  # noqa: E402
 try:
-    _rmd5 = hashlib.md5(open(PE.MASTER, "rb").read()).hexdigest()
+    # ★L5-37 多母带: 逐条 md5, 记母带集合 (单条时退化为原来的单 md5)。
+    _masters = getattr(raw, "_masters", [PE.MASTER])
+    _md5s = [hashlib.md5(open(m, "rb").read()).hexdigest() for m in _masters]
+    _rmd5 = _md5s[0] if len(_md5s) == 1 else ",".join(_md5s)
 except Exception:
     _rmd5 = None
 WF.write(raw, os.path.join(log_dir, "world.json"), extra={

@@ -13,7 +13,9 @@ import numpy as np, torch
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "C_Wiring"))
 os.environ["POUR_NO_D6"] = "1"
 os.environ.pop("POUR_SQUEEZE_FF", None)
-V1 = "tasks/Pour/17/A_Design/L2_Reference/pour17_reference_v1.npz"
+# ★L5-37: V1 输入可配置 (POUR_REF_V1IN) —— 位置泛化把 v1 位置变体升级成 v5(273帧) 格式。
+#   默认原 v1 (幂等). 输入必须是"未扩张的 v1 格式"(135交互), 否则重跑会再扩张一次。
+V1 = os.environ.get("POUR_REF_V1IN") or "tasks/Pour/17/A_Design/L2_Reference/pour17_reference_v1.npz"
 # ★L5-11 #4: 生成器必须从 v1 读物体轨迹 —— env 默认加载 v2, 重跑一次就多扩张一次
 # (实测 135->163->191). 显式覆写 MASTER, 保证幂等。
 os.environ["POUR_REF_NPZ"] = os.path.abspath(V1)

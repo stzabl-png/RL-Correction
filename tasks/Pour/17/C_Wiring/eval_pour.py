@@ -31,6 +31,8 @@ import torch  # noqa: E402
 import yaml  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import world_fingerprint as _WF  # noqa: E402
+_WF.restore_physics_env(_WF.world_json_of(args.checkpoint))  # L5-34: 先还原再建环境
 import pour_env as PE  # noqa: E402
 from rl_rebuild.algo.ppo.ppo import PPO  # noqa: E402
 from rl_rebuild.wrapper.config_wrapper import ConfigWrapper  # noqa: E402

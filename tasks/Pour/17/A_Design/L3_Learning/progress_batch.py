@@ -20,6 +20,10 @@ from progress import (M2_STRICT_HORIZ, M2_STRICT_DZ_LO, M2_STRICT_DZ_HI,
                       _tier,
                       G1_HOLD, CERT_RAMP, CERT_HOLD, CERT_RET, CERT_RISE,
                       CERT_SLIP, CERT_WAIT, CERT_TRIES, WAGE, WAGE_CAP,
+                      HOLD_POSE, HOLD_V2, HOLD_MODE, HOLD_TILT_TOL, HOLD_DRIFT_TOL,
+                      HOLD_PEN_TILT0, HOLD_PEN_TILT1, HOLD_PEN_DRIFT0, HOLD_PEN_DRIFT1,
+                      HOLD_K_TILT, HOLD_K_DRIFT,
+                      PLACE_TERMINAL, PLACE_REWARD,
                       D1_DROP, D2_TILT, D3_DEV, TABLE_Z)
 
 
@@ -82,25 +86,34 @@ class PourProgressBatch:
                  up_local_bot=(0.0, 1.0, 0.0), mouth_gate=0.12,
                  leash_rot_tilt=False, kcap=None, no_hand_ref=False,
                  goal_only=False):
-        z = np.load(npz_path, allow_pickle=True)
+        # ★L5-37 多母带: npz_path 可逗号分隔多条 (格式一致, 只差物体静置位)。ref_obj 堆成
+        #   (N_TAPE, oi, N_ROW, 7); 每 env 挂 tape_id, judge 时按 tape gather。置信度/mouth/up 取首条
+        #   (同 recon, 平移不变)。单条时逐位与旧行为一致。
+        _paths = [p.strip() for p in npz_path.split(",") if p.strip()]
+        self.N_TAPE = len(_paths)
+        _zs = [np.load(p, allow_pickle=True) for p in _paths]
+        z = _zs[0]
         rows = np.where(np.asarray(z["source"]) == 1)[0]
         self.N_ROW = len(rows)
         self.Ne, self.dev = int(num_envs), device
         f32 = lambda a: torch.tensor(np.asarray(a, np.float64)[rows],
                                      dtype=torch.float32, device=device)
-        self.ref_obj = {oi: torch.cat([f32(z[f"obj_pos_{oi}"]),
-                                       f32(z[f"obj_quat_{oi}"])], dim=1)
-                        for oi in (0, 1)}
+        # ref_obj_stack: (N_TAPE, 2, N_ROW, 7)
+        _ro = np.stack([np.stack([np.concatenate([
+            np.asarray(_z[f"obj_pos_{oi}"], np.float64)[rows],
+            np.asarray(_z[f"obj_quat_{oi}"], np.float64)[rows]], axis=1) for oi in (0, 1)])
+            for _z in _zs])
+        self.ref_obj_stack = torch.tensor(_ro, dtype=torch.float32, device=device)
+        self.ref_obj = {oi: self.ref_obj_stack[0, oi] for oi in (0, 1)}   # 单母带口径视图
+        self.tape_id = torch.zeros(int(num_envs), dtype=torch.long, device=device)
         self.stance = {s: torch.tensor(np.asarray(z[f"{s}_q"], np.float64)[-1],
                                        dtype=torch.float32, device=device)
                        for s in ("right", "left")}
-        def tiers(key):
-            return torch.tensor([( _tier(v) if _tier(v) is not None else 2)
-                                 for v in np.asarray(z[key])[rows]],
-                                dtype=torch.long, device=device)
-        self.tp = {oi: tiers(f"conf_pos_{oi}") for oi in (0, 1)}
-        self.tr = {oi: tiers(f"conf_rot_{oi}") for oi in (0, 1)}
-        self.tmix = torch.minimum(self.tp[1], self.tr[1])
+        def tiers_np(key):
+            return np.array([(_tier(v) if _tier(v) is not None else 2)
+                             for v in np.asarray(z[key])[rows]], np.int64)
+        _tp = {oi: tiers_np(f"conf_pos_{oi}") for oi in (0, 1)}
+        _tr = {oi: tiers_np(f"conf_rot_{oi}") for oi in (0, 1)}
         # ★L5-31 消融旗 POUR_CONF_FLAT: 把逐帧置信度**整条链路**拍平到黄档(tier=1)。
         #   全部消费者都通过 tp/tr/tmix 索引, 所以改这一处, 下游六项自动跟着变:
         #     ① W_OBJ/W_HAND 0.5/0.5   ② 皮筋位置 恒5cm   ③ 皮筋朝向 恒30°且红档禁判失效
@@ -112,13 +125,21 @@ class PourProgressBatch:
         #     两种都有。判读 2×2 的交互项时必须记住这个不对称, 别当成发现。
         self.conf_flat = os.environ.get("POUR_CONF_FLAT") == "1"
         if self.conf_flat:
-            _one = torch.ones_like(self.tmix)
-            self.tmix = _one.clone()
-            for oi in (0, 1):
-                self.tp[oi] = torch.ones_like(self.tp[oi])
-                self.tr[oi] = torch.ones_like(self.tr[oi])
+            for _d in (_tp, _tr):
+                for oi in (0, 1):
+                    _d[oi][:] = 1
             print("[PB] ★POUR_CONF_FLAT=1: 逐帧置信度已拍平到黄档 —— "
                   "权重/皮筋/时钟门/残差界/regime观测 全部恒定", flush=True)
+        # ★L5-36 通用设计 G-B (接触起始黄窗) + 对照变换 (打乱/反向): 拍平 → 打乱/反向 → 下限。
+        #   共享 helper rl_rebuild/correction/tier_floor.py, 标量版 progress.py 走同一函数。
+        #   tier_info 由 world_fingerprint 记入 switches (CRITICAL)。
+        from rl_rebuild.correction import tier_floor as _TF
+        from progress import CERT_RISE as _CERT_RISE
+        _tp, _tr, _tm, self.tier_info = _TF.transform(
+            _tp, _tr, np.asarray(z["obj_pos_1"], np.float64)[rows], _CERT_RISE, tag="PB")
+        self.tp = {oi: torch.tensor(_tp[oi], dtype=torch.long, device=device) for oi in (0, 1)}
+        self.tr = {oi: torch.tensor(_tr[oi], dtype=torch.long, device=device) for oi in (0, 1)}
+        self.tmix = torch.tensor(_tm, dtype=torch.long, device=device)
         self.LP = torch.tensor([LEASH_POS[0], LEASH_POS[1], LEASH_POS[2]],
                                device=device)
         self.LR = torch.tensor([float(LEASH_ROT[0] or 1e9),
@@ -140,7 +161,9 @@ class PourProgressBatch:
             self.WO = torch.tensor([W_OBJ[0], W_OBJ[1], W_OBJ[2]], device=device)
             self.WH = torch.tensor([W_HAND[0], W_HAND[1], W_HAND[2]],
                                    device=device)
-        self.rest = {oi: self.ref_obj[oi][0].clone() for oi in (0, 1)}
+        # rest_stack: (N_TAPE, 2, 7) 每条母带的静置位; rest 单母带口径视图。
+        self.rest_stack = self.ref_obj_stack[:, :, 0].clone()   # (N_TAPE,2,7)
+        self.rest = {oi: self.rest_stack[0, oi] for oi in (0, 1)}
         self.mb = torch.tensor(mouth_local_bot, dtype=torch.float32, device=device)
         self.mc = torch.tensor(mouth_local_cup, dtype=torch.float32, device=device)
         self.up = torch.tensor(up_local_bot, dtype=torch.float32, device=device)
@@ -170,6 +193,19 @@ class PourProgressBatch:
         self.cert_z0 = torch.zeros(num_envs, 2, device=device)
         self.cert_rel0 = {s: torch.zeros(num_envs, 3, device=device)
                           for s in ("right", "left")}
+        # ★L5-36.3 抓稳期姿态守恒: 认证起点的倾角/xy, 与斜坡+保持期内的最大偏离 (判决用最大值, 不只看终态)
+        self.hold_pose = bool(HOLD_POSE)
+        self.cert_tilt0 = torch.zeros(num_envs, 2, device=device)
+        self.cert_xy0 = torch.zeros(num_envs, 2, 2, device=device)
+        self.cert_tilt_dev = torch.zeros(num_envs, 2, device=device)
+        self.cert_drift = torch.zeros(num_envs, 2, device=device)
+        self.hold_v2 = bool(HOLD_V2)
+        if self.hold_pose:
+            print(f"[PB] ★POUR_HOLD_POSE={HOLD_MODE}: 认证加 倾角≤{np.degrees(HOLD_TILT_TOL):.0f}° / 漂移≤{HOLD_DRIFT_TOL*100:.0f}cm "
+                  f"({'v2: 相对参考静置的绝对倾角/漂移' if self.hold_v2 else 'v1: 认证内偏离'}); "
+                  f"渐进罚 倾角{np.degrees(HOLD_PEN_TILT0):.0f}°→{np.degrees(HOLD_PEN_TILT1):.0f}° K={HOLD_K_TILT}, "
+                  f"漂移{HOLD_PEN_DRIFT0*1000:.0f}mm→{HOLD_PEN_DRIFT1*100:.0f}cm K={HOLD_K_DRIFT} "
+                  f"(窗口 {'缝1合拢起→G2, env 侧算' if self.hold_v2 else 'G1→G2'})", flush=True)
         self.m2_run = torch.zeros(num_envs, dtype=torch.long, device=device)
         self.m2l_run = torch.zeros_like(self.m2_run)   # ★旧松判据影子(诊断)
         # ★L5-33 placed 绝对整形 (旗控, 关旗时行为与基线逐位一致):
@@ -178,6 +214,18 @@ class PourProgressBatch:
         #   唯一支付路径是 G4 的 +15 且还要求双臂回站姿 —— 极稀疏长链。
         self.place_shape = os.environ.get("POUR_PLACE_SHAPE") == "1"
         self.place_pot = torch.zeros(num_envs, device=device)
+        # ★L5-36.7 修真空 (旗 POUR_PLACE_BOTH=1, 用户 2026-09-02 批准): place 势拆瓶/杯两份独立棘轮。
+        #   探针实锤: 原 φ 只读瓶 ("杯在正常回合里不动"的假设已过时 —— 策略把杯举到半空接水),
+        #   杯的放回零梯度 ⟹ s54 型 "瓶回杯不回"。双棘轮各 K/2, 总封顶不变 (=PLACE_SHAPE_K)。
+        self.place_both = os.environ.get("POUR_PLACE_BOTH") == "1"
+        self.place_pot2 = torch.zeros(num_envs, 2, device=device)
+        if self.place_both:
+            print(f"[PB] ★POUR_PLACE_BOTH=1: place 势拆 瓶/杯 双棘轮, 各 K={PLACE_SHAPE_K/2:.1f}, "
+                  f"总封顶 {PLACE_SHAPE_K:.1f} 不变", flush=True)
+        self.place_terminal = bool(PLACE_TERMINAL)
+        if self.place_terminal:
+            print(f"[PB] ★POUR_PLACE_TERMINAL=1: placed(双物≤3cm/≤5°, 保持{M3_HOLD}步)=成功终止 + 付 {PLACE_REWARD:.0f} 终局奖; "
+                  f"撤离G4退役(诊断影子); RSI丢撤离出生点。placed倾角判据={np.degrees(M3_ROT):.0f}°", flush=True)
         self.g3_loose = torch.zeros(num_envs, dtype=torch.bool, device=device)
         self.m3_run = torch.zeros_like(self.m2_run)
         self.m4_run = torch.zeros_like(self.m2_run)
@@ -196,7 +244,7 @@ class PourProgressBatch:
                      "g3l": 0, "g3l_t0": 0, "plc": 0, "plc_t0": 0,
                      "ep_t0": 0, "g1_t0": 0, "g2_t0": 0, "g3_t0": 0, "g4_t0": 0,
                      "cf_rise_bot": 0, "cf_rise_cup": 0, "cf_slip_r": 0,
-                     "cf_slip_l": 0, "cf_pads": 0, "term_any": 0,
+                     "cf_slip_l": 0, "cf_pads": 0, "cf_tilt": 0, "cf_drift": 0, "term_any": 0,
                      "term_D2pre": 0, "term_D1_drop": 0, "term_D3_dev": 0, "term_D8_disturb": 0, "term_D2_tilt": 0}
 
     def reset_idx(self, env_ids):
@@ -262,6 +310,7 @@ class PourProgressBatch:
         for s in ("right", "left"):
             self.cert_rel0[s][env_ids] = 0.0
         self.place_pot[env_ids] = 0.0
+        self.place_pot2[env_ids] = 0.0
         for t_ in (self.k, self.g1_run, self.m2_run, self.m2l_run, self.m3_run, self.m4_run,
                    self.cert_phase, self.cert_t, self.cert_try, self.cert_wait):
             t_[env_ids] = 0
@@ -282,8 +331,10 @@ class PourProgressBatch:
         self.pre3[env_ids] = g3
         self.born_t0[env_ids] = ~(g1 | g2 | g3 | placed)
         for oi in (0, 1):
-            self.m3_snap[oi][env_ids] = self.rest[oi].unsqueeze(0) \
-                .expand(len(env_ids), 7)
+            # ★L5-37 多母带: 撤退快照 = 该 env 母带的静置位
+            self.m3_snap[oi][env_ids] = (self.rest_stack[self.tape_id[env_ids], oi]
+                                         if self.N_TAPE > 1
+                                         else self.rest[oi].unsqueeze(0).expand(len(env_ids), 7))
 
     def pop_rates(self):
         # ★L5-17: 分母为 0 时必须发 NaN, 不得发 0.0 ——
@@ -322,7 +373,7 @@ class PourProgressBatch:
                "n/ep_done_t0": float(_ep0),
                "n/cert_attempts": float(_at)}
         # F: 认证失败分项占比 (分母=认证尝试数; 空分母同样发 NaN, 不发 0.0)
-        for _k in ("rise_bot", "rise_cup", "slip_r", "slip_l", "pads"):
+        for _k in ("rise_bot", "rise_cup", "slip_r", "slip_l", "pads", "tilt", "drift"):
             out["cert_fail/" + _k] = _r(self._acc["cf_" + _k], _at)
         # L5-23 死因分项 (分母=本窗判据侧死亡数; 空分母同样发 NaN)
         _tn = self._acc["term_any"]
@@ -334,7 +385,7 @@ class PourProgressBatch:
                      "g3l": 0, "g3l_t0": 0, "plc": 0, "plc_t0": 0,
                      "ep_t0": 0, "g1_t0": 0, "g2_t0": 0, "g3_t0": 0, "g4_t0": 0,
                      "cf_rise_bot": 0, "cf_rise_cup": 0, "cf_slip_r": 0,
-                     "cf_slip_l": 0, "cf_pads": 0, "term_any": 0,
+                     "cf_slip_l": 0, "cf_pads": 0, "cf_tilt": 0, "cf_drift": 0, "term_any": 0,
                      "term_D2pre": 0, "term_D1_drop": 0, "term_D3_dev": 0, "term_D8_disturb": 0, "term_D2_tilt": 0}
         return out
 
@@ -343,6 +394,19 @@ class PourProgressBatch:
         """全部 (N,·) 张量; pads3 (N,)bool 双手各>=3/5垫; wrist_r/l (N,3)。
         run_mask: False 的 env 本步不受本机管辖(机器段行)。"""
         k = self.k.clamp(max=self.N_ROW - 1)
+
+        def _ro(oi, kk):
+            """每 env 参考物体行 (Ne,7): 单母带广播 ref_obj[oi][kk]; 多母带按 tape_id gather。"""
+            if self.N_TAPE == 1:
+                return self.ref_obj[oi][kk]
+            return self.ref_obj_stack[self.tape_id, oi, kk]
+
+        def _rst(oi):
+            """每 env 静置位 (Ne,7): 单母带广播; 多母带按 tape_id。"""
+            if self.N_TAPE == 1:
+                return self.rest[oi].unsqueeze(0).expand(self.Ne, 7)
+            return self.rest_stack[self.tape_id, oi]
+
         tier = self.tmix[k]
         w_obj = self.WO[tier]
         active = ~self.done if run_mask is None else (~self.done) & run_mask
@@ -350,12 +414,12 @@ class PourProgressBatch:
         cap = self.g1 & (~self.lb_set) & active     # 药⑤: G1 起换基
         if cap.any():
             for oi, act in ((0, obj0), (1, obj1)):
-                self.lb[oi][cap] = (act[:, :3] - self.ref_obj[oi][k][:, :3])[cap]
+                self.lb[oi][cap] = (act[:, :3] - _ro(oi, k)[:, :3])[cap]
             self.lb_set = self.lb_set | cap
         # ---- 皮筋 ----
         leash = torch.zeros(self.Ne, device=self.dev)
         for oi, act in ((0, obj0), (1, obj1)):
-            ref = self.ref_obj[oi][k]
+            ref = _ro(oi, k)
             dvec = act[:, :3] - ref[:, :3] \
                 - self.lb[oi] * self.lb_set.float().unsqueeze(1)
             dp = dvec.norm(dim=1)
@@ -382,7 +446,7 @@ class PourProgressBatch:
                          torch.full_like(w_obj, GATE_POS),
                          torch.full_like(w_obj, RED_GATE_POS))
         for oi, act in ((0, obj0), (1, obj1)):
-            ref = self.ref_obj[oi][k]
+            ref = _ro(oi, k)
             ok_obj &= ((act[:, :3] - ref[:, :3]).norm(dim=1) <= gp)
             rot_ok = (_qang(act[:, 3:7] / act[:, 3:7].norm(dim=1, keepdim=True)
                             .clamp(min=1e-9), ref[:, 3:7]) <= GATE_ROT)
@@ -421,8 +485,31 @@ class PourProgressBatch:
             self.cert_z0[start, 1] = obj1[start, 2]
             self.cert_rel0["right"][start] = (wrist_r - obj1[:, :3])[start]
             self.cert_rel0["left"][start] = (wrist_l - obj0[:, :3])[start]
+            if self.hold_pose:
+                for oi, act in ((0, obj0), (1, obj1)):
+                    up_ = self.up if oi == 1 else self.upc
+                    if self.hold_v2:
+                        # v2: 基准 = 参考静置 (交互首行) 的倾角与 xy —— 量"绝对"倾斜/漂移, 合拢期推歪的也算
+                        self.cert_tilt0[start, oi] = self.ref_tilt[oi][0]
+                        self.cert_xy0[start, oi] = _rst(oi)[start, :2]
+                    else:
+                        self.cert_tilt0[start, oi] = _tilt(act[:, 3:7], up_)[start]
+                        self.cert_xy0[start, oi] = act[start, :2]
+                self.cert_tilt_dev[start] = 0.0
+                self.cert_drift[start] = 0.0
         in_cert = (self.cert_phase > 0) & (~start) & active
         self.cert_t = torch.where(in_cert, self.cert_t + 1, self.cert_t)
+        if self.hold_pose:
+            # 斜坡+保持期 (相 1/2) 逐步追踪最大倾角偏离与 xy 漂移 —— 判决看最大值, 瞬时歪一下再回正也算
+            _trk = in_cert & (self.cert_phase <= 2)
+            for oi, act in ((0, obj0), (1, obj1)):
+                up_ = self.up if oi == 1 else self.upc
+                _dv = (_tilt(act[:, 3:7], up_) - self.cert_tilt0[:, oi]).abs()
+                _dr = (act[:, :2] - self.cert_xy0[:, oi]).norm(dim=1)
+                self.cert_tilt_dev[:, oi] = torch.where(_trk, torch.maximum(self.cert_tilt_dev[:, oi], _dv),
+                                                        self.cert_tilt_dev[:, oi])
+                self.cert_drift[:, oi] = torch.where(_trk, torch.maximum(self.cert_drift[:, oi], _dr),
+                                                     self.cert_drift[:, oi])
         to_hold = in_cert & (self.cert_phase == 1) & (self.cert_t >= CERT_RAMP)
         self.cert_phase[to_hold] = 2
         self.cert_t[to_hold] = 0
@@ -436,7 +523,12 @@ class PourProgressBatch:
                    ("slip_r", rel_r < CERT_SLIP),
                    ("slip_l", rel_l < CERT_SLIP),
                    ("pads", pads3))
-            ok5 = _cj[0][1] & _cj[1][1] & _cj[2][1] & _cj[3][1] & _cj[4][1]
+            if self.hold_pose:      # ★L5-36.3 A: 两物体在斜坡+保持期内 倾角偏离≤10° 且 xy 漂移≤1cm
+                _cj = _cj + (("tilt", (self.cert_tilt_dev <= HOLD_TILT_TOL).all(dim=1)),
+                             ("drift", (self.cert_drift <= HOLD_DRIFT_TOL).all(dim=1)))
+            ok5 = _cj[0][1]
+            for _k, _okm in _cj[1:]:
+                ok5 = ok5 & _okm
             for _k, _okm in _cj:
                 self._acc["cf_" + _k] += int((judge & (~_okm)).sum())
             self.cert_pending |= judge & ok5
@@ -493,7 +585,7 @@ class PourProgressBatch:
         # ---- placed (不付奖) ----
         ok3 = torch.ones_like(ok_obj)
         for oi, act in ((0, obj0), (1, obj1)):
-            ok3 &= ((act[:, :3] - self.rest[oi][:3]).norm(dim=1) <= M3_POS)
+            ok3 &= ((act[:, :3] - _rst(oi)[:, :3]).norm(dim=1) <= M3_POS)
             up3 = self.up if oi == 1 else self.upc
             ok3 &= (_tilt(act[:, 3:7], up3) <= M3_ROT)   # 倾角口径, yaw豁免
         gatep = self.g3 & (~self.placed) & active
@@ -501,13 +593,31 @@ class PourProgressBatch:
                                   torch.zeros_like(self.m3_run))
         newp = gatep & (self.m3_run >= M3_HOLD)
         self.placed |= newp
+        # ★L5-36.9: placed=成功终点 —— 保持 15 步即付终局奖 + 终止回合 (不做撤离)。
+        if PLACE_TERMINAL:
+            ms_r += newp.float() * PLACE_REWARD
+            self.done |= newp
         # ---- ★L5-33 placed 绝对整形 (earn-only 棘轮) ----
         #   φ 只读瓶位姿与 rest —— 与 placed 判据同源的**绝对量**, 不读参考轨迹。
         #   只按瓶算(杯在正常回合里不动; placed 判据本身仍判双物)。
         #   全程支付上限 = PLACE_SHAPE_K × (1−φ@G3达成) ≤ 6.0。
         r_place = torch.zeros(self.Ne, device=self.dev)
-        if self.place_shape:
-            _db = (obj1[:, :3] - self.rest[1][:3]).norm(dim=1)
+        if self.place_shape and self.place_both:
+            # ★L5-36.7: 瓶/杯各一份 φ 与棘轮 (播种逻辑同款, 逐物体独立), 各付 K/2 —— 杯的放回从此有梯度。
+            _gp = self.g3 & (~self.placed) & active
+            for _oi, (_o, _up) in enumerate(((obj0, self.upc), (obj1, self.up))):
+                _d = (_o[:, :3] - _rst(_oi)[:, :3]).norm(dim=1)
+                _tl = _tilt(_o[:, 3:7], _up)
+                _phi = (0.5 * (1.0 - (_d / PLACE_SHAPE_D0).clamp(0, 1))
+                        + 0.5 * (1.0 - (_tl / PLACE_SHAPE_T0).clamp(0, 1)))
+                _pot = self.place_pot2[:, _oi]
+                _seed = _gp & (_pot <= 0)
+                _pot = torch.where(_seed, _phi, _pot)
+                r_place = r_place + (PLACE_SHAPE_K / 2) * (_phi - _pot).clamp(min=0) \
+                    * (_gp & ~_seed).float()
+                self.place_pot2[:, _oi] = torch.where(_gp, torch.maximum(_pot, _phi), _pot)
+        elif self.place_shape:
+            _db = (obj1[:, :3] - _rst(1)[:, :3]).norm(dim=1)
             _tl = _tilt(obj1[:, 3:7], self.up)
             _phi = (0.5 * (1.0 - (_db / PLACE_SHAPE_D0).clamp(0, 1))
                     + 0.5 * (1.0 - (_tl / PLACE_SHAPE_T0).clamp(0, 1)))
@@ -536,8 +646,11 @@ class PourProgressBatch:
                                   torch.zeros_like(self.m4_run))
         new4 = gate4 & (self.m4_run >= M4_HOLD)
         self.g4 |= new4
-        self.done |= new4
-        ms_r += new4.float() * MS_REWARD[4]
+        # ★L5-36.9: PLACE_TERMINAL 时撤离 G4 退役 —— 仍记 g4 (诊断影子), 但不终止不付奖
+        #   (回合已在 placed 终止)。旗关时保持原行为 (G4 终止 + 付 MS_REWARD[4])。
+        if not PLACE_TERMINAL:
+            self.done |= new4
+            ms_r += new4.float() * MS_REWARD[4]
         # ---- 死线 D1/D2/D3/D8 (D2pre: G2前倾>60°) ----
         # ★L5-23 死因分项: 原来五种死因 OR 进一个 fail, 死了却说不出为什么死。
         # G4|G3 只有 0.10~0.31, 但"卡在放回还是撤退"无法回答 —— 因为 D8(撤退期扰动)
@@ -552,7 +665,7 @@ class PourProgressBatch:
         for oi, act in ((0, obj0), (1, obj1)):
             up_ = self.up if oi == 1 else self.upc
             _fc["D1_drop"] |= (act[:, 2] < TABLE_Z - D1_DROP)
-            ref = self.ref_obj[oi][k]
+            ref = _ro(oi, k)
             if not self.goal_only:      # ★D3 读参考轨迹, goal 臂必须关掉
                 _fc["D3_dev"] |= (~self.placed) & (
                     (act[:, :3] - ref[:, :3]).norm(dim=1) > D3_DEV)
@@ -562,6 +675,17 @@ class PourProgressBatch:
                 ((act[:, :3] - sn[:, :3]).norm(dim=1) > M4_DIST_POS)
                 | (tl > M4_DIST_ROT))
             _fc["D2_tilt"] |= self.placed & (tl > D2_TILT)
+        # ---- ★L5-36.3 B: 抓稳期 (G1 后 G2 前) 姿态守恒渐进罚: 绝对倾角 + 离静置 xy 漂移, 每步 −K×(0..1) ----
+        hold_pen = torch.zeros(self.Ne, device=self.dev)
+        if self.hold_pose and not self.hold_v2:      # v2 的 B 在 env 侧算 (窗口含缝 1 合拢期)
+            _grasp = (self.g1 & (~self.g2) & active).float()
+            for oi, act in ((0, obj0), (1, obj1)):
+                up_ = self.up if oi == 1 else self.upc
+                _pt = ((_tilt(act[:, 3:7], up_) - HOLD_PEN_TILT0)
+                       / (HOLD_PEN_TILT1 - HOLD_PEN_TILT0)).clamp(0, 1)
+                _pd = (((act[:, :2] - _rst(oi)[:, :2]).norm(dim=1) - HOLD_PEN_DRIFT0)
+                       / (HOLD_PEN_DRIFT1 - HOLD_PEN_DRIFT0)).clamp(0, 1)
+                hold_pen = hold_pen - (HOLD_K_TILT * _pt + HOLD_K_DRIFT * _pd) * _grasp
         fail = _cz()
         for _k, _v in _fc.items():
             fail |= _v
@@ -573,7 +697,7 @@ class PourProgressBatch:
         self._acc["term_any"] += int(fail.sum())
         self.done |= fail
         return {"adv": adv, "leash": leash, "ms": ms_r, "wage": wage,
-                "place": r_place,
+                "place": r_place, "hold_pen": hold_pen,
                 "w_obj": w_obj, "w_hand": self.WH[tier], "clock": self.k.clone(), "done": self.done.clone(),
                 "tier": tier, "fail": fail,
                 "cert_phase": self.cert_phase.clone(),

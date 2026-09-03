@@ -25,6 +25,8 @@ _CW = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                    "..", "C_Wiring"))
 sys.path.insert(0, _CW)
 sys.path.insert(0, os.path.abspath(os.path.join(_CW, "..", "A_Design", "L3_Learning")))
+import world_fingerprint as _WF  # noqa: E402
+_WF.restore_physics_env(_WF.world_json_of(args.checkpoint))  # L5-34: 先还原再建环境
 import pour_env as PE  # noqa: E402
 from progress import CERT_HOLD, CERT_RISE, CERT_SLIP  # noqa: E402
 from rl_rebuild.algo.ppo.ppo import PPO  # noqa: E402

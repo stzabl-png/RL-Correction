@@ -36,11 +36,55 @@ def _quat_from_aa(v: torch.Tensor) -> torch.Tensor:
     return torch.cat([torch.cos(half), torch.sin(half) * axis], dim=-1)
 
 
+# ---- 通用设计 G-A 物理规矩 (2026-08-31 用户裁定; 台账 L5-34 立规, L5-36 上提为通用) ----
+# 所有任务默认: 物体 0.1kg / 物体摩擦 5.0 / 指垫摩擦 5.0 (multiply 合成 手↔物 25)。
+# 变量名沿用 POUR_* 是历史原因 (L5-13 难度旋钮), 语义已是全局。显式设置可覆盖做消融;
+# 空串 = 不覆写 (保留 clip 表 / USD 原生物理)。回放脚本不要手填, 用
+# world_fingerprint.restore_physics_env() 按 ckpt 的 world.json 还原。
+# 必须在 _setup_scene 读 POUR_PAD_FRIC 之前生效, 故放模块导入期。
+PHYS_RULE = {"POUR_OBJ_MASS": "0.1", "POUR_OBJ_FRIC": "5.0", "POUR_PAD_FRIC": "5.0"}
+for _k, _v in PHYS_RULE.items():
+    os.environ.setdefault(_k, _v)
+
+
+def apply_phys_rule(named_bodies, print_pad=False):
+    """把 POUR_OBJ_MASS / POUR_OBJ_FRIC 覆写到 [(名字, RigidObject), ...]。
+    须在 sim.reset() 之后调用 (root_physx_view 才存在)。横幅 "难度覆写" 供发车前 grep 核验。"""
+    _m = os.environ.get("POUR_OBJ_MASS") or None
+    _fr = os.environ.get("POUR_OBJ_FRIC") or None
+    for _nm, _art in named_bodies:
+        if not (_m or _fr):
+            print(f"[phys] {_nm}: 质量/摩擦未覆写 (母带/USD 原生)", flush=True)
+            continue
+        try:
+            _v = _art.root_physx_view
+            if _m:
+                _ms = _v.get_masses().clone()
+                _ms[:] = float(_m) / max(_ms.shape[1], 1)
+                _v.set_masses(_ms, torch.arange(_ms.shape[0]))
+            if _fr:
+                _mp = _v.get_material_properties().clone()
+                _mp[..., 0] = float(_fr)      # static
+                _mp[..., 1] = float(_fr)      # dynamic
+                _v.set_material_properties(_mp, torch.arange(_mp.shape[0]))
+            _ms2 = _v.get_masses()[0].sum()
+            _mp2 = _v.get_material_properties()[0][0]
+            print(f"[phys] 难度覆写 {_nm}: 质量={float(_ms2):.3f}kg "
+                  f"摩擦={float(_mp2[0]):.2f}/{float(_mp2[1]):.2f}", flush=True)
+        except Exception as _e:
+            print(f"[phys] ★难度覆写 {_nm} 失败: {type(_e).__name__}: {_e}", flush=True)
+    if print_pad:
+        print(f"[phys] 指垫摩擦覆写 = {os.environ.get('POUR_PAD_FRIC') or '3.0(旧默认)'}",
+              flush=True)
+
+
 class SharpaCorrectionEnv(DirectRLEnv):
     cfg: SharpaCorrectionEnvCfg
 
     def __init__(self, cfg: SharpaCorrectionEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
+        # 通用设计 G-A: 主体物体的质量/摩擦按规矩覆写 (子类的附加物体自己补调, 如 pour 的杯)
+        apply_phys_rule([("物体", self.object)], print_pad=True)
         # 手指/手臂在 self.hand 关节表里的下标. 飞手 = 22 个关节全是手指、没有臂;
         # DexMate 子类会覆盖成"整机 67 关节里挑出 22 手指 + 7 臂".
         self._resolve_joint_ids()
@@ -432,9 +476,9 @@ class SharpaCorrectionEnv(DirectRLEnv):
         # SuperGrip 只给 5 指尖 elastomer + 物体; 手身(掌/背/指节)用低摩擦.
         # 教训: 整手 9.0 会让手掌一碰物体就刚性粘住拖飞(参考手差几cm没抓上时尤甚).
         # 指尖↔物=3.0×3.0=9.0 (真抓握强握); 手身↔物=0.2×3.0=0.6 (掌蹭不拖飞).
-        # POUR_PAD_FRIC: 指垫(及绑同材质的主体物)摩擦覆写, 默认 3.0 保持原行为。
-        # 用途: 难度消融(调大=更好抓)。2026-08-29 加, 不设变量时零影响。
-        _grip_mu = float(os.environ.get("POUR_PAD_FRIC", "3.0"))
+        # POUR_PAD_FRIC: 指垫(及绑同材质的主体物)摩擦。2026-08-29 作为难度旋钮加入 (默认 3.0);
+        # 2026-08-31 起由模块顶 PHYS_RULE 默认填 5.0 (通用设计 G-A)。空串 = 回旧默认 3.0。
+        _grip_mu = float(os.environ.get("POUR_PAD_FRIC") or "3.0")
         grip = sim_utils.RigidBodyMaterialCfg(
             static_friction=_grip_mu, dynamic_friction=_grip_mu, restitution=0.0,
             friction_combine_mode="multiply", restitution_combine_mode="multiply")

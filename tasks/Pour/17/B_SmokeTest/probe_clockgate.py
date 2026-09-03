@@ -47,6 +47,8 @@ import yaml  # noqa: E402
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_HERE, "..", "C_Wiring"))
+import world_fingerprint as _WF  # noqa: E402
+_WF.restore_physics_env(_WF.world_json_of(args.checkpoint))  # L5-34: 先还原再建环境
 import pour_env as PE  # noqa: E402
 sys.path.insert(0, os.path.join(_HERE, "..", "A_Design", "L3_Learning"))
 import progress_batch as PBM  # noqa: E402

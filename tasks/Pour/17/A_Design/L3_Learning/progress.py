@@ -18,6 +18,8 @@ rot15/30°/红禁, 时钟门5cm/45° 红档人手关节口径20°) 原样保留;
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 
 TIER_HI, TIER_LO = 70.0, 40.0
@@ -54,7 +56,15 @@ M2_HOLD = 25          # G3 hold: 重建实测倒水2.2s(33帧)的~75%, 留余量
 PLACE_SHAPE_K = 6.0           # earn-only 棘轮全程封顶 (低于 G3 的 10, 不喧宾夺主)
 PLACE_SHAPE_D0 = 0.35         # m, 距离归一 (= D3_DEV, 离参考死线)
 PLACE_SHAPE_T0 = np.radians(90)   # 倾角归一
-M3_POS, M3_ROT, M3_HOLD = 0.03, np.radians(15), 15   # placed 判据 (原M3)
+# ★L5-36.9 (用户 2026-09-02 裁定): placed=成功终点, 不做撤离。
+#   ① placed 倾角判据 15°→5° (更严, 参考末态瓶2°/杯0° 可达但边界紧);
+#   ② placed 保持 15 步即成功终止 (self.done); ③ placed 达成付终局奖 PLACE_REWARD=15 (原 G4 的);
+#   ④ 撤离 G4 退役 (保留为诊断影子, 不终止不付奖); ⑤ RSI 撤离出生点丢弃 (见 entry_table)。
+#   旗关时行为与历史逐位一致 (M3_ROT=15, G4 终止, 无 placed 奖)。
+PLACE_TERMINAL = os.environ.get("POUR_PLACE_TERMINAL") == "1"
+PLACE_REWARD = 15.0           # placed 终局奖 (仅 PLACE_TERMINAL; 继承原 G4 的 MS_REWARD[4])
+M3_POS, M3_HOLD = 0.03, 15
+M3_ROT = np.radians(5) if PLACE_TERMINAL else np.radians(15)   # ★placed 判据倾角
 M4_ARM, M4_HOLD = np.radians(10), 15          # G4 双臂贴站姿逐关节<10°, hold15
 M4_DIST_POS, M4_DIST_ROT = 0.05, np.radians(30)   # 撤退期物体相对placed快照扰动上限
 # ---- G1/G2 认证 (L5-1 拍板) ----
@@ -65,6 +75,25 @@ CERT_RAMP, CERT_HOLD, CERT_RET = 8, 5, 8
 CERT_RISE = 0.005             # 双物 z 升 >=5mm (认证行=+15mm)
 CERT_SLIP = 0.008             # 手物相对位移 <8mm
 CERT_WAIT, CERT_TRIES = 20, 3
+# ---- L5-36.3 抓稳期姿态守恒 (旗 POUR_HOLD_POSE=1; 用户 2026-09-01 裁定, 数字取默认) ----
+#   A. 认证加两条硬条件: 斜坡+保持期内 物体倾角变化 ≤ HOLD_TILT_TOL 且 xy 漂移 ≤ HOLD_DRIFT_TOL (两物体),
+#      否则认证失败 (分项 cert_fail/tilt, cert_fail/drift)。探针实证整形线提起时倾 15~28° —— 从此不算抓稳。
+#   B. G1→G2 渐进罚: 绝对倾角 5°→60° 线性 + 离静置 xy 漂移 5mm→5cm 线性, 每步 −K×(0..1); G2 后自动关
+#      (交互期物体姿态由参考轨迹管, 只剩滑移死线)。填 "15°/30° 皮筋 + 60° 死刑" 之间的梯度空档。
+#   旗开时 A 的常量进 criteria_items (digest 变); 旗关时清单不变 → 老 ckpt 硬闸不受影响。
+#   ★标量版 PourProgress 未实现本旗 (只供 entry_table / 自检; 自检在旗关下跑, 逐位一致仍成立)。
+#   ★v2 (POUR_HOLD_POSE=2, 2026-09-01 夜探针修正): v1 的 A 量"认证内偏离", 探针实测各线都只有 0.2~0.9° ——
+#   12~25° 的倾斜是合拢推挤期 (G1 前) 形成的, 进认证时已斜。v2: A 量 **相对参考静置的绝对倾角** 与
+#   **相对静置的 xy 漂移** (斜坡+保持期最大值); B 的窗口从缝 1 手指开始合拢 (env 侧 APP_END) 起到 G2。
+HOLD_MODE = (os.environ.get("POUR_HOLD_POSE") or "0").strip()
+HOLD_POSE = HOLD_MODE in ("1", "2")
+HOLD_V2 = HOLD_MODE == "2"
+HOLD_TILT_TOL = np.radians(10)
+HOLD_DRIFT_TOL = 0.01
+HOLD_PEN_TILT0, HOLD_PEN_TILT1 = np.radians(5), np.radians(60)
+HOLD_PEN_DRIFT0, HOLD_PEN_DRIFT1 = 0.005, 0.05
+HOLD_K_TILT = float(os.environ.get("POUR_HOLD_K_TILT", "0.05"))
+HOLD_K_DRIFT = float(os.environ.get("POUR_HOLD_K_DRIFT", "0.05"))
 WAGE = 0.05                   # 站位维持费 (G2 前, 双手垫>=3 时逐步)
 WAGE_CAP = 3.0                # L5-8 药④: 每回合工资总额上限 (< G2的+8, 断躺平诱饵)
 # ---- 死线 (#10 全表; D4-D7 属 env 侧接线) ----
@@ -109,7 +138,7 @@ def _axis_tilt(q, up_local):
 #     和"阈值变了"又混成一团 —— 就是刚避开的坑换个地方复发。给出逐项表, 消费方
 #     可以精确说出: 哪些键新增、哪些键的值变了。
 # =============================================================================
-CRITERIA_SCHEMA = 1
+CRITERIA_SCHEMA = 2 if HOLD_POSE else 1   # ★L5-36.3: 旗开时清单扩了 (schema 变=预期), 旗关时与历史一致
 
 
 def criteria_items():
@@ -145,6 +174,11 @@ def criteria_items():
         "M4_DIST_POS": M4_DIST_POS, "M4_DIST_ROT": M4_DIST_ROT,
         "D1_DROP": D1_DROP, "D2_TILT": D2_TILT, "D3_DEV": D3_DEV,
         "TABLE_Z": TABLE_Z,
+        # ★L5-36.3: 只在旗开时入表 —— 旗关时清单与历史一致, 不动老 ckpt 的 digest
+        **({"HOLD_POSE": 1.0, "HOLD_TILT_TOL": HOLD_TILT_TOL,
+            "HOLD_DRIFT_TOL": HOLD_DRIFT_TOL} if HOLD_POSE else {}),
+        # v2 才加键: v1 的 digest (a3812d0c) 保持不变, msc 在跑的 gh v1 线硬闸不受影响
+        **({"HOLD_MODE": 2.0} if HOLD_V2 else {}),
     }.items()}
 
 
@@ -233,8 +267,18 @@ class PourProgress:
                    for oi in (0, 1)}
         self.tr = {oi: [_tier(v) for v in np.asarray(z[f"conf_rot_{oi}"])[rows]]
                    for oi in (0, 1)}
-        self.tmix = [min(a if a is not None else 2, b if b is not None else 2)
-                     for a, b in zip(self.tr[1], self.tp[1])]   # 主档=瓶 min(pos,rot)
+        # ★L5-36: 与 batch 版走同一 helper (G-B 起始黄窗 + 打乱/反向对照), 两边档位必须一致。
+        #   (标量版历来不做 POUR_CONF_FLAT 拍平, 保持原样 —— 它只供 entry_table / 探针。)
+        from rl_rebuild.correction import tier_floor as _TF
+        _tp = {oi: np.array([(t if t is not None else 2) for t in self.tp[oi]], np.int64)
+               for oi in (0, 1)}
+        _tr = {oi: np.array([(t if t is not None else 2) for t in self.tr[oi]], np.int64)
+               for oi in (0, 1)}
+        _tp, _tr, _tm, self.tier_info = _TF.transform(
+            _tp, _tr, np.asarray(z["obj_pos_1"], np.float64)[rows], CERT_RISE, tag="PS")
+        self.tp = {oi: _tp[oi].tolist() for oi in (0, 1)}
+        self.tr = {oi: _tr[oi].tolist() for oi in (0, 1)}
+        self.tmix = _tm.tolist()   # 主档=瓶 min(pos,rot)
         self.rest = {oi: self.obj[oi][0].copy() for oi in (0, 1)}
         self.mouth_b = np.asarray(mouth_local_bot, np.float64)
         self.mouth_c = np.asarray(mouth_local_cup, np.float64)
@@ -260,7 +304,10 @@ class PourProgress:
                     if _axis_tilt(self.obj[1][i][3:7], self.up_b) >= M2_TILT]
             pour_end = min(max(ends) + 1, self.N - 1) if ends else self.N - 1
             et.append((pour_end, {1, 2, 3}, "g3"))
-            et.append((self.N - 1, {1, 2, 3, "placed"}, "ret"))
+            # ★L5-36.9: placed 终止时不练撤离, 丢弃"生来已placed"的撤离出生点
+            #   (它会一出生即终止/永不终止, 污染回合统计); g3 出生 = 放回段专练出生, 保留。
+            if not PLACE_TERMINAL:
+                et.append((self.N - 1, {1, 2, 3, "placed"}, "ret"))
         return et
 
     def enter(self, row, preset_ms):

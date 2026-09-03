@@ -28,6 +28,20 @@ import re
 # 关键项: 对不上 = ckpt 在这台机器上无效, 直接拒跑
 CRITICAL = (
     "robot.usd_md5", "robot.controlled_joint_names_in_order",
+    # ★L5-34: 指垫摩擦是手↔物合成摩擦的一半(multiply), 换了它就是换了抓握物理。
+    #   老 world.json 没这一项 -> 走"未验"报警, 不拦。
+    "robot.pad_friction",
+    # ★L5-36: 通用设计 G-B 起始黄窗 + 打乱/反向对照 —— 都改档位表 = 改残差界/皮筋/时钟门/
+    #   regime 观测, ckpt 跨表回放无意义。老 world.json 缺键 -> 未验不拦。
+    "switches.tier_floor_start", "switches.tier_shuffle", "switches.tier_reverse",
+    # ★L5-36.2 抓握建立整形旗: 改 G1→G2 奖励地形, ckpt 跨旗回放无意义。
+    "switches.grip_shape",
+    # ★L5-36.3 抓稳期姿态守恒旗: 改认证判据 (旗开时常量也进 criteria.digest) + G1→G2 罚。
+    "switches.hold_pose",
+    # ★L5-36.7 place 双棘轮旗: 改放回段奖励地形。
+    "switches.place_both",
+    # ★L5-36.9 placed=成功终点旗: 改判据(倾角5°→digest已变)+终止+奖励+RSI出生表。
+    "switches.place_terminal",
     "reference.md5", "policy_io.obs_dim", "policy_io.act_dim",
     # ★L5-26: 判据摘要 —— 改阈值=改成败判定, 属关键项。与整文件哈希不同,
     # 加计数器不会动它(见 progress.criteria_items 的说明)。
@@ -205,6 +219,9 @@ def collect(env) -> dict:
         "robot": {"usd": usd, "usd_md5": _md5(usd) if usd else None,
                   "num_joints_articulation": len(jn),
                   "controlled_joint_names_in_order": ctrl,
+                  # 记生效值: correction_env 建 SuperGrip 材质时读的就是这个变量
+                  # (pour_env 导入期已填默认, 见 PHYS_RULE), 不设时旧默认 3.0。
+                  "pad_friction": _f(float(os.environ.get("POUR_PAD_FRIC", "3.0"))),
                   # ★记生效值 + 来源, 见 _self_collision() 注释。
                   "self_collision": _sc, "self_collision_source": _sc_src},
         "sensors": {"count": len(getattr(env, "_all_sensors", [])),
@@ -234,7 +251,26 @@ def collect(env) -> dict:
                          "POUR_ARM_FREE_SCALE", "20.0"))
                          if getattr(env, "arm_free", False) else 1.0),
                      "friction_curriculum": bool(
-                         getattr(cfg, "friction_curriculum", False))},
+                         getattr(cfg, "friction_curriculum", False)),
+                     # ★L5-36 G-B / 对照变换: 记生效值 (无进度机的任务写 0/False = 不适用,
+                     #   不写 None —— None 在闸里是"读不到")。
+                     "tier_floor_start": int(getattr(env.PB, "tier_info", {}).get(
+                         "tier_floor_start", 0)) if hasattr(env, "PB") else 0,
+                     "tier_shuffle": int(getattr(env.PB, "tier_info", {}).get(
+                         "tier_shuffle", 0)) if hasattr(env, "PB") else 0,
+                     "tier_reverse": bool(getattr(env.PB, "tier_info", {}).get(
+                         "tier_reverse", False)) if hasattr(env, "PB") else False,
+                     # ★L5-36.2: 关旗写 False/0 (不适用), 不写 None
+                     "grip_shape": bool(getattr(env, "grip_shape", False)),
+                     "grip_opp_k": _f(getattr(env, "K_OPP", 0.0)) if getattr(env, "grip_shape", False) else 0.0,
+                     "grip_follow_k": _f(getattr(env, "K_FOLLOW", 0.0)) if getattr(env, "grip_shape", False) else 0.0,
+                     # ★L5-36.3: 关旗写 False (不适用)
+                     "hold_pose": bool(getattr(env.PB, "hold_pose", False)) if hasattr(env, "PB") else False,
+                     "place_both": bool(getattr(env.PB, "place_both", False)) if hasattr(env, "PB") else False,
+                     "place_terminal": bool(getattr(env.PB, "place_terminal", False)) if hasattr(env, "PB") else False,
+                     # v1/v2 语义不同 (v2 量绝对倾斜/漂移, 罚窗含合拢期); 关旗 0
+                     "hold_mode": (2 if getattr(env.PB, "hold_v2", False) else
+                                   (1 if getattr(env.PB, "hold_pose", False) else 0)) if hasattr(env, "PB") else 0},
     }
     return fp
 
@@ -350,3 +386,44 @@ def assert_match(env, path, strict=True):
         return False
     print("[world] ✅ 世界匹配", flush=True)
     return True
+
+
+def world_json_of(ckpt_path):
+    """ckpt 的出生世界 = 它同 run 目录下的 world.json (stage1_nn/x.pth -> ../world.json)。"""
+    return os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(ckpt_path))), "world.json")
+
+
+def restore_physics_env(path):
+    """回放/探针专用, 必须在 `import pour_env` **之前**调用。
+
+    把 ckpt 出生世界记录的物体质量/摩擦/指垫摩擦还原成 POUR_OBJ_MASS / POUR_OBJ_FRIC /
+    POUR_PAD_FRIC。背景 (L5-34 规矩): pour_env 导入期把三者默认填成 0.1/5.0/5.0, 而 L5-33
+    及更早的 ckpt 生在硬物理里 (瓶0.53/杯0.15, 摩擦3.0/0.5, 指垫3.0), 不还原就会在
+    assert_match 硬闸处被拦。两物体同值 ⟹ 当年就是覆写出来的, 原样覆写; 异值 ⟹ 母带原生
+    物理, 用空串关掉覆写。找不到 world.json 时不动环境变量, 交给硬闸去报。
+    只是"还原可复现的输入", 不替代 assert_match —— 回放前照样要核对。"""
+    if not os.path.exists(path):
+        print(f"[world] ⚠ 无 world.json, 物理参数按当前默认 (硬闸稍后会报未知): {path}",
+              flush=True)
+        return None
+    with open(path) as f:
+        w = json.load(f)
+    objs = w.get("objects") or {}
+    ms = [o.get("mass_kg") for o in objs.values()]
+    fr = [o.get("static_friction") for o in objs.values()]
+    same = (ms and None not in ms and None not in fr
+            and max(ms) - min(ms) < 1e-4 and max(fr) - min(fr) < 1e-3)
+    if same:
+        os.environ["POUR_OBJ_MASS"] = f"{ms[0]:.6g}"
+        os.environ["POUR_OBJ_FRIC"] = f"{fr[0]:.6g}"
+    else:
+        os.environ["POUR_OBJ_MASS"] = ""
+        os.environ["POUR_OBJ_FRIC"] = ""
+    pad = (w.get("robot") or {}).get("pad_friction")
+    os.environ["POUR_PAD_FRIC"] = f"{pad:.6g}" if pad is not None else "3.0"
+    print(f"[world] 物理参数按出生世界还原: 物体质量={os.environ['POUR_OBJ_MASS'] or '母带原生'} "
+          f"物体摩擦={os.environ['POUR_OBJ_FRIC'] or '母带原生'} "
+          f"指垫摩擦={os.environ['POUR_PAD_FRIC']}"
+          + ("" if pad is not None else " (world.json 未记指垫, 按旧默认 3.0)"), flush=True)
+    return w

@@ -103,13 +103,17 @@ print(f"[批量自检] env3(垃圾): ms={sum_b[3,1]:.0f} clock={int(B.k[3])} g2=
       f"cert_try={int(B.cert_try[3])} (期望: G1的+5, 时钟0, g2 False, try=3)")
 B.reset_idx(torch.arange(4))
 rates = B.pop_rates()
+# ★L5-36.9: PLACE_TERMINAL 下撤离退役 -> gate4 恒 0 (设计变化, 非 bug); success 由 placed 触发, 仍应 0.75。
+import progress as _P
+_g4_exp = 0.0 if getattr(_P, "PLACE_TERMINAL", False) else 0.75
 print(f"[批量自检] TB逐关率: {dict((k_, round(v_, 2)) for k_, v_ in rates.items())} "
-      f"(期望 gate1=1.0 gate2..4=0.75, env3 拉低)")
+      f"(期望 gate1=1.0 gate2..3=0.75 gate4={_g4_exp} success=0.75, env3 拉低)")
 ok = (abs(sum_b[0, 0] - sum_s["adv"]) < 1e-3 and abs(sum_b[0, 1] - sum_s["ms"]) < 1e-3
       and abs(sum_b[0, 2].item() - sum_s["leash"]) < 1e-3
       and abs(sum_b[0, 3].item() - sum_s["wage"]) < 1e-3 and mism == 0
       and sum_b[3, 1].item() == 5.0 and int(B.k[3]) == 0
-      and abs(rates["sr/gate4"] - 0.75) < 1e-6
+      and abs(rates["sr/gate4"] - _g4_exp) < 1e-6
+      and abs(rates["sr/success"] - 0.75) < 1e-6
       and abs(rates["sr/gate1"] - 1.0) < 1e-6)
 print("✅ 批量一致性+TB记账 全部通过" if ok else "❌ 未通过 —— 见上")
 sys.exit(0 if ok else 1)

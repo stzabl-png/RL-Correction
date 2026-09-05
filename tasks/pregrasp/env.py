@@ -99,7 +99,9 @@ class GraspTaskEnv(DexmateCorrectionEnv):
             cfg.episode_length_s = max(cfg.episode_length_s,
                                        cfg.approach_only_steps * cfg.decimation
                                        * cfg.sim.dt * 1.05)
-            cfg.retract_start = True          # 接近任务默认用退避起点族
+            # 焊接工具任务无接近/退避段 (task_sweep 移植门; 旗不设=旧行为)
+            if not getattr(cfg, "fixed_attached_tools", False):
+                cfg.retract_start = True      # 接近任务默认用退避起点族
         if getattr(cfg, "retract_start", False) and not getattr(cfg, "arm_table_shell", False):
             cfg.arm_table_shell = True
             print("[approach] retract_start=1 -> 强制打开 arm_table_shell "
@@ -737,7 +739,7 @@ class GraspTaskEnv(DexmateCorrectionEnv):
                 else np.array([1.0, 0, 0, 0])
             assert abs(_canon[0]) > 0.999, \
                 f"resting_pose 权威假设 canon_rot≈单位阵, 实际 {_canon}"
-        elif "canon_rot" in z.files:
+        elif "canon_rot" in z.files and not getattr(cfg, "fixed_attached_tools", False):
             from rl_rebuild.correction import frames as _F
             oq = np.asarray(z["canon_rot"], np.float64)
             _v = _F.load_obj_verts(self.du.mesh_path) @ quat_to_R(oq).T
@@ -773,6 +775,10 @@ class GraspTaskEnv(DexmateCorrectionEnv):
                     assert _ang < 150, (
                         f"canon_rot 与 scene_layout 的主轴差 {_ang:.1f}° —— 物体上下颠倒, "
                         f"抓姿会落到桌面下(Grasp3 事故复现)。先裁定用哪一个, 不许静默开训。")
+        elif "canon_rot" in z.files:
+            # 焊接工具任务已在 cfg.object_cfg.init_state 给了重建物体首帧位姿;
+            # 换成通用 Dexonomy 静置姿会破坏 物体->GraspPose 变换 (task_sweep 移植门 2026-09-05)
+            print("[prior] fixed_attached_tools: 保留任务给定的重建物体首帧位姿")
         Ro = quat_to_R(oq)
 
         def to_env(row29):

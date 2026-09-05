@@ -1,0 +1,160 @@
+{
+ "schema_version": "grasp_prompt_v2",
+ "provenance": {
+  "generated_at": "2026-08-19T19:54:46-07:00",
+  "generator_sha1": "79f304b2aa90",
+  "generator_commit": "b5a5b08",
+  "generator_host": "msclab-AS-4124GS-TNR",
+  "generator_user": "yanghong"
+ },
+ "take": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_auto/sweep_dustpan/2",
+ "consumer": "GraspPose Agent",
+ "n_grasps": 2,
+ "grasps": [
+  {
+   "object_id": "object_0",
+   "hand": "left",
+   "mesh": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_auto/sweep_dustpan/2/objects/object_0/object_mesh_scaled_final.obj",
+   "grasp_window_frames": [
+    147,
+    156
+   ],
+   "n_frames": 10,
+   "contact_region": {
+    "principal_axis": "z",
+    "object_size_m": [
+     0.1584,
+     0.029,
+     0.2165
+    ],
+    "height_pct": [
+     0,
+     21
+    ],
+    "height_pct_median": 9,
+    "azimuth_span_deg": 120,
+    "azimuth_sectors_30deg": [
+     30,
+     60,
+     90,
+     120
+    ],
+    "radius_pct": 15,
+    "n_hot": 405,
+    "hot_frac_of_surface": 0.0067
+   },
+   "contact_cloud_npz": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_auto/sweep_dustpan/2/contact/contact_v2_object_0_left.npz",
+   "contact_cloud_ply": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_auto/sweep_dustpan/2/contact/contact_v2_object_0_left.ply",
+   "trust": {
+    "opposition": 0.41,
+    "opposition_note": "0=接触点全朝同一边(夹不住) 1=完全对生; <0.40 判非抓握",
+    "hand_mask_agreement": 0.38,
+    "hand_mask_agreement_note": "重建手落在实测手mask里的比例; 正常 0.55~0.63",
+    "object_mask_agreement": 0.647,
+    "object_pose_suspect": false,
+    "object_mask_agreement_note": "重建物体投影 vs 实测物体 mask 的 IoU; 实测健康 0.45~0.69, <0.30 判可疑(门槛暂定)",
+    "hand_surface_gap_mm": 0.17,
+    "object_conf_pos": 87.0,
+    "object_conf_rot": 87.0,
+    "occluded_frac": 0.778,
+    "visibility_note": "本区域只覆盖相机可见的一面; 背面接触真实存在但不可观测",
+    "azimuth_span_deg": 120,
+    "azimuth_is_lower_bound": true,
+    "n_alternative_windows": 19,
+    "alternative_windows": []
+   }
+  },
+  {
+   "object_id": "object_1",
+   "hand": "right",
+   "mesh": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_auto/sweep_dustpan/2/objects/object_1/object_mesh_scaled_final.obj",
+   "grasp_window_frames": [
+    210,
+    223
+   ],
+   "n_frames": 14,
+   "contact_region": {
+    "principal_axis": "z",
+    "object_size_m": [
+     0.0782,
+     0.1159,
+     0.2923
+    ],
+    "height_pct": [
+     0,
+     30
+    ],
+    "height_pct_median": 11,
+    "azimuth_span_deg": 60,
+    "azimuth_sectors_30deg": [
+     60,
+     90
+    ],
+    "radius_pct": 89,
+    "n_hot": 1007,
+    "hot_frac_of_surface": 0.0168
+   },
+   "contact_cloud_npz": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_auto/sweep_dustpan/2/contact/contact_v2_object_1_right.npz",
+   "contact_cloud_ply": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_auto/sweep_dustpan/2/contact/contact_v2_object_1_right.ply",
+   "trust": {
+    "opposition": 0.63,
+    "opposition_note": "0=接触点全朝同一边(夹不住) 1=完全对生; <0.40 判非抓握",
+    "hand_mask_agreement": 0.747,
+    "hand_mask_agreement_note": "重建手落在实测手mask里的比例; 正常 0.55~0.63",
+    "object_mask_agreement": 0.43,
+    "object_pose_suspect": false,
+    "object_mask_agreement_note": "重建物体投影 vs 实测物体 mask 的 IoU; 实测健康 0.45~0.69, <0.30 判可疑(门槛暂定)",
+    "hand_surface_gap_mm": 0.08,
+    "object_conf_pos": 73.0,
+    "object_conf_rot": 73.0,
+    "occluded_frac": 0.892,
+    "visibility_note": "本区域只覆盖相机可见的一面; 背面接触真实存在但不可观测",
+    "azimuth_span_deg": 60,
+    "azimuth_is_lower_bound": true,
+    "n_alternative_windows": 24,
+    "alternative_windows": [
+     {
+      "span": [
+       138,
+       145
+      ],
+      "n": 8,
+      "gap_mm": 0.16
+     },
+     {
+      "span": [
+       292,
+       298
+      ],
+      "n": 7,
+      "gap_mm": 0.21
+     },
+     {
+      "span": [
+       267,
+       272
+      ],
+      "n": 6,
+      "gap_mm": 0.37
+     }
+    ]
+   }
+  }
+ ],
+ "rejected": [
+  {
+   "object_id": "object_0",
+   "hand": "right",
+   "status": "no_contact_interval",
+   "why": null
+  },
+  {
+   "object_id": "object_1",
+   "hand": "left",
+   "status": "no_contact_interval",
+   "why": null
+  }
+ ],
+ "hand_without_target": [],
+ "how_contact_was_obtained": "单目 egocentric 视频重建 -> 逐帧手(MANO)与物体(6DoF)在世界系对齐 -> 在'手物相对位姿稳定 且 贴合 且 对生'的窗口内, 统计物体表面每个采样点被手碰到的帧数比例。判贴合时**丢弃沿相机视线方向的距离分量**(单目深度近乎不可观测), 只用图像平面内的分量。"
+}

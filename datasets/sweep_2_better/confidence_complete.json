@@ -1,0 +1,33 @@
+{
+  "status": "complete",
+  "step": "confidence",
+  "dataset": "egodex_auto",
+  "video_id": "sweep_dustpan__2",
+  "poseqa_root": "/home/yanghong/Reconstruct_and_Retarget/Data/VideoPrior/poseqa",
+  "objects": {
+    "object_0": {
+      "conf_pos_median": 87.0,
+      "conf_rot_median": 87.0,
+      "position_grade": "good",
+      "rotation_usable": true,
+      "refuted_frames": 0,
+      "manifest_status": "active"
+    },
+    "object_1": {
+      "conf_pos_median": 73.0,
+      "conf_rot_median": 73.0,
+      "position_grade": "good",
+      "rotation_usable": true,
+      "refuted_frames": 0,
+      "manifest_status": "active"
+    }
+  },
+  "manifest_status": "active",
+  "summary_object": "object_0",
+  "n_objects": 2,
+  "conf_pos_median": 87.0,
+  "conf_rot_median": 87.0,
+  "position_grade": "good",
+  "rotation_usable": true,
+  "refuted_frames": 0
+}

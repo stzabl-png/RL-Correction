@@ -1,0 +1,82 @@
+{
+  "status": "complete",
+  "step": "sam2_object",
+  "dataset": "egodex_auto",
+  "video_id": "sweep_dustpan__2",
+  "num_frames": 300,
+  "detected_frames": 300,
+  "prompt_frame_idx": 297,
+  "backend": "sam2",
+  "object_id": "object_0",
+  "mask_filename": "object_0.png",
+  "frame_idx": 297,
+  "points": [
+    [
+      1092.0,
+      664.0
+    ]
+  ],
+  "labels": [
+    1
+  ],
+  "num_points": 1,
+  "num_positive_points": 1,
+  "locked": true,
+  "name": null,
+  "schema_version": "sam2_object_prompt_v2",
+  "num_objects": 2,
+  "object_ids": [
+    "object_0",
+    "object_1"
+  ],
+  "objects": [
+    {
+      "num_frames": 300,
+      "detected_frames": 300,
+      "prompt_frame_idx": 297,
+      "backend": "sam2",
+      "object_id": "object_0",
+      "mask_filename": "object_0.png",
+      "frame_idx": 297,
+      "points": [
+        [
+          1092.0,
+          664.0
+        ]
+      ],
+      "labels": [
+        1
+      ],
+      "num_points": 1,
+      "num_positive_points": 1,
+      "locked": true,
+      "name": null
+    },
+    {
+      "num_frames": 300,
+      "detected_frames": 300,
+      "prompt_frame_idx": 5,
+      "backend": "sam2",
+      "object_id": "object_1",
+      "mask_filename": "object_1.png",
+      "frame_idx": 5,
+      "points": [
+        [
+          1158.0,
+          632.0
+        ]
+      ],
+      "labels": [
+        1
+      ],
+      "num_points": 1,
+      "num_positive_points": 1,
+      "locked": true,
+      "name": null
+    }
+  ],
+  "object_mask_id": "object_0",
+  "masks_dir": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/interim/egodex_auto/sweep_dustpan__2/sam2_object/video_segmentation/masks",
+  "sam2_checkpoint": "/home/yanghong/Reconstruct_and_Retarget/third_party/sam2/checkpoints/sam2.1_hiera_large.pt",
+  "sam2_model_cfg": "configs/sam2.1/sam2.1_hiera_l.yaml"
+}

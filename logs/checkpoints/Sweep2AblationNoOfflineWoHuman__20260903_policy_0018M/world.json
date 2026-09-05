@@ -1,0 +1,67 @@
+{
+  "schema": 2,
+  "task": "Sweep2_fixed_cube_fullinside",
+  "seed": 42,
+  "policy_io": {
+    "obs_dim": 191,
+    "priv_dim": 22,
+    "act_dim": 14
+  },
+  "time": {
+    "control_dt_s": 0.05,
+    "scripted_prelude_steps": 80
+  },
+  "cube_start_world_m": [
+    -0.0259767957,
+    -0.1788897067,
+    0.8830000162
+  ],
+  "success": {
+    "definition": "fully_inside",
+    "whole_cube_inside": true,
+    "mouth_clearance_margin_m": 0.0,
+    "immediate_termination": true,
+    "recording_only_freeze_seconds": 2.0,
+    "final_eval_episodes": 512,
+    "required_rate": 0.5
+  },
+  "mouth_floor": {
+    "penalty_start_clearance_m": 0.0005,
+    "penalty_span_m": 0.0035,
+    "penalty_scale": 4.0,
+    "failure_clearance_m": -0.003
+  },
+  "method": {
+    "name": "wo_human",
+    "human_shape": false,
+    "confidence_mode": "reference",
+    "warmup_role": "none"
+  },
+  "transitions": [
+    {
+      "path": "/home/msc-auto/RL_sweep/logs/expert/transitions_fullinside/sweep2_entry25_transitions.npz",
+      "sha256": "a16f6723bcb81e2a7fe10f57bfcd0bfbc1884a7c60e62b6f298bc32abafc2acc"
+    },
+    {
+      "path": "/home/msc-auto/RL_sweep/logs/expert/transitions_fullinside/sweep2_entry40_transitions.npz",
+      "sha256": "6e85addfa87809826422ef049763f69cabc0a5fb2049a92e747748141ca509bb"
+    },
+    {
+      "path": "/home/msc-auto/RL_sweep/logs/expert/transitions_fullinside/sweep2_full15_transitions.npz",
+      "sha256": "462aa3571d7c4080316ecd0750cb9d448da34ae151fa82c94e67a64610df5785"
+    },
+    {
+      "path": "/home/msc-auto/RL_sweep/logs/expert/transitions_fullinside/sweep2_canonical_failure_transitions.npz",
+      "sha256": "0b08cd09455e973d92b1650e05383c4eb48f9d1199302413f229d9c00a51b039"
+    }
+  ],
+  "warmup_transitions": [],
+  "reference": {
+    "path": "/home/msc-auto/RL_sweep/tasks/Sweep/2/A_Design/L2_Reference/sweep2_reference_v1.npz",
+    "sha256": "c765ce3c8a36568d47cf6d2e943669bdf7ab99b507046f5d5a505be29edb00b9"
+  },
+  "dustpan_asset": {
+    "path": "/home/msc-auto/RL_sweep/tasks/Sweep/2/assets/dustpan_smooth_entry/object_mesh_scaled_final.obj",
+    "sha256": "f5cccd6dbc04852350f0091f3a37a73546fc32a087be2ad14c53532b14e028a3"
+  }
+}

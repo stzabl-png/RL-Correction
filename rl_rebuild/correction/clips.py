@@ -392,22 +392,31 @@ CLIPS["Pour17_cup"] = _pour17("cup")
 #     ③ semantics 质量为估计值 (簸箕/扫帚未称重)
 #   GraspPose = 用户钦点 (Dexonomy 功能池, demo_angle 口径):
 #     簸箕×左 fingertip_small__8_34 (64.2°, 4 接触; ⚠中指力仅 3%, Gate2 边界)
-#     扫帚×右 8_Prismatic_2_Finger__37_16 (30.0°, 5 接触, 力分配 29/28/23/20)
+#     扫帚×右 8_Prismatic_2_Finger__46_16 (46.5°, region=1.0, functional;
+#       2026-08-30 multi-start ArmIK screen selected for the Sweep robot workspace)。
 #   scene_layout 红旗: object_0(簸箕) 稳定姿态吸附判"倒置"(轴夹角 157.6°),
 #   GUI 首验必看摆放。
 # =============================================================================
 
 
 def _sweep2(primary: str):
-    base = os.path.join(_DATASETS, "sweep2")
-    rr = "/home/lyh/Project/Reconstruct_and_Retarget/results/sweep_2_better"
+    # Self-contained task dataset.  The former registration mixed a staged mesh
+    # directory with one developer's private reconstruction checkout, so it could
+    # not run on a fresh clone.
+    base = os.path.join(_DATASETS, "sweep_2_better")
+    rr = base
+    # The reconstructed dustpan scan curls upward again at the open mouth,
+    # creating a 5--6 mm false lip that blocks the Sweep2 cube.  Keep the source
+    # dataset immutable and use the reproducibly smoothed task asset instead.
+    smooth_pan = os.path.abspath(os.path.join(
+        os.path.dirname(__file__), "../../tasks/Sweep/2/assets/dustpan_smooth_entry"))
     dustpan = dict(
         oid="object_0", hand="left",
         label="dustpan (15.8x2.9x21.6cm, handle near ground)",
-        mesh=os.path.join(base, "objects", "object_0", "object_mesh_scaled_final.obj"),
+        mesh=os.path.join(smooth_pan, "object_mesh_scaled_final.obj"),
         usd=os.path.join(rr, "retarget", "object_0.usd"),
-        usd_physics=os.path.join(base, "cache", "object_0.usd"),
-        semantics=ObjectSemantics(label="dustpan", mass_kg=0.15, friction=0.6,
+        usd_physics=os.path.join(smooth_pan, "object_mesh_scaled_final.usd"),
+        semantics=ObjectSemantics(label="dustpan", mass_kg=0.10, friction=0.6,
                                   mass_range=(0.08, 0.30)),
     )
     broom = dict(
@@ -416,7 +425,7 @@ def _sweep2(primary: str):
         mesh=os.path.join(base, "objects", "object_1", "object_mesh_scaled_final.obj"),
         usd=os.path.join(rr, "retarget", "object_1.usd"),
         usd_physics=os.path.join(base, "cache", "object_1.usd"),
-        semantics=ObjectSemantics(label="hand broom", mass_kg=0.25, friction=0.6,
+        semantics=ObjectSemantics(label="hand broom", mass_kg=0.10, friction=0.6,
                                   mass_range=(0.12, 0.45)),
     )
     pri, sec = (broom, dustpan) if primary == "broom" else (dustpan, broom)

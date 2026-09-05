@@ -1,0 +1,21 @@
+{
+  "schema_version": "recon_world_v4",
+  "status": "complete",
+  "dataset": "egodex_auto",
+  "video_id": "sweep_dustpan__2",
+  "world_npz": "world_fused.npz",
+  "object_mesh": "object_mesh_scaled_final.obj",
+  "world_summary": "world_summary.json",
+  "num_frames": 300,
+  "num_objects": 2,
+  "object_track_frames": 300,
+  "hands_included": true,
+  "hand_root_front_samples": 64,
+  "hand_valid_samples": 64,
+  "world_xy_alignment_mode": "middle_camera_forward_projected_xy",
+  "world_xy_alignment_frame_index": 150,
+  "masks_included": true,
+  "mask_manifest": "masks/masks_manifest.json",
+  "object_mask_pngs": 600,
+  "hand_mask_pngs": 600
+}

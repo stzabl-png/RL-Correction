@@ -1,0 +1,176 @@
+{
+  "schema": 1,
+  "purpose": "Sweep2 center plus four pan-local cube-start variants",
+  "source_reference": "/home/msc-auto/RL_sweep/tasks/Sweep/2/A_Design/L2_Reference/sweep2_reference_v1.npz",
+  "source_reference_sha256": "c765ce3c8a36568d47cf6d2e943669bdf7ab99b507046f5d5a505be29edb00b9",
+  "center_world_m": [
+    -0.0259767957,
+    -0.1788897067,
+    0.8830000162
+  ],
+  "lateral_mm": 1.0,
+  "longitudinal_mm": 5.0,
+  "count": 5,
+  "axes": {
+    "lateral_world_xy": [
+      0.0009230485701105907,
+      0.0003846834246712409,
+      0.0
+    ],
+    "longitudinal_world_xy": [
+      0.0020331901666276984,
+      -0.004567946775776665,
+      0.0
+    ]
+  },
+  "plane": "pan-local lateral/longitudinal projected to world XY; Z unchanged",
+  "reference_modified": false,
+  "training_launched": false,
+  "static_gate_only": true,
+  "physics_validation_required": true,
+  "thresholds": {
+    "prelude_steps": 80,
+    "min_prelude_contact_point_distance_mm": 30.0,
+    "contact_distance_band_mm": [
+      3.0,
+      15.0
+    ],
+    "max_contact_window_reference_speed_mps": 0.12,
+    "max_lateral_mm": 1.0,
+    "max_longitudinal_mm": 5.0
+  },
+  "variants": [
+    {
+      "variant_id": "cube_center",
+      "color_name": "red",
+      "color_rgb": [
+        0.8500000238418579,
+        0.11999999731779099,
+        0.07999999821186066
+      ],
+      "semantic_offset": "center",
+      "offset_world_xy_mm": [
+        0.0,
+        0.0
+      ],
+      "cube_start_world_m": [
+        -0.0259767957,
+        -0.1788897067,
+        0.8830000162
+      ],
+      "prelude_closest_row": 55,
+      "prelude_min_contact_point_distance_mm": 34.862568729270926,
+      "trajectory_closest_row": 424,
+      "trajectory_min_contact_point_distance_mm": 6.696581720742854,
+      "contact_window_max_reference_speed_mps": 0.07821593140666791,
+      "static_gate": "PASS",
+      "failures": []
+    },
+    {
+      "variant_id": "cube_left",
+      "color_name": "blue",
+      "color_rgb": [
+        0.07999999821186066,
+        0.25,
+        0.8999999761581421
+      ],
+      "semantic_offset": "left",
+      "offset_world_xy_mm": [
+        -0.9230485701105907,
+        -0.3846834246712409
+      ],
+      "cube_start_world_m": [
+        -0.02689984427011059,
+        -0.17927439012467125,
+        0.8830000162
+      ],
+      "prelude_closest_row": 55,
+      "prelude_min_contact_point_distance_mm": 35.80243458867707,
+      "trajectory_closest_row": 424,
+      "trajectory_min_contact_point_distance_mm": 6.990748570071686,
+      "contact_window_max_reference_speed_mps": 0.07821593140666791,
+      "static_gate": "PASS",
+      "failures": []
+    },
+    {
+      "variant_id": "cube_right",
+      "color_name": "green",
+      "color_rgb": [
+        0.07999999821186066,
+        0.699999988079071,
+        0.20000000298023224
+      ],
+      "semantic_offset": "right",
+      "offset_world_xy_mm": [
+        0.9230485701105907,
+        0.3846834246712409
+      ],
+      "cube_start_world_m": [
+        -0.02505374712988941,
+        -0.17850502327532877,
+        0.8830000162
+      ],
+      "prelude_closest_row": 55,
+      "prelude_min_contact_point_distance_mm": 33.92614145949665,
+      "trajectory_closest_row": 424,
+      "trajectory_min_contact_point_distance_mm": 6.54353481806396,
+      "contact_window_max_reference_speed_mps": 0.07821593140666791,
+      "static_gate": "PASS",
+      "failures": []
+    },
+    {
+      "variant_id": "cube_front",
+      "color_name": "yellow",
+      "color_rgb": [
+        0.8999999761581421,
+        0.75,
+        0.07999999821186066
+      ],
+      "semantic_offset": "front",
+      "offset_world_xy_mm": [
+        2.0331901666276986,
+        -4.567946775776665
+      ],
+      "cube_start_world_m": [
+        -0.0239436055333723,
+        -0.18345765347577667,
+        0.8830000162
+      ],
+      "prelude_closest_row": 54,
+      "prelude_min_contact_point_distance_mm": 36.64407189350928,
+      "trajectory_closest_row": 423,
+      "trajectory_min_contact_point_distance_mm": 4.667524614982619,
+      "contact_window_max_reference_speed_mps": 0.07821593140666791,
+      "static_gate": "PASS",
+      "failures": []
+    },
+    {
+      "variant_id": "cube_back",
+      "color_name": "purple",
+      "color_rgb": [
+        0.550000011920929,
+        0.11999999731779099,
+        0.75
+      ],
+      "semantic_offset": "back",
+      "offset_world_xy_mm": [
+        -2.0331901666276986,
+        4.567946775776665
+      ],
+      "cube_start_world_m": [
+        -0.028009985866627698,
+        -0.17432175992422336,
+        0.8830000162
+      ],
+      "prelude_closest_row": 56,
+      "prelude_min_contact_point_distance_mm": 33.44571164537138,
+      "trajectory_closest_row": 425,
+      "trajectory_min_contact_point_distance_mm": 9.58910767180043,
+      "contact_window_max_reference_speed_mps": 0.07474890149889855,
+      "static_gate": "PASS",
+      "failures": []
+    }
+  ],
+  "npz": "/home/msc-auto/RL_sweep/tasks/Sweep/2/A_Design/L2_Reference/sweep2_cube_cross5_v1.npz",
+  "npz_sha256": "0d27138593491cf690d1d1ebc50c77ff29badb4a8445011c0f960f9dfba601cf"
+}

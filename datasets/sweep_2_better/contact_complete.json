@@ -1,0 +1,44 @@
+{
+  "status": "complete",
+  "step": "contact",
+  "dataset": "egodex_auto",
+  "video_id": "sweep_dustpan__2",
+  "extractor": "extract_v2",
+  "schema_version": "contact_v2_summary_v1",
+  "is_prior": false,
+  "n_ok": 2,
+  "attempts": [
+    {
+      "object_id": "object_0",
+      "side": "left",
+      "status": "ok",
+      "why": null,
+      "opposition": 0.40696965955236264,
+      "hand_mask_agreement": 0.38046272493573263
+    },
+    {
+      "object_id": "object_0",
+      "side": "right",
+      "status": "no_contact_interval",
+      "why": null,
+      "opposition": null,
+      "hand_mask_agreement": null
+    },
+    {
+      "object_id": "object_1",
+      "side": "left",
+      "status": "no_contact_interval",
+      "why": null,
+      "opposition": null,
+      "hand_mask_agreement": null
+    },
+    {
+      "object_id": "object_1",
+      "side": "right",
+      "status": "ok",
+      "why": null,
+      "opposition": 0.6283097335095282,
+      "hand_mask_agreement": 0.7467866323907455
+    }
+  ]
+}

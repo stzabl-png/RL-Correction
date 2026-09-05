@@ -1,0 +1,1298 @@
+[
+ {
+  "name": "fingertip_small__3_16_grasp.npy",
+  "demo_angle_deg": 50.2,
+  "in_region_frac": 0.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__4_8_grasp.npy",
+  "demo_angle_deg": 59.6,
+  "in_region_frac": 0.3333,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__47_34_grasp.npy",
+  "demo_angle_deg": 59.9,
+  "in_region_frac": 1.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__7_3_grasp.npy",
+  "demo_angle_deg": 64.0,
+  "in_region_frac": 1.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__8_34_grasp.npy",
+  "demo_angle_deg": 64.2,
+  "in_region_frac": 1.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__6_15_grasp.npy",
+  "demo_angle_deg": 65.2,
+  "in_region_frac": 0.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__53_26_grasp.npy",
+  "demo_angle_deg": 65.5,
+  "in_region_frac": 0.3333,
+  "functional": true
+ },
+ {
+  "name": "fingertip_middle__53_32_grasp.npy",
+  "demo_angle_deg": 66.3,
+  "in_region_frac": 0.2,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__58_30_grasp.npy",
+  "demo_angle_deg": 66.7,
+  "in_region_frac": 1.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__17_19_grasp.npy",
+  "demo_angle_deg": 66.7,
+  "in_region_frac": 0.6667,
+  "functional": true
+ },
+ {
+  "name": "fingertip_middle__41_4_grasp.npy",
+  "demo_angle_deg": 67.2,
+  "in_region_frac": 0.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__18_29_grasp.npy",
+  "demo_angle_deg": 68.7,
+  "in_region_frac": 1.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__36_15_grasp.npy",
+  "demo_angle_deg": 69.8,
+  "in_region_frac": 1.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__29_0_grasp.npy",
+  "demo_angle_deg": 70.4,
+  "in_region_frac": 1.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__24_48_grasp.npy",
+  "demo_angle_deg": 70.9,
+  "in_region_frac": 1.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__42_20_grasp.npy",
+  "demo_angle_deg": 72.0,
+  "in_region_frac": 1.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__42_31_grasp.npy",
+  "demo_angle_deg": 72.4,
+  "in_region_frac": 1.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__16_17_grasp.npy",
+  "demo_angle_deg": 72.4,
+  "in_region_frac": 1.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_middle__25_16_grasp.npy",
+  "demo_angle_deg": 73.0,
+  "in_region_frac": 0.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__43_49_grasp.npy",
+  "demo_angle_deg": 73.5,
+  "in_region_frac": 1.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__51_19_grasp.npy",
+  "demo_angle_deg": 74.0,
+  "in_region_frac": 0.3333,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__3_26_grasp.npy",
+  "demo_angle_deg": 75.0,
+  "in_region_frac": 1.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__44_18_grasp.npy",
+  "demo_angle_deg": 75.3,
+  "in_region_frac": 1.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_middle__46_28_grasp.npy",
+  "demo_angle_deg": 75.6,
+  "in_region_frac": 0.4,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__12_12_grasp.npy",
+  "demo_angle_deg": 75.7,
+  "in_region_frac": 0.6667,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__8_38_grasp.npy",
+  "demo_angle_deg": 76.4,
+  "in_region_frac": 1.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__26_28_grasp.npy",
+  "demo_angle_deg": 76.5,
+  "in_region_frac": 1.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__13_19_grasp.npy",
+  "demo_angle_deg": 76.5,
+  "in_region_frac": 1.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__16_11_grasp.npy",
+  "demo_angle_deg": 77.3,
+  "in_region_frac": 1.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__54_21_grasp.npy",
+  "demo_angle_deg": 77.5,
+  "in_region_frac": 0.3333,
+  "functional": true
+ },
+ {
+  "name": "fingertip_middle__53_9_grasp.npy",
+  "demo_angle_deg": 77.7,
+  "in_region_frac": 0.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_middle__5_20_grasp.npy",
+  "demo_angle_deg": 78.2,
+  "in_region_frac": 0.4,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__40_10_grasp.npy",
+  "demo_angle_deg": 78.3,
+  "in_region_frac": 1.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__12_0_grasp.npy",
+  "demo_angle_deg": 78.3,
+  "in_region_frac": 1.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__2_49_grasp.npy",
+  "demo_angle_deg": 79.0,
+  "in_region_frac": 0.6667,
+  "functional": true
+ },
+ {
+  "name": "fingertip_middle__55_46_grasp.npy",
+  "demo_angle_deg": 79.6,
+  "in_region_frac": 0.6,
+  "functional": true
+ },
+ {
+  "name": "fingertip_middle__54_32_grasp.npy",
+  "demo_angle_deg": 80.2,
+  "in_region_frac": 0.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__24_18_grasp.npy",
+  "demo_angle_deg": 80.7,
+  "in_region_frac": 1.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__9_42_grasp.npy",
+  "demo_angle_deg": 81.1,
+  "in_region_frac": 1.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_middle__31_22_grasp.npy",
+  "demo_angle_deg": 81.2,
+  "in_region_frac": 0.4,
+  "functional": true
+ },
+ {
+  "name": "fingertip_middle__45_6_grasp.npy",
+  "demo_angle_deg": 81.7,
+  "in_region_frac": 0.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__26_44_grasp.npy",
+  "demo_angle_deg": 82.3,
+  "in_region_frac": 1.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_middle__48_35_grasp.npy",
+  "demo_angle_deg": 83.4,
+  "in_region_frac": 0.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__8_25_grasp.npy",
+  "demo_angle_deg": 83.9,
+  "in_region_frac": 1.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_middle__26_7_grasp.npy",
+  "demo_angle_deg": 83.9,
+  "in_region_frac": 0.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__6_37_grasp.npy",
+  "demo_angle_deg": 85.6,
+  "in_region_frac": 0.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__46_32_grasp.npy",
+  "demo_angle_deg": 86.6,
+  "in_region_frac": 1.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_middle__45_28_grasp.npy",
+  "demo_angle_deg": 86.6,
+  "in_region_frac": 0.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_middle__30_48_grasp.npy",
+  "demo_angle_deg": 87.3,
+  "in_region_frac": 0.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_small__7_27_grasp.npy",
+  "demo_angle_deg": 88.4,
+  "in_region_frac": 0.0,
+  "functional": true
+ },
+ {
+  "name": "fingertip_middle__19_19_grasp.npy",
+  "demo_angle_deg": 90.8,
+  "in_region_frac": 0.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__8_17_grasp.npy",
+  "demo_angle_deg": 91.4,
+  "in_region_frac": 0.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__3_7_grasp.npy",
+  "demo_angle_deg": 93.2,
+  "in_region_frac": 0.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__57_0_grasp.npy",
+  "demo_angle_deg": 93.4,
+  "in_region_frac": 0.6667,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__33_8_grasp.npy",
+  "demo_angle_deg": 94.0,
+  "in_region_frac": 0.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__7_2_grasp.npy",
+  "demo_angle_deg": 94.6,
+  "in_region_frac": 0.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__22_6_grasp.npy",
+  "demo_angle_deg": 95.0,
+  "in_region_frac": 0.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__20_35_grasp.npy",
+  "demo_angle_deg": 102.8,
+  "in_region_frac": 0.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__26_21_grasp.npy",
+  "demo_angle_deg": 114.1,
+  "in_region_frac": 0.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__59_33_grasp.npy",
+  "demo_angle_deg": 115.6,
+  "in_region_frac": 0.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__57_46_grasp.npy",
+  "demo_angle_deg": 121.7,
+  "in_region_frac": 0.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__7_8_grasp.npy",
+  "demo_angle_deg": 121.9,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__53_16_grasp.npy",
+  "demo_angle_deg": 123.4,
+  "in_region_frac": 0.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__31_49_grasp.npy",
+  "demo_angle_deg": 128.6,
+  "in_region_frac": 0.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__31_3_grasp.npy",
+  "demo_angle_deg": 129.6,
+  "in_region_frac": 0.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__33_39_grasp.npy",
+  "demo_angle_deg": 129.7,
+  "in_region_frac": 0.6667,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__31_24_grasp.npy",
+  "demo_angle_deg": 132.0,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__49_28_grasp.npy",
+  "demo_angle_deg": 136.0,
+  "in_region_frac": 0.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__11_32_grasp.npy",
+  "demo_angle_deg": 137.8,
+  "in_region_frac": 0.3333,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__27_0_grasp.npy",
+  "demo_angle_deg": 138.4,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__44_2_grasp.npy",
+  "demo_angle_deg": 138.8,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__27_2_grasp.npy",
+  "demo_angle_deg": 139.2,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__50_24_grasp.npy",
+  "demo_angle_deg": 140.2,
+  "in_region_frac": 0.4,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__20_0_grasp.npy",
+  "demo_angle_deg": 140.5,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__59_9_grasp.npy",
+  "demo_angle_deg": 140.7,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__41_16_grasp.npy",
+  "demo_angle_deg": 140.7,
+  "in_region_frac": 0.4,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__36_34_grasp.npy",
+  "demo_angle_deg": 140.9,
+  "in_region_frac": 0.4,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__32_48_grasp.npy",
+  "demo_angle_deg": 141.2,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__52_8_grasp.npy",
+  "demo_angle_deg": 141.5,
+  "in_region_frac": 0.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__18_1_grasp.npy",
+  "demo_angle_deg": 141.6,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__31_5_grasp.npy",
+  "demo_angle_deg": 141.7,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__59_15_grasp.npy",
+  "demo_angle_deg": 142.5,
+  "in_region_frac": 0.4,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__25_2_grasp.npy",
+  "demo_angle_deg": 142.6,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__38_32_grasp.npy",
+  "demo_angle_deg": 142.8,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__18_18_grasp.npy",
+  "demo_angle_deg": 143.5,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__12_33_grasp.npy",
+  "demo_angle_deg": 143.9,
+  "in_region_frac": 0.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__11_41_grasp.npy",
+  "demo_angle_deg": 144.2,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__51_1_grasp.npy",
+  "demo_angle_deg": 144.3,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__37_24_grasp.npy",
+  "demo_angle_deg": 144.6,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__4_21_grasp.npy",
+  "demo_angle_deg": 145.1,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__17_42_grasp.npy",
+  "demo_angle_deg": 145.2,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__9_33_grasp.npy",
+  "demo_angle_deg": 145.2,
+  "in_region_frac": 0.3333,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__30_44_grasp.npy",
+  "demo_angle_deg": 145.2,
+  "in_region_frac": 0.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__41_1_grasp.npy",
+  "demo_angle_deg": 145.6,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__9_49_grasp.npy",
+  "demo_angle_deg": 145.7,
+  "in_region_frac": 0.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__57_45_grasp.npy",
+  "demo_angle_deg": 146.4,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__10_5_grasp.npy",
+  "demo_angle_deg": 146.6,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__49_1_grasp.npy",
+  "demo_angle_deg": 146.9,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__29_2_grasp.npy",
+  "demo_angle_deg": 147.2,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__6_0_grasp.npy",
+  "demo_angle_deg": 147.2,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__12_32_grasp.npy",
+  "demo_angle_deg": 147.2,
+  "in_region_frac": 0.4,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__20_3_grasp.npy",
+  "demo_angle_deg": 147.3,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__47_16_grasp.npy",
+  "demo_angle_deg": 147.3,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__1_19_grasp.npy",
+  "demo_angle_deg": 147.4,
+  "in_region_frac": 0.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__57_1_grasp.npy",
+  "demo_angle_deg": 148.0,
+  "in_region_frac": 0.4,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__9_0_grasp.npy",
+  "demo_angle_deg": 148.5,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__2_43_grasp.npy",
+  "demo_angle_deg": 148.7,
+  "in_region_frac": 0.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__45_23_grasp.npy",
+  "demo_angle_deg": 148.8,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__34_22_grasp.npy",
+  "demo_angle_deg": 149.0,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__35_45_grasp.npy",
+  "demo_angle_deg": 149.1,
+  "in_region_frac": 0.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__22_0_grasp.npy",
+  "demo_angle_deg": 149.3,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__11_38_grasp.npy",
+  "demo_angle_deg": 149.3,
+  "in_region_frac": 0.4,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__20_1_grasp.npy",
+  "demo_angle_deg": 149.5,
+  "in_region_frac": 0.4,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__27_25_grasp.npy",
+  "demo_angle_deg": 149.5,
+  "in_region_frac": 0.4,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__56_0_grasp.npy",
+  "demo_angle_deg": 149.8,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__14_20_grasp.npy",
+  "demo_angle_deg": 149.8,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__40_9_grasp.npy",
+  "demo_angle_deg": 150.8,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__10_47_grasp.npy",
+  "demo_angle_deg": 150.8,
+  "in_region_frac": 0.2,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__44_0_grasp.npy",
+  "demo_angle_deg": 151.1,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__47_2_grasp.npy",
+  "demo_angle_deg": 151.4,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__57_47_grasp.npy",
+  "demo_angle_deg": 151.6,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__0_1_grasp.npy",
+  "demo_angle_deg": 152.0,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__27_1_grasp.npy",
+  "demo_angle_deg": 152.0,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__1_6_grasp.npy",
+  "demo_angle_deg": 152.1,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__31_35_grasp.npy",
+  "demo_angle_deg": 152.1,
+  "in_region_frac": 0.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__8_7_grasp.npy",
+  "demo_angle_deg": 152.2,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__5_0_grasp.npy",
+  "demo_angle_deg": 152.4,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__39_14_grasp.npy",
+  "demo_angle_deg": 152.4,
+  "in_region_frac": 0.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__29_3_grasp.npy",
+  "demo_angle_deg": 152.9,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__57_30_grasp.npy",
+  "demo_angle_deg": 153.1,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__25_1_grasp.npy",
+  "demo_angle_deg": 153.1,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__1_16_grasp.npy",
+  "demo_angle_deg": 153.1,
+  "in_region_frac": 0.2,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__29_1_grasp.npy",
+  "demo_angle_deg": 153.2,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__15_0_grasp.npy",
+  "demo_angle_deg": 153.2,
+  "in_region_frac": 0.4,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__26_48_grasp.npy",
+  "demo_angle_deg": 153.3,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__35_0_grasp.npy",
+  "demo_angle_deg": 153.4,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__12_12_grasp.npy",
+  "demo_angle_deg": 153.6,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__54_0_grasp.npy",
+  "demo_angle_deg": 153.7,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__5_27_grasp.npy",
+  "demo_angle_deg": 153.7,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__56_4_grasp.npy",
+  "demo_angle_deg": 153.7,
+  "in_region_frac": 0.4,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__53_3_grasp.npy",
+  "demo_angle_deg": 154.0,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__36_2_grasp.npy",
+  "demo_angle_deg": 154.2,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__13_11_grasp.npy",
+  "demo_angle_deg": 154.5,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__44_1_grasp.npy",
+  "demo_angle_deg": 154.6,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__47_15_grasp.npy",
+  "demo_angle_deg": 155.3,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__41_24_grasp.npy",
+  "demo_angle_deg": 155.3,
+  "in_region_frac": 0.4,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__1_26_grasp.npy",
+  "demo_angle_deg": 155.4,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__6_28_grasp.npy",
+  "demo_angle_deg": 155.6,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__6_1_grasp.npy",
+  "demo_angle_deg": 155.9,
+  "in_region_frac": 0.4,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__23_9_grasp.npy",
+  "demo_angle_deg": 156.0,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__31_13_grasp.npy",
+  "demo_angle_deg": 156.2,
+  "in_region_frac": 0.4,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__44_30_grasp.npy",
+  "demo_angle_deg": 156.3,
+  "in_region_frac": 0.3333,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__19_36_grasp.npy",
+  "demo_angle_deg": 156.5,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__29_37_grasp.npy",
+  "demo_angle_deg": 156.6,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__22_5_grasp.npy",
+  "demo_angle_deg": 156.7,
+  "in_region_frac": 0.2,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__19_34_grasp.npy",
+  "demo_angle_deg": 156.9,
+  "in_region_frac": 0.4,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__25_43_grasp.npy",
+  "demo_angle_deg": 157.0,
+  "in_region_frac": 0.3333,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__15_2_grasp.npy",
+  "demo_angle_deg": 157.1,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__49_4_grasp.npy",
+  "demo_angle_deg": 157.1,
+  "in_region_frac": 0.4,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__3_6_grasp.npy",
+  "demo_angle_deg": 157.4,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__24_49_grasp.npy",
+  "demo_angle_deg": 157.4,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__19_7_grasp.npy",
+  "demo_angle_deg": 158.1,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__34_23_grasp.npy",
+  "demo_angle_deg": 158.2,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__53_0_grasp.npy",
+  "demo_angle_deg": 158.3,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__12_26_grasp.npy",
+  "demo_angle_deg": 159.3,
+  "in_region_frac": 0.4,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__38_0_grasp.npy",
+  "demo_angle_deg": 159.4,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__40_43_grasp.npy",
+  "demo_angle_deg": 159.9,
+  "in_region_frac": 0.4,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__55_24_grasp.npy",
+  "demo_angle_deg": 160.0,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__7_0_grasp.npy",
+  "demo_angle_deg": 160.2,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__2_15_grasp.npy",
+  "demo_angle_deg": 160.4,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__16_25_grasp.npy",
+  "demo_angle_deg": 160.9,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__8_22_grasp.npy",
+  "demo_angle_deg": 161.7,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__52_0_grasp.npy",
+  "demo_angle_deg": 161.7,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__47_1_grasp.npy",
+  "demo_angle_deg": 162.0,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__52_40_grasp.npy",
+  "demo_angle_deg": 162.2,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__49_38_grasp.npy",
+  "demo_angle_deg": 162.4,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__18_39_grasp.npy",
+  "demo_angle_deg": 162.5,
+  "in_region_frac": 0.6667,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__11_2_grasp.npy",
+  "demo_angle_deg": 162.7,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__41_0_grasp.npy",
+  "demo_angle_deg": 163.1,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__26_0_grasp.npy",
+  "demo_angle_deg": 163.3,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__37_12_grasp.npy",
+  "demo_angle_deg": 163.6,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__34_0_grasp.npy",
+  "demo_angle_deg": 163.6,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__3_29_grasp.npy",
+  "demo_angle_deg": 163.8,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__40_0_grasp.npy",
+  "demo_angle_deg": 164.3,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__54_7_grasp.npy",
+  "demo_angle_deg": 164.5,
+  "in_region_frac": 0.4,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__26_1_grasp.npy",
+  "demo_angle_deg": 164.9,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__7_0_grasp.npy",
+  "demo_angle_deg": 165.3,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__19_23_grasp.npy",
+  "demo_angle_deg": 165.4,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__25_0_grasp.npy",
+  "demo_angle_deg": 165.4,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__59_0_grasp.npy",
+  "demo_angle_deg": 165.8,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__23_35_grasp.npy",
+  "demo_angle_deg": 166.1,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__51_25_grasp.npy",
+  "demo_angle_deg": 166.8,
+  "in_region_frac": 0.6667,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__36_0_grasp.npy",
+  "demo_angle_deg": 167.9,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__48_17_grasp.npy",
+  "demo_angle_deg": 168.6,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__31_36_grasp.npy",
+  "demo_angle_deg": 168.8,
+  "in_region_frac": 0.6667,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__38_23_grasp.npy",
+  "demo_angle_deg": 169.2,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__57_16_grasp.npy",
+  "demo_angle_deg": 170.2,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__59_31_grasp.npy",
+  "demo_angle_deg": 170.3,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__40_27_grasp.npy",
+  "demo_angle_deg": 171.3,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__20_20_grasp.npy",
+  "demo_angle_deg": 171.9,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__27_0_grasp.npy",
+  "demo_angle_deg": 172.0,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__49_0_grasp.npy",
+  "demo_angle_deg": 172.5,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__21_1_grasp.npy",
+  "demo_angle_deg": 173.2,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__48_32_grasp.npy",
+  "demo_angle_deg": 173.8,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__28_3_grasp.npy",
+  "demo_angle_deg": 173.9,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__22_1_grasp.npy",
+  "demo_angle_deg": 175.1,
+  "in_region_frac": 0.6,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__45_34_grasp.npy",
+  "demo_angle_deg": 175.7,
+  "in_region_frac": 0.4,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__40_39_grasp.npy",
+  "demo_angle_deg": 176.3,
+  "in_region_frac": 0.2,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__0_8_grasp.npy",
+  "demo_angle_deg": 176.9,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__21_0_grasp.npy",
+  "demo_angle_deg": 177.5,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__58_0_grasp.npy",
+  "demo_angle_deg": 177.9,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__45_13_grasp.npy",
+  "demo_angle_deg": 178.3,
+  "in_region_frac": 0.2,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__57_31_grasp.npy",
+  "demo_angle_deg": 179.0,
+  "in_region_frac": 1.0,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__25_36_grasp.npy",
+  "demo_angle_deg": 179.1,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_middle__50_0_grasp.npy",
+  "demo_angle_deg": 179.6,
+  "in_region_frac": 0.8,
+  "functional": false
+ },
+ {
+  "name": "fingertip_small__56_35_grasp.npy",
+  "demo_angle_deg": 179.8,
+  "in_region_frac": 1.0,
+  "functional": false
+ }
+]

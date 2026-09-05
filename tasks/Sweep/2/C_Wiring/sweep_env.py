@@ -28,9 +28,11 @@ _TASK = os.path.abspath(os.path.join(_HERE, ".."))
 _L3 = os.path.join(_TASK, "A_Design", "L3_Learning")
 sys.path.insert(0, _L3)
 from progress_batch import SweepGeometry, SweepProgressBatch, sweep_signals  # noqa: E402
+from ablation_settings import resolve as resolve_ablation  # noqa: E402
 
 REFERENCE = os.environ.get("SWEEP_REF_NPZ") or os.path.join(
     _TASK, "A_Design", "L2_Reference", "sweep2_reference_v1.npz")
+CUBE_VARIANTS = os.environ.get("SWEEP_CUBE_VARIANTS_NPZ", "")
 ACT_DIM = 14
 OBS_DIM = 191
 PRIV_DIM = 22
@@ -74,7 +76,7 @@ def _pan_cube_start(pan_pos, pan_quat, table_z, geometry=SweepGeometry()):
     return pan_pos + quat_apply(pan_quat, local)
 
 
-def build_cfg(num_envs=1, reference=REFERENCE):
+def build_cfg(num_envs=1, reference=REFERENCE, ablation_method="full"):
     assert os.path.isfile(reference), (
         f"missing {reference}; run A_Design/L2_Reference/build_reference.py first")
     z = np.load(reference, allow_pickle=True)
@@ -93,6 +95,8 @@ def build_cfg(num_envs=1, reference=REFERENCE):
     cfg.episode_length_s = float(len(z["right_q"]) / float(z["control_hz"]) + 2.0)
     cfg.sweep_reference = os.path.abspath(reference)
     cfg.sweep_pan_prior = os.path.abspath(PRIOR_PAN)
+    cfg.sweep_ablation_method = resolve_ablation(ablation_method).name
+    cfg.sweep_cube_variants = os.path.abspath(CUBE_VARIANTS) if CUBE_VARIANTS else ""
     # Physics starts with a constraint-consistent state.  Exact-name entries are
     # installed after generic defaults and therefore win regex resolution.
     jp = dict(cfg.robot_cfg.init_state.joint_pos)
@@ -110,6 +114,10 @@ def build_cfg(num_envs=1, reference=REFERENCE):
 
 class SweepEnv(GraspTaskEnv):
     def __init__(self, cfg, **kwargs):
+        self.ablation = resolve_ablation(getattr(cfg, "sweep_ablation_method", "full"))
+        self.cube_variants_path = getattr(cfg, "sweep_cube_variants", "")
+        self._cube_variants_np = (np.load(self.cube_variants_path, allow_pickle=False)
+                                  if self.cube_variants_path else None)
         self._z = np.load(cfg.sweep_reference, allow_pickle=True)
         self._pan_prior_npz = np.load(cfg.sweep_pan_prior)
         super().__init__(cfg, **kwargs)
@@ -125,12 +133,16 @@ class SweepEnv(GraspTaskEnv):
         self.ref_quat = {i: to(self._z[f"obj_quat_{i}"]) for i in (0, 1)}
         self.conf = torch.stack([to(self._z["confidence_1"]),
                                  to(self._z["confidence_0"])], 1) / 100.0
+        if self.ablation.confidence_mode == "ones":
+            self.conf = torch.ones_like(self.conf)
         confidence_floor = self.conf.amin(dim=1)
         self.w_hand = torch.where(
             confidence_floor >= 0.70, torch.zeros_like(confidence_floor),
             torch.where(confidence_floor >= 0.40,
                         torch.full_like(confidence_floor, 0.50),
                         torch.full_like(confidence_floor, 0.80)))
+        if not self.ablation.human_shape:
+            self.w_hand = torch.zeros_like(self.w_hand)
         self.T = self.ref_arm.shape[0]
         # Reference construction already searches the full source-faithful tool
         # track and stores the measured closest-contact row and easy cube start.
@@ -216,6 +228,49 @@ class SweepEnv(GraspTaskEnv):
         # Freeze the accepted v1 physical task.  The reference NPZ's easy-start
         # field was edited after the canonical replay and experts were produced.
         self.cube_start_ref[:] = to(SWEEP2_FIXED_CUBE_START)
+        self.cube_variant_index = torch.zeros(N, dtype=torch.long, device=dev)
+        self.cube_start_variants = None
+        if self._cube_variants_np is not None:
+            starts = np.asarray(self._cube_variants_np["cube_start_world_m"], np.float32)
+            colors = np.asarray(self._cube_variants_np["colors_rgb"], np.float32)
+            names = np.asarray(self._cube_variants_np["variant_ids"]).astype(str)
+            assert starts.shape == (5, 3) and colors.shape == (5, 3), (starts.shape, colors.shape)
+            assert np.allclose(starts[:, 2], SWEEP2_FIXED_CUBE_START[2]), starts[:, 2]
+            forced = os.environ.get("SWEEP_CUBE_VARIANT_INDEX")
+            if forced is None:
+                self.cube_variant_index = torch.arange(N, device=dev) % len(starts)
+            else:
+                idx = int(forced)
+                assert 0 <= idx < len(starts), idx
+                self.cube_variant_index.fill_(idx)
+            self.cube_start_variants = to(starts)
+            self.cube_variant_ids = names.tolist()
+            self.cube_variant_colors = colors
+            self._apply_cube_variant_colors()
+            counts = torch.bincount(self.cube_variant_index, minlength=5).cpu().tolist()
+            print(f"[SweepEnv] cube variants={self.cube_variants_path} counts={counts}")
+
+    def _apply_cube_variant_colors(self):
+        """Bind one visual-only USD material per fixed environment variant."""
+        import omni.usd
+        from pxr import Gf, Sdf, Usd, UsdGeom, UsdShade
+        stage = omni.usd.get_context().get_stage()
+        for env_id in range(self.num_envs):
+            variant = int(self.cube_variant_index[env_id])
+            color = self.cube_variant_colors[variant]
+            mat_path = f"/World/Looks/SweepCubeVariant_{variant}"
+            material = UsdShade.Material.Define(stage, mat_path)
+            shader = UsdShade.Shader.Define(stage, mat_path + "/Shader")
+            shader.CreateIdAttr("UsdPreviewSurface")
+            shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(
+                Gf.Vec3f(*[float(v) for v in color]))
+            material.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(), "surface")
+            root = stage.GetPrimAtPath(f"/World/envs/env_{env_id}/SweepCube")
+            assert root.IsValid(), root.GetPath()
+            targets = [p for p in Usd.PrimRange(root) if p.IsA(UsdGeom.Gprim)]
+            assert targets, root.GetPath()
+            for prim in targets:
+                UsdShade.MaterialBindingAPI.Apply(prim).Bind(material)
 
     def _setup_scene(self):
         # The aux helper normally uses scene_layout.  Override it with the exact
@@ -746,7 +801,9 @@ class SweepEnv(GraspTaskEnv):
             art.write_root_velocity_to_sim(torch.zeros(n, 6, device=self.device), env_ids=env_ids)
         pan_p = self.ref_pos[0][0].expand(n, 3)
         pan_q = self.ref_quat[0][0].expand(n, 4)
-        cube = (self.cube_start_ref.expand(n, 3).clone() if self.cube_start_ref is not None
+        cube = (self.cube_start_variants[self.cube_variant_index[env_ids]].clone()
+                if self.cube_start_variants is not None else
+                self.cube_start_ref.expand(n, 3).clone() if self.cube_start_ref is not None
                 else _pan_cube_start(pan_p, pan_q, self.cfg.table_top_z, self.geometry))
         self.cube_start[env_ids] = cube
         pose = torch.cat([cube + org, torch.tensor([1., 0., 0., 0.], device=self.device).expand(n, 4)], 1)

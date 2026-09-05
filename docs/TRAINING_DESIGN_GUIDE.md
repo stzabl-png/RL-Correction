@@ -1,5 +1,5 @@
 # 想套用我们的训练设计? 从这里开始
-> Sweep 当前入口：sweep-task 分支的 CODEX_HANDOFF.md 与 SWEEP_TRAJECTORY_PLAYBOOK.md。Sweep2 当前采用 fully-inside 标准；Deep20 已停止，不是当前训练目标。
+> Sweep 当前入口：`task_sweep` 分支的 `Codex_HANDOFF.md` 与 `SWEEP_TRAJECTORY_PLAYBOOK.md`。Sweep2 当前采用 fully-inside 标准；Deep20 已停止。当前 Sweep 完整方法从随机 Actor/Critic 开始，不使用 expert trajectory 做 Actor BC、离线 Critic 回归或 observation normalization；Pour 的历史设计不可覆盖 Sweep 当前台账。
 
 
 > 一句话: **代码和台账全在 `Step4_RL_Correction` 分支**,默认分支 `main` 只有 pipeline 总览图。

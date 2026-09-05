@@ -1,188 +1,217 @@
-# Codex 任务：Sweep2 Full-Inside 残差训练
+# Codex 任务：Sweep2 Full-Inside Residual RL
 
-更新时间：2026-09-01。本文件是 Sweep2 当前实例的权威算法说明和运行台账。阅读者应能从这里理解：原始重建数据如何变成 reference，策略每一步看到什么、输出什么，Gate/reward 如何由物理状态产生，expert transition 如何预热 Actor/Critic，以及 PPO、诊断和最终验收如何衔接。
+更新时间：2026-09-03。本文件是 `datasets/sweep_2_better/` 这一条 Sweep2 实例的权威算法规范和运行台账。它必须回答“当前完整方法究竟如何运行”：固定输入、张量定义、逐步控制、Gate/reward、初始化、PPO、产物和验收都以本文及对应实现为准。
 
-未来处理其他 Sweep 轨迹时，应遵循 `SWEEP_TRAJECTORY_PLAYBOOK.md` 的通用流程；不得直接复制本实例的动作、坐标或 checkpoint。
+`SWEEP_TRAJECTORY_PLAYBOOK.md` 的职责不同：它只回答“换一条 Sweep 重建数据时，哪些东西必须重新生成、检查和放行”。Playbook 不保存本实例的运行目录、checkpoint 曲线或固定毫米数；本文也不把 Sweep2 的具体坐标误写成跨任务通用常量。
 
-## 1. 问题定义
+## 1. 当前任务契约
 
-输入是 `datasets/sweep_2_better/` 的 ego 视频重建结果。右手固定抓扫把，左手固定抓簸箕。重建工具轨迹经双臂 IK 转为 nominal joint reference；策略不从零生成动作，而是在 reference 上学习双臂 14 DoF 累计关节 residual。
+- 输入：`datasets/sweep_2_better/` 的 ego reconstruction。
+- 机器人：DexMate 双臂；右手固定抓扫把，左手固定抓簸箕，finger 始终保持各自 GraspPose。
+- nominal motion：重建工具轨迹经过逐帧双臂 IK 得到 joint reference。
+- policy：不生成整条机器人动作，只学习左右臂共14维的有界累计关节 residual。
+- control period：`0.05 s`；episode 前80个 control steps即4秒只播放 reference并强制零 residual。
+- 物体：25 mm cube，当前固定世界起点为 `[-0.0259767957, -0.1788897067, 0.8830000162] m`。
+- operational success：且仅当 Gate4 `fully_inside` 成立。
+- 当前训练初始化：完全不使用 expert trajectory 预热。
 
-最终控制目标是：在 Isaac 物理仿真中，利用扫把和簸箕把固定起点的 cube 完整扫入 dustpan。reference、reward 数值或视频观感都不能直接声明成功。
+Deep20、Gate3浅进入、训练 reward、训练窗口成功率和单条视频都不能替代 Gate4 批量验收。
 
-当前成功契约：
-
-- Gate1：pan 姿态、入口 corridor 和场景状态 ready。
-- Gate2：Gate1 已成立，扫把接近 cube，且 cube 相对初始位置真实移动至少 5 mm。
-- Gate3 `entered`：Gate2 已成立，cube 中心越过 mouth，并满足横向 footprint、承载高度和盆内后边界约束；它只记录浅进入。
-- Gate4 `fully_inside`：Gate3 已成立，cube 的完整 footprint 清过 mouth；这是唯一 operational success。
-- Gate 全部是单调锁存；Gate4 成立当步立即终止物理 rollout。
-- `deep_inside`、`deep_margin`、稳定步数等只用于诊断，不参与当前 success。
-- 最终验收为至少 512 个 deterministic episodes，full-inside rate >= 0.50。
-
-Deep20 已停止，不参与当前 success、reward、训练目标或验收。
-
-## 2. 端到端算法总览
+## 2. 当前端到端数据流
 
 ```text
-ego 重建数据
-  │ 工具/物体 6DoF、confidence、human hand trajectory、GraspPose
-  ▼
+ego reconstruction
+  ├─ 工具/物体 6DoF trajectory
+  ├─ 左右 human hand trajectory
+  ├─ 逐帧 confidence
+  └─ broom/dustpan GraspPose
+          │
+          ▼
 build_reference.py
-  │ wrist-tool 刚性关系 + 每帧双臂 7DoF IK
-  ▼
+  ├─ 固定 wrist-tool transform
+  ├─ 每帧右臂7DoF IK + 左臂7DoF IK
+  └─ 时间轴、四元数、joint-limit 与 jump 检查
+          │
+          ▼
 sweep2_reference_v1.npz
-  │ joint reference、工具 reference、human joint direction、confidence、contact_row
-  ├─────────────────────────────────────────────────────────┐
-  ▼                                                         │
-SweepEnv 在线物理闭环                                        │
-  obs(191) + priv(22)                                       │
-  -> Actor 输出 14D normalized residual increment           │
-  -> confidence 缩放 step/deviation envelope                │
-  -> 累计 residual + 当前 reference row = joint target      │
-  -> Isaac physics                                           │
-  -> 真实 cube/tool state                                    │
-  -> Gate、reward、done、next observation                    │
-  │                                                         │
-  ├─ expert replay -> build_expert_dataset.py               │
-  │      -> full-success / near-success / failure transition│
-  │      -> Actor BC + Critic return regression             │
-  │                                                         │
-  └─ 1024-env on-policy rollout -> PPO update ──────────────┘
-          -> 每 3M 诊断节点 -> 512 deterministic 验收
+  ├─ ref_arm[T,14]
+  ├─ tool pose reference
+  ├─ human_arm[T,14] -> human_dh[T,14]
+  ├─ confidence[T,2]
+  └─ contact_row / cube_start
+          │
+          ▼
+SweepEnv × 1024
+  ├─ reset固定机器人、工具、桌面、cube与状态机
+  ├─ Actor observation obs[1024,191]
+  ├─ Critic privileged state priv[1024,22]
+  ├─ Actor采样 normalized action[1024,14]
+  ├─ confidence缩放 residual step/deviation envelope
+  ├─ q_target = ref_arm[row] + cumulative_residual
+  ├─ Isaac physics substeps
+  ├─ 读取真实 cube/pan/broom state
+  └─ 计算 Gate、reward、done、next obs/priv
+          │
+          ▼
+随机 Actor/Critic + 在线 PPO
+  ├─ epoch 0–9：在线 rollout，critic-only update
+  ├─ epoch 10起：完整 Actor-Critic PPO
+  ├─ 每32步 rollout；5个 mini-epochs
+  ├─ 周期保存 checkpoint/metrics/rollout
+  └─ 周期录制 deterministic video
+          │
+          ▼
+候选 checkpoint deterministic 批量评测
+  └─ 至少512 episodes；fully_inside rate >= 0.50 才通过
 ```
 
-算法分成三个时间尺度：
+## 3. Reconstruction 到 reference
 
-1. 离线一次性构建 reference、物理资产、expert 和 transition。
-2. 每个 0.05 s control step 执行一次 residual policy、物理仿真、Gate/reward 更新。
-3. 每个 PPO epoch 先收集 32-step on-policy rollout，再进行 5 轮 minibatch 更新。
+权威脚本：`tasks/Sweep/2/A_Design/L2_Reference/build_reference.py`。
 
-## 3. 从重建轨迹到 joint reference
+脚本读取工具/物体6DoF、左右人手轨迹、confidence和机器人 GraspPose。它先根据初始抓取关系建立固定 wrist-tool transform，再把每一帧工具目标转换为机器人 wrist target，对左右臂分别求7DoF IK。输出至少包含：
 
-`build_reference.py` 读取工具/物体 6DoF、左右手轨迹、confidence 和 GraspPose。对每只手建立固定 wrist-tool transform，再对每个源时刻做 7DoF arm IK，产生：
+- `right_q[T,7]`、`left_q[T,7]`：右/左 nominal arm reference；环境拼接为 `ref_arm[T,14]`。
+- `obj_pos_i[T,3]`、`obj_quat_i[T,4]`：簸箕与扫把工具 reference。
+- `human_right_q[T,7]`、`human_left_q[T,7]`：人手运动转换到关节空间后的序列。
+- `confidence_0[T]`、`confidence_1[T]`：插值到 control timebase 的工具重建可信度。
+- `contact_row`：nominal 扫把最接近 cube 的 reference 行。
+- `cube_start_w`：候选物体起点；本实例由环境固定为已验收坐标。
 
-- `right_q[T,7]`、`left_q[T,7]`：双臂 nominal joint reference。
-- `obj_pos_i[T,3]`、`obj_quat_i[T,4]`：pan/broom 工具 reference。
-- `human_right_q[T,7]`、`human_left_q[T,7]`：human hand trajectory 的关节空间表达。
-- `confidence_0[T]`、`confidence_1[T]`：插值到 control timebase 的工具 confidence。
-- `contact_row`：reference 中测得的最接近 nominal contact 行。
-- `cube_start_w`：候选任务起点；当前实例在环境内进一步固定为已验收坐标。
-
-环境加载后把右、左 7 DoF 拼成 `ref_arm[T,14]`。human joint 序列只转成相邻差分 `human_dh[t]`，用作方向 shape prior；它不是机器人必须追踪的绝对关节目标。
-
-冻结输入：
-
-- reference：`tasks/Sweep/2/A_Design/L2_Reference/sweep2_reference_v1.npz`
-- transition：`logs/expert/transitions_fullinside/`
-- transition 角色与 hash：`logs/expert/transitions_fullinside/manifest.json`
-- dustpan asset：`tasks/Sweep/2/assets/dustpan_smooth_entry/object_mesh_scaled_final.obj`
-- cube world start：`[-0.0259767957, -0.1788897067, 0.8830000162] m`
-
-当前 run 禁止读取旧 entry/Deep20 transition，也不恢复任何历史 policy。
-
-## 4. 物理世界与坐标
-
-- DexMate 双臂，右手 broom、左手 dustpan；手指始终固定为 GraspPose。
-- 两个工具通过物理 FixedJoint 附着；reset 后位置误差必须小于 3 mm、姿态误差小于 2°。
-- dustpan 使用开放 compound collider：盆底、入口 ramp、左右侧壁和后壁，不能用封住入口的 convex hull。
-- 所有成功几何都在 pan local frame 中计算：`x` 是横向，`+y` 是 pan 法向，`+z` 从 handle 指向 mouth；cube 向 `-z` 深入。
-- cube half extent 为 12.5 mm；pan half-width 为 60 mm，mouth z 为 95 mm，承载中心高度范围为 18–30 mm。
-
-环境每步从 Isaac 读取 pan、broom、cube 的位置、四元数、线速度和角速度；将 cube、扫把最近工作点和相对速度变换到 pan frame，再统一用于 observation、Gate、reward、诊断和 termination。不存在另一个只供 reward 使用的“隐藏成功代理”。
-
-## 5. Actor、Critic 输入
-
-### 5.1 Actor observation：191 维
-
-| 分组 | 维度 | 内容 |
-|---|---:|---|
-| 当前关节状态 | 56 | `q(14)`、`0.1*qd(14)`、`ref-q(14)`、归一化累计 residual(14) |
-| reference look-ahead | 56 | 相对当前行的 `+1/+4/+8/+16` 四个 14D joint delta |
-| pan 状态 | 13 | position、quaternion、linear velocity、缩放 angular velocity |
-| broom 状态 | 13 | position、quaternion、linear velocity、缩放 angular velocity |
-| cube 世界状态 | 6 | position、linear velocity |
-| 任务相对状态 | 12 | `cube_pan(3)`、`broom-cube(3)`、左右 confidence(2)、progress、corridor、relative speed、moved |
-| 任务记忆与时钟 | 20 | Gate1–4、stable ratio、reference row ratio、上一 14D policy action |
-| 接触与入口几何 | 14 | broom 最近点相对 cube/pan、cube 相对速度、pan up、mouth clearance、4 个 containment margin |
-| policy-active 标志 | 1 | 是否已经结束 4 秒 scripted prelude |
-
-合计 191 维。输入最终执行 `float -> clamp[-10,10] -> nan_to_num(0)`，训练器再使用 running mean/std 归一化。
-
-### 5.2 Critic privileged state：22 维
-
-Critic 除 191 维 policy observation 外，还接收 22 维 privileged state：
-
-- cube 在 pan frame 中的位置 3 维。
-- cube 世界线速度 3 维。
-- broom distance 与 cube-pan relative speed，各 1 维。
-- broom 最近点相对 pan/cube 3 维。
-- cube 在 pan frame 中的相对速度 3 维。
-- mouth clearance、pan tilt、pan linear speed、pan angular speed，各 1 维。
-- 完整 footprint 的 4 个 containment margins。
-
-网络采用 separate critic：Actor MLP 为 `[256,128]`；Critic 有 privileged embedding `[64,32,8]` 和主干 `[256,256,128]`。Actor 不直接读取 privileged-only 22 维分支。
-
-## 6. 每个 control step 的 residual 闭环
-
-设当前 reference 行为 `r_t`，Actor 输出归一化动作 `a_t∈[-1,1]^14`。实际执行流程如下：
-
-1. **4 秒 reference 前缀**：episode 前 80 步令 `policy_active=0`，所以执行动作强制为零；之后才允许 residual。
-2. **confidence 形成动作包络**：每只手当前 confidence 扩展到对应 7 个关节。高 confidence 使用更窄包络，低 confidence 允许更大修正。
-3. **逐步累计 residual**：
-
-   ```text
-   step(c) = step_hi + c * (step_lo - step_hi)
-   dev(c)  = dev_hi  + c * (dev_lo  - dev_hi)
-   cum_res[t+1] = clip(cum_res[t] + a_t * step(c), -dev(c), +dev(c))
-   q_target[t]  = ref_arm[r_t] + cum_res[t+1]
-   ```
-
-4. **当前数值（弧度）**：右臂 `step_hi/lo=0.020/0.008`、`dev_hi/lo=0.25/0.10`；左臂为 `0.010/0.005`、`0.12/0.05`。右臂负责扫动，因此探索包络约为左臂两倍。
-5. **执行物理**：将 `q_target` 写入 14 个 arm joint position target，finger 继续写固定 GraspPose；Isaac 执行 physics substeps。
-6. **读取真实结果**：重新计算 cube/tool state、Gate、reward、failure 和下一 observation。
-7. **推进 reference row**：在 nominal `contact_row` 前可以 open-loop 前进；之后只有 broom near 或 cube moved 达标时才推进，防止 reference 时钟继续走而物体留在原地。
-
-因此 residual action 是“对 reference 的有界累计修正”，不是绝对关节命令，也不是每步互相独立的 offset。
-
-## 7. Gate、progress 与终止状态机
-
-`progress_batch.py` 是不依赖 Isaac 的统一状态机；离线 expert 重采和在线环境使用同一套几何定义。
-
-每步顺序：
+环境只使用 human joint 的相邻差分：
 
 ```text
-Isaac state
-  -> cube/tool 转到 pan frame
-  -> ready、broom_near、moved、entered、fully_inside
-  -> Gate1..Gate4 单调锁存
-  -> progress/full_progress 的历史最大值增量
-  -> task reward
-  -> success / failure / timeout
+human_dh[t] = human_arm[t+1] - human_arm[t]
 ```
 
-`entered` 要求横向 footprint 合法、中心越过 mouth、承载高度合法；`fully_inside` 进一步要求 cube 的 mouth-side face 也清过 mouth。Gate3 只锁存 `entered`，Gate4 才锁存 `fully_inside`。
+它是运动方向 shaping，不是要机器人追踪的人手绝对姿态。每条新轨迹必须重新生成 reference，不能复制本实例的 joint reference、contact row、cube坐标或 checkpoint。
 
-终止条件：
+当前 reference：`tasks/Sweep/2/A_Design/L2_Reference/sweep2_reference_v1.npz`。
 
-- success：Gate4 新成立或已成立。
-- failure：cube 低于桌面 30 mm，或 dustpan mouth clearance 低于 `-3.0 mm`。
-- timeout：达到最大 episode length 且未 success/failure。
+## 4. 固定物理世界与坐标
 
-录像模式是唯一例外：它抑制 DirectRLEnv 的 terminal auto-reset，以便渲染真实 terminal physics state；这不会改变训练的物理轨迹或成功定义。
+- 机器人、桌面、cube、broom与dustpan均在同一个 Isaac 物理世界中运行。
+- broom和dustpan通过真实 FixedJoint 附着到对应手；reset后工具位置误差必须小于3 mm、姿态误差小于2°。
+- dustpan使用开放 compound collider：盆底、连续入口ramp、左右侧壁和后壁；禁止用封住入口的单一convex hull。
+- 成功几何统一在 pan local frame 计算：`x`为横向，`+y`为pan法向，`+z`从handle指向mouth，cube向`-z`深入。
+- cube half extent为12.5 mm；pan half-width为60 mm；mouth z为95 mm；承载中心高度合法范围为18–30 mm。
 
-## 8. Reward 的组成与因果
+每个 physics step 后，从 simulator 重新读取 pan、broom、cube 的位置、四元数、线速度和角速度。cube位置、扫把工作点和相对速度统一转换到 pan frame，供 observation、Gate、reward、termination和诊断共同使用。不存在只供reward使用的隐藏成功代理。
 
-总 reward 是十项之和：
+## 5. Reset 与 episode 时序
+
+reset 必须同时恢复：
+
+1. 双臂 reference 起点与固定 finger GraspPose；
+2. broom/dustpan FixedJoint 目标关系；
+3. cube固定起点与速度；
+4. reference row、累计 residual、previous action；
+5. Gate1–4锁存、历史最佳 progress/full-progress；
+6. timeout、failure和录像抑制reset标志。
+
+前80步 `policy_active=0`：Actor仍可被调用，但环境执行动作强制为零，只播放 nominal reference。该前缀进入 Critic return/GAE，因为它属于真实episode；但必须从 Actor surrogate loss、entropy、bounds、KL和Actor advantage normalization中排除。
+
+reference row在 nominal contact前可按时钟推进；contact后只有 broom near 或 cube moved 达标才继续推进，防止策略在没有物理交互时仅靠时间轴走完整段动作。
+
+## 6. Actor observation：191维
+
+| 分组 | 维度 | 精确定义 |
+|---|---:|---|
+| 当前关节状态 | 56 | `q(14)`、`0.1*qd(14)`、`ref-q(14)`、按当前上限归一化的累计residual(14) |
+| reference look-ahead | 56 | reference行 `+1/+4/+8/+16` 相对当前行的四组14D delta |
+| pan状态 | 13 | position(3)、quaternion(4)、linear velocity(3)、缩放angular velocity(3) |
+| broom状态 | 13 | position(3)、quaternion(4)、linear velocity(3)、缩放angular velocity(3) |
+| cube世界状态 | 6 | position(3)、linear velocity(3) |
+| 任务相对状态 | 12 | `cube_pan(3)`、`broom-cube(3)`、左右confidence(2)、progress、corridor、relative speed、moved |
+| 记忆与时钟 | 20 | Gate1–4、stable ratio、reference row ratio、上一14D action |
+| 接触与入口几何 | 14 | broom工作点相对cube/pan、cube相对速度、pan up、mouth clearance、4个containment margins |
+| policy active | 1 | 是否已结束4秒scripted prefix |
+
+合计191维。环境输出先转换为float，截断到`[-10,10]`并对NaN/Inf做安全替换。当前无预热方法不从transition拟合normalization；running mean/std只随在线训练分布更新。
+
+## 7. Critic privileged state：22维
+
+Critic接收完整191维policy observation，并额外读取22维真实物理量：
+
+- cube在pan frame的位置3维；
+- cube世界线速度3维；
+- broom distance与cube-pan relative speed各1维；
+- broom工作点相对pan/cube共3维；
+- cube在pan frame的相对速度3维；
+- mouth clearance、pan tilt、pan linear speed、pan angular speed各1维；
+- cube完整footprint的4个containment margins。
+
+Actor MLP为`[256,128]`。Critic先用`[64,32,8]`处理privileged branch，再进入`[256,256,128]`主干。Actor在训练和推理时都不能读取22维privileged-only输入。
+
+## 8. 14D累计 residual 控制
+
+Actor产生归一化动作 `a_t∈[-1,1]^14`。对当前reference行 `r_t`：
+
+```text
+step(c) = step_hi + c * (step_lo - step_hi)
+dev(c)  = dev_hi  + c * (dev_lo  - dev_hi)
+cum_res[t+1] = clip(cum_res[t] + a_t * step(c), -dev(c), +dev(c))
+q_target[t]  = ref_arm[r_t] + cum_res[t+1]
+```
+
+confidence越高，step和最大deviation越小；confidence越低，允许策略做更大修正。当前弧度参数：
+
+| arm | low-confidence step | high-confidence step | low-confidence dev | high-confidence dev |
+|---|---:|---:|---:|---:|
+| right/broom | 0.020 | 0.008 | 0.25 | 0.10 |
+| left/pan | 0.010 | 0.005 | 0.12 | 0.05 |
+
+右臂负责扫动，所以包络约为左臂两倍。`q_target`写入14个arm joint position target；finger继续固定在GraspPose。action不是绝对关节命令，也不是互相独立的单步offset。
+
+## 9. Confidence 与 human shaping
+
+reference confidence先缩放到`[0,1]`，每只手的值扩展到对应7个关节。它有两个作用：
+
+1. 控制上一节的residual step/deviation envelope；
+2. 控制工具reference tracking代价的容差/权重。
+
+human shaping根据两只工具confidence的较低值分档：
+
+```text
+confidence_floor >= 0.70  -> w_hand = 0.0
+0.40 <= floor < 0.70     -> w_hand = 0.5
+floor < 0.40             -> w_hand = 0.8
+shape = 0.2 * w_hand * relu(cos(dq_actual, human_dh[row]))
+```
+
+它只奖励实际joint delta与human motion direction同向，不写入绝对human pose，也不参与success判定。
+
+完整方法始终使用 reconstruction confidence，并启用上述中低置信 human direction shaping。
+
+## 10. Gate、几何与终止
+
+权威状态机：`tasks/Sweep/2/A_Design/L3_Learning/progress_batch.py`。
+
+每步严格按下列顺序计算：
+
+```text
+post-physics state
+ -> transform to pan frame
+ -> ready / broom_near / moved / entered / fully_inside
+ -> Gate1..Gate4 monotonic latch
+ -> earn-only progress deltas
+ -> reward
+ -> success / failure / timeout
+```
+
+- Gate1：pan姿态、mouth corridor和场景满足ready。
+- Gate2：Gate1已锁存，broom接近cube，且cube相对初始位置真实移动至少5 mm。
+- Gate3 `entered`：Gate2已锁存；cube中心跨过mouth，同时满足横向footprint、承载高度和盆内后边界约束。它只是浅进入诊断。
+- Gate4 `fully_inside`：Gate3已锁存；cube mouth-side face也清过mouth，完整footprint位于入口内。这是唯一success。
+
+Gate只从0变1。Gate4成立当步立即终止真实物理rollout。失败条件包括cube低于桌面30 mm或dustpan mouth clearance低于`-3.0 mm`；其余在最大episode length终止为timeout。`deep_inside`、`deep_margin`不参与success或task reward。
+
+## 11. Reward
 
 ```text
 reward = task + acquire + push + pan_quality + success_quality
        + mouth_floor + track + shape + action + left_anchor
-```
 
-### 8.1 Task reward
-
-```text
 task = 4 * mouth_delta * corridor
      + 4 * full_delta
      + 0.5 * new_Gate1
@@ -191,218 +220,90 @@ task = 4 * mouth_delta * corridor
      + 12.0 * new_Gate4
 ```
 
-- `mouth_delta`：从固定起点向 mouth 推进的历史最大值增量。
-- `full_delta`：从中心 entered 到完整 footprint 清口的历史最大值增量。
-- 两者都采用 earn-only ratchet：只对超过历史最好值的正增量付钱，停住或来回摆动不能刷分，reset/播种不付钱。
+- `mouth_delta`：从固定起点向mouth推进的历史最佳值正增量。
+- `full_delta`：从entered到完整footprint清口的历史最佳值正增量。
+- 两者都是earn-only ratchet：倒退、停住或来回摆动不重复付钱，reset/播种不付钱。
+- `acquire`：broom接近cube的contact potential首次改善。
+- `push=4*assisted_delta`：只有同时满足接触质量、正确后方/横向/高度和入口corridor的inward progress才付钱。
+- `pan_quality`：pan level、mouth clearance、低线速度和低角速度的联合改善。
+- `success_quality=2*pan_quality*new_Gate4`：只在真正fully-inside当步奖励稳定pan。
+- `track`：confidence-weighted工具reference偏差惩罚，绝不是success proxy。
+- `shape`：第9节的human direction奖励。
+- `action=-0.002||a_t||²-0.001||a_t-a_{t-1}||²`。
+- `left_anchor=-0.001||left_cum_res/left_dev_hi||²`。
 
-### 8.2 物理质量与正则
-
-- `acquire`：扫把接近 cube 的 contact potential 首次改善。
-- `push = 4 * assisted_delta`：只有 inward progress 同时满足扫把接触质量、正确后方/横向/高度和入口 corridor 才奖励。
-- `pan_quality`：pan level、mouth clearance、低线速度和低角速度联合 potential 的首次改善。
-- `success_quality = 2 * pan_quality * new_Gate4`：完整进入当步奖励稳定、平整、离桌合理的 pan。
-- `mouth_floor`：当 mouth clearance 低于 `+0.5 mm` 后施加直接二次惩罚：`-4*((0.5mm-clearance)/3.5mm)^2`。在 `-3.0 mm` 达到 `-4/step` 并触发失败，使 3M/6M 曾出现的下压短回合不再获得正收益。
-- `track`：confidence-weighted 工具 reference 超差惩罚。confidence 越低，容差越大；它永远不是 success proxy。
-- `shape = 0.2 * w_hand * max(cos(actual_joint_delta, human_joint_delta),0)`：仅中低 confidence 生效；`confidence>=0.70` 时权重 0，`0.40–0.70` 为 0.5，更低为 0.8。
-- `action = -0.002||a_t||² - 0.001||a_t-a_{t-1}||²`。
-- `left_anchor = -0.001||left_cum_res/left_dev_hi||²`，抑制簸箕臂无必要漂移。
-
-reward 提升只能说明优化信号变化；是否成功必须看 Gate4 和真实 footprint 几何。
-
-## 9. Expert transition 数据流
-
-当前 transition manifest 包含四条 rollout：
-
-- 两条 `full_success`：同时供 Actor BC 和 Critic。
-- 25 mm `near_success`：达到 Gate3 但未达到当前 Gate4，只供 Critic。
-- canonical `failure`：未完成任务，只供 Critic。
-
-`build_expert_dataset.py` 在当前环境中逐步重放每条源 rollout，并保存：
+mouth-floor防止策略把簸箕压入桌面后廉价终止：
 
 ```text
-obs, priv_info, actions, rewards,
-next_obs, next_priv_info,
-done, success, rows, actor_mask,
-return_target
+mouth_floor = -4 * relu((0.0005 - clearance) / 0.0035)^2
 ```
 
-`return_target` 使用 `gamma=0.99` 的 discounted return，并乘 `0.01` reward scale。每条输出记录样本数、entered/success frame、`demo_role`、源文件和输出文件 SHA-256。训练时必须读取 manifest 的角色和 hash，不能从文件名猜用途。
+clearance低于`+0.5 mm`开始连续惩罚，低于`-3.0 mm`硬失败。该项允许极轻微接触，但严重下压不能获得正收益。
 
-重要约束：成功契约或 reward 一旦修改，必须在新环境下重放并重新生成 transition/return；不能只改标签。
+## 12. 无离线专家预热初始化
 
-## 10. 初始化：Actor BC 与 Critic 回归
+当前完整方法必须满足：
 
-随机网络不直接进入 PPO。`bc_warmup.py` 依次执行两个阶段。
+```text
+warmup_role = none
+actor_epochs = 0
+critic_epochs = 0
+actor_samples = 0
+critic_samples = 0
+warmup_transitions = []
+BC checkpoint = absent
+```
 
-### 10.1 Actor BC
+因此不执行Actor BC、不执行离线Critic return regression，也不用transition拟合observation normalization。CLI为兼容旧命令仍接受expert文件路径，但`warmup_role=none`分支不得调用`warm_actor_critic`，这些路径不能影响初始化。
 
-- 数据：只拼接两条 fully-inside expert。
-- 目标：Actor mean `mu(obs)` 拟合 expert 14D residual action。
-- loss：逐样本 action MSE；非零 interaction action 权重 1，零动作权重 0.05。
-- `actor_mask=0` 的 4 秒 scripted prefix 权重归零，绝不模仿当时“策略采样了但环境没有执行”的动作。
-- observation running mean/std 使用全部四条数据拟合，使后续 near/failure 输入也在同一归一化尺度。
-- 优化：300 epochs，batch size 256，Adam `lr=3e-4`，gradient norm clip 1.0。
+历史 `Sweep2FloorPenaltyV4__20260901` 曾使用expert BC和离线Critic预热；该事实只解释旧24M checkpoint来源，不是当前算法；旧轨迹专家预热指的是先在isaac通过零回放得到一条成功的轨迹，并进行actor和crtic预热训练，例如该轨迹的生成：/home/msc-auto/RL_sweep/outputs_video/sweep2_expert_entry25_v1.mp4。
 
-### 10.2 Critic return regression
+## 13. 在线 PPO
 
-- 数据：两条 full-success + 25 mm near-success + canonical failure。
-- 输入：归一化 observation + 22D privileged state。
-- 目标：归一化后的 `return_target`。
-- loss：Smooth L1/Huber。
-- 优化期间只启用 critic/value 参数，Actor 参数显式冻结。
-- 优化：200 epochs，batch size 256，Adam `lr=3e-4`，gradient norm clip 1.0。
+- 1024 environments；horizon 32；每个完整rollout epoch产生32,768 agent steps。
+- `gamma=0.99`；GAE `lambda=0.95`。
+- minibatch 8192；每批rollout执行5个mini-epochs。
+- PPO clip `epsilon=0.2`；value使用clipped loss。
+- Adam learning rate最高`3e-4`、最低`3e-5`；KL threshold 0.02。
+- entropy coefficient 0.001；bounds coefficient 0.0001；gradient norm clip 1.0。
+- Gaussian policy sigma初始0.05，floor 0.02。
 
-预热完成后保存独立 BC checkpoint；它是当前随机初始化 run 的起点，不是历史 policy 恢复。
-
-## 11. On-policy PPO
-
-预热之后，所有 rollout 和更新都是 pure on-policy PPO；expert action 不会混入在线 rollout。
-
-主要配置：
-
-- 1024 environments，horizon 32，因此一个完整 rollout epoch 产生 32,768 agent steps。
-- `gamma=0.99`，GAE `lambda=0.95`。
-- minibatch 8192，5 mini-epochs。
-- PPO clip `epsilon=0.2`；value 也使用 clipped loss。
-- Adam 初始/最高 `lr=3e-4`，最低 `3e-5`，KL threshold 0.02。
-- entropy coefficient 0.001，bounds coefficient 0.0001，gradient norm clip 1.0。
-- policy sigma init 0.05，floor 0.02。
-
-PPO 还有两个保护层：
-
-1. **前 10 个 PPO epochs critic-only**：仍收集当前 policy 的 on-policy rollout，但更新 loss 只保留 Critic；Actor、entropy、bounds 和 LR 调度冻结，避免随机 Critic advantage 破坏已经可用的 BC Actor。
-2. **scripted-prefix actor mask**：前 80 步仍进入 Critic return/GAE，但从 Actor surrogate loss、entropy、bounds、KL 和 advantage normalization 统计中排除。Critic 学到前缀状态价值，Actor 只为真正执行 residual 的状态负责。
-
-PPO 更新链：
+epoch 0–9仍采集当前随机policy的在线rollout，但只更新Critic/value参数；Actor、entropy、bounds和LR调度冻结。这10个epoch的目的是让value先适配当前在线分布，不是expert预热。epoch 10起执行完整PPO：
 
 ```text
 32-step on-policy rollout
-  -> bootstrap value + GAE
-  -> advantage 只用 actor_mask=1 样本统计归一化均值/方差
-  -> 5 × minibatch：clipped actor loss + clipped critic loss
-                   - entropy bonus + bounds penalty
-  -> gradient clip -> optimizer step
-  -> epoch metrics、Gate rates、reward terms、residual usage
+ -> bootstrap value + GAE
+ -> 只用 actor_mask=1 样本计算 advantage normalization
+ -> 5 × minibatch clipped actor/value update
+ -> entropy + bounds regularization
+ -> gradient clip + optimizer step
+ -> epoch metrics / Gate funnel / reward terms / residual usage
 ```
 
-## 12. 关键代码与权威产物
+## 14. Checkpoint、录像与评测
 
-- reference：`tasks/Sweep/2/A_Design/L2_Reference/build_reference.py`
+训练必须按启动前锁定的周期保存 `checkpoint.pth`、`metrics.json`、`rollout.npz` 和 deterministic video；具体训练预算与保存节奏写入对应run的启动记录，不属于算法定义。
+- recorder视角为机器人左前方略高的中景，覆盖上半身、双臂和桌面操作区。
+- terminal时抑制DirectRLEnv auto-reset，渲染Gate4成立当步的真实physics state；随后重复该终态40帧，在20 FPS下冻结2秒。
+- terminal前一帧或reset后画面都不能作为成功录像。
+
+训练节点的`sr/gate4`只描述该窗口完成episodes，不是最终论文数字。候选checkpoint必须运行至少512个deterministic episodes，并报告：Gate1→Gate4 funnel、success/failure数、成功步数/时间与效率分布、mouth clearance分布和最小值、terminal cube-pan几何、失败Gate、穿桌/提前终止/浅进入误判、seed、world/config、checkpoint SHA-256和输出路径。只有`fully_inside rate >= 0.50`通过最终验收。
+
+## 15. 权威代码、运行指纹与安全边界
+
+- reference builder：`tasks/Sweep/2/A_Design/L2_Reference/build_reference.py`
 - tracker：`tasks/Sweep/2/A_Design/L3_Learning/progress_batch.py`
 - environment：`tasks/Sweep/2/C_Wiring/sweep_env.py`
-- expert collector：`tasks/Sweep/2/C_Wiring/make_expert.py`
-- transition builder：`tasks/Sweep/2/C_Wiring/build_expert_dataset.py`
-- warmup：`tasks/Sweep/2/C_Wiring/bc_warmup.py`
-- PPO entrypoint：`tasks/Sweep/2/C_Wiring/train_sweep.py`
+- train：`tasks/Sweep/2/C_Wiring/train_sweep.py`
 - PPO config：`tasks/Sweep/2/C_Wiring/ppo_sweep.yaml`
 - shared PPO masking：`rl_rebuild/algo/ppo/ppo.py`、`rl_rebuild/algo/ppo/experience.py`
-- recording：`tasks/Sweep/2/C_Wiring/record_sweep.py`
-- evaluation：`tasks/Sweep/2/C_Wiring/eval_sweep.py`
+- recorder：`tasks/Sweep/2/C_Wiring/record_sweep.py`
+- evaluator：`tasks/Sweep/2/C_Wiring/eval_sweep.py`
 
-run 内 `world.json` 冻结 success、policy I/O、time、reference/asset/transition 路径及 SHA-256；它是判断某个 checkpoint 实际训练世界的权威配置，不应仅凭目录名推断。
+每个run的`world.json`必须冻结reference/asset hash、policy I/O、success contract、timebase、confidence/human配置和warmup摘要。判断checkpoint世界只能看其`world.json`和hash，不能凭目录名推断。
 
-## 13. 当前训练与监控
+共享服务器上只能操作本任务明确拥有的tmux、PID和目录；禁止影响feiyang、kailang或其他用户任务，禁止`pkill`、`killall`、GPU reset和广域终止。不得自动resume或启动额外1024-env run。GitHub只能使用`github-harroldx`且身份必须为`HARROLDX`；未经授权不commit、不push。不得触碰现有`tasks/pregrasp/arm_shell_points.npz`修改。
 
-- tmux：`sweep2_floorpenalty_v4_1024_20260901`
-- run：`logs/Sweep2_floorpenalty_v4_fixed1024_seed42_20260901/`
-- artifact prefix：`Sweep2FloorPenaltyV4__20260901_policy`
-- seed：42
-- max agent steps：100M
-- GPU：GPU0，与 feiyang 共享已获用户授权；禁止操作对方进程、tmux 或资源优先级。
-- launch：`logs/Sweep2_floorpenalty_v4_fixed1024_seed42_20260901/launch_pipeline.sh`
-- train log：`logs/Sweep2_floorpenalty_v4_fixed1024_seed42_20260901/train.log`
-- checkpoint root：`logs/checkpoints/Sweep2FloorPenaltyV4__20260901_policy_*`
+## 16. 后续完整方法多轨迹计划
 
-v3 在 8,192,000 steps 停止：其约 2M Gate4 峰值为 18.2%，但 3M/6M deterministic rollout 均在 Gate2 后因 mouth 穿桌提前失败，之后窗口 Gate4 塌缩到约 1%。v4 保持 Gate、expert action 和 PPO 不变，只加入 mouth-floor 强惩罚并把硬失败下限放宽到 `-3 mm`。
-
-按用户决定，v4 直接复用现有四条 transition，不重放 expert、不重采 `return_target`，并跳过 1-env smoke，直接从随机网络进行 1024-env 初始化、BC/Critic 预热和 PPO。由于 reward 已改变，复用的 Critic 离线 return 与新在线 reward 不完全一致；这是本次明确接受的实验条件。1024-env 初始化、Actor BC、离线 Critic 回归和前 10 个 critic-only epochs 均已完成，当前处于完整 on-policy PPO。
-
-已验证里程碑：
-
-- 3M：训练窗口 Gate4 `8.74%`；deterministic rollout 在 step 322 因 mouth clearance `-3.25 mm` 失败，Gate `[1,1,0,0]`，总 reward `-4.96`。这说明新惩罚已经把原先可获正回报的穿桌捷径改成负回报，但此时策略尚未学会完整进入。
-- 6M：checkpoint 实际为 `6,029,312` steps。训练窗口 Gate1/Gate2/Gate3/Gate4 分别为 `100% / 98.20% / 72.97% / 69.37%`，`fully_inside=70.27%`（111 episodes）。deterministic rollout 在 step 299 达成 Gate4，最小 mouth clearance `+1.34 mm`、终态 `+1.54 mm`，总 reward `+24.60`；录像含 300 帧真实物理过程和 40 帧终态冻结。
-- 约 6M–7M：训练窗口 Gate4 均值约 `72.2%`，单窗口峰值 `83.3%`；reward 与 Gate4 同向改善，不再出现 v3 的“失败但高回报”分离。
-- 9M：checkpoint 实际为 `9,011,200` steps。训练窗口 Gate3/Gate4/fully-inside 为 `78.18% / 75.45% / 75.45%`（110 episodes）。deterministic rollout 在 step 302 达成 Gate4，总 reward `27.22`；录像含 303 帧真实物理过程和 40 帧终态冻结。约 10.3M 的最近 10 个窗口 Gate4/fully-inside 均值约 `78.8% / 80.0%`。
-
-监控：
-
-```bash
-ssh msc-a6000 'tmux capture-pane -pt sweep2_floorpenalty_v4_1024_20260901:0 -S -80'
-ssh msc-a6000 'tail -n 100 /home/msc-auto/RL_sweep/logs/Sweep2_floorpenalty_v4_fixed1024_seed42_20260901/train.log'
-ssh msc-a6000 'cat /home/msc-auto/RL_sweep/logs/Sweep2_floorpenalty_v4_fixed1024_seed42_20260901/progress_steps.txt 2>/dev/null || true'
-```
-
-停止时必须先核对精确 tmux 与 PID，只能向本任务 session 发送 Ctrl-C；禁止 `pkill`、`killall` 或 GPU reset。
-
-## 14. 3M 诊断、录像与最终验收
-
-每 3M 节点必须包含：
-
-```text
-logs/checkpoints/Sweep2FloorPenaltyV4__20260901_policy_<XXXXM>/
-  checkpoint.pth
-  metrics.json
-  rollout.npz
-  record.log
-
-outputs_video/Sweep2FloorPenaltyV4__20260901_policy_<XXXXM>/
-  policy.mp4
-  topdown_frames/frame_*.png
-```
-
-诊断优先顺序：
-
-1. Gate1→Gate2→Gate3→Gate4 funnel，特别区分浅进入与完整进入。
-2. terminal step 和 step104 mouth collision 是否集中。
-3. cube-pan z、4 个 containment margins、mouth clearance。
-4. broom-assisted progress、pan quality、右/左 residual usage。
-5. Actor/Critic loss、entropy、KL 只用于解释策略变化，不能替代任务指标。
-
-录像采用机器人左前方略高的中景。专用模式抑制 terminal auto-reset，渲染 Gate4 成立当步的真实 physics state；随后在 20 FPS 下重复该终态 40 帧，冻结 2 秒。terminal 前帧和 reset 后帧均不合格。
-
-候选 checkpoint 最终运行至少 512 个 deterministic episodes；仅当 full-inside rate >= 0.50 才通过。表格 A 的 RL 成功率和效率以该评测为准；明显失败的 ablation 不进入后续 DP distillation 表格 B。
-
-## 15. 当前状态与下一步
-
-v3 已停止；其根因、3M/6M 诊断结论和关键数值已写入本文、`Codex_commit.md` 与 `Codex_mistakes.md`。确认不再被训练、expert manifest 或回退路径引用后，旧 v3 原始 run 日志目录已清理。当前 v4 checkpoint、3M/6M 诊断、视频、expert 数据及其来源证据全部保留。
-
-v4 在 `sweep2_floorpenalty_v4_1024_20260901` 中持续运行，最近核查已超过 10M agent steps；实时状态以 tmux、`train.log` 和 `progress_steps.txt` 为准。
-
-下一步：
-
-1. 到 12M 读取下一份完整诊断包，与 9M 比较 Gate3/Gate4、mouth clearance、效率和 deterministic 行为。
-2. 同时保留 6M 与 9M 作为候选；不能只按训练步数选择 checkpoint。
-3. 对候选 checkpoint 执行至少 512 回合 deterministic 最终验收，报告成功率和效率分布。
-4. 只有 `fully_inside rate >= 0.50` 才进入表格 A；明显失败的 ablation 不进入 DP distillation 表格 B。
-
-## 16. GitHub 发布与复现清单
-
-当前 Sweep 实现发布到：
-
-- repository：`git@github-harroldx:stzabl-png/RL-Correction.git`
-- branch：`task_sweep`
-- 基线：本地 `sweep-task` 在创建发布分支时的完整 Git 历史
-- 认证：服务器 SSH alias `github-harroldx`，固定对应用户账号 `HARROLDX`；不得使用裸 `github.com`，也不得把私钥、token 或凭据写入仓库
-
-发布内容包括当前 Sweep 代码、文档、reference、任务资产，以及以下被 `.gitignore` 默认排除但为复现而显式加入的文件：
-
-```text
-logs/expert/transitions_fullinside/
-  manifest.json
-  sweep2_entry25_transitions.npz
-  sweep2_entry40_transitions.npz
-  sweep2_full15_transitions.npz
-  sweep2_canonical_failure_transitions.npz
-logs/expert/sweep2_expert_entry25_v1.npz
-logs/expert/sweep2_expert_entry40_v1.npz
-logs/expert/source/sweep2_v1_action_source.npz
-logs/checkpoints/Sweep2FloorPenaltyV4__20260901_policy_0009M/
-  checkpoint.pth
-  metrics.json
-  rollout.npz
-outputs_video/Sweep2FloorPenaltyV4__20260901_policy_0009M/
-  policy.mp4
-  topdown_frames/frame_*.png
-```
-
-`.npz`、`.pth`、`.mp4` 和 `.png` 由 Git LFS 管理。完整训练日志、TensorBoard event、BC/3M/6M checkpoint、其他视频、临时 recorder log 和当前仍在写入的 run 目录均不发布。推送前后都必须核对 staged manifest、LFS pointer 和远端 commit；不得顺带提交其他人的工作树修改。
+用户提供新数据的机器人GraspPose后，从`datasets/sweep_new_data/`筛选4条左手簸箕基本静止、右手扫把扫动且物体trajectory confidence较高的数据，与当前Sweep2组成5条。五条均使用本文完整方法，不为不同轨迹修改算法；但每条仍须独立生成reference并通过Playbook规定的GraspPose、IK、物理world、zero-residual、random smoke与录像检查。

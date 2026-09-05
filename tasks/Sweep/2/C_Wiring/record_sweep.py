@@ -10,6 +10,7 @@ from isaaclab.app import AppLauncher
 
 p = argparse.ArgumentParser()
 p.add_argument("--checkpoint", default="", help="empty means zero-residual reference replay")
+p.add_argument("--method", choices=("full", "wo_human", "wo_conf"), default="full")
 p.add_argument("--out", default="", help="optional MP4 under project outputs_video/")
 p.add_argument("--topdown_frames_dir", default="",
                help="optional directory under outputs_video/ for frames ending at first success")
@@ -56,7 +57,7 @@ if trace:
     logs_root = os.path.join(ROOT, "logs")
     assert os.path.commonpath([logs_root, trace]) == logs_root
 
-raw = SE.SweepEnv(SE.build_cfg(1))
+raw = SE.SweepEnv(SE.build_cfg(1, ablation_method=args.method))
 # Keep the physical terminal state alive through rendering; the trace still uses
 # tick["terminated"]/tick["timeout"] as the rollout boundary.
 raw.suppress_terminal_reset = True

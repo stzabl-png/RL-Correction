@@ -1,6 +1,6 @@
 # Sweep2 Full-Inside 交接说明
 
-更新时间：2026-09-01。当前权威目标为 fully-inside：方块完整 footprint 进入簸箕后才算成功。Deep20 是已停止的历史实验，不再是训练或验收标准。
+更新时间：2026-09-03。当前权威目标为 fully-inside：方块完整 footprint 进入簸箕后才算成功。Deep20 是已停止的历史实验，不再是训练或验收标准。
 
 ## 1. 阅读顺序
 
@@ -15,7 +15,7 @@
 
 - SSH：msc-a6000
 - 根目录：/home/msc-auto/RL_sweep
-- 分支：sweep-task
+- 分支：task_sweep
 - 当前不做 cube 随机化。
 - 用户允许本任务与 feiyang 共享 GPU0，但禁止停止、发送信号、renice 或修改任何外部进程。
 - 本任务训练与本任务自动录像不能重叠；autorecord 通过 pause/yield 协议协调。
@@ -53,8 +53,8 @@
 数据流：
 
 ego reconstruction -> build_reference.py -> sweep2_reference_v1.npz
--> sweep_env.py 冻结物理世界 -> 两条 full-success expert、near-success 与 failure
--> build_expert_dataset.py -> Actor/Critic warmup -> pure on-policy PPO
+-> sweep_env.py 冻结物理世界 -> 随机初始化 Actor/Critic
+-> 前 10 个在线 critic-only PPO epochs -> pure on-policy PPO
 -> 每 3M checkpoint/metrics/trace/video -> 512 回合验收
 
 核心路径：
@@ -62,29 +62,30 @@ ego reconstruction -> build_reference.py -> sweep2_reference_v1.npz
 - reference：tasks/Sweep/2/A_Design/L2_Reference/
 - tracker：tasks/Sweep/2/A_Design/L3_Learning/progress_batch.py
 - environment：tasks/Sweep/2/C_Wiring/sweep_env.py
-- transitions：logs/expert/transitions_fullinside/
-- warmup：tasks/Sweep/2/C_Wiring/bc_warmup.py
+- 历史 transition（仅用于复现旧 v4，不用于当前默认训练）：logs/expert/transitions_fullinside/
+- 历史 warmup 实现（当前 `warmup_role=none` 时跳过）：tasks/Sweep/2/C_Wiring/bc_warmup.py
 - training：tasks/Sweep/2/C_Wiring/train_sweep.py
 - recording：tasks/Sweep/2/C_Wiring/record_sweep.py
 - evaluation：tasks/Sweep/2/C_Wiring/eval_sweep.py
 
-Actor observation 为 191 维，Critic privileged state 为 22 维，action 为双臂 14 维。前 80 control steps 强制零 residual，且从 Actor objective、entropy、bounds、KL 和 advantage normalization 中排除。Actor BC 使用两条 fully-inside expert；Critic 使用两条 full-success expert、25 mm near-success 与 canonical failure return。
+Actor observation 为 191 维，Critic privileged state 为 22 维，action 为双臂 14 维。前 80 control steps 强制零 residual，且从 Actor objective、entropy、bounds、KL 和 Actor advantage normalization 中排除。当前完整方法从随机网络开始，不执行 Actor BC、离线 Critic return regression 或 transition observation normalization；Actor/Critic expert 样本数均为 0。前 10 个 PPO epochs 仍收集当前 policy 的在线 rollout，只更新 Critic，随后进入完整 pure on-policy PPO。
 
 当前 v4 在原 Gate、expert action、BC 和 PPO 结构上新增 mouth-floor 约束：mouth clearance 低于 `+0.5 mm` 后施加 `-4*((0.5mm-clearance)/3.5mm)^2`，低于 `-3.0 mm` 时硬失败。该设计阻止策略通过下压簸箕、提前终止来获取正回报；不使用左臂动作冻结。
 
-冻结输入：
+当前冻结输入：
 
 - reference：tasks/Sweep/2/A_Design/L2_Reference/sweep2_reference_v1.npz
-- full-inside transitions：logs/expert/transitions_fullinside/
-- expert 数据：两条 fully-inside expert；另保留 25 mm near-success 与 canonical failure 供 Critic 预热
+- expert/transition：当前默认训练不消费；旧数据保留用于历史 v4 复现与诊断
 - canonical replay：outputs_video/sweep2_v1_smooth_asset_physical_entry_replay.mp4
 - cube world start：[-0.0259767957, -0.1788897067, 0.8830000162] m
 
-禁止使用 logs/expert/transitions_deep20/ 启动当前训练。
+禁止使用 logs/expert/transitions_deep20/ 启动当前训练。训练命令为接口兼容仍可携带 transition 路径，但 `warmup_role=none` 时不得调用离线 warmup 或用这些 transition 拟合 normalization。
 
-## 5. 当前运行
+旧 `Sweep2FloorPenaltyV4__20260901` 是历史 warmup 基线：它确实使用两条 fully-inside expert 做 Actor BC，并使用 full-success、25 mm near-success 与 canonical failure 做离线 Critic 回归。该事实只解释保留的 24M checkpoint 来源，不是今后完整方法的默认流程。
 
-当前从头训练：
+## 5. 历史 v4 基线运行
+
+以下 warmup 基线已经结束；它不是当前无专家预热方法的运行配置：
 
 - tmux：sweep2_floorpenalty_v4_1024_20260901
 - run：logs/Sweep2_floorpenalty_v4_fixed1024_seed42_20260901/
@@ -96,7 +97,7 @@ Actor observation 为 191 维，Critic privileged state 为 22 维，action 为�
 - train log：logs/Sweep2_floorpenalty_v4_fixed1024_seed42_20260901/train.log
 - checkpoint root：logs/checkpoints/Sweep2FloorPenaltyV4__20260901_policy_*
 
-按用户决定，本 run 复用现有四条 transition，不重放 expert、不重采离线 return，并跳过 1-env smoke，直接完成 1024-env 初始化、Actor BC、Critic 回归和前 10 个 critic-only epochs；当前处于完整 on-policy PPO。最近核查已超过 7.2M agent steps。不得重复启动第二个 run。
+按用户决定，本 run 复用现有四条 transition，不重放 expert、不重采离线 return，并跳过 1-env smoke，直接完成 1024-env 初始化、Actor BC、Critic 回归、前 10 个 critic-only epochs 和完整 on-policy PPO。训练已于 `26,116,096` agent steps 优雅停止，trainer 进程确认退出；最后完整诊断节点为24M。不得自动 resume 或重复启动，除非用户明确批准。
 
 监控：
 
@@ -115,13 +116,16 @@ ssh msc-a6000 'cat /home/msc-auto/RL_sweep/logs/Sweep2_floorpenalty_v4_fixed1024
 - v4 3M deterministic rollout 因 mouth clearance `-3.25 mm` 失败，总 reward 已降为 `-4.96`，证明旧穿桌捷径不再赚钱。
 - v4 6M 训练窗口 Gate4 `69.37%`、`fully_inside=70.27%`；约 6M–7M Gate4 均值约 `72.2%`。
 - v4 6M deterministic rollout 在 step 299 达成 Gate4，最小/终态 mouth clearance `+1.34/+1.54 mm`，总 reward `+24.60`；录像为 300 帧真实物理过程加 40 帧终态冻结。
+- 训练窗口 Gate4 随 steps 的变化：3M `8.74%` → 6M `69.37%` → 9M `75.45%` → 12M `75.00%` → 15M `74.42%` → 18M `86.17%` → 21M `80.41%` → 24M `86.09%`。
+- 停止前最后一个窗口 Gate4/fully-inside 均为 `85.85%`；最后10个窗口平均 Gate4 `86.77%`、fully-inside `86.96%`，说明后期没有成功率塌缩。
+- 6M至24M的每个3M deterministic recorder 都得到 Gate `[1,1,1,1]`；24M在 step 299 成功，成功时平均 mouth clearance `5.84 mm`，当前为首选候选。训练窗口统计和单条 recorder 均不能替代512回合最终验收。
 - 已清理被 v4 取代的 v3 原始 run 日志；当前 v4、expert、来源证据、checkpoint 和 3M/6M 诊断均保留。
 - 代码修正 Git commit：`07e0f94`；v4 文档与清理台账 commit：`4c24374`。
 
-## 7. 最近操作顺序
+## 7. 历史 v4 尚缺验收
 
-1. 先核对 tmux、PID、`world.json`、progress 和 Git 状态，不重复 launch，不触碰 feiyang 的进程。
-2. 到 9M 检查下一份完整诊断包，并与 6M 比较 Gate3/Gate4、mouth clearance、效率和 deterministic 行为。
-3. 若 9M 未显著优于 6M，保留 6M 作为候选；不能只按训练步数选择 checkpoint。
-4. 自动录像必须渲染真实 Gate4 terminal physics state，并冻结该终态 2 秒。
-5. 候选 checkpoint 运行至少 512 回合 deterministic evaluation；`fully_inside rate >= 0.50` 才通过最终验收。
+旧 v4 trainer 已停止，不得自动 resume。若该历史 checkpoint 仍需用于对照，应先对保留的24M checkpoint运行至少512回合 deterministic evaluation，报告 full-inside 成功率、效率、mouth clearance 和失败 Gate。自动录像必须渲染真实 Gate4 terminal physics state并冻结2秒；训练窗口或单条视频不能代替批量验收。
+
+## 8. 后续多轨迹任务
+
+消融只在当前 `datasets/sweep_2_better/` 轨迹上进行。消融完成后，用户将为 `datasets/sweep_new_data/` 中的候选轨迹提供机器人 GraspPose；届时筛选 4 条与当前“左手簸箕基本静止、右手扫把扫动”高度相似且物体轨迹 confidence 较高的数据，与当前 Sweep2 组成 5 条轨迹。五条都使用同一套无专家预热的完整方法训练，不因轨迹改变算法；每条仍需独立生成和验证 reference、IK、物理世界与 GraspPose。

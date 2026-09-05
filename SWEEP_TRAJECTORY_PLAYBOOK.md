@@ -4,7 +4,7 @@
 
 ## 一、适用边界与核心原则
 
-每条新 Sweep 轨迹必须独立生成 reference、expert、transition、policy 和评测结果。可以复用方法、代码结构和检查标准，但不能直接复制另一条轨迹的 joint action、cube 坐标、IK 结果或 checkpoint。
+每条新 Sweep 轨迹必须独立生成 reference、policy 和评测结果，并独立验证 GraspPose、IK 与物理世界。当前默认方法不要求生成 expert 或 transition；可以复用方法、代码结构和检查标准，但不能直接复制另一条轨迹的 joint action、cube 坐标、IK 结果或 checkpoint。
 
 通用顺序：
 
@@ -12,10 +12,9 @@
 重建输入审计
   -> reference 与 IK 出厂检查
   -> 物理世界和零残差回放
-  -> 单变量 expert 扩展
-  -> success/near-success/failure 数据定级
-  -> transition 重采样与 Actor/Critic 预热
-  -> 小环境验证
+  -> zero-residual 与 random-policy 小环境验证
+  -> 随机初始化 Actor/Critic
+  -> 前 10 个在线 critic-only PPO epochs
   -> 多环境 PPO
   -> 周期诊断
   -> deterministic 最终验收
@@ -71,41 +70,13 @@ dustpan collider 应使用开放 compound 结构：盆底、连续入口 ramp、
 
 零 residual 可以失败，但失败必须可解释。禁止通过瞬移物体、扩大物体、探针播种或放宽成功判据伪装成 expert。
 
-## 六、Expert 生成方法
+## 六、Expert 生成方法（可选诊断/历史复现）
 
-从最接近成功且物理可信的回放开始，一次只改一个变量。已经验证有效的优先做法是：保持世界、左臂、reference 前段和接触语义不变，只在右臂末段沿 pan-local inward axis 增加平滑 IK depth extension。
-
-推荐流程：
-
-1. 选定 source-relative 接触区间，明确行号和时间映射。
-2. 对右臂末段加入从 0 平滑增长到目标深度的位移；不要突然跳变。
-3. 重新做逐帧 IK，检查 joint limits、最大相邻角变化和末端实际位移。
-4. 在同一个冻结世界中做一环境 deterministic replay。
-5. 同时保存 action、物理 state、Gate、cube-pan 几何、视频和日志。
-6. 按当前成功契约定级为 `full_success`、`near_success` 或 `failure`，不能按脚本名称定级。
-
-命令的 25/40 mm 是末端目标扩展量，不等于 cube 的实际入盆深度。IK、碰撞、刷毛接触和 pan 运动都会改变最终物理结果，因此每个候选都必须重新回放测量。
+当前完整方法不使用 expert trajectory 做 Actor BC、离线 Critic 回归或 observation normalization。Expert 工具仅保留用于历史复现或可选物理诊断，不是新 Sweep 的训练前置条件。
 
 ## 七、已验证案例：Sweep2 的 25/40 mm expert
 
-本节只展示通用方法如何落地，不把 Sweep2 的固定路径或运行状态当作未来任务默认值。
-
-形成过程：
-
-1. 先完成固定 cube、开放 dustpan collider、双 FixedJoint 和 zero-residual replay，确认主要剩余缺口来自末段向 pan 内推进不足，而不是资产封口、reset 冲击或坐标系错误。
-2. 冻结左臂、世界和 source-relative reference，只修改右臂末段；沿 pan-local inward axis 分别构造 25 mm 与 40 mm 平滑 depth extension。
-3. 每条候选重新进行 IK 和一环境物理回放。25 mm 候选保留了有效接触并显著缩小入口缺口；40 mm 候选在不越过 URDF joint limits、最大相邻关节变化约 3° 的情况下提供更深推进。
-4. 在当时的 entry 判据下，正式回放分别在 frame 384 和 frame 382 达到目标，产出 `sweep2_expert_entry25_v1` 与 `sweep2_expert_entry40_v1` 的 trace、metrics、NPZ 和视频。
-5. 成功契约后来收紧为完整 footprint `fully_inside` 后，不能沿用旧标签：按新 reward 和几何重新采样 transition，25 mm 被重新定级为 `near_success`（Gate3 entered，但没有 Gate4），40 mm 被验证为 `full_success`。
-6. 当前训练案例中，40 mm 与另一条 independently verified fully-inside expert 共同用于 Actor BC；两条 full-success、25 mm near-success 和 canonical failure 一起用于 Critic return regression。
-
-这个案例验证了三条可迁移结论：
-
-- 用同一 source-relative 轨迹做 25/40 mm 单变量对照，可以判断是否主要缺少 inward depth。
-- commanded depth 只是干预量，expert 标签必须由统一环境中的真实 terminal 几何决定。
-- 成功契约一旦变化，所有旧 expert 必须重新定级并重采 transition；不能只改 manifest 标签。
-
-未来轨迹不要求仍使用 25/40 mm。应先测量其实际几何缺口，再选择小/大两个安全深度形成鉴别实验。
+历史 Sweep2 v4 曾构造 25/40 mm 末段扩展，并用两条 fully-inside success、25 mm near-success 和 canonical failure 完成 Actor/Critic 离线预热。该案例只保留为旧 checkpoint provenance；当前默认方法不再生成或消费这些 expert transition。
 
 ## 八、成功契约
 
@@ -120,17 +91,9 @@ Gate 必须 earn-only 锁存。success 当步终止物理 rollout。更换物体
 
 ## 九、Transition、Actor 与 Critic
 
-把每条已定级 rollout 在当前环境和 reward 下重采为 transition，保存 observation、privileged state、action、reward、done、Gate、return、actor mask、来源 hash 和数据角色。
+当前默认流程从随机网络开始：不执行 Actor BC、离线 Critic return regression 或 transition observation normalization。前 10 个 PPO epochs 使用当前 policy 的在线 rollout 且只更新 Critic，之后启用完整 PPO；这段在线保护期不属于 expert warmup。
 
-已经验证的分工：
-
-- Actor BC 只学习 `full_success` expert。
-- `near_success` 不进入 Actor BC，避免策略模仿停在 Gate3 的动作。
-- Critic 同时学习 full-success、near-success 和 failure 的 discounted return，获得更完整的价值排序。
-- scripted reference-only 前缀可以训练 Critic，但必须从 Actor loss、entropy、bounds、KL 和 Actor advantage normalization 中排除。
-- 预热结束后进入 pure on-policy PPO，不在 PPO rollout 中偷偷混入 scripted expert action。
-
-数据 manifest 应记录 schema、维度、样本数、角色、success frame、源/输出 SHA-256。训练代码必须按角色读取，不能依赖文件名猜测。
+旧 v4 的 transition/BC/Critic 分工已被无预热流程整体取代，只在复现旧 checkpoint 时查阅历史台账。
 
 ## 十、Reward 设计
 
@@ -162,14 +125,13 @@ mouth_floor = -4 * relu((0.0005 - clearance) / 0.0035)^2
 
 ## 十二、小规模验证与训练放大
 
-按以下顺序放行：
+当前默认流程按以下顺序放行：
 
 1. Python/static check 与 CPU tracker self-test。
-2. 一环境 deterministic expert replay。
-3. transition schema、shape、mask、return 和 hash 检查。
-4. 一环境 random-policy smoke，检查 reset、action bound、NaN 和日志路径。
-5. 小批量 Actor/Critic warmup，检查 loss 与参数更新对象。
-6. 再启动多环境 PPO，并使用独立 tmux、日志、checkpoint 和 artifact prefix。
+2. 一环境 zero-residual replay，检查 reference、接触、Gate 与终止状态。
+3. 一环境 random-policy smoke，检查 reset、action bound、NaN 和日志路径。
+4. 核对无预热指纹：`warmup_role=none`、Actor/Critic samples 均为 0、无 BC checkpoint。
+5. 再启动多环境 PPO，并使用独立 tmux、日志、checkpoint 和 artifact prefix；前 10 个 epoch 只在线更新 Critic。
 
 在共享 GPU 上，只能操作本任务明确拥有的 session、PID 和目录。网络断开后先检查已有 tmux，不得因看不到原 shell 就重复启动。
 
@@ -188,10 +150,10 @@ mouth_floor = -4 * relu((0.0005 - clearance) / 0.0035)^2
 1. 建立新的任务目录和独立 `Codex_tasks.md` 实例段，记录输入与坐标系。
 2. 重新生成 reference，完成 IK 与 GraspPose 出厂检查。
 3. 重建并验证开放 dustpan 物理世界，完成 zero-residual replay。
-4. 根据实测缺口设计小/大 inward-depth 单变量 expert 对照。
-5. 按该任务成功契约重新定级、重采 transition，并验证 manifest。
-6. 依次通过一环境 expert、transition、random smoke 和 warmup 门。
-7. 使用新的 tmux/run/checkpoint/video 前缀启动训练。
-8. 周期检查 Gate funnel 和真实 terminal 视频，最后执行 deterministic 批量验收。
+4. 完成 zero-residual 与 random-policy smoke，并核对无预热指纹。
+5. 使用新的 tmux/run/checkpoint/video 前缀，从随机 Actor/Critic 启动训练。
+6. 周期检查 Gate funnel 和真实 terminal 视频，最后执行 deterministic 批量验收。
+
+当前后续计划是在用户补充机器人 GraspPose 后，从 `datasets/sweep_new_data/` 选择 4 条与 Sweep2 操作模式高度相似、物体 confidence 较高的轨迹，与当前轨迹组成 5 条数据。五条使用同一套无专家预热完整方法。
 
 任何阶段若发现坐标、资产、接触语义或成功判据错误，应退回对应阶段修正，不要在 reward 或 PPO 超参数上掩盖上游问题。

@@ -15,30 +15,39 @@ def _load(path: str, device: str):
 
 def warm_actor_critic(agent, expert25_npz: str, expert40_npz: str,
                       expert_full_npz: str, failure_npz: str,
+                      warmup_role: str = "full_v4",
                       actor_epochs: int = 300, critic_epochs: int = 200,
                       batch_size: int = 256):
-    """BC on 40 mm + full 15M, then fit critic on success/near/failure."""
+    """Run the locked full-v4, no-full15, or 25-mm-only initialization."""
     d25 = _load(expert25_npz, agent.device)
-    d40 = _load(expert40_npz, agent.device)
-    dfull = _load(expert_full_npz, agent.device)
-    dfail = _load(failure_npz, agent.device)
-    obs = torch.cat([d40["obs"], dfull["obs"]], 0)
-    priv = torch.cat([d40["priv_info"], dfull["priv_info"]], 0)
-    act = torch.cat([d40["actions"], dfull["actions"]], 0)
-    actor_mask = torch.cat([d40["actor_mask"], dfull["actor_mask"]], 0).reshape(-1)
+    assert warmup_role in {"full_v4", "without_full15", "near25_only"}, warmup_role
+    if warmup_role == "full_v4":
+        d40 = _load(expert40_npz, agent.device)
+        dfull = _load(expert_full_npz, agent.device)
+        dfail = _load(failure_npz, agent.device)
+        actor_data = [d40, dfull]
+        critic_data = [d25, d40, dfull, dfail]
+    elif warmup_role == "without_full15":
+        d40 = _load(expert40_npz, agent.device)
+        dfail = _load(failure_npz, agent.device)
+        actor_data = [d25, d40]
+        critic_data = [d25, d40, dfail]
+    else:
+        actor_data = critic_data = [d25]
+    obs = torch.cat([d["obs"] for d in actor_data], 0)
+    priv = torch.cat([d["priv_info"] for d in actor_data], 0)
+    act = torch.cat([d["actions"] for d in actor_data], 0)
+    actor_mask = torch.cat([d["actor_mask"] for d in actor_data], 0).reshape(-1)
     assert obs.shape[1] == agent.obs_shape[0]
     assert priv.shape[1] == agent.priv_info_dim
     assert act.shape[1] == agent.actions_num
-    # Fit observation normalization on both near-success demonstrations and the
-    # canonical failure, even though only 40 mm supervises the Actor.
+    # Normalization sees exactly the selected critic warmup distribution.
     agent.running_mean_std.train()
     with torch.no_grad():
-        agent.running_mean_std(torch.cat(
-            [d25["obs"], d40["obs"], dfull["obs"], dfail["obs"]], 0))
+        agent.running_mean_std(torch.cat([d["obs"] for d in critic_data], 0))
     agent.running_mean_std.eval()
     nonzero = act.abs().amax(1) > 1.0e-6
-    # Preserve both demonstrations' zero prefixes at low weight; emphasize their
-    # interaction actions, including the old 15M fully-inside completion.
+    # Preserve zero prefixes at low weight and emphasize interaction actions.
     weight = torch.where(
         nonzero, torch.ones_like(nonzero, dtype=torch.float32),
         torch.full_like(nonzero, 0.05, dtype=torch.float32))
@@ -66,11 +75,9 @@ def warm_actor_critic(agent, expert25_npz: str, expert40_npz: str,
         if epoch % 25 == 0 or epoch == actor_epochs - 1:
             print(f"[BC actor] epoch={epoch:03d} weighted_mse={actor_final:.6f}", flush=True)
 
-    c_obs = torch.cat([d25["obs"], d40["obs"], dfull["obs"], dfail["obs"]], 0)
-    c_priv = torch.cat(
-        [d25["priv_info"], d40["priv_info"], dfull["priv_info"], dfail["priv_info"]], 0)
-    c_ret_raw = torch.cat([d25["return_target"], d40["return_target"],
-                           dfull["return_target"], dfail["return_target"]], 0).reshape(-1, 1)
+    c_obs = torch.cat([d["obs"] for d in critic_data], 0)
+    c_priv = torch.cat([d["priv_info"] for d in critic_data], 0)
+    c_ret_raw = torch.cat([d["return_target"] for d in critic_data], 0).reshape(-1, 1)
     agent.value_mean_std.train()
     with torch.no_grad(): agent.value_mean_std(c_ret_raw)
     agent.value_mean_std.eval()
@@ -101,4 +108,5 @@ def warm_actor_critic(agent, expert25_npz: str, expert40_npz: str,
     agent.running_mean_std.train()
     agent.value_mean_std.train()
     return {"actor_weighted_mse": actor_final, "critic_huber": critic_final,
-            "actor_samples": len(obs), "critic_samples": len(c_obs)}
+            "actor_samples": len(obs), "critic_samples": len(c_obs),
+            "warmup_role": warmup_role}

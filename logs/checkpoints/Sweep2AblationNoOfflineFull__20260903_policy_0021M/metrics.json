@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "target_step": 21000000,
+  "actual_agent_steps": 21004288,
+  "epoch": 640,
+  "checkpoint": "/home/msc-auto/RL_sweep/logs/checkpoints/Sweep2AblationNoOfflineFull__20260903_policy_0021M/checkpoint.pth",
+  "rates": {
+    "sr/gate1": 1.0,
+    "sr/gate2": 0.9876543209876543,
+    "sr/gate3": 0.7716049382716049,
+    "sr/gate4": 0.7407407407407407,
+    "sr/fully_inside": 0.7407407407407407,
+    "n/episodes": 162,
+    "ep_rew/task": 0.09063155949115753,
+    "ep_rew/acquire": 0.0037746126763522625,
+    "ep_rew/push": 0.002107291715219617,
+    "ep_rew/pan_quality": 0.0013106255792081356,
+    "ep_rew/success_quality": 0.0002595457772258669,
+    "ep_rew/mouth_floor": -0.0013149055885151029,
+    "ep_rew/track": -0.010299032554030418,
+    "ep_rew/shape": 0.01054232195019722,
+    "ep_rew/action": -0.00046611527795903385,
+    "ep_rew/left_anchor": -0.0003763781569432467,
+    "quality/pan_tilt_deg_success": 10.379144668579102,
+    "quality/pan_clearance_mm_success": 14.751791954040527,
+    "quality/pan_lin_speed_success": 0.12456924468278885,
+    "quality/pan_ang_speed_success": 0.24060975015163422,
+    "quality/broom_dist_mm_success": 43.26712417602539,
+    "quality/cube_z_pan_mm_success": 68.09963989257812,
+    "quality/deep_margin_mm_success": -5.599630355834961,
+    "quality/broom_assisted_fraction_success": 0.14485912024974823,
+    "quality/n_success": 120.0,
+    "residual/right_usage": 0.19515123963356018,
+    "residual/left_usage": 0.14325523376464844
+  },
+  "losses": {
+    "actor": -0.006003481335937977,
+    "critic": 0.06429767608642578,
+    "entropy": -20.119781494140625,
+    "kl": 0.003823807230219245
+  }
+}

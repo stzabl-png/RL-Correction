@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Record one immutable policy rollout for every 3M diagnostic checkpoint.
+# Record one immutable policy rollout at the requested checkpoint interval.
 set -uo pipefail
 CHECKPOINTS=${1:?logs/checkpoints dir}; VIDEOS=${2:?outputs_video dir}
 PREFIX=${3:?artifact prefix}
 PY=${4:?isaac python}; PARENT=${5:?training pid}
+RECORD_EVERY=${6:?record interval in agent steps}; METHOD=${7:?ablation method}
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../../../.." && pwd)"
-export PYTHONPATH="$ROOT" SHARPA_WANDB=0 CUDA_VISIBLE_DEVICES=0
+export PYTHONPATH="$ROOT" SHARPA_WANDB=0
+export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
 LOCK_DIR=${RL_ISAAC_LOCK_DIR:-$HOME/.cache/rl_correction}
 PAUSE="$LOCK_DIR/pause.request"
 mkdir -p "$LOCK_DIR"
@@ -22,6 +24,8 @@ while kill -0 "$PARENT" 2>/dev/null; do
   for meta in "$CHECKPOINTS"/"${PREFIX}"_*M/metrics.json; do
     [ -e "$meta" ] || continue
     node=$(dirname "$meta"); base=$(basename "$node"); tag=${base#${PREFIX}_}
+    tag_m=${tag%M}; tag_steps=$((10#$tag_m * 1000000))
+    [ $((tag_steps % RECORD_EVERY)) -eq 0 ] || continue
     grep -qxF "$tag" "$SEEN" && continue
     ckpt="$node/checkpoint.pth"
     [ -f "$ckpt" ] || continue
@@ -33,7 +37,7 @@ while kill -0 "$PARENT" 2>/dev/null; do
     echo "[autorecord] $tag checkpoint=$ckpt" >&2
     printf '%s\n' "$$" > "$PAUSE"
     timeout -k 30 ${SWEEP_REC_TIMEOUT:-2400} "$PY" -u \
-      "$HERE/record_sweep.py" --checkpoint "$ckpt" --out "$video" \
+      "$HERE/record_sweep.py" --checkpoint "$ckpt" --method "$METHOD" --out "$video" \
       --topdown_frames_dir "$frames" --topdown_tail_on_failure \
       --trace "$trace" --headless --enable_cameras \
       >> "$node/record.log" 2>&1

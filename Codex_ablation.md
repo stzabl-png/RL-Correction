@@ -1,6 +1,6 @@
 # Sweep2 Main Ablation Record
 
-更新时间：2026-09-03。本文件只记录当前Sweep2主消融的设计、启动方式、运行产物、结果与解释。完整算法以`Codex_tasks.md`为准；新Sweep轨迹迁移方法以`SWEEP_TRAJECTORY_PLAYBOOK.md`为准。
+更新时间：2026-09-03。本文件只记录当前Sweep2主消融的设计、启动方式、运行产物、结果与解释。完整算法以`Codex_tasks.md`为准；新Sweep轨迹迁移方法以`Codex_tasks.md`为准。
 
 ## 1. 研究问题与三组方法
 

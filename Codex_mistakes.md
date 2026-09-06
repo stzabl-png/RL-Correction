@@ -444,3 +444,25 @@
 - 修正：从 clearance `+0.5 mm` 开始施加连续二次惩罚，在 `-3 mm` 达到 `-4/step`，并保留 `-3 mm` 硬失败。既有 3M/6M 失败轨迹离线重算后由正回报变为负回报；新 run 在 6M 得到 Gate4 deterministic 成功且最小 clearance 为正。
 - 预防：任何 terminal 放宽都必须同时审计 terminal 前整段累计回报。发射前用已知失败 rollout 重算每个 reward component，要求捷径回报低于真实成功；训练中并列观察 Gate funnel、episode 长度、clearance 和分项 reward，不能用均值 reward 代替成功率。
 - 数据边界：reward 改变后通常应重采 Critic return。本次复用旧 transition 是明确批准的实验例外，后续任务不得把它当作默认流程。
+
+## 2026-09-06 — 新候选canonical转换漏掉COM平移
+
+- 现象：候选render看似合理，转换后pan接触偏离源mesh，中位最近顶点距离16.8082mm。
+- 错误假设：新交付与旧转换一样可只旋转canonical坐标。
+- 根因：region_rank.json明确给出非零com_offset；位置逆变换必须为Rci.T@p_can+COM。
+- 修正：Task3 prior_frame.py还原COM，接触中位距离降到1.4285mm；姿态/法向只旋转，手指角保留。
+- 防复发：逐层检查canonical→OBJ→USD root→world，先读交付metadata，不把“转换程序退出0”当成抓姿正确。
+
+## 2026-09-06 — 只按首帧朝下替换扫帚，反转了功能运动
+
+- 现象：take80 v4替换扫帚后，用户指出刷毛在后续运动反向。
+- 错误假设：把donor刷毛在首帧对齐世界向下，就能保证完整运动方向。
+- 根因：旧v3实际先朝内，再经原始转腕朝下；Rz90°资产替换改变了整个运动的工作面方向。数值坐标闭环通过仍不能证明语义方向正确。
+- 修正：在用户授权下v6保留旧柄、prior和449行reference，仅移入正确take32刷头，不旋转，保留input-Y刷毛方向。与旧v3并排完整播放，检查row50以后world-Z<=-.975725；用户确认通过。
+- 防复发：必须观察起始、转腕、功能段及末段；优先保留已正确抓区，不能随意用整把替换导致重新选抓姿/IK。重大错误和失败证据见Codex_new_data.md第5节。
+
+## 2026-09-06 — 当前状态靠不断追加更新造成相互矛盾
+
+- 现象：旧手册仍写缺canonical、take32未验收，后文又记录成功；多个文档重复算法和Task3停点。
+- 修正：单轨迹算法/通用流程合并到Codex_tasks.md，Task3现状统一Codex_new_data.md；HANDOFF只做阅读导航，旧REVIEW明确标历史。
+- 防复发：每种信息只有一个当前权威位置，其他文档链接过去；清理产物后同步更新索引，不让旧路径看起来仍可直接使用。

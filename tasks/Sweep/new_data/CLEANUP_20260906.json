@@ -1,0 +1,329 @@
+{
+  "deleted_videos": [
+    {
+      "path": "outputs_video/Task3_take128_v4/static/trajectory.mp4",
+      "bytes": 14749,
+      "sha256": "b2ed2616e888cfabdd0bbc4a52c34bdb4459dc59d6f5dbeb6d8ef5f4e066d869",
+      "reason": "superseded Task3 video; final accepted or latest diagnostic version retained"
+    },
+    {
+      "path": "outputs_video/Task3_take32/zero_residual.mp4",
+      "bytes": 1079006,
+      "sha256": "3a0e851bc579f5dc4c7d571a6f788c10fcb29f6115c894c70da8d41549effe94",
+      "reason": "superseded Task3 video; final accepted or latest diagnostic version retained"
+    },
+    {
+      "path": "outputs_video/Task3_take32_v2/static_physics/trajectory.mp4",
+      "bytes": 14820,
+      "sha256": "ca488d3c54f728e9f23817ea97108c4aad994a37996ce4d2766c31cfea87b46a",
+      "reason": "superseded Task3 video; final accepted or latest diagnostic version retained"
+    },
+    {
+      "path": "outputs_video/Task3_take32_v2/static_physics/closeup.mp4",
+      "bytes": 9180,
+      "sha256": "c35a61b1c300808a774fc0d5a2248b585e699c30f9779a86ba0aa113c1c2ab11",
+      "reason": "superseded Task3 video; final accepted or latest diagnostic version retained"
+    },
+    {
+      "path": "outputs_video/Task3_take32_v3/ego_h264.mp4",
+      "bytes": 1670498,
+      "sha256": "37535169b8e4988d715a170abd7109fed2e69010775b3ce34c2f60f8a6eb07ed",
+      "reason": "superseded Task3 video; final accepted or latest diagnostic version retained"
+    },
+    {
+      "path": "outputs_video/Task3_take32_v3/full_zero/trajectory.mp4",
+      "bytes": 436813,
+      "sha256": "cc989733f6a95e949386569a9cd6ef272fc9d4eef4d5a40cf27b1d4053211062",
+      "reason": "superseded Task3 video; final accepted or latest diagnostic version retained"
+    },
+    {
+      "path": "outputs_video/Task3_take32_v3/full_zero/closeup.mp4",
+      "bytes": 161528,
+      "sha256": "9b6eb1797b55cde2858a53179fb60976b6a58d0c820004d882a977d628193f94",
+      "reason": "superseded Task3 video; final accepted or latest diagnostic version retained"
+    },
+    {
+      "path": "outputs_video/Task3_take80_v2/ego_h264.mp4",
+      "bytes": 1921329,
+      "sha256": "30a89bb65ab83cdfc7104cd65195f811f7fab24e94f8d4893fb897ec2fb88944",
+      "reason": "superseded Task3 video; final accepted or latest diagnostic version retained"
+    },
+    {
+      "path": "outputs_video/Task3_take80_v3/full_zero/trajectory.mp4",
+      "bytes": 823220,
+      "sha256": "e4db1ea9065cb1bf466dc4e47b21ef3f2510e2711091eadf7550806c2c230f4e",
+      "reason": "superseded Task3 video; final accepted or latest diagnostic version retained"
+    },
+    {
+      "path": "outputs_video/Task3_take80_v3/static/trajectory.mp4",
+      "bytes": 15094,
+      "sha256": "14f05474f0d4a561b94904daa692d6811e703e979ecba0015e55b0ac7ed23457",
+      "reason": "superseded Task3 video; final accepted or latest diagnostic version retained"
+    },
+    {
+      "path": "outputs_video/Task3_take80_v4/full_zero/trajectory.mp4",
+      "bytes": 842612,
+      "sha256": "4c3db8d1a3f5d857cfbd9484bf1af5a619ad85ceb1e5094265c925e7c94733d3",
+      "reason": "superseded Task3 video; final accepted or latest diagnostic version retained"
+    },
+    {
+      "path": "outputs_video/Task3_take80_v4/static/trajectory.mp4",
+      "bytes": 14465,
+      "sha256": "fa60179f8049e31095ca90ff4d5da534456340bad0f54f902255449b63fc9f3a",
+      "reason": "superseded Task3 video; final accepted or latest diagnostic version retained"
+    }
+  ],
+  "relocated_latest_evidence": [
+    {
+      "from": "outputs_video/Task3_take128_v4/static_head_fixed",
+      "to": "outputs_video/Task3_take128_v6/progress/last_completed_static_v4"
+    },
+    {
+      "from": "outputs_video/Task3_take128_v2/ego_h264.mp4",
+      "to": "outputs_video/Task3_take128_v6/progress/ego_source.mp4"
+    },
+    {
+      "from": "outputs_video/Task3_take180_v2/ego_h264.mp4",
+      "to": "outputs_video/Task3_take180_v3/progress/ego_source.mp4"
+    }
+  ],
+  "archived_nonvideo_evidence": [
+    {
+      "from": "outputs_video/Task3_take128_v2/broom_repaired.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take128_v2/broom_repaired.png"
+    },
+    {
+      "from": "outputs_video/Task3_take128_v2/broom_rank3.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take128_v2/broom_rank3.png"
+    },
+    {
+      "from": "outputs_video/Task3_take128_v2/conf_sweep_dustpan_128_sheet.jpg",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take128_v2/conf_sweep_dustpan_128_sheet.jpg"
+    },
+    {
+      "from": "outputs_video/Task3_take128_v2/pan_prior_original.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take128_v2/pan_prior_original.png"
+    },
+    {
+      "from": "outputs_video/Task3_take128_v2/broom_rank43.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take128_v2/broom_rank43.png"
+    },
+    {
+      "from": "outputs_video/Task3_take128_v2/broom_rank62.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take128_v2/broom_rank62.png"
+    },
+    {
+      "from": "outputs_video/Task3_take128_v2/broom_prior_original.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take128_v2/broom_prior_original.png"
+    },
+    {
+      "from": "outputs_video/Task3_take128_v2/recon_render_sweep_dustpan_128_sheet.jpg",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take128_v2/recon_render_sweep_dustpan_128_sheet.jpg"
+    },
+    {
+      "from": "outputs_video/Task3_take128_v2/broom_rank2.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take128_v2/broom_rank2.png"
+    },
+    {
+      "from": "outputs_video/Task3_take128_v4/static/frame_0000.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take128_v4/static/frame_0000.png"
+    },
+    {
+      "from": "outputs_video/Task3_take128_v4/static/record_summary.json",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take128_v4/static/record_summary.json"
+    },
+    {
+      "from": "outputs_video/Task3_take128_v4/static/runtime_coordinate_chain.json",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take128_v4/static/runtime_coordinate_chain.json"
+    },
+    {
+      "from": "outputs_video/Task3_take128_v4/static/trajectory_trace.npz",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take128_v4/static/trajectory_trace.npz"
+    },
+    {
+      "from": "outputs_video/Task3_take180_v2/recon_render_sweep_dustpan_180_sheet.jpg",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take180_v2/recon_render_sweep_dustpan_180_sheet.jpg"
+    },
+    {
+      "from": "outputs_video/Task3_take180_v2/pan_prior_original.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take180_v2/pan_prior_original.png"
+    },
+    {
+      "from": "outputs_video/Task3_take180_v2/conf_sweep_dustpan_180_sheet.jpg",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take180_v2/conf_sweep_dustpan_180_sheet.jpg"
+    },
+    {
+      "from": "outputs_video/Task3_take180_v2/pan_repaired.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take180_v2/pan_repaired.png"
+    },
+    {
+      "from": "outputs_video/Task3_take180_v2/broom_prior_original.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take180_v2/broom_prior_original.png"
+    },
+    {
+      "from": "outputs_video/Task3_take32_v2/broom_prior_static.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take32_v2/broom_prior_static.png"
+    },
+    {
+      "from": "outputs_video/Task3_take32_v2/dustpan_repaired_v3_static.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take32_v2/dustpan_repaired_v3_static.png"
+    },
+    {
+      "from": "outputs_video/Task3_take32_v2/dustpan_repaired_static.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take32_v2/dustpan_repaired_static.png"
+    },
+    {
+      "from": "outputs_video/Task3_take32_v2/dustpan_prior_static.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take32_v2/dustpan_prior_static.png"
+    },
+    {
+      "from": "outputs_video/Task3_take32_v2/static_physics/frame_0000.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take32_v2/static_physics/frame_0000.png"
+    },
+    {
+      "from": "outputs_video/Task3_take32_v2/static_physics/record_summary.json",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take32_v2/static_physics/record_summary.json"
+    },
+    {
+      "from": "outputs_video/Task3_take32_v2/static_physics/runtime_coordinate_chain.json",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take32_v2/static_physics/runtime_coordinate_chain.json"
+    },
+    {
+      "from": "outputs_video/Task3_take32_v2/static_physics/trajectory_trace.npz",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take32_v2/static_physics/trajectory_trace.npz"
+    },
+    {
+      "from": "outputs_video/Task3_take32_v2/static_physics/closeup_0000.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take32_v2/static_physics/closeup_0000.png"
+    },
+    {
+      "from": "outputs_video/Task3_take32_v3/full_zero/frame_0000.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take32_v3/full_zero/frame_0000.png"
+    },
+    {
+      "from": "outputs_video/Task3_take32_v3/full_zero/runtime_coordinate_chain.json",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take32_v3/full_zero/runtime_coordinate_chain.json"
+    },
+    {
+      "from": "outputs_video/Task3_take32_v3/full_zero/closeup_0000.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take32_v3/full_zero/closeup_0000.png"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v2/pan_prior_repaired_v3.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v2/pan_prior_repaired_v3.png"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v2/pan_prior_repaired.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v2/pan_prior_repaired.png"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v2/pan_prior_original.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v2/pan_prior_original.png"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v2/turntable_object_0_sheet.jpg",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v2/turntable_object_0_sheet.jpg"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v2/conf_sweep_dustpan_80_sheet.jpg",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v2/conf_sweep_dustpan_80_sheet.jpg"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v2/broom_prior_original.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v2/broom_prior_original.png"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v2/recon_render_sweep_dustpan_80_sheet.jpg",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v2/recon_render_sweep_dustpan_80_sheet.jpg"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v3/full_zero/frame_0000.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v3/full_zero/frame_0000.png"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v3/full_zero/frame_0224.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v3/full_zero/frame_0224.png"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v3/full_zero/record_summary.json",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v3/full_zero/record_summary.json"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v3/full_zero/numeric_audit.json",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v3/full_zero/numeric_audit.json"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v3/full_zero/runtime_coordinate_chain.json",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v3/full_zero/runtime_coordinate_chain.json"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v3/full_zero/trajectory_trace.npz",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v3/full_zero/trajectory_trace.npz"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v3/full_zero/frame_0448.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v3/full_zero/frame_0448.png"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v3/static/frame_0000.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v3/static/frame_0000.png"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v3/static/record_summary.json",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v3/static/record_summary.json"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v3/static/runtime_coordinate_chain.json",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v3/static/runtime_coordinate_chain.json"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v3/static/trajectory_trace.npz",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v3/static/trajectory_trace.npz"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v4/full_zero/frame_0000.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v4/full_zero/frame_0000.png"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v4/full_zero/record_summary.json",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v4/full_zero/record_summary.json"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v4/full_zero/numeric_audit.json",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v4/full_zero/numeric_audit.json"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v4/full_zero/runtime_coordinate_chain.json",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v4/full_zero/runtime_coordinate_chain.json"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v4/full_zero/trajectory_trace.npz",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v4/full_zero/trajectory_trace.npz"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v4/full_zero/frame_0461.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v4/full_zero/frame_0461.png"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v4/full_zero/frame_0231.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v4/full_zero/frame_0231.png"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v4/static/frame_0000.png",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v4/static/frame_0000.png"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v4/static/record_summary.json",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v4/static/record_summary.json"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v4/static/runtime_coordinate_chain.json",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v4/static/runtime_coordinate_chain.json"
+    },
+    {
+      "from": "outputs_video/Task3_take80_v4/static/trajectory_trace.npz",
+      "to": "logs/task3_docs_cleanup_20260906/old_video_evidence/Task3_take80_v4/static/trajectory_trace.npz"
+    }
+  ],
+  "deleted_bytes": 7003314
+}

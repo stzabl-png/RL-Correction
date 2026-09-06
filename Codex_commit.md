@@ -54,11 +54,9 @@
 - 保留前 10 个 PPO epochs 的在线 critic-only 保护期：rollout 来自当前随机 policy，只更新 Critic；它不读取 expert transition，因此不属于专家预热。
 - 训练入口为兼容旧命令仍可接收 transition 路径，但 `warmup_role=none` 时这些路径不得参与初始化。
 
-## 后续五轨迹计划
+## 新数据进度索引
 
-- 用户提供新数据的机器人 GraspPose 后，从 `datasets/sweep_new_data/` 筛选4条与当前“左手簸箕基本静止、右手扫把扫动”高度相似且物体 confidence 较高的轨迹。
-- 与当前 Sweep2 组成5条数据；五条统一使用无专家预热的完整方法，算法不随轨迹改变。
-- 每条轨迹仍需独立生成 reference，并验证 GraspPose、IK、开放 dustpan 物理世界、Gate/reward、random smoke 和真实 terminal 录像。
+Task3的当前状态、成功步骤与未通过原因统一见Codex_new_data.md；本文件只保存工程/Git里程碑。
 
 ## 长期安全与发布边界
 
@@ -67,3 +65,15 @@
 - 不得触碰 feiyang、kailang 或其他用户的进程、tmux 和 GPU 资源；禁止 `pkill`、`killall`、GPU reset 和广域终止。
 - 未经用户明确授权不得创建 commit、push、自动 resume、修改 Gate/reward/expert 或启动新的大规模训练。
 - 不得丢弃、覆盖、stage 或提交现有的 `tasks/pregrasp/arm_shell_points.npz` 修改。
+
+
+## 2026-09-06 — Task3验收整理、录像清理与算法文档合并
+
+- 本次父版本：a8994fe（data: publish Sweep2 reconstruction dataset）。实际本次提交用 git log --oneline --grep="docs: consolidate Sweep workflow and Task3 acceptance" 定位，避免文档自引用commit hash。
+- 用户明确授权更新原dirty Codex_tasks.md、合并旧手册、清理Task3旧视频并创建commit。旧文档原稿及已有工作树patch保存在logs/task3_docs_cleanup_20260906/pre_edit/。
+- 本次内容：补全单轨迹数据/IK/物理/residual/PPO/运行步骤；原通用手册内容并入Codex_tasks.md并移除旧文件；Task3当前状态集中Codex_new_data.md；更新HANDOFF、重大错误、关联文档入口。
+- 验收记录：用户已确认32 v3和80 v6无方块完整轨迹；128/180因完整IK/物理检查未过而暂存。没有声称新policy已训练成功。
+- 清理：12个旧Task3视频共7,003,314字节；最终32/80与最新128/180进度保留，旧trace/json/图片归档。逐文件清单随本次文档提交保存；未跟踪的已删除视频不能由Git恢复。
+- 提交范围：文档、Task3历史审计说明、清理清单；不混入共享代码dirty改动、arm_shell_points.npz、大型资产、datasets、reference、checkpoint。此commit是文档/证据索引里程碑，不是完整Task3运行依赖快照。
+- 验证：文档引用/核心路径、保留mp4可读性、保护文件hash、git diff --check与显式暂存范围核验。未启动训练/resume，未push。
+- 回退定位：git show <目标提交> --stat查看范围；只对需要的文档比较父版本。若目标是回退本次之前的未提交文档内容，查pre_edit原稿，不能把父commit误认为本次开始时的dirty文件。

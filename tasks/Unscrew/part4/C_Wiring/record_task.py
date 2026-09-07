@@ -38,7 +38,11 @@ from rl_rebuild.wrapper.sharpa_wave_env_wrapper import GymStyleEnvWrapper  # noq
 _HERE = os.path.dirname(os.path.abspath(__file__))
 cfg = PE.build_cfg(num_envs=1)
 raw = PE.UnscrewEnv(cfg)
-raw.force_entry = [0]
+# UNSCREW_RECORD_ENTRY: 按出生表标签选录制出生点 (默认 t0; 如 "c" 录 stage C 集)
+_ent_lbl = os.environ.get("UNSCREW_RECORD_ENTRY", "t0")
+_labels = [e[4] for e in raw.entries]
+raw.force_entry = [_labels.index(_ent_lbl) if _ent_lbl in _labels else 0]
+print(f"[record] 出生点: {_labels[raw.force_entry[0]]} (表 {_labels})", flush=True)
 env = GymStyleEnvWrapper(raw, clip_actions=1.0)
 with open(os.path.join(_HERE, "ppo_task.yaml")) as f:
     agent_cfg = yaml.safe_load(f)
@@ -51,6 +55,11 @@ import world_fingerprint as WF  # noqa: E402
 _world_json = os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(args.checkpoint))), "world.json")
 if not os.environ.get("POUR_IGNORE_WORLD"):
+    import json as _j
+    with open(_world_json) as _fh:
+        _dbg = _j.load(_fh)
+    print(f"[record] 世界文件: {_world_json} policy_io={_dbg.get('policy_io')}",
+          flush=True)
     WF.assert_match(raw, _world_json, strict=True)
 else:
     print("[world] ⚠ POUR_IGNORE_WORLD=1 已跳过世界核对", flush=True)

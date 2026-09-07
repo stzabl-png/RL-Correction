@@ -50,6 +50,9 @@ import torch  # noqa: E402
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "..", "..", "C_Wiring"))
 import task_config as TC  # noqa: E402
+# 机器段规划必须以刚生成的 v1 为唯一母带。目录里可能还残留旧 v2；若先让
+# task_env 自动选择它，场景长度/物体终态就会与本轮 P0/P1 规划摘要不一致。
+os.environ["POUR_REF_NPZ"] = TC.REF_V1
 import task_env as PE  # noqa: E402
 from rl_rebuild.correction import clips  # noqa: E402
 
@@ -101,30 +104,20 @@ objs = [{"name": "obj_primary", "mesh": _e["mesh"],
 # (fixedtorso USD 烘的就是它; 旧 pregrasp_suite 的 45/90/0 是旧世界值, 勿抄)
 dq = hand.data.default_joint_pos[0].cpu().numpy().astype(float)
 start = {n: float(v) for n, v in zip(jn, dq)}
+# 第一腿不从贴物的任务端点起步：Approach 使用 P1 前的净空点；
+# Retreat 使用任务末行后的净空点。贴物短腿稍后在收缩目标物世界
+# 中另行规划，所以 P0->P1 和任务末行->P0 的所有臂运动仍都是 cuRobo。
 if args.retreat:
-    # 起点 = machine_pre 净空内点构型, **不是**交互末行 (T2-2):
-    # 交互末行的手贴着瓶/盖/桌面 —— 碰撞检查规划器必判 "start in collision"
-    # (2026-08-30 实测: 仅桌/仅瓶/仅杯世界起点微动全 ❌, 空世界 ✅)。
-    # "松手撤离" (交互末行 -> pre) 由缝2 数据斜坡负责, 与缝1 的"贴近合拢"
-    # 对称; cuRobo 只管 pre -> 站姿 的机器段 (物体钉母带终位当障碍)。
-    # 用 **Approach 实际选中的那一档**净空 (两段必须首尾相接; Approach 换了
-    # 候选而 Retreat 还用 0 档, 撤退起点就不是机器段真正停的地方)
-    _pre_idx = 0
-    if os.path.isfile(TC.APPROACH_NPZ):
-        with np.load(TC.APPROACH_NPZ, allow_pickle=True) as _za:
-            if "pre_idx" in _za.files:
-                _pre_idx = int(_za["pre_idx"])
-    if "machine_pre_alts_r" in z1.files:
-        _qpre_r = np.asarray(z1["machine_pre_alts_r"], np.float64)[_pre_idx]
-        _qpre_l = np.asarray(z1["machine_pre_alts_l"], np.float64)[_pre_idx]
-    else:
-        _qpre_r = np.asarray(z1["machine_pre_q_r"], np.float64)
-        _qpre_l = np.asarray(z1["machine_pre_q_l"], np.float64)
-    print(f"[plan] Retreat 起点 = pregrasp 候选 #{_pre_idx} (随 Approach)",
-          flush=True)
+    alts_r = np.asarray(z1["machine_retreat_pre_alts_r"], np.float64)
+    alts_l = np.asarray(z1["machine_retreat_pre_alts_l"], np.float64)
+else:
+    alts_r = np.asarray(z1["machine_pre_alts_r"], np.float64)
+    alts_l = np.asarray(z1["machine_pre_alts_l"], np.float64)
+assert alts_r.shape == alts_l.shape and alts_r.ndim == 2 and alts_r.shape[1] == 7
+if args.retreat:
     for i in range(1, 8):
-        start[f"R_arm_j{i}"] = float(_qpre_r[i - 1])
-        start[f"L_arm_j{i}"] = float(_qpre_l[i - 1])
+        start[f"R_arm_j{i}"] = float(alts_r[0, i - 1])
+        start[f"L_arm_j{i}"] = float(alts_l[0, i - 1])
 start.update({"torso_j1": float(np.radians(40.5196)),
               "torso_j2": float(np.radians(73.6595)),
               "torso_j3": float(np.radians(0.3896)),
@@ -134,8 +127,12 @@ lock = (["torso_j1", "torso_j2", "torso_j3", "head_j1", "head_j2", "head_j3"]
 
 # 操作位置 = 母带交互首行的双臂关节角 (机器段真正的终点 —— 见下方两腿说明)
 _rows_ia = np.flatnonzero(np.asarray(z1["source"], np.int8) == 1)
-_station_r = np.asarray(z1["right_q"], np.float64)[_rows_ia[0]]
-_station_l = np.asarray(z1["left_q"], np.float64)[_rows_ia[0]]
+if args.retreat:
+    _station_r = np.asarray(z1["right_q"], np.float64)[_rows_ia[-1]]
+    _station_l = np.asarray(z1["left_q"], np.float64)[_rows_ia[-1]]
+else:
+    _station_r = np.asarray(z1["right_q"], np.float64)[_rows_ia[0]]
+    _station_l = np.asarray(z1["left_q"], np.float64)[_rows_ia[0]]
 STATION_GOAL = {}
 for i in range(1, 8):
     STATION_GOAL[f"R_arm_j{i}"] = float(_station_r[i - 1])
@@ -159,12 +156,6 @@ else:
     # 现在目标 = make_reference 里收缩限位 3° ArmIK 解出的内点构型
     # (machine_pre_q_*), plan_cspace 全程避障且终帧=目标关节, 离线预演
     # (桌+物体充气1cm) 已全通。
-    if "machine_pre_alts_r" in z1.files:
-        alts_r = np.asarray(z1["machine_pre_alts_r"], np.float64)
-        alts_l = np.asarray(z1["machine_pre_alts_l"], np.float64)
-    else:                       # 旧母带: 只有一档
-        alts_r = np.asarray(z1["machine_pre_q_r"], np.float64)[None]
-        alts_l = np.asarray(z1["machine_pre_q_l"], np.float64)[None]
     T["cspace_goal"] = {}
     for i in range(1, 8):
         T["cspace_goal"][f"R_arm_j{i}"] = float(alts_r[0][i - 1])
@@ -180,24 +171,37 @@ cmd = [sys.executable, "-u", "-m", "tasks.pregrasp.curobo_plan_worker",
        "--targets", _tgt, "--out", out_npz,
        "--act_dist", str(args.act_dist), "--attempts", str(args.attempts),
        "--obj_inflate", str(args.obj_inflate)]
+# python.sh 依靠 PYTHONPATH 里的 Isaac pip_prebundle 提供 numpy/torch/warp。旧代码把
+# PYTHONPATH 整个覆盖成 cwd，于是“干净子进程”连 numpy 都 import 不了。
+# 正确做法是在现有 Isaac 路径前追加仓库，不修改其他环境。
+_worker_env = dict(os.environ)
+_local_curobo = os.path.join(os.getcwd(), ".omc", "curobo")
+_local_curobo_deps = os.path.join(os.getcwd(), ".omc", "curobo_deps")
+_worker_env["PYTHONPATH"] = os.pathsep.join(
+    p for p in (os.getcwd(), _local_curobo if os.path.isdir(_local_curobo) else "",
+                _local_curobo_deps if os.path.isdir(_local_curobo_deps) else "",
+                os.environ.get("PYTHONPATH", "")) if p)
 # Approach/Retreat 现都走 cspace_goal (worker 按 targets 里键自动分支)
-# Approach 还要逐档试 pregrasp 净空: 目标构型本身被判碰是本任务的常见死因
-# (左抓锚一准, pregrasp 就贴在瓶壁上), 净空该给多少是逐 clip 的几何问题 ——
-# 由近及远试, 第一条通的记进产物 (Retreat 起点跟着用同一档)。
-n_alt = 1 if args.retreat else len(alts_r)
+# Approach/Retreat 都逐档试自己的净空候选。这两组候选分别锚在 P1
+# 和任务末行，不再共用索引，也不会把 Approach 路径倒放成 Retreat。
+n_alt = len(alts_r)
 plan_payload, pre_idx = None, 0
 for _k in range(n_alt):
-    if not args.retreat:
+    if args.retreat:
+        for i in range(1, 8):
+            T["start_joints"][f"R_arm_j{i}"] = float(alts_r[_k][i - 1])
+            T["start_joints"][f"L_arm_j{i}"] = float(alts_l[_k][i - 1])
+    else:
         for i in range(1, 8):
             T["cspace_goal"][f"R_arm_j{i}"] = float(alts_r[_k][i - 1])
             T["cspace_goal"][f"L_arm_j{i}"] = float(alts_l[_k][i - 1])
-        with open(_tgt, "w") as f:
-            json.dump(T, f)
-        print(f"[plan] === pregrasp 候选 #{_k}/{n_alt - 1} ===", flush=True)
+    with open(_tgt, "w") as f:
+        json.dump(T, f)
+    print(f"[plan] === {'Retreat' if args.retreat else 'Approach'} 净空候选 "
+          f"#{_k}/{n_alt - 1} ===", flush=True)
     print(f"[plan] worker: {' '.join(cmd)}", flush=True)
     started_ns = time.time_ns()
-    run = subprocess.run(cmd, cwd=os.getcwd(),
-                         env=dict(os.environ, PYTHONPATH=os.getcwd()),
+    run = subprocess.run(cmd, cwd=os.getcwd(), env=_worker_env,
                          timeout=2400)
     fresh = (os.path.isfile(out_npz)
              and os.stat(out_npz).st_mtime_ns >= started_ns)
@@ -218,9 +222,8 @@ for _k in range(n_alt):
           f"{' —— 换下一档净空' if _k + 1 < n_alt else ''}", flush=True)
 if plan_payload is None and args.retreat:
     # 反向兜底: 同一个世界里改规划"站姿 -> pregrasp", 再**时间翻转**。
-    # cspace 路径是几何量, 翻转后依然合法; 实测 Retreat 方向 (pregrasp -> 站姿)
-    # 连空世界都解不出来, 而反方向 (Approach 用的就是这一对构型) 一次就通 ——
-    # 是求解方向的问题, 不是碰撞问题 (两端微动探针都 ✅)。
+    # cspace 路径是几何量，同一个 Retreat 末态障碍世界中做 P0->净空点
+    # 再时间翻转，仍是合法的净空点->P0。这不是复用 Approach。
     print("[plan] Retreat 正向失败 -> 反向规划 + 时间翻转 兜底", flush=True)
     _fwd_start = dict(T["start_joints"])
     _fwd_goal = dict(T["cspace_goal"])
@@ -231,8 +234,7 @@ if plan_payload is None and args.retreat:
     with open(_tgt, "w") as f:
         json.dump(T, f)
     started_ns = time.time_ns()
-    run = subprocess.run(cmd, cwd=os.getcwd(),
-                         env=dict(os.environ, PYTHONPATH=os.getcwd()),
+    run = subprocess.run(cmd, cwd=os.getcwd(), env=_worker_env,
                          timeout=2400)
     if run.returncode == 0 and os.path.isfile(out_npz) \
             and os.stat(out_npz).st_mtime_ns >= started_ns:
@@ -242,25 +244,8 @@ if plan_payload is None and args.retreat:
             _pl["traj"] = np.ascontiguousarray(
                 np.asarray(_pl["traj"], np.float64)[::-1])
             _pl["reversed_plan"] = np.array(True)
-            plan_payload, pre_idx = _pl, 0
+            plan_payload, pre_idx = _pl, n_alt - 1
             print("[plan] ✅ 反向兜底成功 (轨迹已时间翻转)", flush=True)
-if plan_payload is None and args.retreat and os.path.isfile(TC.APPROACH_NPZ):
-    # 末级兜底: 直接复用 Approach 的路径**倒放**。
-    # 两段的世界只差"盖已放到桌上", 而撤退是从 pregrasp 向上/向后离开, 与桌面
-    # 上的盖不在同一空间; Approach 那条路已带满障碍碰撞背书 (含瓶)。cuRobo 在
-    # pregrasp->站姿 这个方向上正反都解不出来 (空世界也失败 = 求解问题不是碰撞),
-    # 与其退回无背书的 smoothstep 占位, 不如复用有背书的反向路径 —— 但**如实
-    # 标注来源** (derived_from=approach_reversed), 指纹/凭据里看得见。
-    with np.load(TC.APPROACH_NPZ, allow_pickle=True) as _za:
-        _ap = {key: _za[key] for key in _za.files}
-    if bool(_ap.get("ok", False)):
-        _ap["traj"] = np.ascontiguousarray(
-            np.asarray(_ap["traj"], np.float64)[::-1])
-        _ap["derived_from"] = np.array("approach_reversed")
-        plan_payload = _ap
-        pre_idx = int(_ap.get("pre_idx", 0))
-        print("[plan] ⚠ 复用 Approach 路径倒放作为 Retreat "
-              "(来源已标注; 撤退世界少了桌上的盖这一项障碍)", flush=True)
 if plan_payload is None:
     print(f"[plan] ❌ {n_alt} 档净空全部失败", flush=True)
     try:
@@ -268,12 +253,12 @@ if plan_payload is None:
     except Exception:
         pass
     os._exit(1)
-# ================= 第二腿: 净空点 <-> 操作位置 =================
-# 用户拍板的四段结构是"初始位置 -> cuRobo 到**操作位置** -> 操作 -> cuRobo 回
-# 初始位置"。cuRobo 之所以只到净空点, 是因为操作位置就是手指贴在瓶面上的抓握
-# 位形, 把目标物体留在碰撞世界里必被判 goal in collision。最后这一腿本来就是
-# "故意去贴物体", 所以排除两个目标物体 (桌子仍是障碍) 单独规划, 再与第一腿拼接
-# —— 机器段这才真正结束在操作位置, 原先手写的 25 行进刀 (所有碰倒瓶的来源) 退役。
+_qpre_r = np.asarray(alts_r[pre_idx], np.float64)
+_qpre_l = np.asarray(alts_l[pre_idx], np.float64)
+# ================= 第二腿: 净空点 <-> 数据边界 =================
+# Approach 的数据边界是 P1；Retreat 的数据边界是任务实际末行。这两个构型
+# 都可能贴着目标物，在完整障碍世界会被判 goal/start in collision；因此用
+# 收缩目标物的世界单独规划这条短腿，再与完整障碍世界的第一腿拼接。
 _leg2_ok = False
 if not bool(np.asarray(plan_payload.get("derived_from", ""))
             == "approach_reversed"):
@@ -305,11 +290,24 @@ if not bool(np.asarray(plan_payload.get("derived_from", ""))
              # 绕开物体本体 (整个排除 = 这一腿完全没有避障, 等于退回手写进刀)。
              # 桌面单独排除: 操作位置离桌只有 ~8cm, cuRobo 的手部碰撞球比实物
              # 保守会把目标判碰, 而这一腿只在站位高度附近平移。
-             "--obj_inflate", "-0.012", "--exclude_table", "1"]
+             # 撤退腿按物体收缩 (T2-26): 起点只被贴指的**盖**判碰 => 盖 -2cm
+             # 解锁起点; 瓶保持 -1.2cm —— 全局 -2cm 实测让规划器从瓶边穿过
+             # (瓶 r3.25cm 只剩 1.25cm, 用户视频抓到右掌扫瓶)。
+             "--obj_inflate", "-0.012",
+             *(["--obj_inflate_map",
+                os.environ.get("UNSCREW_RET_INFLATE_MAP",
+                               '{"obj_secondary": -0.02}')]
+               if args.retreat else []),
+             "--exclude_table", "1",
+             # 兜底 (T2-27): 撤退近腿起点被贴指物体判碰且收缩救不动时,
+             # UNSCREW_RET_EXCLUDE_OBJS=1 整体排除物体 —— 该腿是抬手离开的
+             # 81 行短腿, 长路径避障仍由第一腿的完整障碍世界背书。
+             *(["--exclude_objects", "1"]
+               if args.retreat and os.environ.get("UNSCREW_RET_EXCLUDE_OBJS")
+               else [])]
     print(f"[plan] === 第二腿: {'操作位置->净空点' if args.retreat else '净空点->操作位置'}"
           f" (目标物体排除出碰撞世界, 桌子仍是障碍) ===", flush=True)
-    _r2 = subprocess.run(_cmd2, cwd=os.getcwd(),
-                         env=dict(os.environ, PYTHONPATH=os.getcwd()),
+    _r2 = subprocess.run(_cmd2, cwd=os.getcwd(), env=_worker_env,
                          timeout=2400)
     if _r2.returncode == 0 and os.path.isfile(_out2):
         with np.load(_out2, allow_pickle=True) as _z2:
@@ -326,10 +324,14 @@ if not bool(np.asarray(plan_payload.get("derived_from", ""))
                   f"{len(plan_payload['traj'])} 行 —— 机器段终点=操作位置",
                   flush=True)
         else:
-            print(f"[plan] ⚠ 第二腿失败 ({_p2.get('failed_frame')}): "
-                  f"机器段仍只到净空点, 剩余由缝1 桥接", flush=True)
+            print(f"[plan] ❌ 第二腿失败 ({_p2.get('failed_frame')}): "
+                  "不能满足完整 cuRobo 边界", flush=True)
     else:
-        print("[plan] ⚠ 第二腿 worker 未产出, 机器段仍只到净空点", flush=True)
+        print("[plan] ❌ 第二腿 worker 未产出: 不能满足完整 cuRobo 边界",
+              flush=True)
+if not _leg2_ok:
+    plan_payload["ok"] = np.array(False)
+    plan_payload["failed_frame"] = np.array("boundary_leg")
 plan_payload.update(
     leg2_ok=np.array(_leg2_ok),
     pre_idx=np.array(pre_idx),
@@ -340,11 +342,13 @@ tmp_plan = f"{out_npz}.tmp.{os.getpid()}"
 with open(tmp_plan, "wb") as fh:
     np.savez(fh, **plan_payload)
 os.replace(tmp_plan, out_npz)
-print(f"[plan] ✅ {out_npz}: {len(plan_payload['traj'])} 行 | "
-      f"记得重跑 make_reference.py 剪进母带", flush=True)
+print(f"[plan] {'✅' if _leg2_ok else '❌'} {out_npz}: "
+      f"{len(plan_payload['traj'])} 行 | "
+      + ("记得重跑 make_reference.py 剪进母带" if _leg2_ok
+         else "仅留 ok=False 诊断产物，不得用于母带"), flush=True)
 try:
     _slot.release()
 except Exception:
     pass
 app.close()
-os._exit(0)
+os._exit(0 if _leg2_ok else 1)

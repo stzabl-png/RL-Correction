@@ -33,7 +33,7 @@ import task_config as TC  # noqa: E402
 
 os.environ["POUR_REF_NPZ"] = TC.REF_V1        # 重铸的输入永远是 v1
 import task_env as PE  # noqa: E402
-from rl_rebuild.correction.kinematics import ArmIK, quat_to_R  # noqa: E402
+from rl_rebuild.correction.kinematics import ArmIK, _so3_log, quat_to_R  # noqa: E402
 
 BR, BL = TC.BETA_R, TC.BETA_L
 V1, OUT = TC.REF_V1, TC.REF_V2
@@ -81,6 +81,67 @@ print(f"[v2] 站位垫: L{int((f[:5] > 0.5).sum())}/R{int((f[5:] > 0.5).sum())}"
 
 ik = {side: ArmIK(side, anchor_link="arm_center",
                   anchor_T=TC.rest_anchor_T(side)) for side in ("right", "left")}
+# ---- T2-39 臂外壳离桌约束 (2026-09-07) ----
+# 旧 v2 母带右前臂 (R_arm_l5) 在行 212~228 穿桌 -1.8~-3.0cm: PhysX 把整臂顶起
+# ~3cm, 手被带离盖 (c 出生 写入 5.2cm → 稳态 8.8cm)。基类的臂外壳撞桌罚是逐侧
+# 的, Unscrew 交互手=left, 右臂从未被检查。这里用同一份外壳点云 + URDF FK 直接
+# 在 IK 里约束: **手位姿不动**, 沿 7 自由度零空间抬肘, 直到外壳离桌 >= SHELL_CLEAR
+# (基类罚的余量是 0.8cm, 这里多留 4mm 给残差)。离线口径比 in-sim 一子步读数更
+# 深 ~1cm (PhysX 一子步已部分顶出), 作为约束是保守的。
+SHELL_CLEAR = 0.012
+# 只约束右臂: 左臂 IA 段外壳最深 -0.2cm (in-sim 腕漂移 0.2cm, 无害), 且左手正握着
+# 瓶 —— 抬左腕会让手相对物体轨迹 (leash/clock 的真值) 抬高, 破坏抓握几何。
+# 首次全侧约束实测把左臂 33 行抬了 ≤22mm, 撤回 (2026-09-07)。
+SHELL_SIDES = ("right",)
+_SHELL = np.load(os.path.join(TC.REPO, "tasks", "pregrasp", "arm_shell_points.npz"))
+_TABLE_Z = float(E.cfg.table_top_z)
+_shell_links = {s: [(k, np.asarray(_SHELL[k], np.float64)) for k in _SHELL.files
+                    if f"{'R' if s == 'right' else 'L'}_arm" in k]
+                for s in ("right", "left")}
+assert all(_shell_links[s] for s in _shell_links), "外壳点云缺臂侧连杆"
+
+
+def shell_gap(s, q):
+    """该侧臂连杆外壳最低点离桌面 (m, 负=穿桌)."""
+    g = np.inf
+    for lk, pts in _shell_links[s]:
+        T = ik[s].link_pose_world(lk, q)
+        g = min(g, float((T[2, 3] + (T[:3, :3] @ pts.T)[2]).min()) - _TABLE_Z)
+    return g
+
+
+def wrist_fix(s, q, p_tgt, R_tgt, n=6):
+    """行空间 Gauss-Newton 腕修正 (最小范数, 姿态贴原带, 不游走)."""
+    q = np.asarray(q, np.float64).copy()
+    for _ in range(n):
+        pc, Rc = ik[s].fk(q)
+        e = np.concatenate([p_tgt - pc, _so3_log(R_tgt @ Rc.T)])
+        if np.linalg.norm(e[:3]) < 2e-4 and np.linalg.norm(e[3:]) < 2e-3:
+            break
+        J = ik[s].jacobian(q)
+        q = np.clip(q + J.T @ np.linalg.solve(J @ J.T + 1e-6 * np.eye(6), e),
+                    ik[s].lower, ik[s].upper)
+    return q
+
+
+def lift_clear(s, q, p_tgt, R_tgt, dz_max=0.06):
+    """最小抬腕: 腕目标只沿 +z 逐毫米抬高, 直到外壳离桌 >= SHELL_CLEAR.
+    返回 (q, gap, 抬高量 dz)。
+
+    为什么不是零空间旋肘: 2026-09-07 离线实测, 手位姿钉死时旋肘圆上的离桌极大只有
+    -1.3cm (行 213~226), 无解; "先旋肘到极大再抬腕"会落到关节改变 82° 的另一支
+    (拧盖前 0.4s 内 80° 甩臂)。只抬腕 = 最小范数改动: 关节改变 <=10°, 行间跳变
+    <=8°, 最大抬高 44mm (行 216~225) —— 物理本来就把手顶高 ~32mm (带接触力),
+    这里只是把同一个抬高做成无接触力、带 1.2cm 余量的**有意**参考。
+    """
+    q = np.asarray(q, np.float64).copy()
+    g = shell_gap(s, q)
+    dz = 0.0
+    while g < SHELL_CLEAR and dz < dz_max:
+        dz += 0.001
+        q = wrist_fix(s, q, p_tgt + np.array([0.0, 0.0, dz]), R_tgt)
+        g = shell_gap(s, q)
+    return q, g, dz
 ref_obj = {oi: E.PB.ref_obj[oi].cpu().numpy() for oi in (0, 1)}
 side_obj = {"right": 1, "left": 0}      # [TASK] 右手跟盖, 左手跟瓶
 # 增量来源 (2026-08-31 改): 用 **v1 腕轨迹自己的增量**, 不再用物体增量。
@@ -92,6 +153,10 @@ side_obj = {"right": 1, "left": 0}      # [TASK] 右手跟盖, 左手跟瓶
 _z1 = np.load(TC.REF_V1, allow_pickle=True)
 wt_v1 = {"right": np.asarray(_z1["wrist_tgt_r"], np.float64),
          "left": np.asarray(_z1["wrist_tgt_l"], np.float64)}
+_rows_v1 = np.flatnonzero(np.asarray(_z1["source"], np.int8) == 1)
+arm_v1 = {"right": np.asarray(_z1["right_q"], np.float64)[_rows_v1],
+          "left": np.asarray(_z1["left_q"], np.float64)[_rows_v1]}
+assert len(arm_v1["right"]) == len(arm_v1["left"]) == Nrow
 q_ik = {s: np.zeros((Nrow, 7)) for s in ("right", "left")}
 cert, q_seed, w0 = {}, {}, {}
 for s in ("right", "left"):
@@ -116,13 +181,21 @@ for s in ("right", "left"):
     cert[s] = np.asarray(best["q"], np.float64)
     print(f"[v2] 认证行IK {s}: pos={best['pos_err'] * 1000:.2f}mm "
           f"rot={np.degrees(best['rot_err']):.2f}°", flush=True)
-# 逐行 IK: 热启保连续 / 坏行冻结上一行 / 逐行跳变上限 30° (2026-08-30 修)。
-# 旧版把**失败解**直接当下一行的种子, 一次解崩顺着热启链把整段拖进限位角落
-# —— 实测右臂对自己的腕目标中位差 44.7cm、100/103 行贴限, 整段搬运冻死。
+# 逐行 IK: 只沿站位行所在的**局部冗余分支**走。允许几毫米连续误差交给 residual，
+# 不允许为了单帧纸面精度在不同肘解之间来回切换。旧版把 q_seed/v1/default 三种
+# 初值的结果按几何误差直接取最小，clip32 左臂在平滑物轨上因此出现 32 个 >15°
+# 单步跳变；后面的 20° 限速只会把支路切换摊成多行甩臂，物理抓持必然丢瓶。
 fail_pos, fail_rot, critical_bad, pos_max, rot_max = 0, 0, 0, 0.0, 0.0
 frozen = {"right": 0, "left": 0}
-frozen_run = {"right": 0, "left": 0}
+held_count = {"right": 0, "left": 0}
+lifted = {"right": 0, "left": 0}          # T2-39: 逐行抬腕次数 / 抬不到位次数
+lift_fail = {"right": 0, "left": 0}
+rise = {s: np.zeros(Nrow) for s in ("right", "left")}   # 逐行腕抬高量 (m)
+gap_final = {}
 _rngb = np.random.default_rng(23)
+_BRANCH = np.radians(25.0)
+tgtP = {s: np.zeros((Nrow, 3)) for s in ("right", "left")}      # 逐行目标 (限速后重投影用)
+tgtR = {s: np.zeros((Nrow, 3, 3)) for s in ("right", "left")}
 for k in range(Nrow):
     for s in ("right", "left"):
         p0, q0_ = wt_v1[s][0][:3], wt_v1[s][0][3:7]
@@ -130,37 +203,54 @@ for k in range(Nrow):
         Rk = quat_to_R(qk_) @ quat_to_R(q0_).T
         tgt_p = w0[s][0] + (pk - p0)          # 平移增量原样搬到实测站位
         tgt_R = Rk @ w0[s][1]                 # 姿态增量左乘 (世界系)
-        seeds = [q_seed[s], None]
+        tgtP[s][k], tgtR[s][k] = tgt_p, tgt_R
+        # “原地保持”也是合法候选；若当前目标暂时难解，就宁可留一点连续误差，
+        # 也不接纳离上一行超过 25° 的远端解。v1 当前行仍可作初值，但它求出的
+        # 结果必须落回同一个局部分支才有资格参与比较。
+        hp, hR = ik[s].fk(q_seed[s])
+        hpe = float(np.linalg.norm(hp - tgt_p))
+        hre = float(np.arccos(np.clip(
+            (np.trace(hR.T @ tgt_R) - 1) * 0.5, -1, 1)))
+        candidates = [(hpe + 0.25 * hre, hpe, hre,
+                       q_seed[s].copy(), True)]
+        local = np.clip(q_seed[s] + _rngb.normal(0.0, 0.04, 7),
+                        ik[s].lower, ik[s].upper)
+        seeds = [q_seed[s], local, arm_v1[s][k]]
         if k % 12 == 0:
-            seeds += [_rngb.uniform(ik[s].lower, ik[s].upper) for _ in range(2)]
-        best = None
+            seeds += [None] + [
+                _rngb.uniform(ik[s].lower, ik[s].upper) for _ in range(2)]
         for q0s in seeds:
             r = ik[s].solve(tgt_p, tgt_R, q0=q0s, iters=200)
-            sc = r["pos_err"] + 0.25 * r["rot_err"]
-            if best is None or sc < best[0]:
-                best = (sc, r)
-        r = best[1]
-        # 判据与 make_reference 的 solve_side 对齐 (2cm/10°/跳变60°/连冻2行放行):
-        # v2 原来用 1cm 且没有"连冻放行", 一处解不出来就顺着热启链把整段冻死
-        # (实测右臂冻结 98/103, 而同一条轨迹 v1 是 79% 达标)。
-        good = (np.isfinite(r["q"]).all() and r["pos_err"] < 0.02
-                and r["rot_err"] < np.radians(10)
-                and (frozen_run[s] >= 2
-                     or np.abs(np.asarray(r["q"], np.float64)
-                               - q_seed[s]).max() < np.radians(60)))
-        if good or k == 0:
-            q_ik[s][k] = r["q"]
-            q_seed[s] = np.asarray(r["q"], np.float64)
-            pe_k, re_k = float(r["pos_err"]), float(r["rot_err"])
-            frozen_run[s] = 0
-        else:                       # 冻结上一行: 不跳分支, 误差如实入账
-            q_ik[s][k] = q_seed[s]
-            frozen[s] += 1
-            frozen_run[s] += 1
-            fp, fR = ik[s].fk(q_seed[s])
-            pe_k = float(np.linalg.norm(fp - tgt_p))
+            qr = np.asarray(r["q"], np.float64)
+            if not np.isfinite(qr).all():
+                continue
+            dq = float(np.abs(qr - q_seed[s]).max())
+            if dq > _BRANCH:
+                continue
+            base = float(r["pos_err"] + 0.25 * r["rot_err"])
+            candidates.append((base + 0.02 * dq,
+                               float(r["pos_err"]), float(r["rot_err"]),
+                               qr, False))
+        _, pe_k, re_k, q_new, held = min(candidates, key=lambda x: x[0])
+        # T2-39: 外壳穿桌/贴桌的解先抬腕再落盘; 抬高写回 tgtP (下游重投影/统计
+        # 以抬高后的目标为准); 抬后的解作为下一行种子, 连续传播
+        if s in SHELL_SIDES and shell_gap(s, q_new) < SHELL_CLEAR:
+            q_new, g_row, dz = lift_clear(s, q_new, tgt_p, tgt_R)
+            lifted[s] += 1
+            lift_fail[s] += int(g_row < SHELL_CLEAR)
+            rise[s][k] += dz
+            tgtP[s][k] = tgt_p = tgt_p + np.array([0.0, 0.0, dz])
+            _fp, _fR = ik[s].fk(q_new)
+            pe_k = float(np.linalg.norm(_fp - tgt_p))
             re_k = float(np.arccos(np.clip(
-                (np.trace(fR.T @ tgt_R) - 1) * 0.5, -1, 1)))
+                (np.trace(_fR.T @ tgt_R) - 1) * 0.5, -1, 1)))
+        q_ik[s][k] = q_new
+        q_seed[s] = q_new.copy()
+        if held:
+            held_count[s] += 1
+            # 静止/极慢目标下保持上一行本来就是最优连续解，不算坏冻结。
+            # frozen_* 只统计保持后仍超 correction 基线的行，供验收判断可救性。
+            frozen[s] += int(pe_k > 0.01 or re_k > np.radians(10))
         if pe_k > 0.01:
             fail_pos += 1
         if re_k > np.radians(10):
@@ -170,13 +260,82 @@ for k in range(Nrow):
             critical_bad += 1
         pos_max = max(pos_max, pe_k)
         rot_max = max(rot_max, re_k)
+# ---- 逐行限速 + 轻平滑 + 重投影 (2026-09-01, 与 make_reference.solve_side 同法) ----
+# 即使局部分支求解已约束连续，数值重投影仍可能放大单行改变量；保留最终限速作为
+# 独立安全栏。旧版曾出现右臂 96°、左臂 46° 双向尖刺，PD 臂一步就会把瓶打飞。
+_RATE = np.radians(20.0)
+from scipy.ndimage import gaussian_filter1d  # noqa: E402
+for s in ("right", "left"):
+    q = q_ik[s]
+    for k in range(1, Nrow):
+        d = q[k] - q[k - 1]
+        m = np.abs(d).max()
+        if m > _RATE:
+            q[k] = q[k - 1] + d * (_RATE / m)
+    qs = gaussian_filter1d(q, sigma=0.5, axis=0, mode="nearest")
+    n_reproj = 0
+    for k in range(Nrow):
+        fp0, fR0 = ik[s].fk(q[k])
+        e0 = float(np.linalg.norm(fp0 - tgtP[s][k])) + 0.25 * float(np.arccos(np.clip(
+            (np.trace(fR0.T @ tgtR[s][k]) - 1) * 0.5, -1, 1)))
+        r = ik[s].solve(tgtP[s][k], tgtR[s][k], q0=qs[k], iters=80, w_rot=0.25)
+        near = np.abs(np.asarray(r["q"], float) - q[k]).max() < np.radians(20)
+        if near and (r["pos_err"] + 0.25 * r["rot_err"]) <= e0:
+            q[k] = r["q"]
+            n_reproj += 1
+    # 二次限速: 重投影允许相邻两行各自在 20° 内反向挪动, 净跳变可到 ~40°
+    # (实测右臂 38.1°/左臂 21.7°)。再压一遍, 让 20° 上限真正成立。
+    for k in range(1, Nrow):
+        d = q[k] - q[k - 1]
+        m = np.abs(d).max()
+        if m > _RATE:
+            q[k] = q[k - 1] + d * (_RATE / m)
+    # T2-39: 限速/平滑/重投影可能把前臂带回桌下 —— 终检二次抬腕, 再压一遍限速
+    n_relift = 0
+    for k in range(Nrow):
+        if s in SHELL_SIDES and shell_gap(s, q[k]) < SHELL_CLEAR:
+            q[k], _, dz2 = lift_clear(s, q[k], tgtP[s][k], tgtR[s][k])
+            rise[s][k] += dz2
+            tgtP[s][k] = tgtP[s][k] + np.array([0.0, 0.0, dz2])
+            n_relift += 1
+    for k in range(1, Nrow):
+        d = q[k] - q[k - 1]
+        m = np.abs(d).max()
+        if m > _RATE:
+            q[k] = q[k - 1] + d * (_RATE / m)
+    gaps = np.array([shell_gap(s, q[k]) for k in range(Nrow)])
+    gap_final[s] = float(gaps.min())
+    print(f"[v2] {s} 外壳离桌 (T2-39): 逐行抬腕 {lifted[s]} 行 (抬不到位 {lift_fail[s]}) "
+          f"| 终检二次抬腕 {n_relift} 行 | 最大腕抬高 {rise[s].max() * 1000:.0f}mm "
+          f"| 最终最小离桌 {gaps.min() * 100:+.2f}cm (要求 >= {SHELL_CLEAR * 100:.1f}cm) "
+          f"| 仍低于要求 {int((gaps < SHELL_CLEAR).sum())} 行", flush=True)
+    jump = np.degrees(np.abs(np.diff(q, axis=0)).max()) if Nrow > 1 else 0.0
+    print(f"[v2] {s} 限速/重投影: 最大逐行跳变 {jump:.1f}° (上限 20°) | 重投影采纳 {n_reproj}/{Nrow}",
+          flush=True)
+# 最终诊断必须针对“限速+平滑+重投影”后的实际写盘轨迹重算。旧代码沿用
+# 限速前的计数，meta_v2 与 probe_ikcheck 会对不上。
+fail_pos, fail_rot, critical_bad, pos_max, rot_max = 0, 0, 0, 0.0, 0.0
+for s in ("right", "left"):
+    for k in range(Nrow):
+        fp, fR = ik[s].fk(q_ik[s][k])
+        pe_k = float(np.linalg.norm(fp - tgtP[s][k]))
+        re_k = float(np.arccos(np.clip(
+            (np.trace(fR.T @ tgtR[s][k]) - 1) * 0.5, -1, 1)))
+        fail_pos += int(pe_k > 0.01)
+        fail_rot += int(re_k > np.radians(10))
+        if ((pe_k > 0.01 or re_k > np.radians(10))
+                and max(E.PB.k_sep - 40, 0) <= k <= E.PB.k_sep):
+            critical_bad += 1
+        pos_max = max(pos_max, pe_k)
+        rot_max = max(rot_max, re_k)
 _mg = {s: np.degrees(np.minimum(q_ik[s] - ik[s].lower,
                                 ik[s].upper - q_ik[s]).min(axis=1))
        for s in ("right", "left")}
 print(f"[v2] 交互IK: pos>1cm {fail_pos}/{Nrow * 2} | rot>10° "
       f"{fail_rot}/{Nrow * 2} | 关键窗坏行 {critical_bad} | "
       f"最大={pos_max * 100:.2f}cm/{np.degrees(rot_max):.1f}° | 冻结 "
-      f"R{frozen['right']}/L{frozen['left']} 行 | 限位余量中位 "
+      f"R{frozen['right']}/L{frozen['left']} 坏行 "
+      f"(局部保持 R{held_count['right']}/L{held_count['left']}) | 限位余量中位 "
       f"R{np.median(_mg['right']):.1f}°/L{np.median(_mg['left']):.1f}°",
       flush=True)
 
@@ -196,20 +355,37 @@ for i in range(SEAM2):
     v2l[rr] = (1 - a) * v2l[IA1] + a * v2l[RET0]
 with open(V1, "rb") as fh:
     parent_md5 = hashlib.md5(fh.read()).hexdigest()[:8]
+
+
+def _rise_full(s):
+    """T2-39 逐行腕抬高量 (m), 全链长度, IA 外为 0 —— 供探针/录像对照."""
+    full = np.zeros(len(v2r))
+    full[IA0:IA1 + 1] = rise[s]
+    return full
 assert np.isfinite(v2r).all() and np.isfinite(v2l).all(), \
     "v2 arm trajectories contain NaN/Inf"
 out = dict(d1)
 out.update(right_q=v2r, left_q=v2l,
            human_right_q=hum_r, human_left_q=hum_l,
-           human_right_f=np.asarray(d1["right_f"], np.float64).copy(),
+           human_right_f=np.asarray(d1.get("human_right_f", d1["right_f"]),
+                                    np.float64).copy(),
            human_left_f=np.asarray(d1["left_f"], np.float64).copy(),
            cert_arm7_right=cert["right"], cert_arm7_left=cert["left"],
+           wrist_rise_r=_rise_full("right"), wrist_rise_l=_rise_full("left"),
            meta_v2=np.array(f"gen=unscrew_v2;parent_v1_md5={parent_md5};"
                             f"betaL={BL};betaR={BR};ik=wrist_delta;"
+                            f"shell_clear_cm={SHELL_CLEAR * 100:.1f};"
+                            f"shell_min_r_cm={gap_final['right'] * 100:.2f};"
+                            f"shell_min_l_cm={gap_final['left'] * 100:.2f};"
+                            f"lift_r={lifted['right']};lift_l={lifted['left']};"
+                            f"rise_max_r_mm={rise['right'].max() * 1000:.0f};"
+                            f"rise_max_l_mm={rise['left'].max() * 1000:.0f};"
                             f"fail_pos_gt_1cm={fail_pos};fail_rot_gt_10deg={fail_rot};"
                             f"critical_bad={critical_bad};pos_max_cm={pos_max*100:.3f};"
                             f"rot_max_deg={np.degrees(rot_max):.3f};"
                             f"frozen_r={frozen['right']};frozen_l={frozen['left']};"
+                            f"held_r={held_count['right']};held_l={held_count['left']};"
+                            "struct_r=0;"
                             f"marg_r_deg={np.median(_mg['right']):.2f};"
                             f"marg_l_deg={np.median(_mg['left']):.2f};"
                             f"clip={TC.CLIP_ID}"))

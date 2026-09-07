@@ -151,7 +151,17 @@ else:
     with open(_TC_PREFLIGHT.ACCEPTANCE_JSON, encoding="utf-8") as _fh:
         _acceptance = _json.load(_fh)
     # HYB/OBJ 只改变参考奖励体制，不改变这次零动作物理母带验收。
-    WF.assert_recorded(raw, _acceptance["world"], strict=True,
+    # T2-30 stage C: 仅策略输入多 1 维"冻臂旗标", 物理世界与验收时逐项一致;
+    # 精确豁免"记录+1", 其余任何 obs_dim 偏差照拦。
+    _acc_world = _acceptance["world"]
+    if float(os.environ.get("UNSCREW_STAGE_C_FRAC", "0")) > 0:
+        _rec_od = _acc_world.get("policy_io", {}).get("obs_dim")
+        if _rec_od is not None and int(cfg.observation_space) == _rec_od + 1:
+            _acc_world = _json.loads(_json.dumps(_acc_world))
+            _acc_world["policy_io"]["obs_dim"] = _rec_od + 1
+            print(f"[world] stage C 豁免: obs_dim 记录 {_rec_od} -> 按 +1 旗标"
+                  f"位核对 {_rec_od + 1}", flush=True)
+    WF.assert_recorded(raw, _acc_world, strict=True,
                        label="v2 验收世界", ignore=("method.variant",))
 env = GymStyleEnvWrapper(raw, clip_actions=1.0)
 
@@ -181,7 +191,9 @@ elif args.load_path:
 
 WF.write(raw, os.path.join(log_dir, "world.json"), extra={
     "reference": {"path": PE.MASTER},
-    "policy_io": {"obs_dim": PE.OBS_DIM, "act_dim": PE.ACT_DIM},
+    # 写实际维度而非模块常量: stage C (+1 冻臂旗标) 时 OBS_DIM 常量是 507,
+    # 硬编码会把出生世界错记 -> 回放/续训被自家指纹拦死 (2026-09-03 实案)
+    "policy_io": {"obs_dim": int(cfg.observation_space), "act_dim": PE.ACT_DIM},
     "sensors": {"pad_force_threshold_N": PE.PAD_FTH,
                 "pads_min_per_hand": PE.PADS_MIN},
     "method": {"task": _TC.TASK, "clip": _TC.CLIP,

@@ -15,6 +15,7 @@ grasp+squeeze, 可零动作回放到站位行仍然 0 垫接触 —— 那么问
       CUDA_VISIBLE_DEVICES=0 $PY tasks/Unscrew/part4/B_SmokeTest/probe_grasp.py --headless
 """
 import argparse
+import json
 import os
 import sys
 
@@ -24,6 +25,8 @@ p = argparse.ArgumentParser()
 p.add_argument("--hold", type=int, default=40, help="站位行保持步数")
 p.add_argument("--pin_bottle", action="store_true",
                help="把瓶钉在静置位 (分清'最终抓握位姿穿模' vs '进刀路径扫到')")
+p.add_argument("--axial_shift_cm", type=float, default=0.0,
+               help="诊断用: 将 P1 左腕沿瓶轴平移指定厘米 (负值向瓶底)")
 AppLauncher.add_app_launcher_args(p)
 args = p.parse_args()
 from rl_rebuild.utils.gpu_guard import isaac_slot  # noqa: E402
@@ -39,7 +42,7 @@ os.environ["POUR_NO_D6"] = "1"
 os.environ["POUR_SQUEEZE_FF"] = "1"
 import task_config as TC  # noqa: E402
 import task_env as PE  # noqa: E402
-from rl_rebuild.correction.kinematics import quat_to_R  # noqa: E402
+from rl_rebuild.correction.kinematics import ArmIK, quat_to_R  # noqa: E402
 
 cfg = PE.build_cfg(num_envs=1)
 E = PE.UnscrewEnv(cfg)
@@ -59,9 +62,40 @@ _pin_pose = torch.cat([E.object.data.root_pos_w.clone(),
                        E.object.data.root_quat_w.clone()], dim=1)
 _pin_vel = torch.zeros(1, 6, device=dev)
 
+# 轴向错位的闭环体检: 不改母带，先在同一个 Isaac 场景里把最终 P1 腕位沿瓶轴
+# 平移并重解 IK。这样能在重做 cuRobo 之前确认“prior 中心系 ↔ USD 刚体中心系”
+# 到底是否多补了一次半瓶高。
+_q_left_alt = None
+if abs(args.axial_shift_cm) > 1e-9:
+    _rest0 = json.load(open(TC.REST_JSON))
+    _ik0 = ArmIK("left", anchor_link="arm_center",
+                 anchor_T=np.asarray(_rest0["anchor_T_right"], float))
+    _q0 = ref[E.IA0, 7:14].copy()
+    _p0, _R0 = _ik0.fk(_q0)
+    _axis0 = quat_to_R(_pin_pose[0, 3:7].cpu().numpy())[:, 2]
+    _pt = _p0 + (args.axial_shift_cm / 100.0) * _axis0
+    _rng = np.random.default_rng(3201)
+    _seeds = [_q0, _ik0.q_default] + [
+        _rng.uniform(_ik0.lower, _ik0.upper) for _ in range(12)]
+    _sol = _ik0.solve_best(_pt, _R0, _seeds, w_rot=0.25,
+                           pos_tol=0.005, rot_tol=np.radians(5.0))
+    _q_left_alt = np.asarray(_sol["q"], np.float64)
+    print(f"[axial] P1 左腕沿瓶轴 {args.axial_shift_cm:+.2f}cm: "
+          f"IK pos={_sol['pos_err'] * 100:.2f}cm "
+          f"rot={np.degrees(_sol['rot_err']):.2f}deg "
+          f"ok={_sol['ok']} 最大关节改变量="
+          f"{np.degrees(np.max(np.abs(_q_left_alt - _q0))):.1f}deg", flush=True)
+
 
 def drive(row, sL):
     tgt = E.ref58[min(row, E.T_ROW - 1)].clone()
+    if _q_left_alt is not None and row >= APP:
+        # 缝1 从原 pregrasp 连续过渡到诊断握位；hold 时保持诊断解。
+        _u = min(max((row - APP + 1) / max(IA0 - APP, 1), 0.0), 1.0)
+        _u = _u * _u * (3.0 - 2.0 * _u)
+        _q_ref_end = ref[IA0, 7:14]
+        _q_diag = tgt[7:14].cpu().numpy() + _u * (_q_left_alt - _q_ref_end)
+        tgt[7:14] = torch.tensor(_q_diag, dtype=tgt.dtype, device=tgt.device)
     tgt[36:58] += sL * dsq_l
     full = E.hand.data.joint_pos.clone()
     full[0, E.map_ids_t] = tgt
@@ -119,9 +153,9 @@ print(f"\n[grasp] 瓶 pos={np.round(bp, 3)} 倾角="
 print(f"[grasp] 左腕 {np.round(E.hand.data.body_pos_w[0, E.wid['L']].cpu().numpy() - org, 3)}"
       f" | 右腕 {np.round(E.hand.data.body_pos_w[0, E.wid['R']].cpu().numpy() - org, 3)}")
 # ---- 坐标系/跟踪体检: 命令 vs 实际 vs 离线 IK 的三方对账 ----
-import json  # noqa: E402
-from rl_rebuild.correction.kinematics import ArmIK  # noqa: E402
 _q_cmd = E.ref58[IA0].cpu().numpy()
+if _q_left_alt is not None:
+    _q_cmd[7:14] = _q_left_alt
 _q_act = E.hand.data.joint_pos[0, E.map_ids_t].cpu().numpy()
 print("[体检] 臂关节 命令 vs 实际 (度):")
 for _s, _sl in (("right", slice(0, 7)), ("left", slice(7, 14))):

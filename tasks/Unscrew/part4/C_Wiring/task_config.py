@@ -32,7 +32,12 @@ _L2 = os.path.join(TASK_ROOT, "A_Design", "L2_Reference", CLIP_ID)
 REF_V1 = os.path.join(_L2, "reference_v1.npz")
 REF_V2 = os.path.join(_L2, "reference_v2.npz")
 REST_JSON = os.path.join(_L2, "env_rest.json")   # probe_rest.py 产物 (env 实测静置)
-ACCEPTANCE_JSON = os.path.join(_L2, "acceptance_v2.json")
+# T2-40: 验收凭据按盖模式分文件 —— 凭据绑定的是"母带 × 世界", 拔盖世界 (assembly.
+# cap_mode=pull) 与拧盖世界物理不同, 各签各的; 拧盖文件名不变。
+ACCEPTANCE_JSON = os.path.join(
+    _L2, "acceptance_v2.json"
+    if os.environ.get("UNSCREW_CAP_MODE", "screw") == "screw"
+    else "acceptance_v2_pull.json")
 # GraspPose 模板: 左手瓶 = Screw27_body (CAD 与本批字节相同, md5 已核对)。
 # ⚠ 基类 prior 脚手架**不接** (2026-08-30 拍板, 三轮实测):
 #   ① _load_grasp_prior 会把物体重摆成 prior 的 canon 姿态 (日志实锤"物体仍
@@ -73,7 +78,7 @@ CAP_GRASP_Z_TRIM = 0.0        # 已并入 CAP_GRASP_TRIM, 保留键名兼容
 # 站位行的额外捏合量 (度): 对准只把拇/食指放到盖轴两侧, 跨距仍比盖径大 ~1.8cm,
 # 靠这一档补上。probe_capgrasp --curl 实测 25° 首次接触 (三指1/3, 5.8N)。
 # 剩下的收拢交给 RL 的手指残差 (±68.8° 总量, 绰绰有余) —— 参考给到位, RL 修完。
-CAP_PINCH_DEG = 25.0
+CAP_PINCH_DEG = float(os.environ.get("UNSCREW_CAP_PINCH", "25.0"))  # T2-22: 库候选(张开态)默认25; 已闭合的自制姿势用 8 左右, 25 会插进盖里
 # 数据集自带的盖侧 affordance (60k 点接触频率热区, 逐 clip)
 AFFORDANCE_CAP = os.path.join(TAKE_DIR, "contact", "expected_area_object_1_right.npz")
 
@@ -89,13 +94,22 @@ BETA_L = 1.0     # [TASK] 左手瓶: 2026-08-31 实测定档 —— 锚点/进�
                  #        (45N, 右手 prior 按名镜像到左手时拇指最不对称) 是**已知
                  #        瑕疵**, 交给 RL 残差修 —— 这正是 correction 的职责。
 
+# 指垫抓持摩擦。static-reconstruction 瓶身自身为 μ=0.5，SuperGrip 使用
+# multiply 合成，因此 6.0 对应指垫↔瓶身有效 μ≈3.0。保持桌面/掌背材质不变，
+# 只增强真实承担抓持的 10 个 elastomer 指垫，避免靠“整只手粘住物体”作弊。
+PAD_FRICTION = 6.0
+
 # ---- 交互段持瓶朝向重定向 (U35c 逐 clip 标定; make_reference 消费) ----
 # 人举瓶的朝向对人顺手, 对机器人肘几何常常不可达 —— 绕世界 z 转一个角度,
 # 位置与倾角全不动 (瓶是旋转体, 判据只看轴倾角), 但双臂可达性天差地别。
 # clip32 扫描实测 (2026-08-31, 见 DECISIONS T2-6):
 #   0° -> 右臂 43% / 左 100%;  -35° -> 右 77% / 左 100%;  -70° -> 右 69% / 左 98%
 # 逐 clip 值缺省 0; 新 clip 上线前用同一扫描定一次 (UNSCREW_HOLD_YAW 可覆写)。
-HOLD_YAW_BY_CLIP = {"32": -35.0}
+HOLD_YAW_BY_CLIP = {"32": -35.0,
+                    # T2-25: 五档扫描 (0/±20/±35, MAX_TILT=80) 定档 —— 左臂 IK
+                    # 53%->100%、限位余量 0->25.7°、冻结 37->0, 且抓取窗/护送
+                    # 净空双双过 0.91 线 (0.993/0.915)。-35 相近但余量略低。
+                    "17": -20.0}
 # 机器段 pregrasp 净空: 从站位抓握位姿沿"离开物体"的方向让开多少 (cuRobo 的
 # cspace 目标就是这个构型的限位内点解)。2026-08-31 提高左手径向净空: 左抓锚
 # 修准之后 pregrasp 落在瓶壁上, 充气 10mm 的障碍直接把**目标构型**判碰,
@@ -105,6 +119,12 @@ PRE_L_RADIAL = 0.12
 PRE_R_LIFT = 0.04
 HOLD_YAW_DEG = float(os.environ.get(
     "UNSCREW_HOLD_YAW", HOLD_YAW_BY_CLIP.get(CLIP_ID, 0.0)))
+
+# ---- 双手时序 (T2-12): 左手先把瓶横过来, 右手才启动 --------------------
+# 启动点不写死帧号: make_reference 同时看原始瓶身倾角和右掌稳健代理位移,
+# 在右侧接触候选之后取第一帧满足两者的原始帧。clip32 实测得到 f35 / 87.6°。
+RIGHT_START_TILT_DEG = 85.0
+RIGHT_START_PALM_DISP_M = 0.004
 
 # ---- 物体几何 (Success Tracker 判据原料; CAD 全批统一, md5 已核对) ----
 BOTTLE_HALF_H = 0.0985           # 瓶身长轴半长 (mesh 实测 19.7cm/2)
@@ -192,14 +212,19 @@ def rest_anchor_T(side, path=None):
 def reference_planning_digest(path):
     """Hash exactly what Approach/Retreat planning consumes —— 不多不少。
 
-    plan_machine_segs 实际读的是: 两个 cspace 目标构型 machine_pre_q_*、
-    它们所锚的 station_w*、以及 Retreat 世界里的两个障碍位置 (交互**末行**
-    的瓶/盖位置)。机器行本身排除在外, 于是规划剪回母带后摘要不变。
+    plan_machine_segs 实际读的是: P1 双臂构型、Approach 净空候选、
+    任务末行双臂构型、Retreat 净空候选，以及 Retreat 世界里两个末态
+    障碍物的完整位姿。机器行本身排除在外，于是规划剪回母带后摘要不变。
 
     2026-08-30 收窄: 原实现把**整段交互行** (含 right_q/left_q 与逐行物体
     位姿) 一起哈希 —— 与自己的 docstring 矛盾, 且把"改交互段姿态参考"这种
-    与规划无关的改动也判成规划失效, 逼出无谓的重规划。反过来说, 只要
-    machine_pre/station/末行障碍任一变了, 摘要照样变 —— 该重规划的一次不漏。
+    与规划无关的改动也判成规划失效, 逼出无谓的重规划。现在只要 P1/任务末行/
+    两组净空候选/末态障碍任一变了，摘要照样变 —— 该重规划的一次不漏。
+
+    2026-09-01 稳定化: ArmIK/BLAS 在不同进程重算同一端点时会有
+    1e-15 量级末位差；直接哈希 float64 原始字节会把这种数值噪声误报成
+    规划过期。哈希前按 1e-10 规范化，远严于毫米/角度级规划容差；
+    真实的位姿或关节改动仍会改变摘要。
     """
     import hashlib
 
@@ -215,19 +240,40 @@ def reference_planning_digest(path):
         rows = np.flatnonzero(src == 1)
         if not len(rows):
             raise ValueError(f"{path}: no interaction rows")
-        end = rows[-1:]
+        start, end = rows[:1], rows[-1:]
         h = hashlib.sha256()
-        for key, arr in (
-                ("station_wr", z["station_wr"]), ("station_wl", z["station_wl"]),
-                # cspace 机器段的真实规划目标 (2026-08-30 起); 旧母带无此键
-                *((("machine_pre_q_r", z["machine_pre_q_r"]),
-                   ("machine_pre_q_l", z["machine_pre_q_l"]))
-                  if "machine_pre_q_r" in (z.files if hasattr(z, "files") else z)
-                  else ()),
-                # Retreat 世界的障碍: 交互末行的瓶/盖落点
-                ("obj_pos_0_end", z["obj_pos_0"][end]),
-                ("obj_pos_1_end", z["obj_pos_1"][end])):
-            data = np.ascontiguousarray(arr, dtype=np.float64)
+        h.update(b"planning-basis-v2-quantized-1e-10")
+        _available = z.files if hasattr(z, "files") else z
+        _keys = [
+            ("station_wr", z["station_wr"]), ("station_wl", z["station_wl"]),
+            ("station_q_r", z["station_q_r"] if "station_q_r" in _available
+             else z["right_q"][start]),
+            ("station_q_l", z["station_q_l"] if "station_q_l" in _available
+             else z["left_q"][start]),
+            ("retreat_station_q_r", z["retreat_station_q_r"]
+             if "retreat_station_q_r" in _available else z["right_q"][end]),
+            ("retreat_station_q_l", z["retreat_station_q_l"]
+             if "retreat_station_q_l" in _available else z["left_q"][end]),
+            ("obj_pos_0_end", z["obj_pos_0"][end]),
+            ("obj_quat_0_end", z["obj_quat_0"][end]),
+            ("obj_pos_1_end", z["obj_pos_1"][end]),
+            ("obj_quat_1_end", z["obj_quat_1"][end]),
+        ]
+        if "machine_pre_q_r" in _available:
+            _keys.extend([
+                ("machine_pre_q_r", z["machine_pre_q_r"]),
+                ("machine_pre_q_l", z["machine_pre_q_l"]),
+                ("machine_pre_alts_r", z["machine_pre_alts_r"]),
+                ("machine_pre_alts_l", z["machine_pre_alts_l"]),
+            ])
+        for key in ("machine_retreat_pre_alts_r",
+                    "machine_retreat_pre_alts_l"):
+            if key in _available:
+                _keys.append((key, z[key]))
+        for key, arr in _keys:
+            data = np.round(np.asarray(arr, dtype=np.float64), decimals=10)
+            data[data == 0.0] = 0.0       # 规范化 -0.0 的符号位
+            data = np.ascontiguousarray(data, dtype="<f8")
             h.update(key.encode())
             h.update(str(data.shape).encode())
             h.update(data.tobytes())
@@ -292,6 +338,23 @@ def training_reference_issues(path, *, expected_path=None, parent_v1_path=None,
         source = meta.get(seg)
         if not isinstance(source, str) or not source.startswith("curobo:"):
             issues.append(f"{seg}={source}，必须是 cuRobo 规划段")
+    timing = meta.get("right_timing", {})
+    try:
+        if int(timing.get("right_start_src")) < int(meta["windows"]["w0"]):
+            issues.append("right_timing.right_start_src 早于交互窗")
+        if int(timing.get("right_grasp_src")) <= int(timing.get("right_start_src")):
+            issues.append("右手到盖帧必须晚于明显启动帧")
+        if float(timing.get("bottle_tilt_deg")) < RIGHT_START_TILT_DEG:
+            issues.append("右手启动时瓶身尚未达到水平阈值")
+    except Exception:
+        issues.append("缺失或不可读的 right_timing 时序凭据")
+    contract = meta.get("phase_contract", {})
+    if contract.get("P0_to_P1") != "cuRobo Approach":
+        issues.append("phase_contract.P0_to_P1 不是 cuRobo Approach")
+    if contract.get("P1_to_task_end") != "continuous data reference + RL residual":
+        issues.append("phase_contract.P1_to_task_end 不是连续数据/RL 轨迹")
+    if contract.get("task_end_to_P0") != "cuRobo Retreat":
+        issues.append("phase_contract.task_end_to_P0 不是 cuRobo Retreat")
     screw = meta.get("screw", {})
     try:
         if abs(float(screw.get("turns")) - SCREW_TURNS) > 1e-9:

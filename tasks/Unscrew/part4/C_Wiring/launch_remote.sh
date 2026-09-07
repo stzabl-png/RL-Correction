@@ -72,6 +72,7 @@ export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 # 默认改成可覆盖 (RL_ISAAC_NO_GUARD=0 即恢复 flock 独占槽位)。
 export RL_ISAAC_NO_GUARD=${RL_ISAAC_NO_GUARD:-1} CUDA_VISIBLE_DEVICES=$GPU
 export POUR_SQUEEZE_FF=1 POUR_BONUS_NOW=1 POUR_BONUS_DIST=1
+export POUR_PAD_FRIC=${POUR_PAD_FRIC:-6.0}
 export POUR_VARIANT=$VAR UNSCREW_CLIP=$CLIP
 
 for required in "assets/vega_1p_sharpa_fixedtorso.usd" "tasks/Unscrew/part4/A_Design/L2_Reference/$CLIP/reference_v2.npz" "tasks/Unscrew/part4/A_Design/L2_Reference/$CLIP/acceptance_v2.json"; do

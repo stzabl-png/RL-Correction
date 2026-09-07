@@ -39,9 +39,12 @@ CRITICAL = (
     "assembly.inertia_eff_kgm2", "assembly.torque_ema_s",
     "assembly.unlock_dwell_s", "assembly.lock_omega_eps",
     "assembly.react_on_bottle",
+    # T2-40 拔盖模式 (旧记录缺键 = screw 世界, compare 里补默认)
+    "assembly.cap_mode", "assembly.pull_full_m", "assembly.pull_breakaway_n",
+    "assembly.pull_kinetic_n", "assembly.pull_viscous_nsm", "assembly.pull_vmax_ms",
     "sensors.pad_force_threshold_N", "sensors.pads_min_per_hand",
     "method.clip", "method.variant", "method.squeeze_ff_enabled",
-    "method.beta_r", "method.beta_l",
+    "method.beta_r", "method.beta_l", "method.pad_friction_mu",
     "time.control_dt_s", "time.decimation",
     "table.table_top_z_m",
     "objects.object_1.mass_kg", "objects.object_1.static_friction",
@@ -151,6 +154,14 @@ def collect(env) -> dict:
         # real 模式下 ω 阻尼不再施加 —— 记 0.0 (事实), 不留 None (会被判未验)
         "omega_damping": _f(getattr(env, "screw_omega_damping", None) or 0.0),
         "detach_at_full": getattr(env, "screw_detach_at_full", None),
+        # T2-40 拔盖模式: screw 世界一律 "screw"/0.0 (不留 None), pull 世界记参数,
+        # 两种 ckpt 互斥
+        "cap_mode": getattr(env, "screw_cap_mode", "screw"),
+        "pull_full_m": _f(getattr(env, "pull_full_m", 0.0)),
+        "pull_breakaway_n": _f(getattr(env, "pull_breakaway_n", 0.0)),
+        "pull_kinetic_n": _f(getattr(env, "pull_kinetic_n", 0.0)),
+        "pull_viscous_nsm": _f(getattr(env, "pull_viscous_nsm", 0.0)),
+        "pull_vmax_ms": _f(getattr(env, "pull_vmax_ms", 0.0)),
     }
     _brk = getattr(screw, "breakaway_torque_nm", None)
     assembly.update(
@@ -178,6 +189,9 @@ def collect(env) -> dict:
         "squeeze_ff_enabled": getattr(env, "squeeze_ff_enabled", None),
         "beta_r": _f(getattr(env, "beta_r", None)),
         "beta_l": _f(getattr(env, "beta_l", None)),
+        # correction_env._setup_scene 的 SuperGrip 真值来源；Unscrew 把默认值
+        # 固定在 task_config，训练/回放若不一致必须像其它世界参数一样拒跑。
+        "pad_friction_mu": _f(os.environ.get("POUR_PAD_FRIC", "3.0")),
     }
     ref = getattr(env, "_master_path", None) or os.environ.get("POUR_REF_NPZ")
     fp = {
@@ -234,6 +248,12 @@ def _flat(d, pre=""):
 def compare(recorded: dict, current: dict):
     """返回 (不符, 提示, 无法核对); 每项 = (键, 记录值, 当前值)."""
     a, b = _flat(recorded), _flat(current)
+    # T2-40 之前的记录没有盖模式键 = 那个世界是拧盖 (screw), 参数按 0.0 核对
+    a.setdefault("assembly.cap_mode", "screw")
+    for _k in ("assembly.pull_full_m", "assembly.pull_breakaway_n",
+               "assembly.pull_kinetic_n", "assembly.pull_viscous_nsm",
+               "assembly.pull_vmax_ms"):
+        a.setdefault(_k, 0.0)
     crit, warn = [], []
     def _ne(key):
         x, y = a[key], b[key]

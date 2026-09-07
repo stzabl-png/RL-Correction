@@ -50,7 +50,10 @@ for r in range(0, APP):
 # 缝1: 各自剂量渐入 + 站稳30步
 for i2, r in enumerate(range(APP, IA0)):
     a = (i2 + 1) / max(IA0 - APP, 1)
-    drive([r]*N, [b * a for b in BETA])
+    # 与正式 env 同一条“先完成进刀、再合指”的缝1曲线；旧探针线性合指会在
+    # 手臂仍移动时把瓶斜推，测到的不是剂量本身。
+    sp = float(TC.seam_squeeze_profile(a))
+    drive([r]*N, [b * sp for b in BETA])
 for _ in range(30):
     drive([IA0]*N, BETA)
 org = E.scene.env_origins
@@ -59,14 +62,17 @@ f = E._pads_f().norm(dim=-1)
 print("[beta] 站位垫数: " + " ".join(
     f"β{BETA[i]}:L{int((f[i,:5]>0.5).sum())}/R{int((f[i,5:]>0.5).sum())}"
     for i in range(N)), flush=True)
+slip_peak = torch.zeros(N, device=dev)
 # 交互关键段: 播交互前 60% 行 (覆盖 拿起+转平+拧盖窗; 数据引擎逐 clip 通用)
 KEY_END = IA0 + int(0.6 * (IA1 - IA0))
 for r in range(IA0, KEY_END):
     drive([r]*N, BETA)
+    dd = (E.hand.data.body_pos_w[:, E.wid["L"]]
+          - E.object.data.root_pos_w).norm(dim=1)
+    slip_peak = torch.maximum(slip_peak, (dd - d0).abs())
     if r % 10 == 0:
         wz = E.hand.data.body_pos_w[:, E.wid["L"], 2]
         bz_ = E.object.data.root_pos_w[:, 2]
-        dd = (E.hand.data.body_pos_w[:, E.wid["L"]] - E.object.data.root_pos_w).norm(dim=1)
         ff = E._pads_f().norm(dim=-1)
         print("[beta] 行%d " % r + " | ".join(
             f"β{BETA[i]}: 腕z={float(wz[i]-org[i,2]):.3f} 瓶z={float(bz_[i]-org[i,2]):.3f} "
@@ -81,9 +87,11 @@ for i in range(N):
     bz = float(E.object.data.root_pos_w[i, 2] - org[i, 2])
     # 判读: 关键段末瓶应离桌 (母带该行 z) 且滑移小; 阈值随 clip 从母带取
     ref_z = float(E.PB.ref_obj[0][int(0.6 * (IA1 - IA0))][2])
-    ok = slip < 3 and npr >= 2 and bz > ref_z - 0.07
+    peak = float(slip_peak[i] * 100)
+    ok = abs(slip) < 3 and peak < 3 and npr >= 2 and bz > ref_z - 0.07
     held.append(ok)
-    print(f"[beta] β={BETA[i]}: 滑移={slip:+.1f}cm 左垫={npr} 瓶z={bz:.3f} "
+    print(f"[beta] β={BETA[i]}: 末端滑移={slip:+.1f}cm 峰值={peak:.1f}cm "
+          f"左垫={npr} 瓶z={bz:.3f} "
           f"(母带 {ref_z:.3f}) -> {'✅持住了' if ok else '❌脱手'}", flush=True)
 ok_any = any(held)
 if ok_any and all(held):

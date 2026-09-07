@@ -48,6 +48,10 @@ from progress_batch import (  # noqa: E402
 
 import task_config as TC  # noqa: E402
 
+# Unscrew 固定使用任务级抓持摩擦；仍允许显式环境变量做消融。基类在场景创建时
+# 读取 POUR_PAD_FRIC，所以必须在 UnscrewEnv 实例化之前设好默认值。
+os.environ.setdefault("POUR_PAD_FRIC", str(TC.PAD_FRICTION))
+
 MASTER = os.environ.get("POUR_REF_NPZ") or (
     TC.REF_V2 if os.path.isfile(TC.REF_V2) else TC.REF_V1)
 OBS_DIM = 507   # 框架 503 + 螺旋块 4 (frac/released/n_triad/gain)
@@ -56,12 +60,15 @@ LOOK_KS = (1, 2, 4, 8, 16)
 DEV_ARM_MACHINE, DEV_ARM_HUMAN = 0.05, 0.08
 FAIL_PEN, D6_PEN, D6_CAP = -10.0, -0.5, -10.0
 K_SCREW = 2.0                       # [TASK] 拧转势: 270°×2.0 ≈ 9.4 总额
+PINCH_CLIMB_EPS = 8.727e-4          # T2-36 捏且转判爬升阈 0.05°/步, 滤关节抖动
 # 诊断台账初值 (screw_tau_mNm/screw_unlocked 按**咬合 env 步**归一, 别用 n)
 _DIAG0 = {"screw_deg": 0.0, "released": 0, "n_triad": 0.0, "gain": 0.0,
           "cap_any": 0.0, "escort_fail": 0.0, "carry_steps": 0.0,
           "fall_peak": 0.0, "screw_tau_mNm": 0.0, "screw_unlocked": 0.0,
-          "screw_n_eng": 0.0, "n": 0, "ep": 0}
+          "screw_n_eng": 0.0, "cap_any_c": 0.0, "screw_deg_c": 0.0,
+          "c_steps": 0.0, "n": 0, "ep": 0}
 _DIAG_ENG = ("screw_tau_mNm", "screw_unlocked")     # 分母 = screw_n_eng
+_DIAG_C = ("cap_any_c", "screw_deg_c")              # 分母 = c_steps (stage C env 步)
 _RPADS = ["right_thumb_elastomer", "right_index_elastomer",
           "right_middle_elastomer", "right_ring_elastomer",
           "right_pinky_elastomer"]
@@ -114,7 +121,15 @@ def build_cfg(num_envs=1):
     cfg.scene.num_envs = num_envs
     cfg.obj_jitter_xy = 0.0
     cfg.action_space = ACT_DIM
-    cfg.observation_space = OBS_DIM
+    # stage C 运行时多 1 维 "本回合冻臂" 旗标 (T2-30): 同状态下动作语义不同
+    # (臂冻/臂活), 不给旗标就是观测混叠, 价值函数两头拉扯。
+    cfg.observation_space = OBS_DIM + (
+        1 if float(os.environ.get("UNSCREW_STAGE_C_FRAC", "0")) > 0 else 0)
+    # 系统公用 /tmp/isaaclab 可能由其他容器的 nobody 用户创建，目录看似
+    # 775 但当前用户不能新建日志。给本任务一个 uid 隔离的临时日志目录，
+    # 避免 Isaac 在环境构造前因 FileHandler 权限直接退出。
+    cfg.sim.log_dir = os.path.join(
+        "/tmp", f"rl_correction_isaaclab_{os.getuid()}", "logs")
     return cfg
 
 
@@ -197,6 +212,16 @@ class UnscrewEnv(GraspTaskEnv):
               f"({'纯物轨消融' if self._variant == 'OBJ' else '置信门控+指形指引'})")
         self.unlocked = set(int(x) for x in
                             os.environ.get("POUR_UNLOCK", "").split(",") if x)
+        # T2-30 stage C: 该比例的出生直接落在对准行 k_sep (盖仍拧紧, 右手已在
+        # GraspPose), 且这些回合**双臂残差冻结**只练手指 —— 并行课程, 不许
+        # 顺序解锁 (T2-9 死锁前科); 冻臂自开训第一步即如此 (动作语义不中途变)。
+        self.c_frac = float(os.environ.get("UNSCREW_STAGE_C_FRAC", "0"))
+        self.c_env = torch.zeros(N, dtype=torch.bool, device=dev)
+        # T2-31: C 出生点钉死瓶体 (盖自由, 真实螺纹副照拧)。12M 取证: c 出生
+        # 17 步即崩 —— 左手对"已横躺的瓶"没有建立抓握的过程, 焊接热身一松瓶落
+        # 桌滚走。钉瓶 = 瓶被完美握持的极限情形, 把 C 子任务纯化为"右手指学
+        # 接触+拧", 技能以手指运动模式迁移 (与冻腕排除假拧同哲学)。
+        self.c_pin = os.environ.get("UNSCREW_STAGE_C_PIN_BOTTLE") == "1"
         self._rebuild_entries()
         self.p_t0 = 0.2
         self.phase_b = os.environ.get("POUR_BONUS_NOW") == "1"
@@ -226,6 +251,27 @@ class UnscrewEnv(GraspTaskEnv):
         self.screw_drive_gain = torch.zeros(N, device=dev)
         self._n_cap_any = torch.zeros(N, dtype=torch.long, device=dev)
         self._n_triad = torch.zeros(N, device=dev)
+        self._right_grasp_run = torch.zeros(N, dtype=torch.long, device=dev)
+        # T2-33 右手贴盖计件 (UNSCREW_CAP_WAGE=回合内5垫满贴总收入, 默认0=关):
+        # 对准后·释放前, 右垫×盖接触垫数 (_n_cap_any, 真值门同款测量) 的回合
+        # 新高按 K/5 每垫发钱 —— T2-32 同构: 把"伸指捏盖"的稀疏考试铺成坡。
+        self.capw_k = float(os.environ.get("UNSCREW_CAP_WAGE", "0"))
+        self.capw_best = torch.zeros(N, device=dev)
+        # T2-34 贴盖接近坡 (UNSCREW_CAP_APPROACH=满程总收入, 默认0=关): 接触
+        # 是离散稀有事件, 单独计件发不出钱 (T2-33 追记); 坡 = 右垫到盖心最近
+        # 距离 dmin 的进度 (8cm→2cm 线性), 回合新高计酬。出生基线免费额:
+        # 窗口首步只记基线不发钱, 深 RSI 出生不白领横财。
+        self.capap_k = float(os.environ.get("UNSCREW_CAP_APPROACH", "0"))
+        self.capap_best = torch.zeros(N, device=dev)
+        self.capap_primed = torch.zeros(N, dtype=torch.bool, device=dev)
+        # T2-36 捏且转工资 (UNSCREW_PINCH_WAGE=每步工资, 默认0=关): >=2 右垫在盖
+        # 且螺角当步爬过回合新高(>0.05°)才发钱, 不封顶 (上界=回合步数, 且必须
+        # 真拧)。v59 尸检: 封顶版付完即停, 盖子三通道全是一次性收入, cert 链
+        # 收益走高后碰盖的死线风险盖过残值, 25M 起触盖率退潮 70 倍 —— 把付款
+        # 和任务真进度(螺角爬升)绑死, 持续收入对冲风险, 顺带杜绝"捏住不拧"。
+        # 新高棘轮无条件推进: 没捏住时的爬升不欠账, 事后不补票。
+        self.pinchw_k = float(os.environ.get("UNSCREW_PINCH_WAGE", "0"))
+        self.pinch_best = torch.zeros(N, device=dev)
         # [TASK] U40 真实螺纹副: 接触门/ω 阻尼这两个假摩擦替身退役 (clip 带
         # breakaway_torque_nm 时 screw_assembly 自动走摩擦支路)。drive_gain 仍
         # 逐步计算 —— 它是观测里的接触特征 (obs 507 维不变), 只是不再乘进角速度。
@@ -239,6 +285,25 @@ class UnscrewEnv(GraspTaskEnv):
                  f"viscous={self.screw_spec.viscous_nms} "
                  f"I_eff={self.screw_spec.inertia_eff_kgm2}"
                  if self._real_thread else "旧口径 (接触门 + ω 阻尼)"))
+        # T2-40 拔盖模式 (UNSCREW_CAP_MODE=pull; 默认 screw = 行为逐位不变): 用户预案
+        # "新环境与现在唯一的不同 = 盖不用拧, 拔开"。螺纹副换成同构的轴向塞盖副
+        # (screw_assembly._pull_step: 接触注入的轴向力 → 静锁/库仑/粘滞 → 轴向滑出,
+        # 拔满即脱扣), screw_angle 承载拔出进度 (拔满 = 满角 30°) —— 观测块 / G3 /
+        # r_screw / 捏且转 / RSI g3 出生 / 母带 全部不改。抓姿仍是用户双指。
+        self.screw_cap_mode = os.environ.get("UNSCREW_CAP_MODE", "screw")
+        assert self.screw_cap_mode in ("screw", "pull"), self.screw_cap_mode
+        if self.screw_cap_mode == "pull":
+            assert self._real_thread, "拔盖模式复用真实摩擦副状态机, clip 需带 breakaway spec"
+            self.pull_full_m = float(os.environ.get("UNSCREW_PULL_FULL_MM", "15")) / 1000.0
+            self.pull_breakaway_n = float(os.environ.get("UNSCREW_PULL_BREAKAWAY_N", "2.0"))
+            self.pull_kinetic_n = float(os.environ.get("UNSCREW_PULL_KINETIC_N", "0.8"))
+            self.pull_viscous_nsm = float(os.environ.get("UNSCREW_PULL_VISCOUS", "40"))
+            self.pull_vmax_ms = float(os.environ.get("UNSCREW_PULL_VMAX", "0.15"))
+            self.pull_lock_v_eps = 0.002
+            print(f"[UnscrewEnv] ★盖模式=拔开 (T2-40): 拔满 {self.pull_full_m * 1000:.0f}mm "
+                  f"脱扣 | breakaway={self.pull_breakaway_n}N kinetic={self.pull_kinetic_n}N "
+                  f"viscous={self.pull_viscous_nsm}N·s/m vmax={self.pull_vmax_ms}m/s "
+                  f"| screw_angle 语义=拔出进度", flush=True)
         # 身体索引
         bn = list(self.hand.body_names)
         self.wid = {"R": bn.index("right_hand_C_MC"), "L": bn.index("left_hand_C_MC")}
@@ -277,6 +342,13 @@ class UnscrewEnv(GraspTaskEnv):
             with np.load(MASTER, allow_pickle=True) as _mz:
                 _sqr = (np.asarray(_mz["sq_delta_r"], np.float64)
                         if "sq_delta_r" in _mz.files else np.zeros(22))
+                _right_gp = (np.asarray(_mz["right_grasp_progress"], np.float64)
+                             if "right_grasp_progress" in _mz.files
+                             else np.ones(len(rows_h), np.float64))
+            if _right_gp.shape != (len(rows_h),):
+                raise ValueError(
+                    f"right_grasp_progress shape={_right_gp.shape}, "
+                    f"expected {(len(rows_h),)}")
             _dsq = np.concatenate([
                 np.clip(self.beta_r * _sqr, -TC.SQUEEZE_DELTA_CAP,
                         TC.SQUEEZE_DELTA_CAP),
@@ -284,7 +356,7 @@ class UnscrewEnv(GraspTaskEnv):
                         -TC.SQUEEZE_DELTA_CAP, TC.SQUEEZE_DELTA_CAP)])
             print(f"[UnscrewEnv] squeeze 剂量: βL={self.beta_l} "
                   f"(Screw27_body 原始 squeeze，不外推) βR={self.beta_r} "
-                  "(盖侧无 prior)")
+                  "(Screw27_cap squeeze，按数据到盖进度渐入)")
             self._sq_delta = torch.tensor(_dsq, dtype=torch.float32, device=dev)
         # ---- 手指/臂门 (Approach 冻结照谱, 缝1 起全开, Retreat 指冻臂开) ----
         self.APP_END = segl[0]
@@ -297,18 +369,29 @@ class UnscrewEnv(GraspTaskEnv):
         print(f"[UnscrewEnv] 手指门: 冻结 [0,{self.APP_END}) 与 "
               f"[{self.RETREAT0},末] | 全链 {T} 行 IA=[{self.IA0},{self.IA1}]")
         if self._sq_delta is not None:
-            prof = torch.zeros(self.T_ROW, device=dev)
+            prof_l = torch.zeros(self.T_ROW, device=dev)
             r1 = torch.arange(self.APP_END, self.IA0, device=dev)
             # 与母带的"先到位再合手"同一个分点 (TC.SEAM_MOVE_FRAC): 手还在
             # 进刀途中就加压 = 用指力推倒瓶 (2026-08-31 逐行实测)
             _u = (r1 - self.APP_END).float() / max(self.IA0 - self.APP_END, 1)
-            prof[r1] = ((_u - TC.SEAM_MOVE_FRAC)
-                        / max(1.0 - TC.SEAM_MOVE_FRAC, 1e-6)).clamp(0.0, 1.0)
-            prof[self.IA0:self.IA1 + 1] = 1.0
+            prof_l[r1] = ((_u - TC.SEAM_MOVE_FRAC)
+                          / max(1.0 - TC.SEAM_MOVE_FRAC, 1e-6)).clamp(0.0, 1.0)
+            prof_l[self.IA0:self.IA1 + 1] = 1.0
             r2 = torch.arange(self.IA1 + 1, self.RETREAT0, device=dev)
-            prof[r2] = 1.0 - (r2 - self.IA1).float() / max(
+            prof_l[r2] = 1.0 - (r2 - self.IA1).float() / max(
                 self.RETREAT0 - self.IA1, 1)
-            self.sq_add = prof.unsqueeze(1) * self._sq_delta.unsqueeze(0)
+            # 右手在 P1 时还未到盖，squeeze 不能像左手一样从交互首行就全开。
+            # 它按母带从原始右手轨迹推出的到盖/合指进度渐入；于是 P1 后
+            # 依然可以微动，但不会在远处提前捏紧。
+            prof_r = torch.zeros(self.T_ROW, device=dev)
+            prof_r[self.IA0:self.IA1 + 1] = torch.tensor(
+                _right_gp, dtype=torch.float32, device=dev)
+            prof_r[r2] = 1.0 - (r2 - self.IA1).float() / max(
+                self.RETREAT0 - self.IA1, 1)
+            prof44 = torch.cat([
+                prof_r.unsqueeze(1).expand(-1, 22),
+                prof_l.unsqueeze(1).expand(-1, 22)], dim=1)
+            self.sq_add = prof44 * self._sq_delta.unsqueeze(0)
         # ---- RSI 焊接热身 ----
         self.HOLD_K = int(os.environ.get("POUR_HOLD_K", "15"))
         self.hold_left = torch.zeros(N, dtype=torch.long, device=dev)
@@ -317,7 +400,8 @@ class UnscrewEnv(GraspTaskEnv):
         # TB 计数
         self.racc = {"adv": 0.0, "leash": 0.0, "ms": 0.0, "pen": 0.0,
                      "pen6": 0.0, "bonus": 0.0, "regrip": 0.0, "slope": 0.0,
-                     "wage": 0.0, "fshape": 0.0, "screw": 0.0, "n": 0}
+                     "wage": 0.0, "cwage": 0.0, "capw": 0.0, "capap": 0.0,
+                     "pinchw": 0.0, "fshape": 0.0, "screw": 0.0, "n": 0}
         self.tb = {"term/M4_success": 0, "d6_pen_sum": 0.0, "ep": 0}
         self.diag_acc = dict(_DIAG0)
 
@@ -333,6 +417,10 @@ class UnscrewEnv(GraspTaskEnv):
             else:
                 self.entries.append((self.IA0 + row_i, row_i, frozenset(ms),
                                      "ref" if row_i > 0 else "rest", label))
+        if self.c_frac > 0:
+            _kc = int(self._ps.k_sep)
+            self.entries.append((self.IA0 + _kc, _kc, frozenset({1, 2}),
+                                 "ref", "c"))
         print(f"[UnscrewEnv] RSI出生表: {[e[4] for e in self.entries]}")
 
     # ================= 动作 =================
@@ -364,6 +452,8 @@ class UnscrewEnv(GraspTaskEnv):
         delta = a * self.step_bound
         delta[:, :14] *= self.arm_gate_rows[r0].unsqueeze(1)
         delta[:, 14:] *= self.fin_gate_rows[r0].unsqueeze(1)
+        if self.c_frac > 0:
+            delta[:, :14] *= (~self.c_env).float().unsqueeze(1)   # C: 冻双臂
         self.cum_res = self.cum_res + delta
         r = self.row.clamp(max=self.T_ROW - 1)
         src = self.SRC[r]
@@ -449,6 +539,15 @@ class UnscrewEnv(GraspTaskEnv):
                 art.write_root_velocity_to_sim(
                     torch.zeros(len(hids), 6, device=dev), env_ids=hids)
             self.hold_left[holding] -= 1
+        if self.c_pin and self.c_frac > 0:
+            _pin = self.c_env & (self.hold_left <= 0)   # 热身期已双物全写
+            if _pin.any():
+                pids = _pin.nonzero().squeeze(1)
+                pose = self.hold_pose[0][pids].clone()
+                pose[:, :3] += self.scene.env_origins[pids]
+                self.object.write_root_pose_to_sim(pose, env_ids=pids)
+                self.object.write_root_velocity_to_sim(
+                    torch.zeros(len(pids), 6, device=dev), env_ids=pids)
         bot, cap = self._read_objs()
         armq_r = self.hand.data.joint_pos[:, self.map_ids_t[:7]]
         armq_l = self.hand.data.joint_pos[:, self.map_ids_t[7:14]]
@@ -458,6 +557,12 @@ class UnscrewEnv(GraspTaskEnv):
         pads3 = (f[:, :5] > PAD_FTH).sum(dim=1) >= PADS_MIN
         # [TASK] T2-3 护送原料: 右手任一垫与盖有力 = 右手还拿着盖
         pads_r_cap = (f[:, 5:] > PAD_FTH).sum(dim=1)     # U41: 计数, 不是 bool
+        # T2-12: 右腕-盖的“抓后距离基线”只能在右手真正到盖并形成接触后建立。
+        # 连续 2 个控制步至少 2 垫，滤掉接近过程中的单垫擦碰。
+        _rg = pads_r_cap >= 2
+        self._right_grasp_run = torch.where(
+            _rg, self._right_grasp_run + 1,
+            torch.zeros_like(self._right_grasp_run))
         org_w = self.scene.env_origins
         wr_pos = self.hand.data.body_pos_w[:, self.wid["R"]] - org_w
         wl_pos = self.hand.data.body_pos_w[:, self.wid["L"]] - org_w
@@ -516,25 +621,30 @@ class UnscrewEnv(GraspTaskEnv):
                - self.object.data.root_pos_w).norm(dim=1)
         d_r = (self.hand.data.body_pos_w[:, self.wid["R"]]
                - self.aux.data.root_pos_w).norm(dim=1)
-        need0 = self.PB.g2 & torch.isnan(self.grasp_d0[:, 0])
-        self.grasp_d0[:, 0] = torch.where(need0, d_l, self.grasp_d0[:, 0])
-        self.grasp_d0[:, 1] = torch.where(need0, d_r, self.grasp_d0[:, 1])
+        need0_l = self.PB.g2 & torch.isnan(self.grasp_d0[:, 0])
+        need0_r = (self.PB.g2 & (self._right_grasp_run >= 2)
+                   & torch.isnan(self.grasp_d0[:, 1]))
+        self.grasp_d0[:, 0] = torch.where(need0_l, d_l, self.grasp_d0[:, 0])
+        self.grasp_d0[:, 1] = torch.where(need0_r, d_r, self.grasp_d0[:, 1])
         in_ia = (self.row >= self.IA0) & (self.row <= self.IA1)
         # [TASK] 右腕-盖滑移只在**未释放**时判 —— 释放后盖在右手里被携带,
         # 换把/递送是正业; 左腕-瓶全程判 (瓶不该离手)
-        slip = in_ia & (~torch.isnan(self.grasp_d0[:, 0])) & (
-            ((d_l - self.grasp_d0[:, 0]).abs() > D4_SLIP)
-            | ((~released) & ((d_r - self.grasp_d0[:, 1]).abs() > D4_SLIP)))
+        has_l = ~torch.isnan(self.grasp_d0[:, 0])
+        has_r = ~torch.isnan(self.grasp_d0[:, 1])
+        slip = in_ia & (
+            (has_l & ((d_l - self.grasp_d0[:, 0]).abs() > D4_SLIP))
+            | ((~released) & has_r
+               & ((d_r - self.grasp_d0[:, 1]).abs() > D4_SLIP)))
         fail_env |= slip
         _mark(slip, 4)
         # ---- 滑移量/滑速/垫压 → 反射奖+斜坡罚+观测块 (框架 v5 移植) ----
         d_now = torch.stack([d_l, d_r], dim=1)
         pf_now = torch.stack([f[:, :5].sum(dim=1), f[:, 5:].sum(dim=1)], dim=1)
         d0 = torch.nan_to_num(self.grasp_d0, nan=0.0)
-        has0 = ~torch.isnan(self.grasp_d0[:, 0])
-        slip_amt = (d_now - d0) * has0.float().unsqueeze(1)
+        has0 = ~torch.isnan(self.grasp_d0)
+        slip_amt = (d_now - d0) * has0.float()
         slip_v = (d_now - self._prev_d).clamp(min=0.0)
-        gate_g = (self.PB.g2 & has0).float()
+        gate_g = self.PB.g2.float()
         dv = (slip_v / 0.01).clamp(max=1.0)
         dfp = (pf_now - self._prev_pf).clamp(0.0, 3.0)
         r_reflex = 1.0 * ((dfp / 3.0) * dv).sum(dim=1) * gate_g
@@ -564,6 +674,39 @@ class UnscrewEnv(GraspTaskEnv):
             & (self.row >= self.IA1 - 1) & ~holding
         self.row = torch.where(post, (self.row + 1).clamp(max=self.T_ROW - 1),
                                self.row)
+        # T2-33/34/35 右手贴盖: 接近坡 (连续) + 接触计件 (坡顶) + 持捏工资
+        r_capw = torch.zeros(N, device=dev)
+        r_capap = torch.zeros(N, device=dev)
+        r_pinch = torch.zeros(N, device=dev)
+        if self.capw_k > 0 or self.capap_k > 0 or self.pinchw_k > 0:
+            _cw_win = (self.PB.k >= self.PB.k_sep) & (~self.PB.released) \
+                & run_mask & ~holding
+            if self.capap_k > 0:
+                _bn = self.hand.data.body_pos_w
+                _pads_r = torch.stack([_bn[:, self._pad_bids[i + 5]]
+                                       for i in range(5)], dim=1)
+                _dmin = (_pads_r - self.aux.data.root_pos_w.unsqueeze(1)) \
+                    .norm(dim=-1).min(dim=1).values
+                # 坡域 12cm→2cm: c出生实测对准态稳态 dmin≈9.6cm (写入 4.5cm,
+                # 臂控制器平衡位漂 +5cm), 8cm 起坡会把稳态留在坡外零梯度区
+                _prog = ((0.12 - _dmin) / 0.10).clamp(0.0, 1.0) * _cw_win.float()
+                _fresh = _cw_win & ~self.capap_primed
+                self.capap_best = torch.where(_fresh, _prog, self.capap_best)
+                self.capap_primed |= _cw_win
+                _ap_inc = (_prog - self.capap_best).clamp(min=0.0)
+                r_capap = self.capap_k * _ap_inc
+                self.capap_best = self.capap_best + _ap_inc
+            if self.capw_k > 0:
+                _cw_cur = self._n_cap_any.clamp(max=5).float() * _cw_win.float()
+                _cw_inc = (_cw_cur - self.capw_best).clamp(min=0.0)
+                r_capw = (self.capw_k / 5.0) * _cw_inc
+                self.capw_best = self.capw_best + _cw_inc
+            if self.pinchw_k > 0:
+                _climb = (self.screw_angle - self.pinch_best) > PINCH_CLIMB_EPS
+                _pw = _cw_win & (self._n_cap_any >= 2) & _climb
+                r_pinch = self.pinchw_k * _pw.float()
+                self.pinch_best = torch.maximum(self.pinch_best,
+                                                self.screw_angle)
         # ---- 奖励合成 ----
         pen = torch.where(fail, torch.full((N,), FAIL_PEN, device=dev),
                           torch.zeros(N, device=dev))
@@ -573,7 +716,8 @@ class UnscrewEnv(GraspTaskEnv):
                            torch.zeros(N, device=dev))
         self.d6_acc += pen6
         self.tb["d6_pen_sum"] += float(-pen6.sum())
-        rew = (out["adv"] + out["leash"] + out["ms"] + out["wage"] + pen
+        rew = (out["adv"] + out["leash"] + out["ms"] + out["wage"]
+               + out["cwage"] + r_capw + r_capap + r_pinch + pen
                + r_reflex + pen_slope + r_fshape + r_screw) \
             * (~holding).float() + pen6
         bonus = torch.zeros(N, device=dev)
@@ -594,19 +738,47 @@ class UnscrewEnv(GraspTaskEnv):
                           "R": self.aux.data.root_pos_w[:, :2]}
                 dpot = []
                 # [TASK] 半径按物件: 瓶 3.25cm / 盖 1.75cm
+                # 2026-09-01: 盖侧补**轴向**分量。旧口径只算 XY —— 而盖是 h=1.7cm
+                # 的矮盘、自上而下抓。probe_capgrasp 实测: 右指垫径向已在 0.9~2.8cm
+                # (盖半径 1.75cm, 势≈满分), 真实误差是轴向高出 +2.7~+6.7cm。旧势对
+                # 这一维全盲, 等于告诉策略"你已到位", 于是 157 个 epoch 里 cap_any
+                # 一直贴在 0.004 不动 —— 有误差的方向上没有梯度。
+                # 瓶不动: 它是立着的高圆柱、环抱着抓, 径向距离本来就是对的量
+                # (改成到瓶心的三维距离反而会把"抓得高/抓得低"误判成没到位)。
                 for pads, side, rr in ((pads_l, "L", 0.0325),
                                        (pads_r, "R", TC.CAP_RADIUS)):
                     d = ((pads[:, :, :2] - obj_xy[side].unsqueeze(1))
                          .norm(dim=-1) - rr).clamp(min=0)
+                    if side == "R":
+                        # 到盖(矮圆柱)表面的距离 = 径向余量 ⊕ 轴向余量。
+                        # 盖原点在网格底面, 心 = root_z + CAP_HALF_H。
+                        cz = self.aux.data.root_pos_w[:, 2] + TC.CAP_HALF_H
+                        dz = ((pads[:, :, 2] - cz.unsqueeze(1)).abs()
+                              - TC.CAP_HALF_H).clamp(min=0)
+                        d = torch.sqrt(d ** 2 + dz ** 2)
                     dpot.append((1 - d / 0.05).clamp(0, 1).mean(dim=1))
                 pot = 0.5 * torch.stack(dpot, dim=1) + 0.5 * pot
             inc = (pot - self.pad_pot_max).clamp(min=0) * in_win.float().unsqueeze(1)
             self.pad_pot_max = torch.maximum(self.pad_pot_max, pot)
-            bonus = 0.5 * inc.sum(dim=1)
+            # 2026-09-01 用户裁定 0.5 -> 5.0。棘轮每回合归零, 故整回合贴近奖
+            # 上限 = 系数 × (potL_max + potR_max) ≤ 系数×2。旧的 0.5 给出上限
+            # 1.0, 而同一回合 leash 约 -150 —— 150:1, 引导被彻底压住 (v46 实测:
+            # 距离势方向修对后 cap_any 只从 0.0056 挪到 0.0075, 要真捏住得是
+            # 0.2~0.6 量级)。5.0 的上限 10.0 与本任务已有的量级基准对齐:
+            # 拧转势满额 9.4、G3 约 10。
+            # 证伪条件 (下轮判读照这个走):
+            #   cap_any 明显上台阶            -> 量级不足成立, 改动有效
+            #   cap_any 涨但 ep_rew/screw 仍 0 -> **刷分**: 指垫悬在盖旁边吃势
+            #                                    而不真抓, 立即回退系数
+            #   cap_any 仍不动                 -> 手高 4~6cm 超出残差权限,
+            #                                    回到重标定 (docs/diag_20260831/)
+            bonus = 5.0 * inc.sum(dim=1)
             rew = rew + bonus
         nh = (~holding).float()
         for kk, vv in (("adv", out["adv"]), ("leash", out["leash"]),
                        ("ms", out["ms"]), ("pen", pen), ("wage", out["wage"]),
+                       ("cwage", out["cwage"]), ("capw", r_capw),
+                       ("capap", r_capap), ("pinchw", r_pinch),
                        ("regrip", r_reflex), ("slope", pen_slope),
                        ("fshape", r_fshape), ("screw", r_screw)):
             self.racc[kk] += float((vv * nh).sum())
@@ -620,6 +792,12 @@ class UnscrewEnv(GraspTaskEnv):
         da["n_triad"] += float(self._n_triad.sum())
         da["gain"] += float(self.screw_drive_gain.sum())
         da["cap_any"] += float((self._n_cap_any >= 1).float().sum())
+        if self.c_frac > 0:
+            da["cap_any_c"] += float(
+                ((self._n_cap_any >= 1) & self.c_env).float().sum())
+            da["screw_deg_c"] += float(
+                torch.rad2deg(self.screw_angle)[self.c_env].sum())
+            da["c_steps"] += float(self.c_env.float().sum())
         da["escort_fail"] += float(self.PB.escort_fail.float().sum())
         da["carry_steps"] += float(self.PB.carry_steps.sum())
         da["fall_peak"] += float(self.PB.fall_peak.sum())
@@ -649,9 +827,11 @@ class UnscrewEnv(GraspTaskEnv):
         self.racc["n"] = 0
         nd = max(self.diag_acc["n"], 1)
         ne = max(self.diag_acc["screw_n_eng"], 1.0)
-        out.update({f"diag/{k}": v / (ne if k in _DIAG_ENG else nd)
+        nc = max(self.diag_acc["c_steps"], 1.0)
+        out.update({f"diag/{k}": v / (ne if k in _DIAG_ENG else
+                                      nc if k in _DIAG_C else nd)
                     for k, v in self.diag_acc.items()
-                    if k not in ("n", "ep", "screw_n_eng")})
+                    if k not in ("n", "ep", "screw_n_eng", "c_steps")})
         self.diag_acc = dict(_DIAG0)
         return out
 
@@ -777,9 +957,12 @@ class UnscrewEnv(GraspTaskEnv):
             prog,                                              # 7
             self._slip_obs,                                    # 8
             screw_blk,                                         # 4 [TASK]
+            *([self.c_env.float().unsqueeze(1)]                # +1 stage C 旗标
+              if self.c_frac > 0 else []),
         ], dim=1).float().clamp(-float(self.cfg.clip_obs),
                                 float(self.cfg.clip_obs)).nan_to_num(0.0)
-        assert obs.shape[1] == OBS_DIM, f"obs {obs.shape[1]} != {OBS_DIM}"
+        _exp_dim = OBS_DIM + (1 if self.c_frac > 0 else 0)
+        assert obs.shape[1] == _exp_dim, f"obs {obs.shape[1]} != {_exp_dim}"
         tip_f = F.norm(dim=-1)
         priv = torch.cat([self.obj_mass.float(), self.obj_fric.float(),
                           tip_f.float()], dim=1) \
@@ -807,12 +990,16 @@ class UnscrewEnv(GraspTaskEnv):
         else:
             pick = []
             u = torch.rand(n)
+            uc = torch.rand(n)
+            # stage C 点位固定占 c_frac 出生率, 其余概率结构不变 (C 恒排表尾)
+            _n_mid = len(self.entries) - 1 - (1 if self.c_frac > 0 else 0)
             for i in range(n):
-                if float(u[i]) < self.p_t0 or len(self.entries) <= 1:
+                if self.c_frac > 0 and float(uc[i]) < self.c_frac:
+                    pick.append(len(self.entries) - 1)
+                elif float(u[i]) < self.p_t0 or _n_mid < 1:
                     pick.append(0)
                 else:
-                    pick.append(1 + int(torch.randint(len(self.entries) - 1,
-                                                      (1,))))
+                    pick.append(1 + int(torch.randint(_n_mid, (1,))))
         rows_env, rows_ia, g1, g2, g3, plc, objsrc = [], [], [], [], [], [], []
         for pi in pick:
             er, ir, ms, osrc, _ = self.entries[pi]
@@ -823,6 +1010,8 @@ class UnscrewEnv(GraspTaskEnv):
         dev = self.device
         rows_env_t = torch.tensor(rows_env, dtype=torch.long, device=dev)
         self.row[env_ids] = rows_env_t
+        self.c_env[env_ids] = torch.tensor(
+            [self.entries[p][4] == "c" for p in pick], device=dev)
         t0_mask = torch.tensor([p == 0 for p in pick], device=dev)
         ent_ids = env_ids[~t0_mask]
         if len(ent_ids):
@@ -871,6 +1060,8 @@ class UnscrewEnv(GraspTaskEnv):
             self.screw_has_depth[rids] = True
             self.screw_angle[rids] = 2 * np.pi * float(self.screw_spec.turns)
         self.prev_screw[env_ids] = self.screw_angle[env_ids]
+        # T2-36: 捏且转基线=出生角, g3/ret 出生(天生满角)领不到爬升横财
+        self.pinch_best[env_ids] = self.screw_angle[env_ids]
         # ---- 热身钳位姿 (瓶=出生行; 盖=seated 或出生行) ----
         axis0 = quat_apply(pose_b[:, 3:7],
                            torch.tensor([0.0, 0.0, 1.0], device=dev)
@@ -898,3 +1089,7 @@ class UnscrewEnv(GraspTaskEnv):
         self._slip_obs[env_ids] = 0.0
         self.last_act[env_ids] = 0.0
         self.screw_drive_gain[env_ids] = 0.0
+        self._right_grasp_run[env_ids] = 0
+        self.capw_best[env_ids] = 0.0
+        self.capap_best[env_ids] = 0.0
+        self.capap_primed[env_ids] = False

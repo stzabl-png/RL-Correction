@@ -53,11 +53,14 @@ stable = torch.ones(N, dtype=torch.bool, device=dev)
 max_pad_force = torch.zeros(N, device=dev)
 max_obj_radius = torch.zeros(N, device=dev)
 max_joint_abs = torch.zeros(N, device=dev)
+max_screw_deg = torch.zeros(N, device=dev)
+max_screw_tau_mNm = torch.zeros(N, device=dev)
 
 
 def audit_state():
     """Only reject simulator corruption; contact quality is an RL objective."""
     global stable, max_pad_force, max_obj_radius, max_joint_abs
+    global max_screw_deg, max_screw_tau_mNm
     q = E.hand.data.joint_pos
     pos = torch.cat([
         E.object.data.root_pos_w - org,
@@ -79,6 +82,11 @@ def audit_state():
     max_obj_radius = torch.maximum(
         max_obj_radius, safe_pos.view(N, 2, 3).norm(dim=2).amax(dim=1))
     max_joint_abs = torch.maximum(max_joint_abs, safe_q.abs().amax(dim=1))
+    max_screw_deg = torch.maximum(
+        max_screw_deg, torch.rad2deg(E.screw_angle).abs())
+    if getattr(E, "_real_thread", False):
+        max_screw_tau_mNm = torch.maximum(
+            max_screw_tau_mNm, 1000.0 * E.screw_tau_ema.abs())
 
 
 def drive(row, sL):
@@ -112,11 +120,21 @@ print(f"[v2gate] 全链{E.T_ROW}行 IA=[{E.IA0},{E.IA1}] | 站位垫: " + " ".jo
     f"e{i}:L{int((f[i, :5] > 0.5).sum())}/R{int((f[i, 5:] > 0.5).sum())}"
     for i in range(N)), flush=True)
 slipL_max = torch.zeros(N, device=dev)
+right_pads_peak = torch.zeros(N, dtype=torch.int32, device=dev)
+with np.load(PE.MASTER, allow_pickle=True) as _timing_z:
+    _right_start_k = int(np.asarray(_timing_z["right_start_k"]).item())
+    _right_grasp_k = int(np.asarray(_timing_z["right_grasp_k"]).item())
 for r in range(E.IA0, E.IA1 + 1):
     drive(r, 1.0)
     dL = (E.hand.data.body_pos_w[:, E.wid["L"]]
           - E.object.data.root_pos_w).norm(dim=1)
     slipL_max = torch.maximum(slipL_max, (dL - dL0).abs())
+    # P1 右手本来就应远离瓶盖；只在原始数据的明显启动点之后统计接触。
+    # “是否到盖”看 right_grasp_k 之后的峰值，而不是错误地检查站位行。
+    if r - E.IA0 >= _right_start_k:
+        _fr = E._pads_f().norm(dim=-1)
+        right_pads_peak = torch.maximum(
+            right_pads_peak, (_fr[:, 5:] > 0.5).sum(dim=1).to(torch.int32))
     if (r - E.IA0) % 20 == 0 or r > E.IA1 - 10:
         rel = (E.screw_has_depth & ~E.screw_engaged)
         print(f"[v2gate] 行{r} screw="
@@ -150,6 +168,7 @@ for i in range(N):
         "env": i,
         "station_pads_l": station_pads_l[i],
         "station_pads_r": station_pads_r[i],
+        "right_pads_peak_after_start": int(right_pads_peak[i]),
         "left_slip_peak_cm": round(float(slipL_max[i]) * 100, 4),
         "bottle_end_error_cm": round(db, 4),
         "bottle_tilt_error_deg": round(tilt_delta, 4),
@@ -181,15 +200,17 @@ warn = []
 if min(station_pads_l) < 3:
     warn.append(f"站位行左垫最少 {min(station_pads_l)}/5 < G1 所需 3 —— "
                 f"左手没抓上瓶, G1 无从成形")
-if min(station_pads_r) < 1:
-    warn.append(f"站位行右垫最少 {min(station_pads_r)}/5 —— 右手没碰到盖, "
-                f"真实螺纹副下扭矩传不进去 (拧不动)")
-_screw_max = float(torch.rad2deg(E.screw_angle).max())
+if int(right_pads_peak.min().item()) < 1:
+    warn.append(f"右手从启动点 k={_right_start_k} 到任务末的接触峰值最少 "
+                f"{int(right_pads_peak.min().item())}/5 —— 至少一个环境未碰到盖, "
+                f"真实螺纹副下扭矩传不进去 (目标到盖 k={_right_grasp_k})")
+_screw_max = float(max_screw_deg.max())
 if _screw_max < 1.0:
     warn.append(f"零动作回放全程拧角 {_screw_max:.1f}° —— 参考本身一点没拧动")
-_tau_max = (float(1000.0 * E.screw_tau_ema.abs().max())
+_tau_max = (float(max_screw_tau_mNm.max())
             if getattr(E, "_real_thread", False) else float("nan"))
-if getattr(E, "_real_thread", False) and min(station_pads_r) < 1 and _tau_max > 5:
+if (getattr(E, "_real_thread", False)
+        and int(right_pads_peak.max().item()) < 1 and _tau_max > 5):
     warn.append(f"零接触却有 {_tau_max:.0f} mN·m 传入力矩 = 幻影扭矩通道 "
                 f"(老台账 U40b/c/d 同款, 必须先修再训)")
 for _k in ("frozen_r", "frozen_l"):
@@ -203,6 +224,9 @@ baseline = {
     "envs": baseline_envs,
     "station_pads_l_min": int(min(station_pads_l)),
     "station_pads_r_min": int(min(station_pads_r)),
+    "right_pads_peak_after_start": right_pads_peak.cpu().tolist(),
+    "right_start_k": _right_start_k,
+    "right_grasp_k": _right_grasp_k,
     "screw_deg_max": round(_screw_max, 3),
     "screw_tau_max_mNm": round(_tau_max, 3) if _tau_max == _tau_max else None,
     "reference_ik": _meta_v2,
@@ -233,7 +257,8 @@ if ok:
 print(f"[v2gate] reference 零动作成功 {reference_successes}/{N}（仅诊断，不阻塞）",
       flush=True)
 print(f"[v2gate] 站位垫 L{min(station_pads_l)}~{max(station_pads_l)}/5 "
-      f"R{min(station_pads_r)}~{max(station_pads_r)}/5 | 回放拧角峰 "
+      f"R{min(station_pads_r)}~{max(station_pads_r)}/5 | "
+      f"右手启动后接触峰={right_pads_peak.cpu().tolist()} | 回放拧角峰 "
       f"{_screw_max:.1f}°"
       + (f" | 传入力矩峰 {_tau_max:.0f} mN·m" if _tau_max == _tau_max else ""),
       flush=True)

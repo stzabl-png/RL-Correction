@@ -1,4 +1,4 @@
-"""IK 行运动学诊断：FK(v2 臂行) vs 物体轨迹∘抓变换。
+"""IK 行运动学诊断：FK(v2 臂行) vs v1 人腕增量重锚目标。
 
 1cm/10° 坏行作为 RL correction 基线记录；只有 NaN/Inf 才阻塞训练。
 """
@@ -26,19 +26,20 @@ z = np.load(PE.MASTER, allow_pickle=True)
 rows = np.where(np.asarray(z["source"]) == 1)[0]
 arm = {"right": np.asarray(z["right_q"], np.float64)[rows],
        "left": np.asarray(z["left_q"], np.float64)[rows]}
-ref_obj = {oi: E.PB.ref_obj[oi].cpu().numpy() for oi in (0, 1)}
-side_obj = {"right": 1, "left": 0}
 N = E.PB.N_ROW
-# 抓变换锚: 用行0的 FK 腕与行0物体 (与builder同法: w0 = FK(行0臂))
+# 与 build_reference 完全同口径：把 v1 人腕的逐行平移/姿态增量重锚到
+# Isaac 实测 P1 腕位。不能再用“物体增量∘抓变换”：右腕并非与盖刚性固连。
+wt = {"right": np.asarray(z["wrist_tgt_r"], np.float64),
+      "left": np.asarray(z["wrist_tgt_l"], np.float64)}
+assert len(wt["right"]) == len(wt["left"]) == N
 w0 = {s: ik[s].fk(arm[s][0]) for s in ("right", "left")}
 bad = {"right": [], "left": []}
 for s in ("right", "left"):
-    oi = side_obj[s]
-    p0, q0_ = ref_obj[oi][0][:3], ref_obj[oi][0][3:7]
+    p0, q0_ = wt[s][0][:3], wt[s][0][3:7]
     for k in range(N):
-        pk, qk_ = ref_obj[oi][k][:3], ref_obj[oi][k][3:7]
+        pk, qk_ = wt[s][k][:3], wt[s][k][3:7]
         Rk = quat_to_R(qk_) @ quat_to_R(q0_).T
-        tgt_p = Rk @ w0[s][0] + (pk - Rk @ p0)
+        tgt_p = w0[s][0] + (pk - p0)
         tgt_R = Rk @ w0[s][1]
         fp, fR = ik[s].fk(arm[s][k])
         e = float(np.linalg.norm(fp - tgt_p))

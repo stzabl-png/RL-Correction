@@ -268,6 +268,8 @@ def init_thread_state(env):
     env.screw_tau_ema = torch.zeros(N, device=dev)    # 指尖传入轴向力矩 (EMA)
     env.screw_locked = torch.ones(N, dtype=torch.bool, device=dev)
     env._screw_capw_vec = torch.zeros(N, 3, device=dev)   # 上一子步实写给盖的 ω 矢量
+    env._screw_capv_vec = torch.zeros(N, 3, device=dev)   # T2-40 拔盖: 上一子步实写给盖的 v 矢量
+    env._pull_mass = None                                  # T2-40 拔盖: 盖质量 (惰性读)
     env._screw_unlock_dwell = torch.zeros(N, device=dev)
     env._bottle_react_f = torch.zeros(N, 1, 3, device=dev)
     env._bottle_react_t = torch.zeros(N, 1, 3, device=dev)
@@ -284,6 +286,7 @@ def reset_thread_state(env, env_ids):
     env.screw_tau_ema[env_ids] = 0.0
     env.screw_locked[env_ids] = True
     env._screw_capw_vec[env_ids] = 0.0
+    env._screw_capv_vec[env_ids] = 0.0
     env._screw_unlock_dwell[env_ids] = 0.0
 
 
@@ -404,6 +407,33 @@ def _thread_friction_finish(env, axis_w, written, body, cap):
     # 咬合 ↔ 脱扣边界: 盖惯量在 I_eff (球形) 与实物之间切换 —— 脱扣后的自由盖
     # 必须还原实物惯量, 否则抓放手感全错。U40d: 三主轴全部加重, 只加重 Izz 时
     # Izz/Ixx~1e4, 瓶晃引入横向 ω 后欧拉陀螺项让 ω 矢量真实变化, 差分读出幻影。
+    _cap_inertia_switch(env, cap)
+
+    if spec.react_on_bottle:
+        # 反作用扭矩回瓶身: 锁定 = 指尖扭矩经锁死螺纹透传 (≤breakaway),
+        # 转动 = 库仑+粘滞阻力矩的反作用。左手持瓶必须抗住这份扭。
+        tau = torch.where(
+            env.screw_locked,
+            env.screw_tau_ema.clamp(-spec.breakaway_torque_nm,
+                                    spec.breakaway_torque_nm),
+            torch.sign(env.screw_omega) * (spec.kinetic_torque_nm
+                                           + spec.viscous_nms
+                                           * env.screw_omega.abs()))
+        tau = torch.where(env.screw_engaged, tau, torch.zeros_like(tau))
+        env._bottle_react_t[:, 0, :] = tau.unsqueeze(1) * axis_w
+        # 全零扭矩且上一子步也已清零 -> 不必再调 (外力是持久量, 写零一次就够)。
+        # 省掉的是无接触期每子步一次的 API 调用 (以及它每 5s 刷一行的弃用告警)。
+        nz = bool((tau != 0).any())
+        if nz or not getattr(env, "_react_zeroed", False):
+            body.set_external_force_and_torque(
+                env._bottle_react_f, env._bottle_react_t, body_ids=[0],
+                is_global=True)
+            env._react_zeroed = not nz
+
+
+def _cap_inertia_switch(env, cap):
+    """咬合 ↔ 脱扣边界切盖惯量 (从 _thread_friction_finish 抽出, 拔盖模式共用)."""
+    spec = env.screw_spec
     if env._cap_heavy_state is None:
         orig = cap.root_physx_view.get_inertias().clone()
         heavy = orig.clone()
@@ -422,21 +452,71 @@ def _thread_friction_finish(env, axis_w, written, body, cap):
             data, flip.nonzero(as_tuple=False).squeeze(1))
         env._cap_heavy_state = want
 
-    if spec.react_on_bottle:
-        # 反作用扭矩回瓶身: 锁定 = 指尖扭矩经锁死螺纹透传 (≤breakaway),
-        # 转动 = 库仑+粘滞阻力矩的反作用。左手持瓶必须抗住这份扭。
-        tau = torch.where(
+
+def _pull_step(env, axis_w, integrate):
+    """T2-40 拔盖模式 (2026-09-07, 用户预案"唯一的不同 = 盖不用拧, 拔开"):
+    与 _thread_friction_step **同构**的轴向"塞盖"副 —— 力矩换成轴向力, 转动换成
+    沿盖轴滑出, 其余 (真值门 / EMA / 持续解锁 / 静-动摩擦滞环 / 准静态过阻尼)
+    逐条照搬, 老台账 U40~U45 的防幻影教训一条不丢。
+
+    状态复用 (语义改名, 张量不改, 让 TB/复位/指纹路径零改动):
+      screw_omega   → 轴向滑速 v (m/s)       screw_tau_ema → 轴向力估计 f (N)
+      screw_locked / _screw_unlock_dwell 同义;  _screw_capv_vec = 上子步实写 v 矢量
+    力估计: f = m_cap·dv/dt, dv = (盖 v − 上子步写入 v 矢量)·轴 (瓶身加速自动抵消,
+    与 U44 同理); 指尖零接触 ⇒ 强制归零 (真值门)。
+    滑速: v = sign(f)·(|f| − F_kinetic)⁺ / b  (过阻尼, 猛拽一瞬不累积动量)。
+    """
+    if not integrate:
+        return env.screw_omega
+    cap = env.aux if env._screw_primary == "body" else env.object
+    spec = env.screw_spec
+    dt = float(env.cfg.sim.dt)
+    if env._pull_mass is None:
+        env._pull_mass = float(cap.root_physx_view.get_masses()[0].sum())
+    m = env._pull_mass
+    dv_max = 10.0 * env.pull_breakaway_n * dt / m
+    dv = ((cap.data.root_lin_vel_w - env._screw_capv_vec) * axis_w
+          ).sum(dim=1).clamp(-dv_max, dv_max)
+    _gate = getattr(env, "_screw_cap_contact_n", None)
+    if _gate is not None and getattr(env, "_thread_tau_contact_gate", True):
+        dv = dv * (_gate() > 0).float()
+    f_in = m * dv / dt
+    alpha = dt / max(spec.torque_ema_s, dt)
+    env.screw_tau_ema += alpha * (f_in - env.screw_tau_ema)
+    above = env.screw_tau_ema.abs() > env.pull_breakaway_n
+    env._screw_unlock_dwell = (env._screw_unlock_dwell + dt) * above.float()
+    unlock = env.screw_locked & (env._screw_unlock_dwell >= spec.unlock_dwell_s)
+    env.screw_locked = env.screw_locked & ~unlock
+    v = torch.where(
+        env.screw_locked, torch.zeros_like(env.screw_tau_ema),
+        torch.sign(env.screw_tau_ema)
+        * (env.screw_tau_ema.abs() - env.pull_kinetic_n).clamp(min=0.0)
+        / env.pull_viscous_nsm)
+    relock = (~env.screw_locked & (v.abs() < env.pull_lock_v_eps)
+              & (env.screw_tau_ema.abs() < env.pull_breakaway_n))
+    env.screw_locked = env.screw_locked | relock
+    v = torch.where(env.screw_locked, torch.zeros_like(v), v)
+    env.screw_omega = v.clamp(-env.pull_vmax_ms, env.pull_vmax_ms)
+    return env.screw_omega
+
+
+def _pull_finish(env, axis_w, written_v, body, cap):
+    """拔盖写回后的收尾: 记实写 v 矢量 / 切惯量 / 反作用轴向力回瓶身 (左手得抗住)."""
+    env.screw_omega = written_v
+    written_vec = body.data.root_lin_vel_w + written_v[:, None] * axis_w
+    env._screw_capv_vec = torch.where(
+        env.screw_engaged[:, None], written_vec, cap.data.root_lin_vel_w)
+    _cap_inertia_switch(env, cap)
+    if env.screw_spec.react_on_bottle:
+        f = torch.where(
             env.screw_locked,
-            env.screw_tau_ema.clamp(-spec.breakaway_torque_nm,
-                                    spec.breakaway_torque_nm),
-            torch.sign(env.screw_omega) * (spec.kinetic_torque_nm
-                                           + spec.viscous_nms
+            env.screw_tau_ema.clamp(-env.pull_breakaway_n, env.pull_breakaway_n),
+            torch.sign(env.screw_omega) * (env.pull_kinetic_n
+                                           + env.pull_viscous_nsm
                                            * env.screw_omega.abs()))
-        tau = torch.where(env.screw_engaged, tau, torch.zeros_like(tau))
-        env._bottle_react_t[:, 0, :] = tau.unsqueeze(1) * axis_w
-        # 全零扭矩且上一子步也已清零 -> 不必再调 (外力是持久量, 写零一次就够)。
-        # 省掉的是无接触期每子步一次的 API 调用 (以及它每 5s 刷一行的弃用告警)。
-        nz = bool((tau != 0).any())
+        f = torch.where(env.screw_engaged, f, torch.zeros_like(f))
+        env._bottle_react_f[:, 0, :] = f.unsqueeze(1) * axis_w
+        nz = bool((f != 0).any())
         if nz or not getattr(env, "_react_zeroed", False):
             body.set_external_force_and_torque(
                 env._bottle_react_f, env._bottle_react_t, body_ids=[0],
@@ -492,11 +572,19 @@ def apply_screw(env, *, integrate_angle: bool = True):
 
     relative_ang = cap.data.root_ang_vel_w - body.data.root_ang_vel_w
     real_thread = spec.breakaway_torque_nm is not None
+    max_angle = 2.0 * np.pi * spec.turns
+    # T2-40 拔盖模式: 螺旋 DOF 的"角度"承载拔出进度 (拔满 = 满角), 轴向滑速按
+    # pull_full_m ↔ max_angle 折算成"角速度", 下游 (积分/脱扣/写回) 逐位复用。
+    pull_mode = real_thread and getattr(env, "screw_cap_mode", "screw") == "pull"
     if real_thread:
         # U40: 接触门/ω 阻尼是假摩擦替身, real 模式下全部退役 (见函数 docstring)。
         # drive_gain 仍然逐步计算 —— 它是观测里的接触特征, 只是不再乘进角速度。
-        angular_velocity = _thread_friction_step(env, relative_ang, axis_w,
-                                                 integrate_angle)
+        if pull_mode:
+            angular_velocity = (_pull_step(env, axis_w, integrate_angle)
+                                / env.pull_full_m * max_angle)
+        else:
+            angular_velocity = _thread_friction_step(env, relative_ang, axis_w,
+                                                     integrate_angle)
         active = env.screw_engaged
         angle_step = (angular_velocity * float(env.cfg.sim.dt)
                       if integrate_angle
@@ -534,7 +622,6 @@ def apply_screw(env, *, integrate_angle: bool = True):
                       if integrate_angle
                       else torch.zeros_like(angular_velocity))
     proposed = env.screw_angle + angle_step
-    max_angle = 2.0 * np.pi * spec.turns
     env.screw_angle[active] = proposed[active].clamp(0.0, max_angle)
     env.screw_has_depth |= active & (env.screw_angle < max_angle - 0.25 * np.pi)
 
@@ -550,12 +637,15 @@ def apply_screw(env, *, integrate_angle: bool = True):
     active = env.screw_engaged
     outward_w = (env.screw_angle >= max_angle) & (angular_velocity > 0.0)
     inward_w = (env.screw_angle <= 0.0) & (angular_velocity < 0.0)
+    # 拧盖: 轴向 = 螺距导程×角, 姿态 = 瓶 ⊗ 绕轴转角;  拔盖: 轴向 = 拔出量, 不转
+    lead = spec.direction * spec.pitch_m / (2.0 * np.pi)
+    lin_gain = (env.pull_full_m / max_angle) if pull_mode else lead
+    ang_gain = 0.0 if pull_mode else 1.0
     if active.any():
-        lead = spec.direction * spec.pitch_m / (2.0 * np.pi)
         angle = env.screw_angle
-        target_offset = spec.closed_offset_m + lead * angle
+        target_offset = spec.closed_offset_m + lin_gain * angle
         target_pos = body.data.root_pos_w + target_offset[:, None] * axis_w
-        half = 0.5 * angle
+        half = 0.5 * angle * ang_gain
         twist = torch.zeros(env.num_envs, 4, device=env.device)
         twist[:, 0] = torch.cos(half)
         twist[:, 3] = torch.sin(half)
@@ -574,8 +664,8 @@ def apply_screw(env, *, integrate_angle: bool = True):
             allowed = torch.where(outward_w | inward_w,
                                   torch.zeros_like(angular_velocity),
                                   angular_velocity)
-            cap_lin = body.data.root_lin_vel_w + (lead * allowed)[:, None] * axis_w
-            cap_ang = body.data.root_ang_vel_w + allowed[:, None] * axis_w
+            cap_lin = body.data.root_lin_vel_w + (lin_gain * allowed)[:, None] * axis_w
+            cap_ang = body.data.root_ang_vel_w + (ang_gain * allowed)[:, None] * axis_w
         else:
             cap_lin = body.data.root_lin_vel_w
             cap_ang = body.data.root_ang_vel_w
@@ -587,7 +677,10 @@ def apply_screw(env, *, integrate_angle: bool = True):
     if real_thread:
         written = torch.where(active & ~(outward_w | inward_w), angular_velocity,
                               torch.zeros_like(angular_velocity))
-        _thread_friction_finish(env, axis_w, written, body, cap)
+        if pull_mode:
+            _pull_finish(env, axis_w, written * lin_gain, body, cap)   # 折回 m/s
+        else:
+            _thread_friction_finish(env, axis_w, written, body, cap)
 
 
 def reset_aux_free(env, env_ids):

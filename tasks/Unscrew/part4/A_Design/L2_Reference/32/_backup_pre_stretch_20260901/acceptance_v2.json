@@ -1,0 +1,342 @@
+{
+ "schema": "unscrew_trainability_v1",
+ "clip": "32",
+ "reference_v2": "/home/feiyang/WorkSpace/RL-Correction/tasks/Unscrew/part4/A_Design/L2_Reference/32/reference_v2.npz",
+ "reference_v2_md5": "cdbec04820e48d7d2390515817b9764d",
+ "stable_envs": 4,
+ "per_env_stable": [
+  1,
+  1,
+  1,
+  1
+ ],
+ "max_pad_force_N": [
+  28.6645,
+  31.0032,
+  37.2026,
+  41.0073
+ ],
+ "max_object_radius_m": [
+  1.0708,
+  1.0701,
+  1.0694,
+  1.2209
+ ],
+ "max_joint_abs_rad": [
+  3.0706,
+  3.0699,
+  3.0707,
+  3.071
+ ],
+ "baseline": {
+  "reference_successes": 0,
+  "reference_success_required": false,
+  "beta_l": 1.0,
+  "envs": [
+   {
+    "env": 0,
+    "station_pads_l": 5,
+    "station_pads_r": 0,
+    "left_slip_peak_cm": 39.595,
+    "bottle_end_error_cm": 43.6243,
+    "bottle_tilt_error_deg": 89.6194,
+    "cap_end_error_cm": 30.8996,
+    "released": false,
+    "screw_deg": 0.0,
+    "reference_success": false
+   },
+   {
+    "env": 1,
+    "station_pads_l": 5,
+    "station_pads_r": 0,
+    "left_slip_peak_cm": 55.4797,
+    "bottle_end_error_cm": 58.4332,
+    "bottle_tilt_error_deg": 90.0585,
+    "cap_end_error_cm": 43.538,
+    "released": false,
+    "screw_deg": 0.0,
+    "reference_success": false
+   },
+   {
+    "env": 2,
+    "station_pads_l": 5,
+    "station_pads_r": 0,
+    "left_slip_peak_cm": 18.2334,
+    "bottle_end_error_cm": 20.4918,
+    "bottle_tilt_error_deg": 90.6748,
+    "cap_end_error_cm": 21.9874,
+    "released": false,
+    "screw_deg": 0.0,
+    "reference_success": false
+   },
+   {
+    "env": 3,
+    "station_pads_l": 5,
+    "station_pads_r": 0,
+    "left_slip_peak_cm": 131.8816,
+    "bottle_end_error_cm": 121.8143,
+    "bottle_tilt_error_deg": 89.1633,
+    "cap_end_error_cm": 106.9401,
+    "released": false,
+    "screw_deg": 0.0,
+    "reference_success": false
+   }
+  ],
+  "station_pads_l_min": 5,
+  "station_pads_r_min": 0,
+  "screw_deg_max": 0.0,
+  "screw_tau_max_mNm": 0.0,
+  "reference_ik": {
+   "gen": "unscrew_v2",
+   "parent_v1_md5": "3468766d",
+   "betaL": "1.0",
+   "betaR": "1.0",
+   "ik": "wrist_delta",
+   "fail_pos_gt_1cm": "70",
+   "fail_rot_gt_10deg": "69",
+   "critical_bad": "3",
+   "pos_max_cm": "15.265",
+   "rot_max_deg": "137.738",
+   "frozen_r": "70",
+   "frozen_l": "0",
+   "marg_r_deg": "0.00",
+   "marg_l_deg": "25.78",
+   "clip": "32"
+  },
+  "warnings": [
+   "站位行右垫最少 0/5 —— 右手没碰到盖, 真实螺纹副下扭矩传不进去 (拧不动)",
+   "零动作回放全程拧角 0.0° —— 参考本身一点没拧动",
+   "母带 frozen_r=70 行是 IK 冻结行 (臂跟不上腕参考), 残差界内难以救回"
+  ]
+ },
+ "num_envs": 4,
+ "world": {
+  "reference": {
+   "path": "/home/feiyang/WorkSpace/RL-Correction/tasks/Unscrew/part4/A_Design/L2_Reference/32/reference_v2.npz",
+   "md5": "cdbec04820e48d7d2390515817b9764d"
+  },
+  "policy_io": {
+   "obs_dim": 507,
+   "act_dim": 58
+  },
+  "schema": "world_fingerprint_v1",
+  "criteria": {
+   "schema": 4,
+   "digest": "559fc0eac942e408",
+   "items": {
+    "GATE_POS": 0.05,
+    "TIER_HI": 70.0,
+    "TIER_LO": 40.0,
+    "GATE_ROT": 0.785398163,
+    "RED_GATE_POS": 0.08,
+    "LEASH_POS": {
+     "0": 0.08,
+     "1": 0.05,
+     "2": 0.03
+    },
+    "LEASH_ROT": {
+     "0": null,
+     "1": 0.523598776,
+     "2": 0.261799388
+    },
+    "G1_HOLD": 10.0,
+    "CERT_RAMP": 8.0,
+    "CERT_HOLD": 5.0,
+    "CERT_RET": 8.0,
+    "CERT_RISE": 0.005,
+    "CERT_SLIP": 0.008,
+    "CERT_WAIT": 20.0,
+    "CERT_TRIES": 3.0,
+    "PLACED_POS": {
+     "0": 0.03,
+     "1": 0.05
+    },
+    "PLACED_ROT": {
+     "0": 0.261799388,
+     "1": 0.523598776
+    },
+    "PLACED_HOLD": 15.0,
+    "ESCORT_BAND": 0.03,
+    "ESCORT_FALL": 0.008,
+    "CARRY_PADS": 2.0,
+    "PLACE_CARRY": 10.0,
+    "PLACE_FALL": 0.04,
+    "M4_ARM": 0.174532925,
+    "M4_HOLD": 15.0,
+    "M4_DIST_POS": 0.05,
+    "M4_DIST_ROT": 0.523598776,
+    "D1_DROP": 0.05,
+    "D2_PRE_TILT": 1.047197551,
+    "D2_TILT": 0.523598776,
+    "D3_DEV": 0.35,
+    "D4_SLIP": 0.05,
+    "D5_BELOW_TABLE": 0.005,
+    "PAD_FTH": 0.5,
+    "PADS_MIN": 3.0,
+    "SCREW_CONTACT_FTH": 0.1,
+    "SCREW_TRIAD": [
+     0.0,
+     1.0,
+     2.0
+    ],
+    "UP_LOCAL": {
+     "0": [
+      0.0,
+      0.0,
+      1.0
+     ],
+     "1": [
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "TABLE_Z": 0.87
+   }
+  },
+  "assembly": {
+   "pitch_m": 0.00318,
+   "turns": 0.083333333,
+   "closed_offset_m": 0.18,
+   "direction": 1,
+   "max_angular_velocity_rad_s": 2.5,
+   "omega_damping": 0.0,
+   "detach_at_full": true,
+   "thread_model": "real_friction",
+   "breakaway_torque_nm": 0.04,
+   "kinetic_torque_nm": 0.015,
+   "viscous_nms": 0.03,
+   "inertia_eff_kgm2": 0.0005,
+   "torque_ema_s": 0.025,
+   "unlock_dwell_s": 0.033,
+   "lock_omega_eps": 0.05,
+   "react_on_bottle": true
+  },
+  "method": {
+   "clip": "unscrew32_task",
+   "variant": "HYB",
+   "squeeze_ff_enabled": true,
+   "beta_r": 1.0,
+   "beta_l": 1.0
+  },
+  "time": {
+   "physics_dt_s": 0.004166667,
+   "control_dt_s": 0.05,
+   "decimation": 12,
+   "render_interval": 2
+  },
+  "physx": {
+   "solver_type": 1,
+   "gravity": [
+    0.0,
+    0.0,
+    -9.81
+   ]
+  },
+  "table": {
+   "table_top_z_m": 0.87,
+   "table_size_m": [
+    1.2192,
+    1.8288,
+    0.04
+   ]
+  },
+  "objects": {
+   "object_0": {
+    "mass_kg": 0.529999971,
+    "static_friction": 0.5,
+    "dynamic_friction": 0.5,
+    "restitution": 0.0,
+    "usd": "/home/feiyang/WorkSpace/RL-Correction/datasets/unscrew_bottle/32/cache/bottle_body.usd"
+   },
+   "object_1": {
+    "mass_kg": 0.003,
+    "static_friction": 0.400000006,
+    "dynamic_friction": 0.400000006,
+    "restitution": 0.0,
+    "usd": "/home/feiyang/WorkSpace/RL-Correction/datasets/unscrew_bottle/32/cache/bottle_cap.usd"
+   }
+  },
+  "robot": {
+   "usd": "/home/feiyang/WorkSpace/RL-Correction/assets/vega_1p_sharpa_fixedtorso.usd",
+   "usd_md5": "143385ad217f10f3fe730338d748246d",
+   "num_joints_articulation": 58,
+   "controlled_joint_names_in_order": [
+    "R_arm_j1",
+    "R_arm_j2",
+    "R_arm_j3",
+    "R_arm_j4",
+    "R_arm_j5",
+    "R_arm_j6",
+    "R_arm_j7",
+    "L_arm_j1",
+    "L_arm_j2",
+    "L_arm_j3",
+    "L_arm_j4",
+    "L_arm_j5",
+    "L_arm_j6",
+    "L_arm_j7",
+    "right_thumb_CMC_FE",
+    "right_thumb_CMC_AA",
+    "right_thumb_MCP_FE",
+    "right_thumb_MCP_AA",
+    "right_thumb_IP",
+    "right_index_MCP_FE",
+    "right_index_MCP_AA",
+    "right_index_PIP",
+    "right_index_DIP",
+    "right_middle_MCP_FE",
+    "right_middle_MCP_AA",
+    "right_middle_PIP",
+    "right_middle_DIP",
+    "right_ring_MCP_FE",
+    "right_ring_MCP_AA",
+    "right_ring_PIP",
+    "right_ring_DIP",
+    "right_pinky_CMC",
+    "right_pinky_MCP_FE",
+    "right_pinky_MCP_AA",
+    "right_pinky_PIP",
+    "right_pinky_DIP",
+    "left_thumb_CMC_FE",
+    "left_thumb_CMC_AA",
+    "left_thumb_MCP_FE",
+    "left_thumb_MCP_AA",
+    "left_thumb_IP",
+    "left_index_MCP_FE",
+    "left_index_MCP_AA",
+    "left_index_PIP",
+    "left_index_DIP",
+    "left_middle_MCP_FE",
+    "left_middle_MCP_AA",
+    "left_middle_PIP",
+    "left_middle_DIP",
+    "left_ring_MCP_FE",
+    "left_ring_MCP_AA",
+    "left_ring_PIP",
+    "left_ring_DIP",
+    "left_pinky_CMC",
+    "left_pinky_MCP_FE",
+    "left_pinky_MCP_AA",
+    "left_pinky_PIP",
+    "left_pinky_DIP"
+   ],
+   "self_collision": false,
+   "self_collision_source": "USD:/World/envs/env_0/Robot/root_joint"
+  },
+  "sensors": {
+   "count": 10,
+   "pad_force_threshold_N": 0.5,
+   "pads_min_per_hand": 3
+  },
+  "scene": {
+   "env_spacing_m": 2.0,
+   "replicate_physics": false
+  },
+  "switches": {
+   "approach_only": false,
+   "obj_jitter_xy": 0.0,
+   "friction_curriculum": false
+  }
+ }
+}

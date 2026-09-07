@@ -42,6 +42,10 @@ def run(off_scale=0.0, feed_released=True, cap_end_off=0.0, max_t=1500,
     P = UnscrewProgress(NPZ)
     t = 0
     drop_z = None
+    # “合法小偏”是一集内固定的放置/标定偏差，不是每个控制步把物体随机瞬移。
+    # 后者会在时间拉伸母带上合成高频扰动，测到的是 D8 抗冲击而非容差。
+    off_xy = {oi: rng.uniform(-off_scale, off_scale, 2)
+              for oi in (0, 1)} if off_scale > 0 else None
     while t < max_t and not P.g[4]:
         if P.cert_phase == 1:
             dz = 0.015 * min((P.cert_t + 1) / CERT_RAMP, 1.0)
@@ -61,8 +65,8 @@ def run(off_scale=0.0, feed_released=True, cap_end_off=0.0, max_t=1500,
         if off_scale > 0:
             # 只偏 xy: 认证判据是 z 升 >=5mm, 给 z 加 1.5cm 噪声会把"合法偏差"
             # 变成"抵消认证提升"的非法喂法 (那不是本测的命题)
-            o0[:2] += rng.uniform(-off_scale, off_scale, 2)
-            o1[:2] += rng.uniform(-off_scale, off_scale, 2)
+            o0[:2] += off_xy[0]
+            o1[:2] += off_xy[1]
         if cap_end_off and P.g[3]:
             # 从释放起盖就没送到位 (偏移加在时钟尾会漏: placed 在交互尾段
             # 的 hold 里就能锁存, 测不到"没到位"这个命题)
@@ -75,9 +79,9 @@ def run(off_scale=0.0, feed_released=True, cap_end_off=0.0, max_t=1500,
         elif escort in ("drop", "slowdrop"):
             prc = 0                      # 释放后全程无右垫接触
             _top = TABLE_Z + 0.03 + 0.005
-            if P.g[3] and P.k < P.N - 1 and escort == "slowdrop":
-                # 时钟走完前把盖托在**带顶之上**: 否则母带自己的末段下落 (每步
-                # 可能 >ESCORT_FALL) 就会触发过带判据, ⑥ 要测的"慢沉"命题落空。
+            if P.g[3] and P.k < P.N - 1:
+                # 时钟走完前把盖托在**带顶之上**，让 drop/slowdrop 都从同一
+                # 明确高度穿带；不能依赖母带末行的盖高度（新母带末行已在桌面）。
                 o1[2] = max(float(o1[2]), _top)
             elif P.g[3] and P.k >= P.N - 1:
                 # 释放后盖脱手: xy 到终点, z 逐步下沉。drop = 2.5cm/步 (过带
@@ -85,8 +89,7 @@ def run(off_scale=0.0, feed_released=True, cap_end_off=0.0, max_t=1500,
                 # 该由 U41② 持盖步数拦下)
                 step = 0.025 if escort == "drop" else 0.004
                 if drop_z is None:
-                    drop_z = (float(o1[2]) if escort == "drop"
-                              else max(float(o1[2]), _top))
+                    drop_z = max(float(o1[2]), _top)
                 drop_z = max(drop_z - step, float(P.end[1][2]))
                 o1 = P.end[1].copy()
                 o1[2] = drop_z

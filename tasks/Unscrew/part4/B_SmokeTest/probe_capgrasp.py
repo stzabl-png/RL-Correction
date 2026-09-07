@@ -33,6 +33,10 @@ p.add_argument("--fit", type=int, default=0,
                help=">0 = 闭环对准迭代次数: 量到指垫实际位置后, 把腕**平移**到"
                     "'拇指与食指指垫中点落在盖心、盖半高', 重解 IK 再量。"
                     "不依赖先验的腕高假设, 用的是这只手的实测几何。")
+p.add_argument("--row", type=int, default=-1,
+               help="在母带交互段第几行的构型下测 (默认 -1 = 抓盖行 right_grasp_k)。"
+                    "2026-08-31 尸检教训: 在交互首行 (瓶竖直) 测'自上而下捏'测的是"
+                    "轨迹里不存在的构型, 不构成结论 —— 抓盖发生在瓶已水平时。")
 AppLauncher.add_app_launcher_args(p)
 args = p.parse_args()
 from rl_rebuild.utils.gpu_guard import isaac_slot  # noqa: E402
@@ -65,13 +69,20 @@ qr = np.load(os.path.join(TC.TAKE_DIR, "ref_qpos_right.npz"), allow_pickle=True)
 FIN = [str(n) for n in qr["joint_names"]]
 PERM = [GENERIC_JOINT_ORDER.index(n) for n in FIN]
 
-# 盖静置位姿 (母带交互首行) + 物体系原点修正
-z1 = np.load(TC.REF_V1, allow_pickle=True)
-cap_p0 = np.asarray(z1["obj_pos_1"], np.float64)[
-    np.flatnonzero(np.asarray(z1["source"], np.int8) == 1)[0]]
-cap_q0 = np.asarray(z1["obj_quat_1"], np.float64)[
-    np.flatnonzero(np.asarray(z1["source"], np.int8) == 1)[0]]
+# 盖位姿取自**抓盖行** (--row, 默认 right_grasp_k): 瓶已被左手转平, 盖朝侧面。
+z1 = np.load(os.environ.get("UNSCREW_PROBE_NPZ", TC.REF_V1),
+             allow_pickle=True)  # 可指定 scratch v1 (T2-28 候选带不动正典)
+_ia_rows = np.flatnonzero(np.asarray(z1["source"], np.int8) == 1)
+_krow = int(args.row) if args.row >= 0 else int(z1["right_grasp_k"])
+_krow = int(np.clip(_krow, 0, len(_ia_rows) - 1))
+ROW = int(_ia_rows[_krow])
+cap_p0 = np.asarray(z1["obj_pos_1"], np.float64)[ROW]
+cap_q0 = np.asarray(z1["obj_quat_1"], np.float64)[ROW]
+bot_p0 = np.asarray(z1["obj_pos_0"], np.float64)[ROW]
+bot_q0 = np.asarray(z1["obj_quat_0"], np.float64)[ROW]
 Rc0 = quat_to_R(cap_q0)
+print(f"[capgrasp] 测量构型 = 交互段 k={_krow} (全链行 {ROW}); "
+      f"瓶将钉在该行位姿 (盖随螺纹副跟随)", flush=True)
 import trimesh  # noqa: E402
 import json  # noqa: E402
 lay = json.load(open(os.path.join(TC.TAKE_DIR, "scene_layout.json")))["objects"]
@@ -82,11 +93,19 @@ CAP_DZ = float(0.5 * (_zc.min() + _zc.max()) - _zc.min())
 print(f"[capgrasp] 盖 {np.round(cap_p0, 3)} | mesh z[{_zc.min():.3f},{_zc.max():.3f}] "
       f"原点修正 {CAP_DZ * 100:+.2f}cm", flush=True)
 
-_pin_pose = torch.cat([E.object.data.root_pos_w.clone(),
-                       E.object.data.root_quat_w.clone()], dim=1)
-_pin_vel = torch.zeros(1, 6, device=dev)
 org = E.scene.env_origins[0].cpu().numpy()
-base = E.ref58[IA0].clone()
+# 瓶和盖都钉在抓盖行的母带位姿 (env 局部系 + 环境原点)。只钉瓶不行:
+# 瓶被瞬移到空中横位时盖会掉到桌上, 对准环节追着掉落的盖跑 (首测实际腕差
+# 35cm 即此故障), 整轮测量作废。
+_pin_pose = torch.tensor(
+    np.concatenate([bot_p0 + org, bot_q0])[None],
+    dtype=torch.float32, device=dev)
+_pin_cap = torch.tensor(
+    np.concatenate([cap_p0 + org, cap_q0])[None],
+    dtype=torch.float32, device=dev)
+_pin_vel = torch.zeros(1, 6, device=dev)
+# 双臂/手指基准也取同一行: 左手摆在该行应在的位置, 不与横瓶穿模
+base = E.ref58[ROW].clone()
 
 
 def hold(q_arm_r, fin_r, steps):
@@ -101,6 +120,9 @@ def hold(q_arm_r, fin_r, steps):
             E.object.write_root_pose_to_sim(_pin_pose)
             E.object.write_root_velocity_to_sim(_pin_vel)
             E._SA.apply_screw(E)
+            # 盖的钉写在 apply_screw 之后: 螺纹副若重写盖位姿, 以钉住值为准
+            E.aux.write_root_pose_to_sim(_pin_cap)
+            E.aux.write_root_velocity_to_sim(_pin_vel)
             E.scene.write_data_to_sim()
             E.sim.step(render=False)
             E.scene.update(E.sim.get_physics_dt())
@@ -129,7 +151,7 @@ for cf, _zt in ((c, t) for c in _files for t in _trims):
                         n_restart=1)[0] if False else None
     best = None
     for t in range(12):
-        q0 = (np.asarray(z1["right_q"], np.float64)[IA0] if t == 0
+        q0 = (np.asarray(z1["right_q"], np.float64)[ROW] if t == 0
               else np.random.default_rng(t).uniform(ik_r.lower, ik_r.upper))
         s = ik_r.solve(tp, tR, q0=q0, iters=250, w_rot=0.25)
         sc = s["pos_err"] + 0.25 * s["rot_err"]

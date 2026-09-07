@@ -11,6 +11,7 @@ TB 记账: pop_rates() 吐 sr/gate1..4(+t0 口径), prog/clock_frac, 认证针, 
 from __future__ import annotations
 
 import json
+import os
 
 import numpy as np
 import torch
@@ -28,6 +29,12 @@ from progress import (LEASH_POS, LEASH_ROT, GATE_POS, GATE_ROT, RED_GATE_POS,
 # 观测/接线兼容别名 (框架 task_env 引用这些名字)
 M2_HOLD = 1                      # G3=释放是锁存事件, 无 hold (进度条观测用)
 M3_HOLD = PLACED_HOLD
+
+# T2-32 G2 考试计件工资: 认证 ramp/hold 期按 min(瓶z升,盖z升)/CERT_RISE 的
+# **回合新高** 发稠密奖励 (earn-only 棘轮, 提起-放下不重复计费; pads3 门防戳举)。
+# 动机: sr/cert_pass 74%→0% (v54C 18M→63M) 而考试过程零梯度, "摸着不举"反而
+# 有 wage/贴实收入 —— 稀疏判定必须铺成坡。系数=回合内满举总收入 (0=关)。
+CERT_WAGE_K = float(os.environ.get("UNSCREW_CERT_WAGE", "0"))
 
 
 def _q2R(q):
@@ -136,6 +143,7 @@ class UnscrewProgressBatch:
         self.cert_pending = torch.zeros_like(self.g1)
         self.cert_z0 = torch.zeros(num_envs, 2, device=device)
         self.cert_rel0 = torch.zeros(num_envs, 3, device=device)   # 左腕-瓶
+        self.cert_best = torch.zeros(num_envs, device=device)  # T2-32 棘轮水位
         self.m2_run = torch.zeros(num_envs, dtype=torch.long, device=device)
         self.m3_run = torch.zeros_like(self.m2_run)
         self.m4_run = torch.zeros_like(self.m2_run)
@@ -152,9 +160,15 @@ class UnscrewProgressBatch:
         # U41: 释放后"真的拿过" / "放得住" 两件 (标量版同构)
         self.carry_steps = torch.zeros(num_envs, device=device)
         self.fall_peak = torch.zeros(num_envs, device=device)
+        # T2-16 对齐 checkpoint 记账: "时钟到达 k_sep 抓盖行" = 左手已把瓶转平
+        # 且贴住参考、右手已随臂参考走到盖 GraspPose。出生即 >=k_sep 的 RSI env
+        # 不进分子 (pre_align, 与 pre1/2/3 同构), 避免 ret/g3 出生点稀释口径。
+        self.pre_align = torch.zeros_like(self.g1)
         self._acc = {"ep": 0, "g1": 0, "g2": 0, "g3": 0, "g4": 0,
-                     "clock": 0.0, "catt": 0, "cpass": 0,
-                     "ep_t0": 0, "g1_t0": 0, "g2_t0": 0, "g3_t0": 0, "g4_t0": 0}
+                     "clock": 0.0, "catt": 0, "cpass": 0, "align": 0,
+                     "ep_t0": 0, "g1_t0": 0, "g2_t0": 0, "g3_t0": 0,
+                     "g4_t0": 0, "align_t0": 0,
+                     "cf_pads": 0, "cf_slip": 0, "cf_rise": 0}
 
     def reset_idx(self, env_ids):
         n = len(env_ids)
@@ -166,14 +180,17 @@ class UnscrewProgressBatch:
             self._acc["g4"] += int(self.g4[env_ids].sum())
             self._acc["clock"] += float(self.k[env_ids].float().sum()) \
                 / max(self.N_ROW - 1, 1)
+            al = (self.k[env_ids] >= self.k_sep) & ~self.pre_align[env_ids]
+            self._acc["align"] += int(al.sum())
             t0m = self.born_t0[env_ids]
             self._acc["ep_t0"] += int(t0m.sum())
+            self._acc["align_t0"] += int((al & t0m).sum())
             for gk, gt in (("g1_t0", self.g1), ("g2_t0", self.g2),
                            ("g3_t0", self.g3), ("g4_t0", self.g4)):
                 self._acc[gk] += int((gt[env_ids] & t0m).sum())
         for t_ in (self.g1, self.g2, self.g3, self.g4, self.placed, self.done,
                    self.released, self.pre1, self.pre2, self.pre3, self.lb_set,
-                   self.cert_pending, self.escort_fail):
+                   self.cert_pending, self.escort_fail, self.pre_align):
             t_[env_ids] = False
         self.cap_z_prev[env_ids] = -1.0
         self.carry_steps[env_ids] = 0.0
@@ -182,6 +199,7 @@ class UnscrewProgressBatch:
             self.lb[oi][env_ids] = 0.0
         self.cert_z0[env_ids] = 0.0
         self.cert_rel0[env_ids] = 0.0
+        self.cert_best[env_ids] = 0.0
         for t_ in (self.k, self.g1_run, self.m2_run, self.m3_run, self.m4_run,
                    self.cert_phase, self.cert_t, self.cert_try, self.cert_wait):
             t_[env_ids] = 0
@@ -191,6 +209,7 @@ class UnscrewProgressBatch:
     def enter(self, env_ids, rows, g1, g2, g3, placed):
         self.reset_idx(env_ids)
         self.k[env_ids] = rows
+        self.pre_align[env_ids] = rows >= self.k_sep
         self.g1[env_ids] = g1
         self.g2[env_ids] = g2
         self.g3[env_ids] = g3
@@ -214,20 +233,27 @@ class UnscrewProgressBatch:
                "sr/gate2": _r(self._acc["g2"], _ep),
                "sr/gate3": _r(self._acc["g3"], _ep),
                "sr/gate4": _r(self._acc["g4"], _ep),
+               "sr/align": _r(self._acc["align"], _ep),
                "sr_t0/gate1": _r(self._acc["g1_t0"], _ep0),
                "sr_t0/gate2": _r(self._acc["g2_t0"], _ep0),
                "sr_t0/gate3": _r(self._acc["g3_t0"], _ep0),
                "sr_t0/gate4": _r(self._acc["g4_t0"], _ep0),
+               "sr_t0/align": _r(self._acc["align_t0"], _ep0),
                "prog/ep_t0_frac": _r(self._acc["ep_t0"], _ep),
                "prog/clock_frac": _r(self._acc["clock"], _ep),
                "sr/cert_pass": _r(self._acc["cpass"], _at),
                "prog/cert_att": _r(self._acc["catt"], _ep),
+               "diag/certfail_rise": _r(self._acc["cf_rise"], _at),
+               "diag/certfail_slip": _r(self._acc["cf_slip"], _at),
+               "diag/certfail_pads": _r(self._acc["cf_pads"], _at),
                "n/ep_done": float(_ep),
                "n/ep_done_t0": float(_ep0),
                "n/cert_attempts": float(_at)}
         self._acc = {"ep": 0, "g1": 0, "g2": 0, "g3": 0, "g4": 0,
-                     "clock": 0.0, "catt": 0, "cpass": 0,
-                     "ep_t0": 0, "g1_t0": 0, "g2_t0": 0, "g3_t0": 0, "g4_t0": 0}
+                     "clock": 0.0, "catt": 0, "cpass": 0, "align": 0,
+                     "ep_t0": 0, "g1_t0": 0, "g2_t0": 0, "g3_t0": 0,
+                     "g4_t0": 0, "align_t0": 0,
+                     "cf_pads": 0, "cf_slip": 0, "cf_rise": 0}
         return out
 
     def step(self, obj0, obj1, armq_r, armq_l, pads3, wrist_r, wrist_l,
@@ -308,15 +334,30 @@ class UnscrewProgressBatch:
             self.cert_rel0[start] = (wrist_l - obj0[:, :3])[start]
         in_cert = (self.cert_phase > 0) & (~start) & active
         self.cert_t = torch.where(in_cert, self.cert_t + 1, self.cert_t)
+        # T2-32 考试计件工资: ramp/hold 期, 双物短板 z 升的回合新高计酬
+        cwage = torch.zeros(self.Ne, device=self.dev)
+        if CERT_WAGE_K > 0:
+            lifting = in_cert & (self.cert_phase <= 2) & pads3
+            cur = torch.minimum(obj0[:, 2] - self.cert_z0[:, 0],
+                                obj1[:, 2] - self.cert_z0[:, 1]) / CERT_RISE
+            cur = cur.clamp(0.0, 1.0) * lifting.float()
+            inc = (cur - self.cert_best).clamp(min=0.0)
+            cwage = CERT_WAGE_K * inc
+            self.cert_best = self.cert_best + inc
         to_hold = in_cert & (self.cert_phase == 1) & (self.cert_t >= CERT_RAMP)
         self.cert_phase[to_hold] = 2
         self.cert_t[to_hold] = 0
         judge = in_cert & (self.cert_phase == 2) & (self.cert_t >= CERT_HOLD)
         if judge.any():
             rel_l = ((wrist_l - obj0[:, :3]) - self.cert_rel0).norm(dim=1)
-            ok5 = ((obj0[:, 2] - self.cert_z0[:, 0] >= CERT_RISE)
-                   & (obj1[:, 2] - self.cert_z0[:, 1] >= CERT_RISE)
-                   & (rel_l < CERT_SLIP) & pads3)
+            rise_ok = ((obj0[:, 2] - self.cert_z0[:, 0] >= CERT_RISE)
+                       & (obj1[:, 2] - self.cert_z0[:, 1] >= CERT_RISE))
+            slip_ok = rel_l < CERT_SLIP
+            ok5 = rise_ok & slip_ok & pads3
+            # T2-32 失因分针 (观测): 哪条条款不及格 (可多计)
+            self._acc["cf_rise"] += int((judge & ~rise_ok).sum())
+            self._acc["cf_slip"] += int((judge & ~slip_ok).sum())
+            self._acc["cf_pads"] += int((judge & ~pads3).sum())
             self.cert_pending |= judge & ok5
             failj = judge & (~ok5)
             self.cert_try[failj] += 1
@@ -406,6 +447,7 @@ class UnscrewProgressBatch:
         fail &= active
         self.done |= fail
         return {"adv": adv, "leash": leash, "ms": ms_r, "wage": wage,
+                "cwage": cwage,
                 "w_obj": w_obj, "w_hand": self.WH[tier],
                 "w_hconf_r": self.HCF_R[k], "w_hconf_l": self.HCF_L[k],
                 "clock": self.k.clone(), "done": self.done.clone(),

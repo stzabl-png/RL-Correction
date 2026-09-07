@@ -148,6 +148,11 @@ def main():
                     help="顺序模式规划某手时锁死另一侧臂7关节在起始值 (2026-08-20): "
                          "防规划器'顺手'甩另一臂 (充气障碍下实测左臂被右手规划蹭走 56°, "
                          "叠放前提崩坏; 历史上仅 3° 由 blend10 兜)。")
+    ap.add_argument("--obj_inflate_map", type=str, default="",
+                    help='JSON: 按物体名覆盖 obj_inflate, 如 {"obj_secondary":-0.02}。'
+                         "用处 (T2-26): 撤退起点只被贴指的盖判碰, 盖深收缩解锁起点; "
+                         "瓶保持浅收缩, 路径才会绕开瓶body (全局 -2cm 实测规划器"
+                         "从瓶边穿过)。")
     ap.add_argument("--obj_inflate", type=float, default=0.0,
                     help="物体障碍充气 (m, 2026-08-20 用户裁定): 碰撞世界里把物体网格沿"
                          "顶点法线外推这么多再规划 (实际物体不变) —— 规划自动多留净空。"
@@ -187,6 +192,7 @@ def main():
     objects = {o["name"]: o for o in T.get("objects", [])}
 
     _inflated = {}
+    _inflate_map = json.loads(a.obj_inflate_map) if a.obj_inflate_map else {}
     def _mesh_path(o):
         """顶点沿法线推 inflate 米 (>0 充气 / <0 收缩), 存临时文件; 实物不变。
 
@@ -194,25 +200,27 @@ def main():
         而整个排除物体又会让这一腿完全失去避障 —— 收缩 1cm 量级两头兼顾:
         目标位形合法, 路径仍绕开物体本体。
         """
-        if a.obj_inflate == 0.0:
+        _inf = float(_inflate_map.get(o.get("name", ""), a.obj_inflate))
+        if _inf == 0.0:
             # 必须给**绝对路径**: 相对路径会被 cuRobo 当成它自己 content 目录下的
             # 资产 (报 "string is not a file: .../curobo/content/assets/<相对路径>")。
             # 充气>0 时走临时文件天然是绝对路径, 所以这条坑只在 inflate=0 时暴露。
             return os.path.abspath(o["mesh"])
         p = o["mesh"]
-        if p not in _inflated:
+        _ck = (p, _inf)
+        if _ck not in _inflated:
             import tempfile
             import trimesh
             m = trimesh.load(p, force="mesh")
-            m.vertices = m.vertices + m.vertex_normals * float(a.obj_inflate)
+            m.vertices = m.vertices + m.vertex_normals * _inf
             fp = tempfile.NamedTemporaryFile(
                 suffix="_inf.obj", delete=False).name
             m.export(fp)
-            print(f"[inflate] {p} "
-                  f"{'充气' if a.obj_inflate > 0 else '收缩'} "
-                  f"{abs(a.obj_inflate)*1000:.0f}mm -> {fp}")
-            _inflated[p] = fp
-        return _inflated[p]
+            print(f"[inflate] {o.get('name', '?')} {p} "
+                  f"{'充气' if _inf > 0 else '收缩'} "
+                  f"{abs(_inf)*1000:.0f}mm -> {fp}")
+            _inflated[_ck] = fp
+        return _inflated[_ck]
 
     def _scene_dict(exclude=(), no_world=False):
         if no_world:

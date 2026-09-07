@@ -158,6 +158,15 @@ with tempfile.TemporaryDirectory() as td:
         fh.write("{}\n")
     meta = {"clip": TC.CLIP_ID, "rest_source": "probe",
             "approach": "curobo:test", "retreat": "curobo:test",
+            "windows": {"w0": 0},
+            "right_timing": {"right_start_src": 1,
+                             "right_grasp_src": 2,
+                             "bottle_tilt_deg": 90.0},
+            "phase_contract": {
+                "P0_to_P1": "cuRobo Approach",
+                "P1_to_task_end": "continuous data reference + RL residual",
+                "task_end_to_P0": "cuRobo Retreat",
+            },
             "screw": {"turns": TC.SCREW_TURNS},
             "rest_md5": TC.file_md5(rest_path)}
     arrays = {

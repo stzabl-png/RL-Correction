@@ -2,7 +2,7 @@
  "schema": "unscrew_trainability_v1",
  "clip": "32",
  "reference_v2": "/home/feiyang/WorkSpace/RL-Correction/tasks/Unscrew/part4/A_Design/L2_Reference/32/reference_v2.npz",
- "reference_v2_md5": "231f28f322849c79d621bc600212f99c",
+ "reference_v2_md5": "43b8633eb579c18d244422270fd17e05",
  "stable_envs": 4,
  "per_env_stable": [
   1,
@@ -11,22 +11,22 @@
   1
  ],
  "max_pad_force_N": [
-  0.0,
-  0.0,
-  0.0,
-  0.0
+  68.1042,
+  67.6161,
+  68.0387,
+  68.0587
  ],
  "max_object_radius_m": [
-  1.0862,
-  1.0619,
-  1.1454,
-  1.0619
+  1.2131,
+  1.2151,
+  1.2174,
+  1.215
  ],
  "max_joint_abs_rad": [
-  3.0662,
-  3.0662,
-  3.0662,
-  3.0662
+  2.6236,
+  2.6236,
+  2.6236,
+  2.6236
  ],
  "baseline": {
   "reference_successes": 0,
@@ -35,77 +35,91 @@
   "envs": [
    {
     "env": 0,
-    "station_pads_l": 0,
+    "station_pads_l": 4,
     "station_pads_r": 0,
-    "left_slip_peak_cm": 53.2277,
-    "bottle_end_error_cm": 61.6521,
-    "bottle_tilt_error_deg": 89.8443,
-    "cap_end_error_cm": 41.8662,
+    "right_pads_peak_after_start": 0,
+    "left_slip_peak_cm": 10.3045,
+    "bottle_end_error_cm": 10.7824,
+    "bottle_tilt_error_deg": 89.6183,
+    "cap_end_error_cm": 22.5253,
     "released": false,
     "screw_deg": 0.0,
     "reference_success": false
    },
    {
     "env": 1,
-    "station_pads_l": 0,
+    "station_pads_l": 4,
     "station_pads_r": 0,
-    "left_slip_peak_cm": 41.2593,
-    "bottle_end_error_cm": 46.6898,
-    "bottle_tilt_error_deg": 89.6192,
-    "cap_end_error_cm": 32.4158,
+    "right_pads_peak_after_start": 0,
+    "left_slip_peak_cm": 11.2215,
+    "bottle_end_error_cm": 13.0877,
+    "bottle_tilt_error_deg": 90.6733,
+    "cap_end_error_cm": 20.755,
     "released": false,
     "screw_deg": 0.0,
     "reference_success": false
    },
    {
     "env": 2,
-    "station_pads_l": 0,
+    "station_pads_l": 4,
     "station_pads_r": 0,
-    "left_slip_peak_cm": 67.4997,
-    "bottle_end_error_cm": 73.3693,
-    "bottle_tilt_error_deg": 90.624,
-    "cap_end_error_cm": 51.2203,
+    "right_pads_peak_after_start": 0,
+    "left_slip_peak_cm": 5.7276,
+    "bottle_end_error_cm": 9.0395,
+    "bottle_tilt_error_deg": 90.4258,
+    "cap_end_error_cm": 39.0785,
     "released": false,
     "screw_deg": 0.0,
     "reference_success": false
    },
    {
     "env": 3,
-    "station_pads_l": 0,
+    "station_pads_l": 4,
     "station_pads_r": 0,
-    "left_slip_peak_cm": 38.9934,
-    "bottle_end_error_cm": 44.6198,
-    "bottle_tilt_error_deg": 89.8176,
-    "cap_end_error_cm": 30.152,
+    "right_pads_peak_after_start": 0,
+    "left_slip_peak_cm": 11.2237,
+    "bottle_end_error_cm": 6.0743,
+    "bottle_tilt_error_deg": 90.6787,
+    "cap_end_error_cm": 25.5229,
     "released": false,
     "screw_deg": 0.0,
     "reference_success": false
    }
   ],
-  "station_pads_l_min": 0,
+  "station_pads_l_min": 4,
   "station_pads_r_min": 0,
+  "right_pads_peak_after_start": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "right_start_k": 39,
+  "right_grasp_k": 114,
   "screw_deg_max": 0.0,
   "screw_tau_max_mNm": 0.0,
   "reference_ik": {
    "gen": "unscrew_v2",
-   "parent_v1_md5": "04a0dd5c",
+   "parent_v1_md5": "6f3afa1f",
    "betaL": "1.0",
-   "betaR": "0.0",
+   "betaR": "1.0",
    "ik": "wrist_delta",
-   "fail_pos_gt_1cm": "29",
-   "fail_rot_gt_10deg": "12",
-   "critical_bad": "2",
-   "pos_max_cm": "13.320",
-   "rot_max_deg": "45.499",
-   "frozen_r": "27",
-   "frozen_l": "0",
-   "marg_r_deg": "3.35",
-   "marg_l_deg": "25.79",
+   "fail_pos_gt_1cm": "21",
+   "fail_rot_gt_10deg": "6",
+   "critical_bad": "5",
+   "pos_max_cm": "2.915",
+   "rot_max_deg": "11.638",
+   "frozen_r": "0",
+   "frozen_l": "3",
+   "held_r": "44",
+   "held_l": "128",
+   "struct_r": "0",
+   "marg_r_deg": "11.35",
+   "marg_l_deg": "5.86",
    "clip": "32"
   },
   "warnings": [
-   "站位行左垫最少 0/5 < G1 所需 3 —— 左手没抓上瓶, G1 无从成形",
-   "站位行右垫最少 0/5 —— 右手没碰到盖, 真实螺纹副下扭矩传不进去 (拧不动)",
+   "右手从启动点 k=39 到任务末的接触峰值最少 0/5 —— 至少一个环境未碰到盖, 真实螺纹副下扭矩传不进去 (目标到盖 k=114)",
    "零动作回放全程拧角 0.0° —— 参考本身一点没拧动"
   ]
  },
@@ -113,7 +127,7 @@
  "world": {
   "reference": {
    "path": "/home/feiyang/WorkSpace/RL-Correction/tasks/Unscrew/part4/A_Design/L2_Reference/32/reference_v2.npz",
-   "md5": "231f28f322849c79d621bc600212f99c"
+   "md5": "43b8633eb579c18d244422270fd17e05"
   },
   "policy_io": {
    "obs_dim": 507,
@@ -196,7 +210,7 @@
   },
   "assembly": {
    "pitch_m": 0.00318,
-   "turns": 0.75,
+   "turns": 0.083333333,
    "closed_offset_m": 0.18,
    "direction": 1,
    "max_angular_velocity_rad_s": 2.5,
@@ -216,8 +230,9 @@
    "clip": "unscrew32_task",
    "variant": "HYB",
    "squeeze_ff_enabled": true,
-   "beta_r": 0.0,
-   "beta_l": 1.0
+   "beta_r": 1.0,
+   "beta_l": 1.0,
+   "pad_friction_mu": 6.0
   },
   "time": {
    "physics_dt_s": 0.004166667,

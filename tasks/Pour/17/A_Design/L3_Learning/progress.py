@@ -94,6 +94,14 @@ HOLD_PEN_TILT0, HOLD_PEN_TILT1 = np.radians(5), np.radians(60)
 HOLD_PEN_DRIFT0, HOLD_PEN_DRIFT1 = 0.005, 0.05
 HOLD_K_TILT = float(os.environ.get("POUR_HOLD_K_TILT", "0.05"))
 HOLD_K_DRIFT = float(os.environ.get("POUR_HOLD_K_DRIFT", "0.05"))
+# ---- ★POUR_MIN=1 最简配方 (用户 2026-09-08 裁定; 依据 docs/DESIGN_HOLD_REGULATOR.md §0.5 探针) ----
+#   保留 6 项: GraspPose 前馈 / 认证 (改口径) / 参考残差前馈 / 时钟门+分档皮筋 / G3 几何+里程碑 / 碰撞与掉落死线。
+#   认证判决 = 斜坡+保持期内 两物体 手物相对位移 ≤MIN_CERT_POS ∧ 倾斜偏离 ≤MIN_CERT_ROT (替代 rise/slip/pads/HOLD);
+#   交互期死线 (D4 位) = 相对 G2 基线 掌系位移 >MIN_REL_POS 或 长轴倾斜 >MIN_REL_ROT (替代腕物距离标量 5cm)。
+#   旗开时常量进 criteria_items, schema 升 3; 旗关时清单与历史一致。
+MIN_RECIPE = os.environ.get("POUR_MIN") == "1"
+MIN_CERT_POS, MIN_CERT_ROT = 0.01, np.radians(5)
+MIN_REL_POS, MIN_REL_ROT = 0.03, np.radians(20)
 WAGE = 0.05                   # 站位维持费 (G2 前, 双手垫>=3 时逐步)
 WAGE_CAP = 3.0                # L5-8 药④: 每回合工资总额上限 (< G2的+8, 断躺平诱饵)
 # ---- 死线 (#10 全表; D4-D7 属 env 侧接线) ----
@@ -138,7 +146,7 @@ def _axis_tilt(q, up_local):
 #     和"阈值变了"又混成一团 —— 就是刚避开的坑换个地方复发。给出逐项表, 消费方
 #     可以精确说出: 哪些键新增、哪些键的值变了。
 # =============================================================================
-CRITERIA_SCHEMA = 2 if HOLD_POSE else 1   # ★L5-36.3: 旗开时清单扩了 (schema 变=预期), 旗关时与历史一致
+CRITERIA_SCHEMA = 3 if MIN_RECIPE else (2 if HOLD_POSE else 1)   # ★L5-36.3/MIN: 旗开时清单扩了 (schema 变=预期), 旗关时与历史一致
 
 
 def criteria_items():
@@ -179,6 +187,9 @@ def criteria_items():
             "HOLD_DRIFT_TOL": HOLD_DRIFT_TOL} if HOLD_POSE else {}),
         # v2 才加键: v1 的 digest (a3812d0c) 保持不变, msc 在跑的 gh v1 线硬闸不受影响
         **({"HOLD_MODE": 2.0} if HOLD_V2 else {}),
+        # ★POUR_MIN: 认证/死线口径换了, 常量入表 (旗关不加键, 老 digest 不动)
+        **({"MIN_RECIPE": 1.0, "MIN_CERT_POS": MIN_CERT_POS, "MIN_CERT_ROT": MIN_CERT_ROT,
+            "MIN_REL_POS": MIN_REL_POS, "MIN_REL_ROT": MIN_REL_ROT} if MIN_RECIPE else {}),
     }.items()}
 
 

@@ -1,0 +1,173 @@
+[INFO][AppLauncher]: Using device: cuda:0
+[INFO][AppLauncher]: Loading experience file: /home/yanghong/IsaacLab_MagicSim/apps/isaaclab.python.headless.kit
+Loading user config located at: '/home/yanghong/miniconda3/envs/isaac/lib/python3.11/site-packages/isaacsim/kit/data/Kit/Isaac-Sim/5.1/user.config.json'
+[Info] [carb] Logging to file: /home/yanghong/miniconda3/envs/isaac/lib/python3.11/site-packages/isaacsim/kit/logs/Kit/Isaac-Sim/5.1/kit_20260907_221020.log
+2026-09-07T22:10:20Z [167ms] [Warning] [omni.usd_config.extension] Enable omni.materialx.libs extension to use MaterialX
+2026-09-07T22:10:20Z [530ms] [Warning] [omni.platforminfo.plugin] failed to open the default display.  Can't verify X Server version.
+2026-09-07T22:10:21Z [734ms] [Warning] [carb] Acquiring non optional plugin interface which is not listed as dependency: [omni::physx::IPhysxBenchmarks v1.0] (plugin: <default plugin>), by client: omni.physics.physx.plugin. Add it to CARB_PLUGIN_IMPL_DEPS() macro of a client.
+2026-09-07T22:10:21Z [743ms] [Warning] [omni.isaac.dynamic_control] omni.isaac.dynamic_control is deprecated as of Isaac Sim 4.5. No action is needed from end-users.
+2026-09-07T22:10:24Z [3,762ms] [Warning] [carb.cudainterop.plugin] CUDA_VISIBLE_DEVICES environment variable is set.
+2026-09-07T22:10:24Z [3,762ms] [Warning] [carb.cudainterop.plugin] Note CUDA device enumeration and Omniverse device enumeration are different.
+2026-09-07T22:10:24Z [3,762ms] [Warning] [carb.cudainterop.plugin] Setting CUDA_VISIBLE_DEVICES can lead to undesired behavior or crashes.
+2026-09-07T22:10:24Z [4,089ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA GeForce RTX 2080 Ti
+2026-09-07T22:10:24Z [4,089ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-09-07T22:10:24Z [4,090ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA GeForce RTX 2080 Ti
+2026-09-07T22:10:24Z [4,090ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-09-07T22:10:24Z [4,091ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA GeForce RTX 2080 Ti
+2026-09-07T22:10:24Z [4,091ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-09-07T22:10:24Z [4,092ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA GeForce RTX 2080 Ti
+2026-09-07T22:10:24Z [4,092ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-09-07T22:10:24Z [4,092ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA GeForce RTX 2080 Ti
+2026-09-07T22:10:24Z [4,092ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-09-07T22:10:24Z [4,092ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA GeForce RTX 2080 Ti
+2026-09-07T22:10:24Z [4,092ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+
+|---------------------------------------------------------------------------------------------|
+| Driver Version: 550.127.05    | Graphics API: Vulkan
+|=============================================================================================|
+| GPU | Name                             | Active | LDA | GPU Memory | Vendor-ID | LUID       |
+|     |                                  |        |     |            | Device-ID | UUID       |
+|     |                                  |        |     |            | Bus-ID    |            |
+|---------------------------------------------------------------------------------------------|
+| 0   | NVIDIA GeForce RTX 2080 Ti       |        |     | 11510   MB | 10de      | 0          |
+|     |                                  |        |     |            | 1e07      | 4ead8eec.. |
+|     |                                  |        |     |            | 19        |            |
+|---------------------------------------------------------------------------------------------|
+| 1   | NVIDIA GeForce RTX 2080 Ti       | Yes: 0 |     | 11510   MB | 10de      | 0          |
+|     |                                  |        |     |            | 1e07      | c5cb5d4a.. |
+|     |                                  |        |     |            | 1a        |            |
+|---------------------------------------------------------------------------------------------|
+| 2   | NVIDIA GeForce RTX 2080 Ti       |        |     | 11510   MB | 10de      | 0          |
+|     |                                  |        |     |            | 1e07      | b570f4b9.. |
+|     |                                  |        |     |            | 67        |            |
+|---------------------------------------------------------------------------------------------|
+| 3   | NVIDIA GeForce RTX 2080 Ti       |        |     | 11510   MB | 10de      | 0          |
+|     |                                  |        |     |            | 1e07      | fefd1f96.. |
+|     |                                  |        |     |            | 68        |            |
+|=============================================================================================|
+| OS: 22.04.5 LTS (Jammy Jellyfish) ubuntu, Version: 22.04.5, Kernel: 5.15.0-126-generic
+| Processor: Intel(R) Core(TM) i9-9920X CPU @ 3.50GHz
+| Cores: 12 | Logical Cores: 24
+|---------------------------------------------------------------------------------------------|
+| Total Memory (MB): 128483 | Free Memory: 122655
+| Total Page/Swap (MB): 8191 | Free Page/Swap: 8191
+|---------------------------------------------------------------------------------------------|
+2026-09-07T22:10:24Z [4,344ms] [Warning] [gpu.foundation.plugin] CPU performance profile is set to powersave. This profile sets the CPU to the lowest frequency reducing performance.
+2026-09-07T22:10:24Z [4,398ms] [Warning] [omni.kvdb.plugin] Disabling key-value database because another kit process is locking it
+[world] 物理参数按出生世界还原: 物体质量=0.5 物体摩擦=1 指垫摩擦=1
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+[eval] 扰动种子 seed=2026 | POUR_OBJ_JITTER=0.03
+[aux] 第二物体 object_1(pour25 cup (10x10x16cm)): 相对主体偏移 [4.9, 19.5, -3.7]cm (来自 scene_layout)
+[aux]   (诊断) layout 内两物体偏航差 -0.0° —— **不**用它做任何补偿: 摆放是纯平移, 且旋转体的 yaw 是任意值
+
+[36m====================================================================================================[0m
+[36m[1m[INFO][IsaacLab]: Logging to file: /home/yanghong/tmp/isaaclab/logs/isaaclab_2026-09-07_22-10-25.log[0m
+[36m====================================================================================================[0m
+
+[33m22:10:25 [simulation_context.py] WARNING: The `enable_external_forces_every_iteration` parameter in the PhysxCfg is set to False. If you are experiencing noisy velocities, consider enabling this flag. You may need to slightly increase the number of velocity iterations (setting it to 1 or 2 rather than 0), together with this flag, to improve the accuracy of velocity updates.[0m
+[INFO]: Base environment:
+	Environment device    : cuda:0
+	Environment seed      : 2026
+	Physics step-size     : 0.004166666666666667
+	Rendering step-size   : 0.008333333333333333
+	Environment step-size : 0.05
+[33m22:10:25 [direct_rl_env.py] WARNING: The render interval (2) is smaller than the decimation (12). Multiple render calls will happen for each environment step.If this is not intended, set the render interval to be equal to the decimation.[0m
+[setup] object 刚体化: 1 mesh, mass=0.1kg
+[33m22:10:26 [interactive_scene.py] WARNING: Collision filtering can only be automatically enabled when replicate_physics=True and using GPU simulation. Please call scene.filter_collisions(global_prim_paths) to filter collisions across environments.[0m
+[setup] 物体材质=/World/Materials/SuperGrip×10 指尖SuperGrip×100 手身LowGrip×10
+[aux] 自由第二物体就绪: pour25 cup (10x10x16cm) mass=0.1kg friction=0.5 (无约束/不豁免碰撞)
+[setup] 物体接触上报已开: ['Object', 'Aux']
+[INFO]: Time taken for scene creation : 2.271369 seconds
+[INFO]: Scene manager:  <class InteractiveScene>
+	Number of environments: 10
+	Environment spacing   : 2.0
+	Source prim name      : /World/envs/env_0
+	Global prim paths     : []
+	Replicate physics     : False
+[INFO]: Starting the simulation. This may take a few seconds. Please wait...
+[INFO]: Time taken for simulation start : 1.759037 seconds
+[INFO]: Completed setting up the environment...
+[phys] 难度覆写 物体: 质量=0.500kg 摩擦=1.00/1.00
+[phys] 指垫摩擦覆写 = 1
+[dexmate] 交互侧=right | 臂 ['R_arm_j1', 'R_arm_j2', 'R_arm_j3', 'R_arm_j4', 'R_arm_j5', 'R_arm_j6', 'R_arm_j7'] | 手 22 关节 | 末端 body=right_hand_C_MC
+[replay_grasp] gs 改用**物体运动起始** f44 (接触标注起点 f24, 晚 20 帧) —— 标注早于真正抓稳, 见本函数注释
+[smooth] 剔除漂移帧 [107]   物体位置最大修正 0.99 cm
+[fp-dbg] sxy=[-0.1224 -0.1917] palm=[-0.0319  0.0045] a_off=[ 0.     -0.0011 -0.0021] dz=0.0000 obj_z=0.9885 rest_q=[7.072e-01 7.070e-01 2.000e-04 0.000e+00]
+[replay_grasp] L=185 PreGrasp帧 gs=59(src 44) 合拢至 ge=89 | 相机锚定 + 物体听手 (质心对准交互帧抓取锚点) 物体原点 xy=(-0.154,-0.186) z=0.989 | 腕 path 平移 xy=22.7cm z=+0.00cm
+[debug] hand bodies: [('vega_1p_mobile', 1.0), ('dummy_base_x', 9.999999747378752e-05), ('dummy_base_y', 9.999999747378752e-05), ('vega_1p_base', 88.43486785888672), ('B_base_cam', 0.0030900000128895044), ('F_base_cam', 0.0030900000128895044), ('L_base_cam', 0.0030900000128895044), ('R_base_cam', 0.0030900000128895044), ('vega_1p_back_lidar', 0.004230000078678131), ('vega_1p_front_lidar', 0.1509999930858612), ('vega_1p_torso_l1', 8.832340240478516), ('vega_1p_torso_l2', 14.589259147644043), ('vega_1p_torso_l3', 5.328859806060791), ('arm_center', 1.0), ('vega_1p_L_arm_l1', 1.4135099649429321), ('vega_1p_R_arm_l1', 1.4240100383758545), ('vega_1p_head_l1', 0.43780001997947693), ('L_arm_l2', 1.405940055847168), ('R_arm_l2', 1.4059499502182007), ('vega_1p_head_l2', 0.6077200174331665), ('L_arm_l3', 1.1609400510787964), ('R_arm_l3', 1.1607999801635742), ('vega_1p_head_l3', 0.6327800154685974), ('L_arm_l4', 0.9320400357246399), ('R_arm_l4', 0.9320400357246399), ('zed_left_camera', 1.0), ('zed_depth_frame', 1.0), ('zed_right_camera', 1.0), ('L_arm_l5', 0.6458200216293335), ('R_arm_l5', 0.6458200216293335), ('vega_1p_L_arm_l6', 0.5541999936103821), ('vega_1p_R_arm_l6', 0.5537199974060059), ('L_arm_l7', 0.35802000761032104), ('R_arm_l7', 0.35802000761032104), ('L_arm_l8', 0.2006399929523468), ('R_arm_l8', 0.2006399929523468), ('L_ee', 1.0), ('left_hand_C_MC', 0.650600016117096), ('R_ee', 1.0), ('right_hand_C_MC', 0.650600016117096), ('left_index_MCP_VL', 0.0022100000642240047), ('left_middle_MCP_VL', 0.0022100000642240047), ('left_pinky_MC', 0.12541000545024872), ('left_ring_MCP_VL', 0.0022100000642240047), ('left_thumb_CMC_VL', 0.0024999999441206455), ('right_index_MCP_VL', 0.0022100000642240047), ('right_middle_MCP_VL', 0.0022100000642240047), ('right_pinky_MC', 0.12541000545024872), ('right_ring_MCP_VL', 0.0022100000642240047), ('right_thumb_CMC_VL', 0.0024999999441206455), ('left_index_PP', 0.04741000011563301), ('left_middle_PP', 0.04741000011563301), ('left_pinky_MCP_VL', 0.0022100000642240047), ('left_ring_PP', 0.04741000011563301), ('left_thumb_MC', 0.13586999475955963), ('right_index_PP', 0.04741000011563301), ('right_middle_PP', 0.04741000011563301), ('right_pinky_MCP_VL', 0.0022100000642240047), ('right_ring_PP', 0.04741000011563301), ('right_thumb_MC', 0.13586999475955963), ('left_index_MP', 0.018239999189972878), ('left_middle_MP', 0.018239999189972878), ('left_pinky_PP', 0.04741000011563301), ('left_ring_MP', 0.018239999189972878), ('left_thumb_MCP_VL', 7.999999797903001e-05), ('right_index_MP', 0.018239999189972878), ('right_middle_MP', 0.018239999189972878), ('right_pinky_PP', 0.04741000011563301), ('right_ring_MP', 0.018239999189972878), ('right_thumb_MCP_VL', 7.999999797903001e-05), ('left_index_DP', 0.004550000187009573), ('left_middle_DP', 0.004550000187009573), ('left_pinky_MP', 0.018239999189972878), ('left_ring_DP', 0.004550000187009573), ('left_thumb_PP', 0.030780000612139702), ('right_index_DP', 0.004550000187009573), ('right_middle_DP', 0.004550000187009573), ('right_pinky_MP', 0.018239999189972878), ('right_ring_DP', 0.004550000187009573), ('right_thumb_PP', 0.030780000612139702), ('left_index_elastomer', 9.999999747378752e-05), ('left_middle_elastomer', 9.999999747378752e-05), ('left_pinky_DP', 0.004550000187009573), ('left_ring_elastomer', 9.999999747378752e-05), ('left_thumb_DP', 0.009879999794065952), ('right_index_elastomer', 9.999999747378752e-05), ('right_middle_elastomer', 9.999999747378752e-05), ('right_pinky_DP', 0.004550000187009573), ('right_ring_elastomer', 9.999999747378752e-05), ('right_thumb_DP', 0.00788000039756298), ('left_index_fingertip', 9.999999974752427e-07), ('left_middle_fingertip', 9.999999974752427e-07), ('left_pinky_elastomer', 9.999999747378752e-05), ('left_ring_fingertip', 9.999999974752427e-07), ('left_thumb_elastomer', 9.999999747378752e-05), ('right_index_fingertip', 9.999999974752427e-07), ('right_middle_fingertip', 9.999999974752427e-07), ('right_pinky_elastomer', 9.999999747378752e-05), ('right_ring_fingertip', 9.999999974752427e-07), ('right_thumb_elastomer', 9.999999747378752e-05), ('left_pinky_fingertip', 9.999999974752427e-07), ('left_thumb_fingertip', 9.999999974752427e-07), ('right_pinky_fingertip', 9.999999974752427e-07), ('right_thumb_fingertip', 9.999999974752427e-07)]
+[debug] hand 总质量 141.872 kg
+[reward] 手指模仿通道已关 (无 GraspPose, 参考手指不可信); 抓法由 contact/afford/lift 三项决定
+[finger] 累积残差: rate ±5.7°/步 | total ±68.8° | decay 1.0
+[dexmate] 躯干已在 USD 里锁死 (fixed joint), 无沉降过程
+[dexmate] 相机锚定残差: 实测 ZED xy=[-0.5558000206947327, -0.0] vs 标称 [-0.4079, -0.0004] -> 参考整体补移 [-14.79, 0.04]cm  (标称过期了就改 place_camera.ZED_NOMINAL)
+[ref质量] 可达帧位置误差: 中位 0.06cm 95分位 0.06cm 最大 0.10cm
+[ref质量] 物体漂移帧 1 个 (位置是插值出来的): [143]
+[dexmate] 抬升轨迹: 20 级 x 5cm, 末端实际升 4.7cm
+[dexmate] place_mode=ref_builder (保留 ref builder 摆放, 平移 [0.0, 0.0, 0.0]) | IK 全程可达 100.0% | 抓取窗[59,89] 100.0% | 位置误差中位 0.06cm | 顶替 0 帧
+[pregrasp] 表面法向已采样 (512, 3) (cent 用局部法向, 形状无关)
+[collide] 臂连杆 9 个 (['vega_1p_R_arm_l1', 'R_arm_l2', 'R_arm_l3', 'R_arm_l4', 'R_arm_l5', 'vega_1p_R_arm_l6', 'R_arm_l7', 'R_arm_l8', 'R_ee']) | 需避让 16 个 (躯干/头/另一臂)
+[collide] 外壳口径臂罚开启: 8 节连杆 × ≤96 表面点 (余量 1cm)
+[prior] 零位校准参考数 (静态 FK: 垫->物体表面, 阈值 1.5cm): 不校准 ['2.6', '1.4', '1.2', '1.7', '1.3']cm (3 垫); 校准后 ['2.9', '0.7', '1.0', '1.0', '1.1']cm (4 垫)  ⚠仅供参考, 不作判据 (见下)
+[prior] 模板参与指 5/5: ['thumb', 'index', 'middle', 'ring', 'pinky'] (逐指最近接触点 ['2.6', '0.9', '2.0', '1.3', '1.0']cm) | 判据随之: min_pads=4 verify_min_pads=3 cent 归一 /5
+[prior] 物体按 Dexonomy 规范姿态摆放 (原点 z=0.9885, 高度 23.31cm)
+[prior] 姿态交叉核验: Dexonomy canon_rot vs scene_layout 主轴夹角 0.0° ✅一致
+[prior] 物体 yaw **钉死** 90° (来自 Gate 1 的 best_yaw, 与视频一致) | 该角 IK err 0.06cm
+[prior] 物体 yaw 旋转 90° 使抓姿朝向机械臂 (绕竖轴旋转, 物体仍平放于桌面)
+[prior] 物体听手 XY 按最终姿态重解: 平移 [-0.11, -0.12]cm (|Δ|=0.16cm) —— 姿态从 builder 的 rest_q 换成 canon_rot∘yaw 后, 抓取目标区绕原点转跑了这么多
+[finger_gate] 自标定基准 d_g=12.4cm (GraspPose 处腕-物体距离) | 放开 <15.5cm | 冻结 >31.0cm
+[prior]   抬升斜坡: 第 4 级实际抬 9.85mm (要求 10mm) | IK 直解失败 0/20 级
+[prior] GraspPose 已接入: tasks/pregrasp/priors/Pour25_bottle_thumbfix.npz
+[prior]   IK grasp err 0.11cm | pregrasp err 0.05cm | pre->grasp 最大关节差 1.9°
+[prior]   臂外壳离桌余量(指令位形估计): 抓握位 +7.4cm | 预抓位 +7.3cm
+[retract] λ=0.00 仰角  -5.8° | IK 全通 | 外壳离桌 5.5~7.4cm | 逐级最大下降 0.12cm  -> ✅采用
+[retract] 前缀段(腕走直线) 60 帧: IK 失败 0/60 | 臂外壳离桌 5.65~12.91cm ✅
+[retract] 参考路径已建: 站姿前缀 60 帧 + 退避 32 档 = 92 帧, 终点 = GraspPose
+[retract] 起点族已建: d_g=12.4cm D=18.6cm (1.5×d_g) × 32 级 | λ=0.00 仰角 -5.8°
+[approach] 开: 参考 gs=59 (3.0s) | 预算 179 步 | 切换 <3.00cm & <15.0° 保持2步 | 直接抓取起步比例 0.50
+[score] 接触分数图已开: 512 个表面点; 只在 verify 斜坡到顶取快照, 按力占比加权
+[pregrasp] v2 稳定抓握+微抬升验证: 起点=PreGrasp(帧59) | 合拢参考 0.025/步 | 候选 ≥4垫 向心≥0.3 保持4步 | 验证升 10mm (4级) | episode ≤ 250 步
+[PB] ★G-B 接触起始黄窗: 交互行 0~16 档位上限黄 (r_lift=13, 主档 绿→黄 17 行)
+[PB] ★POUR_HOLD_POSE=1: 认证加 倾角≤10° / 漂移≤1cm (v1: 认证内偏离); 渐进罚 倾角5°→60° K=0.05, 漂移5mm→5cm K=0.05 (窗口 G1→G2)
+[PS] ★G-B 接触起始黄窗: 交互行 0~16 档位上限黄 (r_lift=13, 主档 绿→黄 17 行)
+[PourEnv] 变体=HYB (置信门控双参考+形状指引)
+[PourEnv] RSI出生表: ['t0']
+[PourEnv] ★POUR_GRIP_SHAPE=1: 对向势 K_OPP=2.0/手 + 跟腕比 K_FOLLOW=1.0/手 (earn-only 棘轮, G1→G2 窗)
+[phys] 难度覆写 杯: 质量=0.500kg 摩擦=1.00/1.00
+[PourEnv] 瓶 z 换基 Δz=+0.00cm (obj_rest_z=0.9885 vs 母带 0.9885)
+[PourEnv] squeeze 剂量: βR=2.0 βL=1.0 (L5-1 探针标定)
+[PourEnv] 残差界按档: 绿0.05(53行) 黄0.08(133行) 红0.1(128行)
+[PourEnv] ★POUR_OBJ_JITTER=±3.0cm: 每回合物体 XY 随机摆放偏移(瓶杯同移)
+[PourEnv] ★轴对称假设: 长轴 瓶=[0.0, 1.0, 0.0] 杯=[0.0, 1.0, 0.0]; 绕长轴自转在 参考IK/皮筋/G3/placed/G4/死线 全链**不判**
+[PourEnv]   母带声明 up_local=0.0,1.0,0.0 —— 与判据一致 ✓
+[PourEnv] 手指门: 冻结 [0,165) 与 [529,末] (Approach全程冻结, 缝1起开)
+[PourEnv] B线: squeeze 掺前馈已开 (|Δ|max=1.039 rad, 山丘剖面)
+[v3net] separate critic ON (priv 12 raw -> critic; actor embeds first 12)
+RunningMeanStd:  (503,)
+RunningMeanStd:  (1,)
+[world] ⚠ 1/33 项关键项**无法核对**(缺失或值为 None) —— 这不是通过, 是未验:
+[world]   method.variant: 记录=HYB 当前=None
+[world] ✅ 世界匹配
+
+[eval] ===== 出生点 0 (t0 = 从头做完整任务, 官方考试口径) =====
+[eval] sr/gate1=1.000 sr/gate2=1.000 sr/gate3=1.000 sr/gate4=0.000 sr_t0/gate1=1.000 sr_t0/gate2=1.000 sr_t0/gate3=1.000 sr_t0/gate4=0.000 prog/ep_t0_frac=1.000 prog/clock_frac=0.804 sr/clock_done=0.000 sr_t0/clock_done=0.000 sr/clock_ge90=0.000 sr/success=0.000 sr_t0/success=0.000 sr/placed=0.000 sr_t0/placed=0.000 sr/g3_loose=1.000 sr_t0/g3_loose=1.000 sr/cert_pass=1.000 prog/cert_att=1.000 n/ep_done=10.000 n/ep_done_t0=10.000 n/cert_attempts=10.000 cert_fail/rise_bot=0.000 cert_fail/rise_cup=0.000 cert_fail/slip_r=0.000 cert_fail/slip_l=0.000 cert_fail/pads=0.000 cert_fail/tilt=0.000 cert_fail/drift=0.000 term/D2pre=nan term/D1_drop=nan term/D3_dev=nan term/D8_disturb=nan term/D2_tilt=nan n/term_judge=0.000
+[batch] 出生点 0: 共 10 回合, 分 9 步结算; 最大的几批 =[2, 1, 1, 1, 1]; 前3批占 40.0%
+[batch]   ★等效独立批数 n_eff = 8.3  (理想=回合数 10; =1~3 则'512回合'实为少数几批的复现)
+[batch]   按 n_eff 折算的成功率标准误 ≈ 17.3 个点 (对比按 10 回合的二项口径 15.8 个点)
+
+==============================================================================
+[eval] 逐出生点分解 (每格 = 该出生点下的通关率)
+==============================================================================
+   出生点     回合      G1      G2    G3倒水      放回     ★成功      G4      认证       G3松
+     0     10   1.000   1.000   1.000   0.000   0.000   0.000   1.000     1.000
+★ 主判据 = ★成功 = G3倒水 ∧ 放回 (L5-32, 2026-08-31)。两项都是绝对量,
+  不读参考轨迹形状 ⟹ 六条臂用的是同一把尺, 可以直接横向比。
+★ G3松 = 旧口径(3D距<=12cm, 不分上下)的影子。**G3松 − G3倒水 = 旧口径里
+  被'横杵在杯子旁边'刷出来的那部分** —— 差得越多, 该 ckpt 的历史数字越虚。
+
+[eval] ★Success(G3_pour ∧ placed, t0 口径) = 0.0000   (t0 分母 10 回合)
+[eval]   分解: G3倒水 1.0000 · 放回 0.0000 · G3松 1.0000 · 走完时钟 0.0000
+[eval]   撤离 G4 0.0000 (**不在主判据内**, 用户 2026-08-30 裁定不做撤离)
+==============================================================================

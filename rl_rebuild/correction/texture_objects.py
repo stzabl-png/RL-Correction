@@ -69,7 +69,10 @@ def _attach_visual(stage, root, vis_json, tag):
     cfg = _json.load(open(vis_json))
     xp = root + "/TexturedVis"
     x = UsdGeom.Xform.Define(stage, xp)
-    x.GetPrim().GetReferences().AddReference(cfg["usd"])
+    _u = cfg["usd"]
+    if not os.path.isabs(_u) or not os.path.exists(_u):   # 相对路径/异机: 相对 json 所在目录解析 (2026-09-07)
+        _u = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(vis_json)), _u))
+    x.GetPrim().GetReferences().AddReference(_u)
     M = cfg["matrix"]
     # U16.1 定案 (2026-09-02, 离线合成探针): USD 行向量约定 p·M, 递 M_math^T。
     # (unscrew 瓶实测: 转置 6.1mm/z[0,0.197] ✓, 不转置 78mm 躺倒 ✗。此前"去转置"

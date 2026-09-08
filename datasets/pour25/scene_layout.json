@@ -1,0 +1,73 @@
+{
+ "schema_version": "scene_layout_v1",
+ "rl_table_height": 0.85,
+ "scene_table_z": 0.8085148572089796,
+ "scene_table_source": "object_1(conf_pos=96.0) 在 f0~f0 的顶点 1% 分位中位数",
+ "scene_to_rl_shift_z": -0.041485142791020335,
+ "obj_gap": 0.01,
+ "objects": {
+  "object_0": {
+   "pos": [
+    0.48398551311567123,
+    -0.2034615583065002,
+    0.9350319150384117
+   ],
+   "quat_wxyz": [
+    0.00011886230061278743,
+    -0.00011881860686820433,
+    0.706976769247699,
+    0.707236749255847
+   ],
+   "anchor_hand": "right",
+   "onset_frame": 44,
+   "anchor_xy": [
+    0.4839633770189372,
+    -0.2028004640427114
+   ],
+   "quat_reason": "稳定候选57 | 筛直立(细长比2.78)->2 | 按重建**主轴指向**挑最近候选(轴夹角 7.0° ✅同向, 概率 0.031)",
+   "contact_start": 24,
+   "onset_reason": "运动起始 f44(接触起点 f24, 阈 0.8cm/3帧, 持续3帧)",
+   "mesh": "/home/lyh/Project/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_auto/pour/25/objects/object_0/object_mesh_scaled_final.obj",
+   "extent_cm": [
+    8.3,
+    8.4,
+    23.3
+   ]
+  },
+  "object_1": {
+   "pos": [
+    0.5329284295130164,
+    -0.008821063673105322,
+    0.8975891664914236
+   ],
+   "quat_wxyz": [
+    -0.012394023118831986,
+    0.012617040588351202,
+    0.7132719355707575,
+    0.7006642165865665
+   ],
+   "anchor_hand": "left",
+   "onset_frame": 32,
+   "anchor_xy": [
+    0.5326386943921068,
+    -0.007929961757368896
+   ],
+   "quat_reason": "稳定候选52 | 筛直立(细长比1.57)->2 | 按重建**主轴指向**挑最近候选(轴夹角 2.4° ✅同向, 概率 0.080)",
+   "contact_start": 0,
+   "onset_reason": "运动起始 f32(接触起点 f0, 阈 0.8cm/3帧, 持续3帧)",
+   "mesh": "/home/lyh/Project/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_auto/pour/25/objects/object_1/object_mesh_scaled_final.obj",
+   "extent_cm": [
+    10.2,
+    9.9,
+    16.1
+   ]
+  }
+ },
+ "diagnostics": [
+  "场景桌面高度 0.809m (量自 object_1(conf_pos=96.0) 在 f0~f0 的顶点 1% 分位中位数); RL 桌面 0.85m -> 整场景需下移 -0.041m",
+  "object_0: 听右手 @f44  XY=(0.484,-0.203)  Z=0.935  尺寸 [8.3, 8.4, 23.3]cm\n          锚帧: 运动起始 f44(接触起点 f24, 阈 0.8cm/3帧, 持续3帧)\n          姿态: 稳定候选57 | 筛直立(细长比2.78)->2 | 按重建**主轴指向**挑最近候选(轴夹角 7.0° ✅同向, 概率 0.031)",
+  "object_1: 听左手 @f32  XY=(0.533,-0.009)  Z=0.898  尺寸 [10.2, 9.9, 16.1]cm\n          锚帧: 运动起始 f32(接触起点 f0, 阈 0.8cm/3帧, 持续3帧)\n          姿态: 稳定候选52 | 筛直立(细长比1.57)->2 | 按重建**主轴指向**挑最近候选(轴夹角 2.4° ✅同向, 概率 0.080)"
+ ],
+ "rule": "每个物体听自己的那只手: XY=该手在该物体**运动起始帧**(抓稳)的五指尖质心; Z=贴桌; 姿态=稳定候选->筛直立->筛开口朝上->取概率最高(不用重建旋转)",
+ "source_contact": "contact_auto_object_*.json (逐物体, 非并集)"
+}

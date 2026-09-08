@@ -384,6 +384,126 @@ CLIPS["Pour17_cup"] = _pour17("cup")
 
 
 # =============================================================================
+# 倒水 egodex_auto/pour/25 (2026-09-05 入库, 仿 pour/17 标准)
+#   ★ 物体索引与17相反 (Dexonomy Step2 核实): 瓶=object_0/右手、杯=object_1/左手。
+#   重建 = Reconstruct_and_Retarget pour/25 (139帧); mesh 减面 353k/672k -> 80k
+#   (全分辨率备份 *_fullres.obj); GraspPose = Dexonomy 默认档 (VLM未起, cylinder/4指,
+#   瓶 11_Power_Sphere / 杯 3_Medium_Wrap); 摆位/关键帧 = scene_layout.py/keyframes.py
+#   自动生成 (交互窗 [44,134], 瓶onset44/杯onset32); 两物 rotation_usable=True。
+#   无 affordance (两物都有 GraspPose, prior 模式对齐用接触质心)。
+# =============================================================================
+
+
+def _pour25(primary: str):
+    base = os.path.join(_DATASETS, "pour25")
+    rec = os.path.join(paths.RR_OUTPUT, "ReconstructOutput", "egodex_auto", "pour", "25")
+    bottle = dict(
+        oid="object_0", hand="right",
+        label="pour25 bottle (8x8x23cm)",
+        mesh=os.path.join(base, "objects", "object_0", "object_mesh_scaled_final.obj"),
+        usd=os.path.join(base, "objects", "object_0.usd"),   # 带纹理视觉(运行时贴物理); 灰素模改此
+        usd_physics=os.path.join(base, "cache", "object_0.usd"),
+        semantics=ObjectSemantics(label="pour25 bottle", mass_kg=0.1, friction=0.5),
+        template="1_Large_Diameter",   # 用户选定缠握 (替旧球握 Power_Sphere, 球握退避钻桌)
+    )
+    cup = dict(
+        oid="object_1", hand="left",
+        label="pour25 cup (10x10x16cm)",
+        mesh=os.path.join(base, "objects", "object_1", "object_mesh_scaled_final.obj"),
+        usd=os.path.join(base, "objects", "object_1.usd"),   # 带纹理视觉(运行时贴物理)
+        usd_physics=os.path.join(base, "cache", "object_1.usd"),
+        semantics=ObjectSemantics(label="pour25 cup", mass_kg=0.1, friction=0.5),
+        template="1_Large_Diameter",   # 用户选定缠握 (替旧 Medium_Wrap)
+    )
+    pri, sec = (bottle, cup) if primary == "bottle" else (cup, bottle)
+    return dict(
+        source="replay_grasp",
+        npz=os.path.join(rec, "replay_world.npz"),
+        mesh=pri["mesh"], usd=pri["usd"],
+        place_mode="ref_builder",
+        runtime_object_physics=True,
+        override_cfg_mass=True,
+        flatten_converted_usd=True,
+        hand=pri["hand"], robot_hand=pri["hand"],
+        semantics=pri["semantics"],
+        primary_oid=pri["oid"],
+        secondary=dict(label=sec["label"], mesh=sec["mesh"], usd=sec["usd_physics"],
+                       semantics=sec["semantics"], oid=sec["oid"],
+                       usd_convex_hulls=128, usd_shrink_wrap=True),
+        scene_layout_json=os.path.join(base, "scene_layout.json"),
+        keyframes_json=os.path.join(base, "keyframes.json"),
+        grasp_prior_npz_default=os.path.abspath(os.path.join(
+            os.path.dirname(__file__), "../../tasks/pregrasp/priors",
+            f"Pour25_{'bottle' if primary == 'bottle' else 'cup'}.npz")),
+        grasp_template=pri["template"],
+        verify_mode="lift",
+        arm_table_shell=True,
+        upright_hold=True,
+        pad_contact_calib=True,
+    )
+
+
+CLIPS["Pour25_bottle"] = _pour25("bottle")
+CLIPS["Pour25_cup"] = _pour25("cup")
+
+
+def _pour31(primary: str):
+    # pour31 重建编号 = object_0=杯/左, object_1=瓶/右 (与 pour17 clips 约定同向,
+    # 与 pour25 相反 —— pour25 是 object_0=瓶). 参考带约定仍 obj_0=杯/obj_1=瓶,
+    # 故 build_ref_pos **不做** pour25 的 OP[[1,0]] 交换 (和 pour17 一样).
+    base = os.path.join(_DATASETS, "pour31")
+    rec = os.path.join(paths.RR_OUTPUT, "ReconstructOutput", "egodex_auto", "pour", "31")
+    cup = dict(
+        oid="object_0", hand="left",
+        label="pour31 cup (9x9x14cm)",
+        mesh=os.path.join(base, "objects", "object_0", "object_mesh_scaled_final.obj"),
+        usd=os.path.join(base, "objects", "object_0.usd"),
+        usd_physics=os.path.join(base, "cache", "object_0.usd"),
+        semantics=ObjectSemantics(label="pour31 cup", mass_kg=0.1, friction=0.5),
+        template="1_Large_Diameter",   # ranking top (cov0 偏弱, GraspPose 池最好项)
+    )
+    bottle = dict(
+        oid="object_1", hand="right",
+        label="pour31 bottle (5x5x18cm)",
+        mesh=os.path.join(base, "objects", "object_1", "object_mesh_scaled_final.obj"),
+        usd=os.path.join(base, "objects", "object_1.usd"),
+        usd_physics=os.path.join(base, "cache", "object_1.usd"),
+        semantics=ObjectSemantics(label="pour31 bottle", mass_kg=0.1, friction=0.5),
+        template="10_Power_Disk",       # ranking top (score0.87 cov1.0)
+    )
+    pri, sec = (bottle, cup) if primary == "bottle" else (cup, bottle)
+    return dict(
+        source="replay_grasp",
+        npz=os.path.join(rec, "replay_world.npz"),
+        mesh=pri["mesh"], usd=pri["usd"],
+        place_mode="ref_builder",
+        runtime_object_physics=True,
+        override_cfg_mass=True,
+        flatten_converted_usd=True,
+        hand=pri["hand"], robot_hand=pri["hand"],
+        semantics=pri["semantics"],
+        primary_oid=pri["oid"],
+        secondary=dict(label=sec["label"], mesh=sec["mesh"], usd=sec["usd_physics"],
+                       semantics=sec["semantics"], oid=sec["oid"],
+                       usd_convex_hulls=128, usd_shrink_wrap=True),
+        scene_layout_json=os.path.join(base, "scene_layout.json"),
+        keyframes_json=os.path.join(base, "keyframes.json"),
+        grasp_prior_npz_default=os.path.abspath(os.path.join(
+            os.path.dirname(__file__), "../../tasks/pregrasp/priors",
+            f"Pour31_{'bottle' if primary == 'bottle' else 'cup'}.npz")),
+        grasp_template=pri["template"],
+        verify_mode="lift",
+        arm_table_shell=True,
+        upright_hold=True,
+        pad_contact_calib=True,
+    )
+
+
+CLIPS["Pour31_bottle"] = _pour31("bottle")
+CLIPS["Pour31_cup"] = _pour31("cup")
+
+
+# =============================================================================
 #   sweep_2 (扫地, 2026-08-19 深夜首注册): 左手簸箕 / 右手扫帚。
 #   ⚠ 最小可行注册 (GUI/规划先行), 三个临时项待还:
 #     ① 无 affordance (env 全条件分支, 缺省可跑; 接触带在
@@ -459,6 +579,71 @@ def _sweep2(primary: str):
 
 CLIPS["Sweep2_broom"] = _sweep2("broom")
 CLIPS["Sweep2_dustpan"] = _sweep2("dustpan")
+
+
+# =============================================================================
+#   clean_tableware/3 (擦盘子, 2026-09-07 入库): 左手盘 / 右手洗碗布(海绵)。
+#   ★ 视频全程双手持物, 无 approach/grasp 段 —— 任务从"已持握"开始 (与 Sweep2 同
+#     起法), 但握持是**真摩擦握** (用户 2026-09-07 裁定, 非 FixedJoint 焊接)。
+#   网格 = Dexonomy 实际用的两份 (输入系, 与重建 mesh 同框):
+#     盘 = 重建 ⌀24cm 网格 ×0.75 → ⌀18cm (用户 09-07 定); 海绵 = 剥内壳外壳 7.6×3.8×13.2。
+#     纹理视觉 USD 同尺度 (retarget/object_0_textured.usd 由 take 的缩放 ×0.75)。
+#   GraspPose (用户点选, Dexonomy DELIVER/clean3_*):
+#     盘×左 27_Quadpod__1_42 (拇指压面+三指托底); 海绵×右 11_Power_Sphere__3_2 (擦盘面留空)。
+#   物理 (用户裁定): 盘 0.3kg / 海绵 0.05kg; 摩擦按 G-A μ1 (发射脚本显式覆写)。
+#   台账: tasks/Clean/3/A_Design/DECISIONS.md §5。
+# =============================================================================
+
+
+def _clean3(primary: str):
+    base = os.path.join(_DATASETS, "clean_tableware", "3")
+    plate = dict(
+        oid="object_0", hand="left",
+        label="plate (d18cm x 2.4cm dish, held by left hand)",
+        mesh=os.path.join(base, "objects", "object_0", "object_mesh_scaled_final.obj"),
+        usd=os.path.join(base, "retarget", "object_0_textured.usd"),
+        usd_physics=os.path.join(base, "cache", "object_0.usd"),
+        semantics=ObjectSemantics(label="plate", mass_kg=0.30, friction=1.0,
+                                  mass_range=(0.20, 0.40)),
+    )
+    sponge = dict(
+        oid="object_1", hand="right",
+        label="sponge / dishcloth (7.6x3.8x13.2cm, scrub face = input -y)",
+        mesh=os.path.join(base, "objects", "object_1", "object_mesh_scaled_final.obj"),
+        usd=os.path.join(base, "retarget", "object_1_textured.usd"),
+        usd_physics=os.path.join(base, "cache", "object_1.usd"),
+        semantics=ObjectSemantics(label="sponge", mass_kg=0.05, friction=1.0,
+                                  mass_range=(0.03, 0.10)),
+    )
+    pri, sec = (plate, sponge) if primary == "plate" else (sponge, plate)
+    return dict(
+        source="replay_grasp",
+        npz=os.path.join(base, "replay_world.npz"),
+        mesh=pri["mesh"], usd=pri["usd"],
+        place_mode="ref_builder",
+        runtime_object_physics=True,
+        override_cfg_mass=True,
+        flatten_converted_usd=True,
+        hand=pri["hand"], robot_hand=pri["hand"],
+        semantics=pri["semantics"],
+        primary_oid=pri["oid"],
+        secondary=dict(label=sec["label"], mesh=sec["mesh"], usd=sec["usd_physics"],
+                       semantics=sec["semantics"], oid=sec["oid"],
+                       usd_convex_hulls=128, usd_shrink_wrap=True),
+        scene_layout_json=os.path.join(base, "scene_layout.json"),
+        grasp_prior_npz_default=os.path.abspath(os.path.join(
+            os.path.dirname(__file__), "../../tasks/pregrasp/priors",
+            "Clean3_plate_left.npz" if primary == "plate" else "Clean3_sponge_right.npz")),
+        grasp_template=("27_Quadpod" if primary == "plate" else "11_Power_Sphere"),
+        verify_mode="lift",
+        arm_table_shell=True,
+        upright_hold=True,
+        pad_contact_calib=False,
+    )
+
+
+CLIPS["Clean3_plate"] = _clean3("plate")
+CLIPS["Clean3_sponge"] = _clean3("sponge")
 
 
 def clip_entry(name: str) -> dict:

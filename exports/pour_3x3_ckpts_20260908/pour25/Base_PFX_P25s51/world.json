@@ -1,0 +1,231 @@
+{
+ "reference": {
+  "path": "tasks/Pour/25/A_Design/L2_Reference/pour25_reference_v5.npz",
+  "md5": "956c488c0f7be05e58239ff2b901d6d1"
+ },
+ "policy_io": {
+  "obs_dim": 503,
+  "act_dim": 58
+ },
+ "schema": "world_fingerprint_v1",
+ "criteria": {
+  "schema": 2,
+  "digest": "a3812d0c8535c042",
+  "items": {
+   "GATE_POS": 0.05,
+   "GATE_ROT": 0.785398163,
+   "RED_GATE_POS": 0.08,
+   "LEASH_POS": {
+    "0": 0.08,
+    "1": 0.05,
+    "2": 0.03
+   },
+   "LEASH_ROT": {
+    "0": null,
+    "1": 0.523598776,
+    "2": 0.261799388
+   },
+   "G1_HOLD": 10.0,
+   "CERT_RAMP": 8.0,
+   "CERT_HOLD": 5.0,
+   "CERT_RET": 8.0,
+   "CERT_RISE": 0.005,
+   "CERT_SLIP": 0.008,
+   "CERT_WAIT": 20.0,
+   "CERT_TRIES": 3.0,
+   "M2_TILT": 1.570796327,
+   "M2_HOLD": 25.0,
+   "M2_STRICT_HORIZ": 0.0675,
+   "M2_STRICT_DZ_LO": 0.0,
+   "M2_STRICT_DZ_HI": 0.08,
+   "M3_POS": 0.03,
+   "M3_ROT": 0.261799388,
+   "M3_HOLD": 15.0,
+   "M4_ARM": 0.174532925,
+   "M4_HOLD": 15.0,
+   "M4_DIST_POS": 0.05,
+   "M4_DIST_ROT": 0.523598776,
+   "D1_DROP": 0.05,
+   "D2_TILT": 0.523598776,
+   "D3_DEV": 0.35,
+   "TABLE_Z": 0.87,
+   "HOLD_POSE": 1.0,
+   "HOLD_TILT_TOL": 0.174532925,
+   "HOLD_DRIFT_TOL": 0.01
+  }
+ },
+ "geometry": {
+  "up_local_bot": [
+   0.0,
+   1.0,
+   0.0
+  ],
+  "up_local_cup": [
+   0.0,
+   1.0,
+   0.0
+  ],
+  "axis_spin_ignored": true,
+  "note": "绕长轴自转在 参考IK/皮筋/G3/placed/G4/死线 全链不判"
+ },
+ "time": {
+  "physics_dt_s": 0.004166667,
+  "control_dt_s": 0.05,
+  "decimation": 12,
+  "render_interval": 2
+ },
+ "physx": {
+  "solver_type": 1,
+  "gravity": [
+   0.0,
+   0.0,
+   -9.81
+  ]
+ },
+ "table": {
+  "table_top_z_m": 0.87,
+  "table_size_m": [
+   1.2192,
+   1.8288,
+   0.04
+  ]
+ },
+ "objects": {
+  "object_1": {
+   "mass_kg": 0.5,
+   "static_friction": 1.0,
+   "dynamic_friction": 1.0,
+   "restitution": 0.0,
+   "usd": "/home/yanghong/RL_Correction/datasets/pour25/objects/object_0.usd"
+  },
+  "object_0": {
+   "mass_kg": 0.5,
+   "static_friction": 1.0,
+   "dynamic_friction": 1.0,
+   "restitution": 0.0,
+   "usd": "/home/yanghong/RL_Correction/datasets/pour25/cache/object_1.usd"
+  }
+ },
+ "robot": {
+  "usd": "/home/yanghong/RL_Correction/assets/vega_1p_sharpa_fixedtorso.usd",
+  "usd_md5": "143385ad217f10f3fe730338d748246d",
+  "num_joints_articulation": 58,
+  "controlled_joint_names_in_order": [
+   "R_arm_j1",
+   "R_arm_j2",
+   "R_arm_j3",
+   "R_arm_j4",
+   "R_arm_j5",
+   "R_arm_j6",
+   "R_arm_j7",
+   "L_arm_j1",
+   "L_arm_j2",
+   "L_arm_j3",
+   "L_arm_j4",
+   "L_arm_j5",
+   "L_arm_j6",
+   "L_arm_j7",
+   "right_thumb_CMC_FE",
+   "right_thumb_CMC_AA",
+   "right_thumb_MCP_FE",
+   "right_thumb_MCP_AA",
+   "right_thumb_IP",
+   "right_index_MCP_FE",
+   "right_index_MCP_AA",
+   "right_index_PIP",
+   "right_index_DIP",
+   "right_middle_MCP_FE",
+   "right_middle_MCP_AA",
+   "right_middle_PIP",
+   "right_middle_DIP",
+   "right_ring_MCP_FE",
+   "right_ring_MCP_AA",
+   "right_ring_PIP",
+   "right_ring_DIP",
+   "right_pinky_CMC",
+   "right_pinky_MCP_FE",
+   "right_pinky_MCP_AA",
+   "right_pinky_PIP",
+   "right_pinky_DIP",
+   "left_thumb_CMC_FE",
+   "left_thumb_CMC_AA",
+   "left_thumb_MCP_FE",
+   "left_thumb_MCP_AA",
+   "left_thumb_IP",
+   "left_index_MCP_FE",
+   "left_index_MCP_AA",
+   "left_index_PIP",
+   "left_index_DIP",
+   "left_middle_MCP_FE",
+   "left_middle_MCP_AA",
+   "left_middle_PIP",
+   "left_middle_DIP",
+   "left_ring_MCP_FE",
+   "left_ring_MCP_AA",
+   "left_ring_PIP",
+   "left_ring_DIP",
+   "left_pinky_CMC",
+   "left_pinky_MCP_FE",
+   "left_pinky_MCP_AA",
+   "left_pinky_PIP",
+   "left_pinky_DIP"
+  ],
+  "pad_friction": 1.0,
+  "supergrip_bodies": [
+   "left_index_elastomer",
+   "left_middle_elastomer",
+   "left_pinky_elastomer",
+   "left_ring_elastomer",
+   "left_thumb_elastomer",
+   "right_index_elastomer",
+   "right_middle_elastomer",
+   "right_pinky_elastomer",
+   "right_ring_elastomer",
+   "right_thumb_elastomer"
+  ],
+  "self_collision": false,
+  "self_collision_source": "USD:/World/envs/env_0/Robot/root_joint"
+ },
+ "sensors": {
+  "count": 23,
+  "pad_force_threshold_N": 0.5,
+  "pads_min_per_hand": 3
+ },
+ "scene": {
+  "env_spacing_m": 2.0,
+  "replicate_physics": false
+ },
+ "switches": {
+  "approach_only": true,
+  "obj_jitter_xy": 0.0,
+  "conf_flat": false,
+  "arm_ref_free": false,
+  "goal_only": false,
+  "place_shape": true,
+  "mouth_bonus": true,
+  "arm_free_scale": 1.0,
+  "friction_curriculum": false,
+  "tier_floor_start": 17,
+  "tier_shuffle": 0,
+  "tier_reverse": false,
+  "grip_shape": true,
+  "grip_opp_k": 2.0,
+  "grip_follow_k": 1.0,
+  "hold_pose": true,
+  "place_both": false,
+  "place_terminal": false,
+  "grip_hold": false,
+  "grip_hold_k": 0.0,
+  "place_grace": 0,
+  "place_curr": false,
+  "hold_mode": 1,
+  "rel_ref": false
+ },
+ "method": {
+  "variant": "HYB",
+  "beta_r": "2.0",
+  "beta_l": "1.0",
+  "name": "PFX_P25s51",
+  "seed": 51
+ }
+}

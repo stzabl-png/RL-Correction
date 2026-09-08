@@ -1,0 +1,54 @@
+# PreGrasp 任务的 PPO 配置 — 基于 rl_rebuild/correction/agents/ppo_correction.yaml,
+# 超参不动 (它们是在同一台机器人+同一物理上标定的); experiment_name 由 train.py 覆盖.
+# sigma/mu 初值的含义在这里不同于旧任务: mu~=0 = "停在 PreGrasp、不合拢", 起点是
+# 已验证可达的静止姿态, 同样成立 "从零残差起步" 的设计.
+seed: 42
+algo: PPO
+device: cuda
+network:
+  mlp:
+    units: [256, 128]
+  priv_mlp:
+    units: [64, 32, 8]
+  separate_critic: True
+  actor_priv_dim: 12
+  sigma_floor: 0.02
+  sigma_init: 0.1
+  mu_init_scale: 0.01
+
+load_path: None
+
+algorithm:
+  experiment_name: 'Pour17_0'
+  normalize_input: True
+  normalize_value: True
+  value_bootstrap: True
+  num_actors: 1024
+  normalize_advantage: True
+  gamma: 0.99
+  tau: 0.95
+  learning_rate: 3e-4
+  # 2026-08-03: 0.05 -> 0.02 (用户裁定). A 组证明 0.05 的大步长把抓取技能冲掉
+  # (§2.12); 0.02 必要但不充分 (N1 复现失败, §2.14), 仍是已知最优默认值.
+  kl_threshold: 0.02
+  max_lr: 3e-4
+  min_lr: 3e-5
+  horizon_length: 32
+  minibatch_size: 8192
+  mini_epochs: 5
+  # v2: 50 -> 10. 有合拢参考斜坡后, 初始 rollout 就是"接近真实抓取"的分布,
+  # 不需要长热身; 50 迭代攒的 160 万条"几乎不动"数据在 actor 解冻后立刻过时.
+  critic_warmup_iters: 10
+  clip_value: True
+  critic_coef: 1
+  entropy_coef: 0.001
+  e_clip: 0.2
+  bounds_loss_coef: 0.0001
+  truncate_grads: True
+  grad_norm: 1.0
+  save_best_after: 0
+  save_frequency: 40
+  max_agent_steps: 100000000
+  priv_info: True
+  priv_info_dim: 12   # Pour: 质量+摩擦+双手tip力
+  priv_info_embed_dim: 8

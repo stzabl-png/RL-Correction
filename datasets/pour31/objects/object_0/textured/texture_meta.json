@@ -1,0 +1,32 @@
+{
+ "criteria_version": "sam3d_texture_bake_v1_20260901",
+ "take": "egodex_auto/pour/31",
+ "object_id": "object_0",
+ "reconstruction_frame": 12,
+ "seed": 42,
+ "source_video": "/home/yanghong/egodex_src/pour/31.mp4",
+ "scale_raw_to_final": 0.13794209603232707,
+ "raw_vs_final_vertex_order_resid_mm": 0.0006318455788301147,
+ "existing_vertices": 328834,
+ "regen_vertices": 328860,
+ "regen_vs_existing_chamfer_mm": 0.9211732705683688,
+ "regen_vs_existing_p95_mm": 1.8022905531172155,
+ "textured_vertices": 389306,
+ "textured_faces": 657664,
+ "geometry_preserved_max_resid_mm": 4.402396651697661e-06,
+ "texture_size": 2048,
+ "nviews": 100,
+ "channel_fix": "input reproduced with R/B swap (pipeline bug), texture un-swapped at export",
+ "timing_s": {
+  "inference": 21.3,
+  "uv": 662.0,
+  "bake": 46.2,
+  "total": 741.1
+ },
+ "warnings": [],
+ "files": {
+  "glb": "object_mesh_scaled_final_textured.glb",
+  "obj": "object_mesh_scaled_final_textured.obj",
+  "texture": "texture.png"
+ }
+}

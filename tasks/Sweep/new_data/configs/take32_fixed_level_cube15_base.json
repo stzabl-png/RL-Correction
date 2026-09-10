@@ -1,0 +1,98 @@
+{
+  "task_name": "Task3Take32FixedLevelCube15",
+  "data_dir": "datasets/sweep_new_data/sweep_dustpan/32",
+  "rts_stem": "rts_sweep_dustpan_32",
+  "cube_half_m": 0.0075,
+  "max_nominal_brush_distance_m": 0.02,
+  "pan_semantic_frame": true,
+  "reference": "tasks/Sweep/new_data/references/take32_fixed_level_cube15_base.npz",
+  "training_replay": "tasks/Sweep/new_data/prepared/take_32_v2_input/replay_world.npz",
+  "prepared_manifest": "tasks/Sweep/new_data/prepared/take_32.json",
+  "scene_layout": "tasks/Sweep/new_data/prepared/take_32_scene_layout.json",
+  "assets": {
+    "broom_mesh": "tasks/Sweep/new_data/prepared/take9_powerdisk/objects/object_1/object_mesh_scaled_final.obj",
+    "broom_usd": "tasks/Sweep/new_data/assets/take9_powerdisk/broom.usd",
+    "dustpan_mesh": "tasks/Sweep/new_data/assets/take9_powerdisk/dustpan_thin_entry_20260909/object_mesh_scaled_final.obj",
+    "dustpan_usd": "tasks/Sweep/new_data/assets/take9_powerdisk/dustpan_thin_entry_20260909/dustpan.usd"
+  },
+  "grasppose": {
+    "broom": {
+      "hand": "right",
+      "object_id": "object_1",
+      "prior": "tasks/Sweep/new_data/priors/powerdisk_20260908/broom_10_Power_Disk__98_45_grasp.npz",
+      "candidate": "10_Power_Disk__98_45_grasp.npy"
+    },
+    "dustpan": {
+      "hand": "left",
+      "object_id": "object_0",
+      "prior": "tasks/Sweep/new_data/priors/powerdisk_20260908/dustpan_10_Power_Disk__45_20_grasp.npz"
+    }
+  },
+  "acceptance": "level_ik_pass_cube_pending",
+  "cube_status": "training_geometry_calibrated",
+  "grip_mode": "fixed",
+  "scripted_prelude_steps": 0,
+  "finger_pose": "grasp",
+  "grip_tighten_rad": 0.0,
+  "hand_friction": 10.0,
+  "thin_entry_collision": "tasks/Sweep/new_data/assets/take9_powerdisk/dustpan_thin_entry_20260909/collision.json",
+  "universal_asset_substitution": {
+    "method": "donor canonical pose composition; world pan up leveled by left-arm IK",
+    "report": "logs/task1_take32_level_20260910/level_report.json"
+  },
+  "training_geometry": {
+    "cube_half": 0.0075,
+    "pan_half_width": 0.06,
+    "pan_inside_z_min": 0.015,
+    "pan_mouth_z": 0.108,
+    "pan_center_y_min": -0.004,
+    "pan_center_y_max": 0.024999999999999998,
+    "start_outside": 0.013,
+    "stable_speed": 0.05,
+    "stable_steps": 10,
+    "moved_gate": 0.005,
+    "deep_inside_margin": 0.02
+  },
+  "training_lip_y": -0.01435,
+  "pan_floor_profile": [
+    [
+      0.015,
+      0.008
+    ],
+    [
+      0.03,
+      0.0084
+    ],
+    [
+      0.045,
+      0.0085
+    ],
+    [
+      0.06,
+      0.008
+    ],
+    [
+      0.075,
+      0.0004
+    ],
+    [
+      0.09,
+      -0.0099
+    ],
+    [
+      0.1,
+      -0.0139
+    ],
+    [
+      0.108,
+      -0.01435
+    ]
+  ],
+  "pan_floor_tolerance_m": 0.001,
+  "hand_stiffness": 100.0,
+  "hand_damping": 5.0,
+  "training_input": {
+    "cube_size_m": 0.015,
+    "residual_from_step": 1
+  }
+}

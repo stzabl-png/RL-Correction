@@ -1,0 +1,62 @@
+{
+  "tasks/Sweep/new_data/references/take9_fixed_cube15_human_v2.npz": {
+    "bytes": 136621,
+    "sha256": "223e6ad14e7f2f8fab3940f2c9c74432177e456c82fe37ea3022730e488b1b76"
+  },
+  "tasks/Sweep/new_data/prepared/take9_powerdisk/replay_world.npz": {
+    "bytes": 5200319,
+    "sha256": "d0ab2b50f644819c771a9b24068c3b3a6d740e7c400a27f9c2d9cc9cd9f68d94"
+  },
+  "tasks/Sweep/new_data/prepared/take9_powerdisk/scene_layout.json": {
+    "bytes": 725,
+    "sha256": "1d8fd8ff48565df861b77a085fdac1073dc2f1cd50122b4084c7656b31180382"
+  },
+  "tasks/Sweep/new_data/prepared/take9_powerdisk/objects/object_1/object_mesh_scaled_final.obj": {
+    "bytes": 12364268,
+    "sha256": "4b54ce2c2d029a203ed0b35b6fdce6e0c122be1f4e84ee1ecfd278bfe725ab69"
+  },
+  "tasks/Sweep/new_data/assets/take9_powerdisk/broom.usd": {
+    "bytes": 1964070,
+    "sha256": "e7559a1573c8be554332f05246c407bf20e7d063ec466dc88de4b31343bd2847"
+  },
+  "tasks/Sweep/new_data/assets/take9_powerdisk/dustpan_thin_entry_20260909/object_mesh_scaled_final.obj": {
+    "bytes": 27303782,
+    "sha256": "eb1729839b2073a94ea8db84cafc41315763053a3d068788f6f5192d4fefe0d9"
+  },
+  "tasks/Sweep/new_data/assets/take9_powerdisk/dustpan_thin_entry_20260909/dustpan.usd": {
+    "bytes": 2489776,
+    "sha256": "ff703969968dfaddc8ab1c663d17601e4c86fdcb6fa7470f60c3c8dbed323704"
+  },
+  "tasks/Sweep/new_data/priors/powerdisk_20260908/broom_10_Power_Disk__98_45_grasp.npz": {
+    "bytes": 4822,
+    "sha256": "c52b2ac027b75772086a3e07f9a4168ff7068df054fc44386eadb3cf40947eb1"
+  },
+  "tasks/Sweep/new_data/priors/powerdisk_20260908/dustpan_10_Power_Disk__45_20_grasp.npz": {
+    "bytes": 4726,
+    "sha256": "5a6972c7112bbb09646246c5bbdb64ed16ff2fa0ee304593b314b8844853b128"
+  },
+  "tasks/Sweep/new_data/assets/take9_powerdisk/dustpan_thin_entry_20260909/collision.json": {
+    "bytes": 1088172,
+    "sha256": "f01845bead0b2f13f2afea755b1a9f88266254f6990fbf8dcdd91c3fe9f74dbe"
+  },
+  "tasks/Sweep/new_data/references/take9_powerdisk_fixed_cube15_v1.npz": {
+    "bytes": 132187,
+    "sha256": "ac80721baacc44cb514ed43dd6060f7e5f3ab2d4834d16c6ae4c1d7eb700a169"
+  },
+  "tasks/Sweep/new_data/references/take9_powerdisk_fixed_training_v1.npz": {
+    "bytes": 132127,
+    "sha256": "41790efd91668c0401e6029f7462af7e653a784ee11e84b725e3ae29c8600496"
+  },
+  "tasks/Sweep/new_data/references/take32_fixed_level_cube15_base.npz": {
+    "bytes": 220421,
+    "sha256": "4077a3d44dcf9128c16c5d8d2d6f98e724ff9abaa32298c55ab25ee0c240afbb"
+  },
+  "tasks/Sweep/new_data/prepared/take_32_v2_input/replay_world.npz": {
+    "bytes": 5139444,
+    "sha256": "47c097d788a17529813422b83a2d18a13506dd65b2bc3d63bebbecbef61a5548"
+  },
+  "tasks/Sweep/new_data/prepared/take_32_scene_layout.json": {
+    "bytes": 792,
+    "sha256": "5f422e5afc40286c622d0616232ee62124bcb01ba4f74ab4b4985b333e9b233e"
+  }
+}

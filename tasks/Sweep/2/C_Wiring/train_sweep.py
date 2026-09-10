@@ -12,6 +12,7 @@ import sys
 from isaaclab.app import AppLauncher
 
 p = argparse.ArgumentParser()
+p.add_argument("--task_config", default="", help="Task3 independent asset/reference configuration")
 p.add_argument("--name", default="Sweep2_fixed_seed42")
 p.add_argument("--artifact_prefix", default="",
                help="artifact stem, e.g. Sweep2__20260830_policy")
@@ -61,8 +62,17 @@ for path in expert_paths:
     assert os.path.commonpath([os.path.join(ROOT, "logs"), path]) == os.path.join(ROOT, "logs")
     assert os.path.isfile(path), path
 ablation = resolve_ablation(args.method)
-cfg = SE.build_cfg(args.num_envs, ablation_method=ablation.name); cfg.seed = args.seed
-raw = SE.SweepEnv(cfg); env = GymStyleEnvWrapper(raw, clip_actions=1.0)
+cfg = SE.build_cfg(args.num_envs, ablation_method=ablation.name, task_config=args.task_config); cfg.seed = args.seed
+env_class = SE.SweepEnv
+if args.task_config:
+    from tasks.Sweep.new_data.training_env import TrainingEnv
+    env_class = TrainingEnv
+    with open(args.task_config) as f:
+        if json.load(f).get("grip_mode") in ("contact", "fixed"):
+            from tasks.Sweep.new_data.powerdisk_env import PowerDiskEnv
+            env_class = PowerDiskEnv
+    os.environ["SWEEP_TASK_CONFIG"] = os.path.abspath(args.task_config)
+raw = env_class(cfg); env = GymStyleEnvWrapper(raw, clip_actions=1.0)
 with open(os.path.join(os.path.dirname(__file__), "ppo_sweep.yaml")) as f:
     acfg = yaml.safe_load(f)
 acfg["seed"] = args.seed
@@ -136,6 +146,23 @@ world = {
 }
 _pan_asset = SE.clips.clip_entry("Sweep2_broom")["secondary"]["mesh"]
 world["dustpan_asset"] = {"path": _pan_asset, "sha256": _sha256(_pan_asset)}
+if args.task_config:
+    with open(args.task_config) as f:
+        task_manifest = json.load(f)
+    world["task"] = cfg.sweep_task_name
+    world["time"]["scripted_prelude_steps"] = getattr(raw, "prelude", SE.SCRIPTED_PRELUDE_STEPS)
+    world["grip_mode"] = task_manifest.get("grip_mode", "fixed")
+    world["hand_friction"] = task_manifest.get("hand_friction")
+    world["task_config"] = {"path": os.path.abspath(args.task_config),
+                            "sha256": _sha256(args.task_config)}
+    world["reference"] = {"path": cfg.sweep_reference, "sha256": _sha256(cfg.sweep_reference)}
+    world["cube_start_world_m"] = raw.cube_start_ref.detach().cpu().tolist()
+    world["geometry"] = vars(raw.geometry)
+    world["assets"] = {key: {"path": os.path.abspath(value), "sha256": _sha256(value)}
+                       for key, value in task_manifest["assets"].items()}
+    world["dustpan_asset"] = world["assets"]["dustpan_usd"]
+    world["priors"] = {role: {"path": spec["prior"], "sha256": _sha256(spec["prior"])}
+                        for role, spec in task_manifest["grasppose"].items()}
 with open(os.path.join(log_dir, "world.json"), "w") as f:
     json.dump(world, f, indent=2)
 class SweepPPO(PPO):
@@ -208,6 +235,12 @@ else:
             f"actor_epochs={args.actor_epochs}\n"
             f"critic_epochs={args.critic_epochs}\nsummary={summary}\n")
     print("[train_sweep] initialization complete; all following samples/updates are pure on-policy PPO")
+if args.task_config:
+    initial_dir = os.path.join(log_dir, "initial_state")
+    os.makedirs(initial_dir, exist_ok=True)
+    agent.save(os.path.join(initial_dir, "checkpoint"))
+    with open(os.path.join(initial_dir, "world.json"), "w") as f:
+        json.dump(world, f, indent=2)
 if not args.no_autorec:
     monitor = os.path.join(os.path.dirname(__file__), "autorecord_sweep.sh")
     subprocess.Popen(

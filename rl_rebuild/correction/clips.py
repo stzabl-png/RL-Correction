@@ -461,6 +461,60 @@ CLIPS["Sweep2_broom"] = _sweep2("broom")
 CLIPS["Sweep2_dustpan"] = _sweep2("dustpan")
 
 
+def register_sweep_task(config_path: str) -> str:
+    """Register one config-backed Sweep take without changing Sweep2 defaults."""
+    path = os.path.abspath(config_path)
+    with open(path, encoding="utf-8") as handle:
+        config = json.load(handle)
+
+    def absolute(value: str) -> str:
+        return value if os.path.isabs(value) else os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))), value)
+
+    name = f"{config['task_name']}_broom"
+    assets = config["assets"]
+    data_dir = absolute(config["data_dir"])
+    broom = dict(
+        oid="object_1", hand="right", label=f"{config['task_name']} broom",
+        mesh=absolute(assets["broom_mesh"]), usd=absolute(assets["broom_usd"]),
+        semantics=ObjectSemantics(label=f"{config['task_name']} broom",
+                                  mass_kg=0.10, friction=0.6,
+                                  mass_range=(0.12, 0.45)),
+    )
+    dustpan = dict(
+        oid="object_0", hand="left", label=f"{config['task_name']} dustpan",
+        mesh=absolute(assets["dustpan_mesh"]), usd=absolute(assets["dustpan_usd"]),
+        semantics=ObjectSemantics(label=f"{config['task_name']} dustpan",
+                                  mass_kg=0.10, friction=0.6,
+                                  mass_range=(0.08, 0.30)),
+    )
+    CLIPS[name] = dict(
+        source="replay_grasp",
+        npz=absolute(config["training_replay"]),
+        mesh=broom["mesh"], usd=broom["usd"],
+        runtime_object_physics=True,
+        override_cfg_mass=True,
+        flatten_converted_usd=True,
+        place_mode="ref_builder",
+        hand="right", robot_hand="right",
+        semantics=broom["semantics"],
+        primary_oid="object_1",
+        secondary=dict(label=dustpan["label"], mesh=dustpan["mesh"],
+                       usd=dustpan["usd"], semantics=dustpan["semantics"],
+                       oid="object_0", usd_convex_hulls=128,
+                       usd_shrink_wrap=True),
+        scene_layout_json=absolute(config["scene_layout"]),
+        sweep_reference=absolute(config["reference"]),
+        grasp_prior_npz_default=absolute(config["grasppose"]["broom"]["prior"]),
+        grasp_template="task_config",
+        verify_mode="lift",
+        arm_table_shell=True,
+        upright_hold=True,
+        pad_contact_calib=False,
+    )
+    return name
+
+
 def clip_entry(name: str) -> dict:
     if name not in CLIPS:
         raise KeyError(f"未知 clip '{name}', 可选: {list(CLIPS)}")
@@ -789,7 +843,7 @@ def load_data_unit(cfg) -> DataUnit:
             _k = "body" if e.get("screw_primary", "body") == "body" else "cap"
             _ro = (tuple(float(v) for v in _rj[f"{_k}_quat_wxyz"]),
                    float(_rj[f"{_k}_pos"][2]))
-        return load_replay_grasp(e["npz"], e["mesh"], usd_path=e["usd"],
+        _du = load_replay_grasp(e["npz"], e["mesh"], usd_path=e["usd"],
                                  rest_override=_ro,
                                  # 交互手从 phase_* 自动判定, 不能写死 "right":
                                  # Grasp10/12 在重建里是**左手**交互, 写死右手 = 拿垃圾数据
@@ -805,6 +859,16 @@ def load_data_unit(cfg) -> DataUnit:
                                  # 硬顶进桌子, 真机械臂顶不动). cfg 没这项时沿用旧默认.
                                  hover_gap=getattr(cfg, "hover_gap", None),
                                  semantics=e["semantics"], verbose=True)
+        if e.get("sweep_reference"):
+            import numpy as _np
+            with _np.load(e["sweep_reference"], allow_pickle=True) as _z:
+                _du.object_init_pose = _np.concatenate(
+                    [_z["obj_pos_1"][0], _z["obj_quat_1"][0]]).astype(_np.float32)
+                _du.goal_object_pose = _np.concatenate(
+                    [_z["obj_pos_1"][-1], _z["obj_quat_1"][-1]]).astype(_np.float32)
+            print(f"[clips] {cfg.clip_name}: generic loader object pose overridden "
+                  "by validated Sweep reference row zero")
+        return _du
     return load_ocir(e["seq_dir"], e["grasp_json"], e["traj_dir"],
                      usd_path=e["usd"], variant=e["variant"],
                      target_hz=cfg.target_hz, table_height=cfg.table_top_z,

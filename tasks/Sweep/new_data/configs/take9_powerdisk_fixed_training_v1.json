@@ -1,0 +1,115 @@
+{
+  "task_name": "Task3Take9FixedThinEntry",
+  "data_dir": "tasks/Sweep/new_data/prepared/take9_powerdisk",
+  "source_data_dir": "datasets/sweep_new_data/sweep_dustpan_2/9",
+  "rts_stem": "rts_sweep_dustpan_9",
+  "training_replay": "tasks/Sweep/new_data/prepared/take9_powerdisk/replay_world.npz",
+  "scene_layout": "tasks/Sweep/new_data/prepared/take9_powerdisk/scene_layout.json",
+  "reference": "tasks/Sweep/new_data/references/take9_powerdisk_fixed_training_v1.npz",
+  "cube_status": "training_geometry_calibrated",
+  "assets": {
+    "broom_mesh": "tasks/Sweep/new_data/prepared/take9_powerdisk/objects/object_1/object_mesh_scaled_final.obj",
+    "broom_usd": "tasks/Sweep/new_data/assets/take9_powerdisk/broom.usd",
+    "dustpan_mesh": "tasks/Sweep/new_data/assets/take9_powerdisk/dustpan_thin_entry_20260909/object_mesh_scaled_final.obj",
+    "dustpan_usd": "tasks/Sweep/new_data/assets/take9_powerdisk/dustpan_thin_entry_20260909/dustpan.usd"
+  },
+  "grasppose": {
+    "broom": {
+      "hand": "right",
+      "object_id": "object_1",
+      "prior": "tasks/Sweep/new_data/priors/powerdisk_20260908/broom_10_Power_Disk__98_45_grasp.npz",
+      "candidate": "10_Power_Disk__98_45_grasp.npy"
+    },
+    "dustpan": {
+      "hand": "left",
+      "object_id": "object_0",
+      "prior": "tasks/Sweep/new_data/priors/powerdisk_20260908/dustpan_10_Power_Disk__45_20_grasp.npz"
+    }
+  },
+  "grip_mode": "fixed",
+  "scripted_prelude_steps": 0,
+  "hand_friction": 10.0,
+  "training_geometry": {
+    "cube_half": 0.0125,
+    "pan_half_width": 0.06,
+    "pan_inside_z_min": 0.015,
+    "pan_mouth_z": 0.108,
+    "pan_center_y_min": -0.004,
+    "pan_center_y_max": 0.03,
+    "start_outside": 0.013,
+    "stable_speed": 0.05,
+    "stable_steps": 10,
+    "moved_gate": 0.005,
+    "deep_inside_margin": 0.02
+  },
+  "training_lip_y": -0.01435,
+  "asset_provenance": "accepted take9 FixedJoint trajectory cropped at source frame 105; original successful Sweep2 broom asset; final user-accepted thin-entry dustpan asset; task-local exact convex collision pieces",
+  "ik_adjustment": {
+    "source_start_frame": 105.0,
+    "source_end_frame": 284.0,
+    "reason": "user-approved removal of anomalous first seven seconds; final short tail retained"
+  },
+  "finger_pose": "grasp",
+  "tool_tool_collision": false,
+  "hand_stiffness": 100.0,
+  "hand_damping": 5.0,
+  "scene_z_offset": 0.0,
+  "grip_tighten_rad": 0.0,
+  "selected_broom_grasp": "98_45",
+  "broom_extra_xy": [
+    0,
+    0
+  ],
+  "scene_origin_xy": [
+    -0.116,
+    0.023
+  ],
+  "selected_dustpan_grasp": "45_20",
+  "pan_extra_z": 0.0,
+  "broom_extra_z": 0.02,
+  "pan_pitch_deg": 5.0,
+  "pan_table_clearance_m": 0.001,
+  "thin_entry_collision": "tasks/Sweep/new_data/assets/take9_powerdisk/dustpan_thin_entry_20260909/collision.json",
+  "pan_floor_profile": [
+    [
+      0.015,
+      0.008
+    ],
+    [
+      0.03,
+      0.0084
+    ],
+    [
+      0.045,
+      0.0085
+    ],
+    [
+      0.06,
+      0.008
+    ],
+    [
+      0.075,
+      0.0004
+    ],
+    [
+      0.09,
+      -0.0099
+    ],
+    [
+      0.1,
+      -0.0139
+    ],
+    [
+      0.108,
+      -0.01435
+    ]
+  ],
+  "pan_floor_tolerance_m": 0.001,
+  "training_input": {
+    "cube_size_m": 0.025,
+    "contact_row": 97,
+    "contact_source_frame": 158.0,
+    "residual_from_step": 1,
+    "under_pan_filter": "measured pan floor profile"
+  }
+}

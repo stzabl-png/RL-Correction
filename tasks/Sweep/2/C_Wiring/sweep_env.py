@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import sys
+import json
 
 import numpy as np
 import torch
@@ -46,6 +47,22 @@ PRIOR_BROOM = "tasks/pregrasp/priors/Sweep2_broom.npz"
 PRIOR_PAN = "tasks/pregrasp/priors/Sweep2_dustpan.npz"
 
 
+def _task_config(path):
+    if not path:
+        return None
+    root = os.path.abspath(os.path.join(_HERE, "../../../.."))
+    full = path if os.path.isabs(path) else os.path.join(root, path)
+    with open(full, encoding="utf-8") as handle:
+        config = json.load(handle)
+    config["_path"] = os.path.abspath(full)
+    config["_root"] = root
+    return config
+
+
+def _absolute(config, value):
+    return value if os.path.isabs(value) else os.path.join(config["_root"], value)
+
+
 def _safe_arm_reference(z, margin=1.0e-6):
     """Keep float32 reference rows strictly inside the URDF/Isaac joint limits."""
     out = {}
@@ -76,25 +93,48 @@ def _pan_cube_start(pan_pos, pan_quat, table_z, geometry=SweepGeometry()):
     return pan_pos + quat_apply(pan_quat, local)
 
 
-def build_cfg(num_envs=1, reference=REFERENCE, ablation_method="full"):
+def build_cfg(num_envs=1, reference=None, ablation_method="full", task_config=""):
+    task = _task_config(task_config)
+    if task:
+        reference = reference or _absolute(task, task["reference"])
+        prior_broom = _absolute(task, task["grasppose"]["broom"]["prior"])
+        prior_pan = _absolute(task, task["grasppose"]["dustpan"]["prior"])
+        clip_name = clips.register_sweep_task(task["_path"])
+    else:
+        reference = reference or REFERENCE
+        prior_broom, prior_pan, clip_name = PRIOR_BROOM, PRIOR_PAN, "Sweep2_broom"
     assert os.path.isfile(reference), (
         f"missing {reference}; run A_Design/L2_Reference/build_reference.py first")
     z = np.load(reference, allow_pickle=True)
     safe_arm = _safe_arm_reference(z)
     cfg = GraspTaskCfg()
-    clips.configure_cfg(cfg, "Sweep2_broom")
+    clips.configure_cfg(cfg, clip_name)
     cfg.fixed_attached_tools = True
     cfg.approach_only = True
     # The actual object pose comes from the shared reconstruction registration below.
     # Keep the inherited single-object prior path neutral; never inject a task yaw.
-    apply_grasp_prior(cfg, PRIOR_BROOM, 0.0, approach=True)
+    apply_grasp_prior(cfg, prior_broom, 0.0, approach=True)
     cfg.scene.num_envs = int(num_envs)
     cfg.obj_jitter_xy = 0.0
     cfg.action_space = ACT_DIM
     cfg.observation_space = OBS_DIM
     cfg.episode_length_s = float(len(z["right_q"]) / float(z["control_hz"]) + 2.0)
     cfg.sweep_reference = os.path.abspath(reference)
-    cfg.sweep_pan_prior = os.path.abspath(PRIOR_PAN)
+    cfg.sweep_broom_prior = os.path.abspath(prior_broom)
+    cfg.sweep_pan_prior = os.path.abspath(prior_pan)
+    cfg.sweep_task_config = task["_path"] if task else ""
+    cfg.sweep_task_name = task["task_name"] if task else "Sweep2"
+    cfg.sweep_dynamic_assets = bool(task)
+    if task:
+        import trimesh
+        pan_mesh = trimesh.load(_absolute(task, task["assets"]["dustpan_mesh"]),
+                                force="mesh", process=False)
+        basis = np.asarray(z["pan_semantic_R_input"], np.float64)
+        semantic_extents = np.ptp(np.asarray(pan_mesh.vertices) @ basis, axis=0)
+        scale = semantic_extents / np.array([0.158, 0.029, 0.216], np.float64)
+        cfg.sweep_pan_scale = tuple(float(v) for v in scale)
+    else:
+        cfg.sweep_pan_scale = (1.0, 1.0, 1.0)
     cfg.sweep_ablation_method = resolve_ablation(ablation_method).name
     cfg.sweep_cube_variants = os.path.abspath(CUBE_VARIANTS) if CUBE_VARIANTS else ""
     # Physics starts with a constraint-consistent state.  Exact-name entries are
@@ -103,7 +143,7 @@ def build_cfg(num_envs=1, reference=REFERENCE, ablation_method="full"):
     for side, P, key in (("right", "R", "right_q"), ("left", "L", "left_q")):
         for i, value in enumerate(safe_arm[key][0], 1):
             jp[f"{P}_arm_j{i}"] = float(value)
-        prior = np.load(PRIOR_BROOM if side == "right" else PRIOR_PAN)
+        prior = np.load(prior_broom if side == "right" else prior_pan)
         for name, value in zip(GENERIC_JOINT_ORDER, prior["grasp"][7:29]):
             jp[name.replace("right_", f"{side}_")] = float(value)
     cfg.robot_cfg.init_state.joint_pos = jp
@@ -119,10 +159,17 @@ class SweepEnv(GraspTaskEnv):
         self._cube_variants_np = (np.load(self.cube_variants_path, allow_pickle=False)
                                   if self.cube_variants_path else None)
         self._z = np.load(cfg.sweep_reference, allow_pickle=True)
+        self._broom_prior_npz = np.load(cfg.sweep_broom_prior)
         self._pan_prior_npz = np.load(cfg.sweep_pan_prior)
+        self.dynamic_assets = bool(getattr(cfg, "sweep_dynamic_assets", False))
+        self.pan_scale = np.asarray(getattr(cfg, "sweep_pan_scale", (1, 1, 1)),
+                                    np.float64)
         super().__init__(cfg, **kwargs)
         dev, N = self.device, self.num_envs
         to = lambda a: torch.tensor(np.asarray(a), dtype=torch.float32, device=dev)
+        self.pan_semantic_quat_offset = to(
+            self._z["pan_semantic_quat_offset"] if "pan_semantic_quat_offset" in self._z
+            else np.array([1.0, 0.0, 0.0, 0.0], np.float32))
         safe_arm = _safe_arm_reference(self._z)
         self.ref_arm = torch.cat([to(safe_arm["right_q"]), to(safe_arm["left_q"])], 1)
         self.human_arm = torch.cat([to(self._z["human_right_q"]),
@@ -173,7 +220,16 @@ class SweepEnv(GraspTaskEnv):
         self.step_lo = to([0.008] * 7 + [0.005] * 7)
         self.dev_lo = to([0.10] * 7 + [0.05] * 7)
         self.q_tgt = self.ref_arm[0].expand(N, -1).clone()
-        self.geometry = SweepGeometry()
+        sx, sy, sz = self.pan_scale
+        self.geometry = (SweepGeometry(
+            pan_half_width=0.060*sx,
+            pan_inside_z_min=0.015*sz,
+            pan_mouth_z=0.095*sz,
+            pan_center_y_min=0.018*sy,
+            pan_center_y_max=0.030*sy,
+            start_outside=0.065*sz,
+            deep_inside_margin=0.020*sz,
+        ) if self.dynamic_assets else SweepGeometry())
         self.progress = SweepProgressBatch(N, dev, self.geometry)
         self.cube_start = torch.zeros(N, 3, device=dev)
         self._tick_out = None
@@ -214,7 +270,7 @@ class SweepEnv(GraspTaskEnv):
         pan_delta = (self.aux.data.root_pos_w - self.scene.env_origins
                      - self.ref_pos[0][0]).mean(dim=0)
         pan_shift = float(torch.linalg.vector_norm(pan_delta))
-        if pan_shift >= 0.003:
+        if pan_shift >= 0.003 and not getattr(self, "free_tools", False):
             assert pan_shift < 0.010, (
                 f"left tool runtime registration {pan_shift*1000:.2f}mm exceeds "
                 "the approved 1cm initial-pose adjustment")
@@ -227,7 +283,8 @@ class SweepEnv(GraspTaskEnv):
         self._validate_attachment_reset()
         # Freeze the accepted v1 physical task.  The reference NPZ's easy-start
         # field was edited after the canonical replay and experts were produced.
-        self.cube_start_ref[:] = to(SWEEP2_FIXED_CUBE_START)
+        if not self.dynamic_assets:
+            self.cube_start_ref[:] = to(SWEEP2_FIXED_CUBE_START)
         self.cube_variant_index = torch.zeros(N, dtype=torch.long, device=dev)
         self.cube_start_variants = None
         if self._cube_variants_np is not None:
@@ -319,8 +376,9 @@ class SweepEnv(GraspTaskEnv):
                 continue
             mesh = UsdGeom.Mesh(prim)
             local = np.asarray(mesh.GetPointsAttr().Get(), dtype=np.float64)
-            mask = ((local[:, 1] < -0.050) & (local[:, 2] > 0.020)
-                    & (local[:, 2] < 0.090))
+            mask = (np.ones(len(local), dtype=bool) if self.dynamic_assets else
+                    ((local[:, 1] < -0.050) & (local[:, 2] > 0.020)
+                     & (local[:, 2] < 0.090)))
             if not mask.any():
                 continue
             mesh_world = cache.GetLocalToWorldTransform(prim)
@@ -335,9 +393,13 @@ class SweepEnv(GraspTaskEnv):
         assert chunks, "no live USD bristle working face found"
         points = np.concatenate(chunks, axis=0)
         assert len(points) >= 2048, len(points)
-        rng = np.random.RandomState(0)
-        points = points[rng.choice(len(points), 2048, replace=False)]
         contact = max(contact_candidates, key=lambda item: item[0])[1]
+        if self.dynamic_assets:
+            order = np.argsort(np.linalg.norm(points - contact, axis=1))[:2048]
+            points = points[order]
+        else:
+            rng = np.random.RandomState(0)
+            points = points[rng.choice(len(points), 2048, replace=False)]
         print("[SweepEnv] live USD bristle proxy: "
               f"points={len(points)} bbox_mm="
               f"{np.round(np.c_[points.min(0), points.max(0)]*1000, 2).tolist()} "
@@ -367,6 +429,18 @@ class SweepEnv(GraspTaskEnv):
                         and prim.HasAPI(UsdPhysics.CollisionAPI)):
                     UsdPhysics.CollisionAPI(prim).CreateCollisionEnabledAttr(False)
                     disabled += 1
+            frame_path = f"{root_path}/SweepOpenCollision"
+            frame = UsdGeom.Xform.Define(stage, frame_path)
+            frame_xf = UsdGeom.Xformable(frame)
+            frame_ops = {op.GetOpType(): op for op in frame_xf.GetOrderedXformOps()}
+            orient = frame_ops.get(UsdGeom.XformOp.TypeOrient)
+            if orient is None:
+                orient = frame_xf.AddOrientOp()
+            qoff = np.asarray(self._z["pan_semantic_quat_offset"]
+                              if "pan_semantic_quat_offset" in self._z
+                              else [1.0, 0.0, 0.0, 0.0], np.float64)
+            orient.Set(Gf.Quatf(float(qoff[0]), float(qoff[1]),
+                                float(qoff[2]), float(qoff[3])))
             # Local axes: x=width, +y=up, +z=handle->open mouth.  The repaired
             # asset's central work surface is 8.5 mm high and falls to 6 mm only
             # over z=80--108 mm.  Keep the collision surface coincident with that
@@ -382,8 +456,12 @@ class SweepEnv(GraspTaskEnv):
                 "side_r": ((+0.062, 0.020, 0.055), (0.004, 0.028, 0.080), 0.0),
                 "back": ((0.0, 0.020, 0.015), (0.124, 0.028, 0.004), 0.0),
             }
+            sx, sy, sz = self.pan_scale
+            boxes = {name: ((center[0]*sx, center[1]*sy, center[2]*sz),
+                            (size[0]*sx, size[1]*sy, size[2]*sz), angle)
+                     for name, (center, size, angle) in boxes.items()}
             for name, (center, size, rotate_x_deg) in boxes.items():
-                path = f"{root_path}/SweepOpenCollision/{name}"
+                path = f"{frame_path}/{name}"
                 cube = UsdGeom.Cube.Define(stage, path)
                 cube.CreateSizeAttr(1.0)
                 xf = UsdGeom.Xformable(cube)
@@ -421,7 +499,7 @@ class SweepEnv(GraspTaskEnv):
         import omni.usd
         from pxr import Gf, Sdf, UsdPhysics
         stage = omni.usd.get_context().get_stage()
-        specs = (("right", "Object", np.load(PRIOR_BROOM)["grasp"]),
+        specs = (("right", "Object", self._broom_prior_npz["grasp"]),
                  ("left", "Aux", self._pan_prior_npz["grasp"]))
         # Collect relative collider paths once. Traversing the full cloned stage for
         # every environment made the old 512-env setup needlessly quadratic.
@@ -504,7 +582,7 @@ class SweepEnv(GraspTaskEnv):
         org = self.scene.env_origins
         checks = []
         for oi, art, side, prior in (
-                (1, self.object, "right", np.load(PRIOR_BROOM)),
+                (1, self.object, "right", self._broom_prior_npz),
                 (0, self.aux, "left", self._pan_prior_npz)):
             p = art.data.root_pos_w - org
             q = art.data.root_quat_w
@@ -570,8 +648,13 @@ class SweepEnv(GraspTaskEnv):
     def _tool_pose(self, art):
         return art.data.root_pos_w - self.scene.env_origins, art.data.root_quat_w
 
+    def _semantic_pan_pose(self):
+        position, root_quat = self._tool_pose(self.aux)
+        offset = self.pan_semantic_quat_offset.expand(self.num_envs, 4)
+        return position, quat_mul(root_quat, offset)
+
     def _signals(self):
-        pan_p, pan_q = self._tool_pose(self.aux)
+        pan_p, pan_q = self._semantic_pan_pose()
         broom_p, broom_q = self._tool_pose(self.object)
         sig = sweep_signals(self.cube.data.root_pos_w - self.scene.env_origins,
                             self.cube.data.root_lin_vel_w, pan_p, pan_q,
@@ -590,9 +673,11 @@ class SweepEnv(GraspTaskEnv):
         pan_up = quat_apply(pan_q, torch.tensor([0., 1., 0.], device=self.device).expand(self.num_envs, 3))
         pan_tilt = torch.acos(pan_up[:, 2].clamp(-1.0, 1.0))
         # Lowest edge of the physical entry wedge (local y=4mm, z=108mm).
+        sx, sy, sz = self.pan_scale
         lip_local = torch.tensor(
-            [[-0.060, 0.004, 0.108], [0.060, 0.004, 0.108]],
-            device=self.device).expand(self.num_envs, -1, -1)
+            [[-0.060*sx, 0.004*sy, 0.108*sz],
+             [0.060*sx, 0.004*sy, 0.108*sz]],
+            dtype=pan_p.dtype, device=self.device).expand(self.num_envs, -1, -1)
         lip_q = pan_q[:, None, :].expand(-1, 2, -1).reshape(-1, 4)
         lip_world = (quat_apply(lip_q, lip_local.reshape(-1, 3)).reshape(
             self.num_envs, 2, 3) + pan_p[:, None, :])
@@ -800,7 +885,9 @@ class SweepEnv(GraspTaskEnv):
             art.write_root_pose_to_sim(pose, env_ids=env_ids)
             art.write_root_velocity_to_sim(torch.zeros(n, 6, device=self.device), env_ids=env_ids)
         pan_p = self.ref_pos[0][0].expand(n, 3)
-        pan_q = self.ref_quat[0][0].expand(n, 4)
+        pan_q = quat_mul(
+            self.ref_quat[0][0].expand(n, 4),
+            self.pan_semantic_quat_offset.expand(n, 4))
         cube = (self.cube_start_variants[self.cube_variant_index[env_ids]].clone()
                 if self.cube_start_variants is not None else
                 self.cube_start_ref.expand(n, 3).clone() if self.cube_start_ref is not None

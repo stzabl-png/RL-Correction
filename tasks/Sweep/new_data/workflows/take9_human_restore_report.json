@@ -1,0 +1,31 @@
+{
+  "source_replay": "datasets/sweep_new_data/sweep_dustpan_2/9/replay_world.npz",
+  "source_sha256": "e907cee5eeebb94ae154201f5cd2e9cbf3b0d94ff8bc8e5cae941042d2519088",
+  "method": "Sweep2 independent reconstructed wrist motion; first-frame weld at cropped start; original source_frame resampling",
+  "rows": 333,
+  "source_frame_range": [
+    105.0,
+    284.0
+  ],
+  "sides": {
+    "right": {
+      "position_max_mm": 19.98563651515932,
+      "rotation_max_deg": 4.993548492757581,
+      "joint_step_max_deg": 11.104594230651855,
+      "equal_to_nominal": false,
+      "over20mm_rows": [],
+      "raw_wrist_verified_against_prepared": true
+    },
+    "left": {
+      "position_max_mm": 13.778177871066621,
+      "rotation_max_deg": 4.997006823517912,
+      "joint_step_max_deg": 4.732309818267822,
+      "equal_to_nominal": false,
+      "over20mm_rows": [],
+      "raw_wrist_verified_against_prepared": true
+    }
+  },
+  "output_config": "tasks/Sweep/new_data/configs/take9_fixed_cube15_human_v2.json",
+  "output_reference": "tasks/Sweep/new_data/references/take9_fixed_cube15_human_v2.npz",
+  "all_nonhuman_tracks_unchanged": true
+}

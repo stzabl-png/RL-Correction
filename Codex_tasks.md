@@ -453,7 +453,7 @@ checkpoint保存于 logs/checkpoints/Sweep2AblationNoOfflineFull__20260903_polic
 | Codex_commit.md | Git/工程里程碑：提交主题、变更范围、验证、前一版本与回退定位；不代替git本身 |
 | Codex_ablation.md | Sweep2主消融协议、曲线和解释边界 |
 | Codex_random.md | 方块跨位置/随机化专项实验、配置与结果；不自动授权其他任务随机化 |
-| README.md | 仓库总览及入口；通用项目介绍 |
+| README.md | 早起仓库总览及入口；通用项目介绍，最开始只针对pour任务 |
 | CLAUDE.md | 早期项目操作约定，包含其他机器/PreGrasp历史；不能覆盖当前Sweep路径和用户要求 |
 | DEXMATE_JOINTS.md | 机器人关节命名与机构说明 |
 | docs/MANUAL.md、docs/PREGRASP_MANUAL.md | 继承的基础环境/PreGrasp操作手册 |
@@ -467,3 +467,79 @@ checkpoint保存于 logs/checkpoints/Sweep2AblationNoOfflineFull__20260903_polic
 | datasets/、tasks/**/assets、references、priors | 输入及运行依赖，不是可随意清理的临时文件 |
 
 更新规则：算法/单轨迹运行写本文；新数据进度写Codex_new_data；新窗口导航写HANDOFF；重大错误写mistakes；有意义的Git更新写commit台账。一次变更无需复制到所有文档，互相引用即可。
+
+### 20.除了该单轨迹任务外的task1，task2和task3
+task1:单轨迹ablation
+task2:单轨迹random方块
+task3：新轨迹数据处理并训练
+
+## 21. 2026-09-09：take9 簸箕薄入口资产定稿与当日停点
+
+用户确认 take9 簸箕应为前缘薄、入口尽量贴桌、内底面连续，两侧挡边向入口逐渐降低的浅盆；不要求整段运动绝对零间隙。最终采用 `tasks/Sweep/new_data/assets/take9_powerdisk/dustpan_thin_entry_20260909/`，从原始 take9 `object_0` 直接重建，不继承此前误改的 `entryfix_v2–v11`。
+
+修复把 z>45 mm 的入口上下表面一起做正厚度连续映射，前缘名义厚度0.5 mm；后部和手柄（z<=45 mm）顶点严格不变。OBJ共142696顶点、285384三角面，watertight、winding一致、正体积且无零面积面；同目录保留OBJ、USD、`collision.json`、构建脚本对应的报告和可视化。碰撞体按盆底和两侧分成49个凸片，入口保持开放，不使用封住盆口的单一凸包。
+
+无物块 FixedJoint 检查使用同目录 `preview_config.json` 和 `contact_reference.npz`。簸箕横向校平、俯倾3度并向机器人侧移20 mm后重算左臂IK，527行全部通过，位置误差最大0.100 mm、相邻关节变化最大2.19°。录像保存在 `logs/task3_take9_powerdisk_20260908/thin_entry_preview_20260909/`，含 overview、closeup、pan_entry、summary和trace；40步静置+527步运动，工具闭环误差小于0.00025 mm/0.09°。实际入口会随手臂跟踪局部抬起，中央入口近侧间隙约2.53–10.25 mm；用户接受“尽量贴近”而非全程死贴。未用物块验证扫入，未启动训练。
+
+可复现脚本：`repair_take9_thin_entry.py`、`render_take9_thin_entry.py`、`collision_take9_thin_entry.py`、`reference_take9_thin_entry.py`、`preview_take9_thin_entry.py`。详细边界见最终资产目录的 `REVIEW.md`。当前 `configs/take9_powerdisk_fixed.json` 仍引用旧 `entryfix_v1`，因此旧依赖暂保留；明日接入训练前，应将最终资产和最终训练reference成套接入，并重做cube起点、刷头接触点/时刻、簸箕工作面与盆下误入检查。原成功Sweep2保持不变，今日到此停止。
+
+当日收尾删除47个远端废弃文件、239,250,483字节：包括误改 `entryfix_v2–v11`、被最终视频替代的v1回放、未完成v5片段、一次性运行探针和无法形成可信结论的手部间隙审计脚本。逐文件路径、大小与SHA256保存在 `logs/task3_take9_day_close_20260909/`。最终薄入口资产、完整视频/trace、v7基准、旧配置仍依赖的 `entryfix_v1` 资产、训练资料和检查点均保留。
+
+## 22. 2026-09-09：Task3 fixed路线最新运行边界
+
+本节只补充影响原成功算法复用的最新边界，Task3详细产物与诊断见 `Codex_new_data.md`。原 Sweep2 仍是唯一成功基准，继续保留80步零residual前缀；新轨迹从第1步开放residual。新轨迹统一替换为take9通用工具/抓姿后，必须重新校准cube、`brush_contact_local`、`contact_row`、簸箕工作面和盆下过滤，不能复制某条轨迹的绝对坐标。
+
+take9首次正式fixed训练暴露cube起点错误：候选点在名义第97行靠近刷头，但首帧已经与刷头重叠。6M诊断中781个扫把mesh顶点位于方块内，最近表面点到中心8.9 mm；物块前0.5秒横向移动约20.7 mm，策略初期残差很小。由此确认训练前验证必须覆盖从reset到名义接触前的完整时间区间，检查cube定向footprint与扫把真实mesh/collider的净空，不能只核验未来接触距离、pan走廊和盆底高度。
+
+该run的tmux和checkpoint保留用于诊断，用户已要求暂停。自动录像曾删除手动pause标记并导致额外推进，15:33 PDT已重建 `manual_take9_review_20260909` 标记；日志确认再次挂起，记录步数10,682,368。接手先做实时核验。修复cube后从头启动新的独立run，不resume错误世界的checkpoint。当前新轨迹清单固定为 **9、32、36、80**。任务1是四条轨迹的统一 fixed 处理与独立训练；任务2是后续左簸箕 fixed、右扫把全手指握柄的 non-fixed 尝试。take32通用资产调平回放已生成但待用户验收；36、80和任务2暂后置。
+
+## 23. 2026-09-09晚间：任务1执行入口
+
+用户已确认执行9、32、36、80的fixed路线，并允许后台长作业启动后交付等待状态；take32调平版继续接入。take9旧错误起点run后来因GPU guard的900秒暂停超时恢复并跑满24M，现已退出，不能沿用旧“仍暂停”状态。最新进度统一见 `Codex_new_data.md` 顶部。
+
+take9已生成25 mm新cube起点的v3独立配置/reference，完整扫把凸包初始净空10.45 mm，朝入口的nominal接近行149。tmux `task1_cube9_probe_20260909` 进行单环境180步物理录像，日志和结果均在 `logs/task1_fixed_20260909/`；尚未启动新的正式训练。检查结果后再继续。用户允许必要时缩小新轨迹cube，但不得影响原成功Sweep2的25 mm物块及算法。
+
+### 任务1尺寸更新：15 mm（用户明确同意）
+
+新轨迹采用15 mm方块，实体尺寸、reset高度、Gate/接触半边长在Task3适配器内同步；原Sweep2 25 mm未改。take9的15 mm CPU选点→180步物理录像在 `task1_cube15_prepare_probe_20260909`，状态/路径见Codex_new_data.md顶部。25 mm v3首秒稳定，但后段速度最大0.735 m/s，不用于正式训练。
+
+
+### 15 mm 实体回放结果（2026-09-09 晚间）
+
+轨迹9 `take9_powerdisk_fixed_cube15_v1` 已完成180帧实体零残差回放；实体边长0.015 m、判定半边长0.0075 m，前1秒横向位移约2.4e-8 m，初始稳定检查通过。全程峰值速度0.792 m/s，后段碰撞仍须结合实际接触时序复核；不能据此宣称全程通过或训练成功。新训练尚未启动。结果：`logs/task1_fixed_20260909/take9_cube15_probe/summary.json`，视频同目录 `zero_cube.mp4`。下一步复核接触后启动take9新训练，再继续32、36、80。原Sweep2基准未改。
+
+## 2026-09-10 最新执行：视频目录纠正与take9启动
+
+所有新视频一律保存 `/home/msc-auto/RL_sweep/outputs_video`；logs只存日志和数值证据。take9 15mm回放已移动到 `outputs_video/Task3_take9_cube15_v1/zero_replay/zero_cube.mp4`。用户明确要求直接开启训练，不等待初始化、不做smoke。已执行tmux启动命令：`task3_take9_cube15_20260910`，脚本 `logs/Task3Take9FixedCube15_20260910/launch_train.sh`，日志同目录train.log，GPU1、1024环境、seed42、24M、每6M录像、每3M诊断、无离线预热、不resume。仅确认启动命令已执行，不宣称初始化完成。
+
+随后处理32：看过旧调平视频抽帧，当前CPU任务 `task1_take32_level_20260910` 逐帧保持入口水平朝向、让pan局部上轴对齐世界竖直，最低网格点距桌0.5mm，再解左臂IK；复用同一donor资产与碰撞体，坐标变换合入工具世界姿态，避免旧semantic资产与未变换碰撞体不一致。脚本/日志/报告在 `logs/task1_take32_level_20260910/`。后续设计15mm物块并录制回放，然后启动32训练；尚未完成32的新回放或训练。任务范围仍为9、32、36、80，原成功Sweep2保持冻结。
+
+### take32后台接续（2026-09-10）
+左臂完全调平首次求解在row52出现20.41mm误差（略超2cm），已保留build.log并增加已有解精修/多初值重试，不放宽2cm位置界限。当前IK tmux为task1_take32_level_20260910，日志build_retry.log。接续tmux为task1_take32_pipeline_retry_20260910；脚本continue_pipeline.py，日志pipeline_retry.log，实时阶段pipeline_status.json。依次等待IK产出、CPU物块选点、录制566帧完整回放，然后执行take32训练启动命令；任一步失败即停并记录。视频目标outputs_video/Task3_take32_fixed_level_cube15_v1/zero_replay/zero_cube.mp4。录像沿用GPU1互斥锁和有属主的短暂让出标记，结束后只清理自己的标记；take32训练使用同一GPU1锁，按资源可用状态排队，不与take9同时计算。启动后不等待初始化、不加smoke。当前未宣称32的IK、回放或训练已完成。
+
+## 用户最新IK标准（2026-09-10，覆盖旧严格阈值）
+新轨迹IK统一按实用标准：位置误差2cm以内可接受，略超2cm也允许，不因微小越界反复重算或阻塞整条轨迹。当前工程默认求解目标20mm，轻微超限允许至25mm并报告实际误差；25mm是本轮实施取值，不是用户指定永久上限。旋转误差结合工具底面、握持姿态和实际回放判断，不以毫厘级拟合为目标；保留连续性、穿模与异常比例检查，极少异常帧可同步剔除。该标准仅用于新轨迹，不修改原成功Sweep2。take32构建脚本已更新；正在运行的Python仍使用其启动时加载的旧版本，不为微小改动中断已有计算，若该轮失败则用新版接续。
+
+## take9停止并恢复独立human数据（2026-09-10）
+用户明确要求停止本次训练、清理部分副产物、修复human再重启。已终止且核对退出的进程：train PID1932086、autorecord PID1939988，旧run约4.92M。删除仅限该run初始checkpoint、3M checkpoint和TensorBoard事件共4,426,341字节；清单logs/task9_human_restore_20260910/cleanup_manifest.json。保留日志、world、3M metrics、全部已认可轨迹视频、原Sweep2及其他run。
+修复脚本logs/task9_human_restore_20260910/restore.py从原始take9 replay_world的joints_left/right读取腕位置与Sharpa腕方向，逐项核对prepared ref_qpos，沿用Sweep2插值和首帧焊接方法，按当前source_frame 105..284的333行重新生成独立human IK。原Sweep2 builder不改，Task3求解使用用户允许的20mm目标容差。所有非human轨迹字段逐项不变。复制human_left_q的旧prepare_training.py已修正并备份，避免重跑再次污染。
+重建与重启链：take9_human_restore_20260910、task9_human_restart_20260910；日志restore.log/restart.log，状态status.json。报告完成且数据一致性通过后自动执行独立HumanV2启动命令，不等待初始化、不做smoke。新旧run不混合，不resume。其他奖励和物理问题本轮不修改。
+
+### take9 human修复后重新启动
+独立左右人手来源恢复并完成数组一致性核验，报告logs/task9_human_restore_20260910/restore_report.json。新配置take9_fixed_cube15_human_v2.json，新reference同名npz（new_data/configs及references）。新tmux task9_cube15_humanv2_20260910，日志/启动脚本logs/Task3Take9FixedCube15HumanV2_20260910/。从随机初始化训练24M、1024环境、seed42、6M录像、3M诊断，GPU1；未resume，未等待初始化，无smoke。此次只修复human输入，不将其他已发现的物理或奖励问题称为已修复。
+
+## 最新权威快照：human修复后代码交付（2026-09-10）
+
+以下覆盖旧的排队/暂停/训练未启动快照。原成功Sweep2冻结；新轨迹只处理9、32、36、80，fixed优先，non-fixed后置。所有视频位于outputs_video。
+
+- take9：旧Cube15 run因human左侧输入错误已在约4.92M停止；已删除该run模型与TensorBoard副产物，保留日志/指标/视频。HumanV2从真实原始双手腕运动独立重建333帧，source_frame105..284，最大位置误差右19.99mm、左13.78mm，非human轨迹数组核验不变。新run Task3Take9FixedCube15HumanV2_20260910，tmux task9_cube15_humanv2_20260910，GPU1、24M、1024环境、seed42、6M录像、3M诊断、不resume。写入时进度622592步，不能与旧3M指标混用，尚无成功结论。
+- take32：已认可调平无物块视频outputs_video/Task3_take32_fixed_level_v1/full_zero/trajectory.mp4（566帧/28.3秒）。尚未训练。必须恢复独立左右human、处理实际跟踪偏差和接触/物块选点后再训练。旧human=q的构建输出仅诊断，不能直接用作full输入。
+- take36/80：本轮通用资产/抓姿版本尚未完成并验证；不恢复历史队列。
+
+迁移结论：已有一个成功实例，不代表通用资产+抓姿在其他参考上已形成可执行且可学习任务。需区分工具目标、IK误差、实际关节跟踪、接触/入盆几何与奖励反馈。take32离线IK最大19.98mm、关节步长5.4deg，但实际pan轴倾角中位17.5deg，左j5实际-目标角中位约21.8deg；FixedJoint与FK坐标链吻合，具体增益/力矩/接触原因尚未确定。目标pan轴0deg是“尽量底部平行”的实施代理，不等于不规则底面实测水平。
+
+旧take9 3M窗口Gate1/2=100%、Gate3/4=0、push=0；盆底过滤同时清除了盆外进度，是待验证的奖励适配问题，尚未修复，也不能据此证明PPO失效。15mm零回放实际row47已移动，名义contact_row151；选点应依据实际工作面与接触阶段。take32 1125候选中948初始安全、186后续近接触，均被保守凸包前置条件淘汰，不等于不存在可行位置。物块起点固定，所谓随机主要是当前选择方法不稳定。
+
+后续顺序：①独立human来源与时钟一致性（9已修复，32待修复）；②查实际执行/关节跟踪、桌面与负载约束；③依据实际刷毛—物块—入口关系确定接触阶段和起点，确认residual范围内存在改善机会；④分开盆外推进奖励与盆内承载成功检查，保持防盆下假成功；⑤单条新轨迹受控验证后再扩展36/80。零残差不必直接扫成功，IK约2cm及少量轻微超限可接受，不能以复制human或提高IK精度掩盖实际问题。
+
+具体证据与代码入口见tasks/Sweep/new_data/workflows/TRANSFER_DIAGNOSIS.md、README.md、take9_human_restore_report.json。该分析不是新增训练授权或原Sweep2改动。

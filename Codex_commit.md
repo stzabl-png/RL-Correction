@@ -77,3 +77,22 @@ Task3的当前状态、成功步骤与未通过原因统一见Codex_new_data.md�
 - 提交范围：文档、Task3历史审计说明、清理清单；不混入共享代码dirty改动、arm_shell_points.npz、大型资产、datasets、reference、checkpoint。此commit是文档/证据索引里程碑，不是完整Task3运行依赖快照。
 - 验证：文档引用/核心路径、保留mp4可读性、保护文件hash、git diff --check与显式暂存范围核验。未启动训练/resume，未push。
 - 回退定位：git show <目标提交> --stat查看范围；只对需要的文档比较父版本。若目标是回退本次之前的未提交文档内容，查pre_edit原稿，不能把父commit误认为本次开始时的dirty文件。
+
+## 2026-09-09 — Task3通用fixed资产与take9输入诊断（工作树里程碑）
+
+- 目标：冻结原成功Sweep2，建立新轨迹统一使用take9工具/抓姿的fixed路线，并记录take9正式训练的开局失败根因。
+- 已有产物：take32通用资产调平版配置/reference及566帧零residual录像；take9薄入口正式fixed训练的3M/6M/9M checkpoint和6M诊断录像/rollout。
+- 关键结论：take9方块首帧与刷头相交，781个扫把顶点在方块体积内；开局击飞来自输入几何，不是PPO首步残差。该run只作诊断，不作为修复后resume基线。
+- 运行状态：用户要求暂停take9；自动录像曾清掉人工pause并导致额外推进，15:33 PDT已恢复 `manual_take9_review_20260909` 标记；日志确认再次释放GPU槽位，记录步数10,682,368。接手须实时核验停止状态。
+- 后续：重选take9 cube并增加接触前全时段净空检查，短物理回放通过后从头启动独立run；take32待用户验收，36/80及非fixed后置。
+- 本次只更新现有工作树文档并保留所有既有修改；没有创建Git commit或push。
+
+## 2026-09-09晚间 — 启动Task1物块起点修复验证
+
+- 依据用户执行任务1及可缩小新物块的授权，建立take9全扫把凸包净空选点器与单环境物理probe；最终v3保留25 mm，初始净空10.45 mm，nominal朝入口接近行149。
+- 旧run已跑满24M并退出；日志核实此前恢复来自GPU guard的900秒超时，更正旧文档归因。
+- 新作业tmux `task1_cube9_probe_20260909`，GPU1，180步物理录像；下次检查 `logs/task1_fixed_20260909/`。32/36/80仍待继续，任务2不启动。
+- 原成功Sweep2源码及资产本轮未改；没有Git提交或push。
+
+## 2026-09-10：Task3 fixed代码与human修复交付
+同步Task3配置入口、资产与轨迹处理代码、15mm物块适配和独立human重建配方，更新当前进度及迁移诊断。代码验证包括语法、差异检查和已完成的333帧独立human数值核验。原Sweep2未重训，未宣称迁移成功。具体提交以git log为准；数据/模型/视频及受保护arm_shell_points不在此次提交。

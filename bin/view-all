@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# 六台相机一屏(3 Kinect + 头部 ZED + 两台腕部),带我们的相机名和 setsid 起流。
+#
+#   view-all                 # 全部
+#   view-all --no-kinect     # 只看 ZED
+#   view-all --seconds 8     # 跑 8 秒自动退(冒烟用,不占窗口)
+#   任何 view_all.py 的参数都能直接往后加,我们只是**补默认值**。
+#
+# 为什么需要这层 wrapper:sensor/camera/view_all.py 是原版里唯一**完全不读环境
+# 变量**的相机入口(grep 过,零个 os.environ),旋钮全在 CLI 上。所以 env.sh 里
+# 那两条 MDM_ZED_CMD / MDM_YH_ZED_NAMES 对它无效,得在这里翻译成 --zed-launch
+# 和 --zed-names。走 bringup_*.sh 的那 9 条线不需要 wrapper,它们 source
+# zed_common.sh,env var 直接生效。
+#
+# ⚠️ 要本机图形界面($DISPLAY)。从 Mac ssh 过来开不了窗 —— 那时候用
+#    `view-all --snapshot /tmp/x.png` 抓帧看图(headless 路径,不建窗)。
+set -euo pipefail
+
+YH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$YH_ROOT/env.sh"
+
+# view_all.py 的 --zed-launch 用 %BIN% / %BASE% 占位符,而 MDM_ZED_CMD 是给
+# zed_common.sh 的、已经把路径和端口写死的整条命令。两边格式不同,不能直接传,
+# 所以这里单独写一条同义的 —— 差别只有 setsid 和 </dev/null,理由见 env.sh。
+#
+# ⚠️ port-base **写死 30000,不用 %BASE%**。%BASE% 是 view_all.py 拿 --zed-ports
+# 范围的第一个端口填的;view-wrist 传 30001-30002,base 就成了 30001,streamer 按
+# 设备表顺序从 base 起分号,结果头部占 30001、两腕挪到 30002/30003 —— 窗里标
+# :30001 的那格其实是头部。2026-09-09 现场确认左右腕时就这样错了一回。
+# 端口↔序列号的对应只由 nano 设备表顺序 + base=30000 决定,与看哪几路无关。
+ZED_LAUNCH='setsid nohup %BIN% --port-base 30000 --no-pc --no-imu --resolution SVGA --max-fps 15 </dev/null >/tmp/zed_streamer.log 2>&1 &'
+
+exec "$YH_ROOT/bin/mdm" sensor/camera/view_all.py \
+    --ensure \
+    --zed-ports 30000-30002 \
+    --zed-names "$MDM_YH_ZED_NAMES" \
+    --zed-launch "$ZED_LAUNCH" \
+    "$@"

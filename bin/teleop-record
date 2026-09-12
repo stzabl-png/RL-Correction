@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# 双手 Quest 遥操数采线,home = **Yanghong 站姿**(Pour17 的 RL 出发位),而不是仓库默认 ARM_HOME。
+#
+#   teleop-record --rehearsal                          # 无硬件彩排(合成手势)
+#   teleop-record --task "把水壶里的水倒进杯子" --live   # 真机(键入 LIVE)
+#   任何 bringup_quest_record.sh 的参数都能往后加;record_node 的参数放 -- 之后。
+#
+# 与直接跑 scripts/bringup_quest_record.sh 的区别只有四个环境变量,分别喂给四个子进程:
+#   consumer  --home-pose yanghong   回位目标 / engage 的 FK 锚点 / IK home(经 --home-json 进求解子进程)
+#   record    --home-pose yanghong   near_home / 结束手势的基准(与 consumer 必须一致,否则永远到不了 home)
+#   bridge    --home-profile yanghong  慢速回默认姿势(仅 --home-on-engage 时才用到,配齐以防不一致)
+#   runner    --tactile f6           DP 不吃触觉大图;raw/deform 约 40MB/s,盘撑不住
+# 四个口子都是 bringup 原有的 MDM_*_EXTRA 机制(MDM_BRIDGE_EXTRA / MDM_RUNNER_EXTRA 为 2026-09-09 补)。
+#
+# 为什么不改仓库默认:遥操线还有 RHO / 标定等用法要原版 home;数采线从哪个站姿出发是任务决定,
+# 用开关表达,别改常量。
+set -euo pipefail
+YH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$YH_ROOT/env.sh"
+export MDM_CONSUMER_EXTRA="${MDM_CONSUMER_EXTRA:-} --home-pose yanghong"
+export MDM_RECORD_EXTRA="${MDM_RECORD_EXTRA:-} --home-pose yanghong"
+export MDM_BRIDGE_EXTRA="${MDM_BRIDGE_EXTRA:-} --home-profile yanghong"
+export MDM_RUNNER_EXTRA="${MDM_RUNNER_EXTRA:-} --tactile f6"
+exec "$YH_ROOT/bin/mdm" scripts/bringup_quest_record.sh "$@"

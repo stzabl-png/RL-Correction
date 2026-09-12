@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# 通用转发器:带着我们的覆盖去跑原版的任何脚本。
+#
+#   mdm scripts/bringup_multicam_calib.sh          # .sh -> bash
+#   mdm sensor/camera/view_all.py --seconds 8      # .py  -> 原版 .venv/bin/python
+#   mdm --shell                                    # 开一个装好环境的 shell
+#   mdm --env                                      # 只打印我们覆盖了什么
+#
+# 为什么用 direnv exec 而不是自己 export 一遍:原版 .envrc 里有 UV_PROJECT_ENVIRONMENT、
+# VEGA_URDF、ROBOT_NAME/ROBOT_IP、OMNI_KIT_ACCEPT_EULA,还有一条「PYTHONPATH 必须干净」
+# 的仓库纪律(ROS 的 setup.bash 会把 /opt/ros 的包挤进来,pytest 一 import 就炸)。
+# 抄一份到这里就会漂移 —— 原版改了 .envrc 我们不会知道。direnv exec 每次现读,
+# 永远同步。原版 .envrc 已经 direnv allow 过(2026-09-08 验证)。
+#
+# 顺序很重要:先 direnv(原版环境),再 source env.sh(我们的覆盖)。反过来会被原版盖掉。
+set -euo pipefail
+
+YH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=../env.sh
+source "$YH_ROOT/env.sh"
+
+if [ ! -d "$MDM_UPSTREAM" ]; then
+    echo "mdm: 找不到原版 $MDM_UPSTREAM —— 改 env.sh 里的 MDM_UPSTREAM" >&2
+    exit 1
+fi
+
+usage() { sed -n '2,9p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; }
+
+case "${1-}" in
+    ""|-h|--help) usage; exit 0 ;;
+    --env)
+        # 只看我们覆盖了什么。调试「到底生效没有」用这个。
+        for v in MDM_UPSTREAM MDM_YH_ROOT MDM_ZED_CMD MDM_NANO_ZED_STREAMS \
+                 MDM_YH_ZED_NAMES MDM_NANO_HOST MDM_NANO_USER MDM_NANO_JUMP; do
+            printf '%-24s %s\n' "$v" "${!v-}"
+        done
+        exit 0 ;;
+esac
+
+# 统一在原版根目录下跑 —— 原版脚本假定自己在仓库根运行(assets/、scripts/lib/
+# 这些相对路径都靠它)。`direnv exec DIR` 只是拿 DIR 的 .envrc,**不会**把 cwd
+# 换过去(实测它把 cwd 重置成 $HOME),所以这个 cd 是必须的,不是冗余。
+cd "$MDM_UPSTREAM"
+run() { exec direnv exec "$MDM_UPSTREAM" env "$@"; }
+
+# 我们的覆盖要显式传给 direnv exec:它跑的是干净环境,不继承我们刚 source 的东西。
+# 白名单改成「凡是 env.sh 里 export 过的 MDM_* / VEGA_* 都转发」,而不是逐条手写:
+# 手写的名单会漏 —— 2026-09-08 加 VEGA_TORSO_SQUAT_DEG 时就漏过一次,现象是
+# env.sh 明明写了、mdm --env 也看得到,原版那边却仍是默认值。
+overrides=()
+seen=""
+add_var() { case " $seen " in *" $1 "*) return;; esac; seen="$seen $1"
+            overrides+=("$1=${!1-}"); }
+
+# ① env.sh 里 export 过的 MDM_* / VEGA_*
+while IFS= read -r v; do add_var "$v"; done \
+    < <(grep -oP '^\s*export\s+\K(MDM|VEGA)_[A-Z0-9_]+' "$YH_ROOT/env.sh" | sort -u)
+
+# ② 调用方(bin/drag-teach 等)临时设的 MDM_*/VEGA_*,它们不在 env.sh 里 ——
+#    换 ARM_HOME 这种「只对某条线成立」的开关就属于这类,不该写进全局 env.sh。
+while IFS= read -r v; do add_var "$v"; done \
+    < <(compgen -v | grep -E '^(MDM|VEGA)_' | sort -u)
+
+# ③ PYTHONPATH:原版 .envrc 里有一行 `unset PYTHONPATH`(仓库纪律,防 /opt/ros
+#    的包挤进来)。direnv 先跑、我们的 env 后跑,所以这里显式带过去才活得下来。
+#    只在调用方确实设了的时候带 —— 不设就让 .envrc 的 unset 继续生效。
+[ -n "${PYTHONPATH:-}" ] && add_var PYTHONPATH
+
+if [ "${1-}" = "--shell" ]; then
+    shift
+    run "${overrides[@]}" bash --norc -i
+fi
+
+target="$1"; shift
+# 相对路径按原版根目录解;绝对路径原样用。
+case "$target" in
+    /*) abs="$target" ;;
+    *)  abs="$MDM_UPSTREAM/$target" ;;
+esac
+[ -e "$abs" ] || { echo "mdm: 原版里没有 $target" >&2; exit 1; }
+
+case "$abs" in
+    *.py) run "${overrides[@]}" "$MDM_UPSTREAM/.venv/bin/python" "$abs" "$@" ;;
+    *.sh) run "${overrides[@]}" bash "$abs" "$@" ;;
+    *)    run "${overrides[@]}" "$abs" "$@" ;;
+esac

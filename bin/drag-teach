@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# 拖拽示教采数线,回合间「回 home」= **Yanghong home**(而不是仓库默认 ARM_HOME)。
+#
+#   drag-teach --rehearsal                       # 无硬件彩排
+#   drag-teach --task "把水壶里的水倒进杯子" --live  # 真机(要键入 LIVE)
+#   任何 bringup_drag_teach.sh 的参数都能往后加。
+#
+# 与直接跑原版 bringup_drag_teach.sh 的唯一区别:多设两个变量,让 pyshim 生效。
+# 原版脚本本身一个字节没改 —— 见 pyshim/sitecustomize.py 的文件头。
+#
+# ⚠️ **重力标定不要用这个入口**。--ft-calib 的摆腕基座是按仓库 ARM_HOME 的几何
+#    算的(j4 收到 -2.2 抬肘 ~0.3m 离桌),换成 Yanghong 站姿那套桌面净空推理
+#    不成立。标定按原版命令直接跑:
+#      mdm envs/real/.venv/bin/python teleop/outputs/real/drag_teach_daemon.py --ft-calib
+set -euo pipefail
+
+YH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$YH_ROOT/env.sh"
+
+# 2026-09-09 起**不再挂 pyshim**。副本里换 home 已经落在代码上、而且是按调用点分开的:
+#   drag_teach_daemon.py:874   回合间「回 home」   -> ARM_HOME_YANGHONG
+#   drag_teach_daemon.py:571/626  --ft-calib 摆腕基座/回程 -> 仍是 ARM_HOME
+#   drag_record_node.py        整个模块的 home    -> ARM_HOME_YANGHONG
+# pyshim 做不到这种分辨率:它改的是 home_pose.ARM_HOME 这个 dict 本身,一挂上
+# --ft-calib 那两处就跟着变了 —— 正是本文件下面警告的那件事。所以它现在是**有害**的,
+# 已退役到 pyshim.retired/。这个入口如今与直接跑 bringup_drag_teach.sh 等价。
+
+exec "$YH_ROOT/bin/mdm" scripts/bringup_drag_teach.sh "$@"

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# 只看两台腕部单目 ZED。确认左右腕对应关系、看腕相机视野,都用这个。
+#
+#   view-wrist               # 两格并排
+#   view-wrist --seconds 8   # 跑 8 秒自动退
+#
+# ✅ 左右腕已于 2026-09-09 现场确认(30001=左,30002=右),见 env.sh。
+#    换相机/换支架后重验:开两格,用手挡左腕镜头,变黑的那格是 left_wrist ——
+#    比「动左臂」省事,daemon 没起、臂锁死时也能做。
+#
+# 不画深度栏:ZED X One 是单目,硬件就没有深度,两个「NO DEPTH」灰格纯占地方。
+set -euo pipefail
+
+YH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+exec "$YH_ROOT/bin/view-all" \
+    --no-kinect \
+    --zed-ports 30001-30002 \
+    --no-depth-pane \
+    "$@"

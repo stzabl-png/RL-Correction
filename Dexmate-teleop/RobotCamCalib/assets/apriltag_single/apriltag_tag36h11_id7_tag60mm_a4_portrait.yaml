@@ -1,0 +1,75 @@
+schema: robot_cam_calib.apriltag_board.v1
+name: apriltag_tag36h11_id7_tag60mm_a4_portrait
+family: tag36h11
+units: mm
+layout:
+  rows: 1
+  cols: 1
+  tag_id_start: 7
+  tag_id_end: 7
+geometry:
+  tag_size_mm: 60.0
+  marker_fraction: 0.6666666666666666
+  tile_size_mm: 90.0
+  explicit_gap_mm: 0.0
+  pitch_mm: 90.0
+  black_marker_edge_gap_mm: 30.0
+  board_size_mm:
+  - 90.0
+  - 90.0
+  quiet_zone_mm: 15.0
+  cells_across_tag: 8
+target_frame:
+  name: board
+  origin: center of the printed tag
+  x_axis: toward the tag's right edge as printed
+  y_axis: toward the tag's top edge as printed
+  z_axis: normal to printed tag plane
+detection_corner_order:
+  source: pupil_apriltags.Detection.corners
+  tag_frame_corners_mm: &id001
+  - - -30.0
+    - 30.0
+    - 0.0
+  - - 30.0
+    - 30.0
+    - 0.0
+  - - 30.0
+    - -30.0
+    - 0.0
+  - - -30.0
+    - -30.0
+    - 0.0
+  description: Use each detection's four image corners in this exact order with the
+    matching corners_board_mm entry for bundle PnP.
+usage:
+  board_min_tags: 1
+  note: A single tag gives solvePnP only four coplanar points, which admits a two-fold
+    planar pose ambiguity. Print it as large as the working distance allows and avoid
+    near-fronto-parallel views, where the two solutions are hardest to tell apart.
+tags:
+- id: 7
+  row: 0
+  col: 0
+  center_mm:
+  - 0.0
+  - 0.0
+  - 0.0
+  T_board_tag:
+  - - 1.0
+    - 0.0
+    - 0.0
+    - 0.0
+  - - 0.0
+    - 1.0
+    - 0.0
+    - 0.0
+  - - 0.0
+    - 0.0
+    - 1.0
+    - 0.0
+  - - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+  corners_board_mm: *id001

@@ -1,0 +1,37 @@
+{
+ "配置": "--mode trackers --tracker-left LWRIST --tracker-right RWRIST --tracker-waist WAIST --map chest-anchor --ori-mode palm --control-mode arms+head+waist --waist-mode j3 --pos-scale 1.0 --physics-device cpu --physics-hz 50 --control_hz 50 --no-sym-lock --self-collision hold --relax-at-limit 0.01 --relax-margin 3.0 --relax-pos-at-limit",
+ "素材": {
+  "logs/clip_headwaist.msgpack": {
+   "右腕误差均值": 31.9,
+   "右腕误差最大": 343.6,
+   "左腕误差均值": 28.7,
+   "左腕误差最大": 153.5,
+   "头方位误差": 0.0,
+   "头仰角误差": 0.0,
+   "腰行程j3": 30.4,
+   "实时倍率": 2.32,
+   "跳变中位": 1.6294346735725478,
+   "跳变p99": 8.453258881177529,
+   "跳变>5度占比%": 10.631644777986242,
+   "大跳中j5占比%": 24.11764705882353,
+   "_missing": [],
+   "_csv": "logs/regress/relaxpos_idle_clip_headwaist.csv"
+  },
+  "logs/playlist_all13.msgpack": {
+   "右腕误差均值": 18.8,
+   "右腕误差最大": 562.5,
+   "左腕误差均值": 18.8,
+   "左腕误差最大": 556.9,
+   "头方位误差": 0.0,
+   "头仰角误差": 0.0,
+   "腰行程j3": 38.9,
+   "实时倍率": 2.36,
+   "跳变中位": 0.12562099658242903,
+   "跳变p99": 8.177469084238078,
+   "跳变>5度占比%": 5.357142857142857,
+   "大跳中j5占比%": 11.11111111111111,
+   "_missing": [],
+   "_csv": "logs/regress/relaxpos_idle_playlist_all13.csv"
+  }
+ }
+}

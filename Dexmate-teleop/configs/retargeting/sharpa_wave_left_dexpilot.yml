@@ -1,0 +1,9 @@
+retargeting:
+  type: DexPilot
+  urdf_path: sharpa_wave/left/left_sharpa_wave.urdf
+
+  wrist_link_name: "left_hand_C_MC"
+  finger_tip_link_names: [ "left_thumb_fingertip", "left_index_fingertip", "left_middle_fingertip", "left_ring_fingertip", "left_pinky_fingertip" ]
+
+  scaling_factor: 1.07
+  low_pass_alpha: 0.2

@@ -1,0 +1,47 @@
+retargeting:
+  type: vector
+  urdf_path: sharpa_wave/right/right_sharpa_wave.urdf
+
+  # Vectors 1-5 (UNCHANGED from baseline): palm root -> each fingertip. These carry
+  # flexion/reach (problem A1, already good) and must not be disturbed.
+  # Vectors 6-9 (Step 4.1, fj): per-finger ABDUCTION vectors MCP_VL -> MP. MP's origin
+  # sits AT the PIP joint (end of the proximal phalanx), so its position depends only on
+  # MCP_FE/MCP_AA and is INDEPENDENT of PIP/DIP curl -> abduction stays observable even
+  # when the finger is half-curled (where the palm->fingertip vector's lateral lever arm
+  # collapses; see fj_work_claude.md J.8 offline deadzone). Up-weighted in builder.py so
+  # this small proximal residual is not averaged away.
+  # Vectors 10-13 (Step 5, fj): thumb_tip -> each fingertip PINCH vectors. They directly
+  # constrain the thumb<->fingertip GAP (what "对指"/opposition accuracy is), which the
+  # palm->fingertip vectors only reach indirectly (each tip vs palm, errors compound in the
+  # gap). Mimics DexPilot's pinch projection / V2AP's pinch_loss. Weighted by --pinch-weight
+  # in builder.py; DEFAULT 0 => contributes nothing => byte-identical to the 9-vector config.
+  target_origin_link_names: [
+    "right_hand_C_MC", "right_hand_C_MC", "right_hand_C_MC", "right_hand_C_MC", "right_hand_C_MC",
+    "right_index_MCP_VL", "right_middle_MCP_VL", "right_ring_MCP_VL", "right_pinky_MCP_VL",
+    "right_thumb_fingertip", "right_thumb_fingertip", "right_thumb_fingertip", "right_thumb_fingertip"
+  ]
+  target_task_link_names: [
+    "right_thumb_fingertip", "right_index_fingertip", "right_middle_fingertip", "right_ring_fingertip", "right_pinky_fingertip",
+    "right_index_MP", "right_middle_MP", "right_ring_MP", "right_pinky_MP",
+    "right_index_fingertip", "right_middle_fingertip", "right_ring_fingertip", "right_pinky_fingertip"
+  ]
+
+  # Source = human, MediaPipe indices. 1-5: wrist->thumb/index/middle/ring/pinky tips.
+  # 6-9: each finger's MCP->PIP (proximal phalanx direction = the MCP_AA-controlled axis).
+  # 10-13: thumb_tip(4) -> index/middle/ring/pinky tip(8/12/16/20) = pinch gap vectors.
+  target_link_human_indices: [
+    [ 0, 0, 0, 0, 0,   5,  9, 13, 17,    4,  4,  4,  4 ],
+    [ 4, 8, 12, 16, 20,   6, 10, 14, 18,    8, 12, 16, 20 ]
+  ]
+
+  # robot hand size / human hand size; tune per operator (scripts/check_env.py prints
+  # the robot wrist->middle-fingertip length to recompute this).
+  scaling_factor: 1.07
+
+  # Output-only LPF: y += alpha*(x-y). Larger alpha = less latency, less smoothing.
+  # fj history: 0.2 -> 0.6 (Step 1) -> 0.8 (Part A, after real-glove felt laggy) to MATCH
+  # V2AP's filter_alpha=0.8. Settle ~55ms -> ~30ms @60Hz. Affects the published qpos only,
+  # NOT the optimizer solution/warm-start (seq_retarget.py:124 warm-starts from the
+  # pre-filter qpos), so steady-state pose and fine control are unchanged. Dial back to
+  # 0.6-0.7 if jittery.
+  low_pass_alpha: 0.8

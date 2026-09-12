@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# uv environments (recreate: bash scripts/setup_env.sh / setup_isaac_env.sh)
+.venv/
+.venv-isaac/
+.venv-pico/
+
+# Note: assets/ (SharpaWave URDF + meshes) IS committed — self-contained repo.
+# Regenerate from the vendor source with: python scripts/prepare_assets.py
+
+# Runtime / debug output
+*.log
+/snapshots/
+/outputs/
+scripts/trackers.env
+
+# 录制与运行产物。2026-08-09 加:logs/ 已有 26 GB、data/ 2.8 GB,两者都没被
+# 忽略过 —— 一次 git add -A 就会试图提交 29 GB。
+# 注意写法:排除的是**目录内容**(/logs/*)而不是目录本身(/logs/)——
+# git 不会进入被排除的目录,写成 /logs/ 的话后面的否定规则一条都不生效。
+/logs/*
+/data/
+!/logs/regress/
+/logs/regress/*
+# 回归基线要留:每个 1.5 KB,是以后所有对比的参照物,丢了就没有基准了。
+# 同目录下的 CSV(每份 2.7 MB)不留。
+!/logs/regress/*.json
+
+# 同名符号链接(打包版把 venv 软链到别处验证时)也要忽略:目录型规则
+# `.venv/` 匹配不到符号链接
+.venv
+.venv-isaac
+.venv-pico
+
+# curobo:TODO 换 IK 用的第三方克隆,不入库(要 vendor 时另行决定)
+curobo/
+curobo
+
+# Vendor repositories are obtained separately and must not be published from
+# this parent repository.  Keep the local checkouts, but do not stage gitlinks
+# or their contents here.
+/dexcontrol/
+/dexmate-urdf/
+
+# Local operator notes; keep them on this workstation only.
+/start.md
+/tutorial.md

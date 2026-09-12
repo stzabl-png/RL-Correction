@@ -1,0 +1,18 @@
+pupil-apriltags
+loguru
+scipy
+opencv-contrib-python
+numpy
+pyyaml
+matplotlib
+viser
+yourdfpy
+pybullet
+av
+pyudev
+termcolor
+# extr_calib_vega_kinect.py (Dexmate-teleop): joint feed + Kinect
+pyzmq
+msgpack
+# pyk4a needs the Azure Kinect SDK (libk4a) installed first; optional otherwise
+# pyk4a

@@ -1,0 +1,21 @@
+{
+ "配置": "--mode trackers --tracker-left LWRIST --tracker-right RWRIST --tracker-waist WAIST --map chest-anchor --ori-mode palm --control-mode arms+head+waist --waist-mode j3 --pos-scale 1.0 --physics-device cpu --physics-hz 50 --control_hz 50 --no-sym-lock --self-collision hold --relax-at-limit 0.01 --relax-margin 3.0 --relax-pos-at-limit",
+ "素材": {
+  "logs/playlist_all13.msgpack": {
+   "右腕误差均值": 15.8,
+   "右腕误差最大": 565.8,
+   "左腕误差均值": 13.7,
+   "左腕误差最大": 560.8,
+   "头方位误差": 0.0,
+   "头仰角误差": 0.0,
+   "腰行程j3": 38.9,
+   "实时倍率": 2.1,
+   "跳变中位": 0.12894415179418794,
+   "跳变p99": 7.82035709560454,
+   "跳变>5度占比%": 4.790940766550523,
+   "大跳中j5占比%": 21.21212121212121,
+   "_missing": [],
+   "_csv": "logs/regress/relaxpos2_load4_playlist_all13.csv"
+  }
+ }
+}

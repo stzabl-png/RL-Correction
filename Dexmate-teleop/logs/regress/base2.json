@@ -1,0 +1,37 @@
+{
+ "配置": "--mode trackers --tracker-left LWRIST --tracker-right RWRIST --tracker-waist WAIST --map chest-anchor --ori-mode palm --control-mode arms+head+waist --waist-mode j3 --pos-scale 1.0 --physics-device cpu --physics-hz 50 --control_hz 50 --no-sym-lock ",
+ "素材": {
+  "logs/clip_headwaist.msgpack": {
+   "右腕误差均值": 30.8,
+   "右腕误差最大": 117.5,
+   "左腕误差均值": 34.7,
+   "左腕误差最大": 104.0,
+   "头方位误差": 0.0,
+   "头仰角误差": 0.0,
+   "腰行程j3": 30.4,
+   "实时倍率": 2.49,
+   "跳变中位": 1.5144420440897925,
+   "跳变p99": 8.34977582788337,
+   "跳变>5度占比%": 8.19262038774234,
+   "大跳中j5占比%": 33.587786259541986,
+   "_missing": [],
+   "_csv": "/tmp/claude-1000/-home-luhr-magicsim-GR00T-WholeBodyControl/071ba18d-5b10-4b50-ab95-d83a4e907ae9/scratchpad/base2_clip_headwaist.csv"
+  },
+  "logs/playlist_all13.msgpack": {
+   "右腕误差均值": 17.9,
+   "右腕误差最大": 563.7,
+   "左腕误差均值": 12.8,
+   "左腕误差最大": 559.0,
+   "头方位误差": 0.0,
+   "头仰角误差": 0.0,
+   "腰行程j3": 38.9,
+   "实时倍率": 2.48,
+   "跳变中位": 0.12215460192189123,
+   "跳变p99": 7.44194769276818,
+   "跳变>5度占比%": 3.5859465737514515,
+   "大跳中j5占比%": 18.62348178137652,
+   "_missing": [],
+   "_csv": "/tmp/claude-1000/-home-luhr-magicsim-GR00T-WholeBodyControl/071ba18d-5b10-4b50-ab95-d83a4e907ae9/scratchpad/base2_playlist_all13.csv"
+  }
+ }
+}

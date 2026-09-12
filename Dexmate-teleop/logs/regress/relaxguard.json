@@ -1,0 +1,20 @@
+{
+ "配置": "--mode trackers --tracker-left LWRIST --tracker-right RWRIST --tracker-waist WAIST --map chest-anchor --ori-mode palm --control-mode arms+head+waist --waist-mode j3 --pos-scale 1.0 --physics-device cpu --physics-hz 50 --control_hz 50 --no-sym-lock  --relax-at-limit 0.1 --joint-vel-scale 1.0",
+ "素材": {
+  "logs/playlist_all13.msgpack": {
+   "右腕误差均值": 22.2,
+   "右腕误差最大": 564.4,
+   "左腕误差均值": 18.9,
+   "左腕误差最大": 560.6,
+   "头方位误差": 0.0,
+   "头仰角误差": 0.0,
+   "腰行程j3": 38.9,
+   "实时倍率": 2.45,
+   "跳变中位": 0.13897091320897942,
+   "跳变p99": 3.0939720937064608,
+   "跳变>5度占比%": 0.0,
+   "_missing": [],
+   "_csv": "/tmp/claude-1000/-home-luhr-magicsim-GR00T-WholeBodyControl/071ba18d-5b10-4b50-ab95-d83a4e907ae9/scratchpad/relaxguard_playlist_all13.csv"
+  }
+ }
+}

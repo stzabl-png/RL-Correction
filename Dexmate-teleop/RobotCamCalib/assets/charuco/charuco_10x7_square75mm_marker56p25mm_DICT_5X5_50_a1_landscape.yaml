@@ -1,0 +1,43 @@
+target_type: charuco
+charuco:
+  squares_x: 10
+  squares_y: 7
+  square_length: 0.075
+  marker_length: 0.05625
+  dictionary: DICT_5X5_50
+  legacy_pattern: false
+board:
+  name: charuco_10x7_square75mm_marker56p25mm_DICT_5X5_50_a1_landscape
+  inner_corners:
+  - 9
+  - 6
+  inner_corner_count: 54
+  marker_count: 35
+  dictionary_capacity: 50
+  marker_fraction: 0.75
+  quiet_zone_per_marker_mm: 9.375
+  board_size_mm:
+  - 750.0
+  - 525.0
+  raster_px_per_square: 448
+  raster_size_px:
+  - 4480
+  - 3136
+page:
+  name: a1
+  orientation: landscape
+  size_mm:
+  - 841.0
+  - 594.0
+  margin_mm:
+  - 45.5
+  - 34.5
+print_check:
+  print_scale: 100% / actual size, never 'fit to printable area'
+  measure_x_span_mm: 750.0
+  measure_y_span_mm: 525.0
+  max_anisotropy_fraction: 0.001
+  note: Use a laser printer. Absolute scale error only biases translation, and intrinsics
+    do not use it. A mismatch between the x and y shrink ratios biases fx/fy directly.
+  mounting: Bond to a rigid flat substrate. At this size, 1 mm of paper bow exceeds
+    the sub-pixel corner noise and becomes the dominant error.

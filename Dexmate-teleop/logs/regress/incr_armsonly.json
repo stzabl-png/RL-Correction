@@ -1,0 +1,24 @@
+{
+ "配置": "--mode trackers --tracker-left LWRIST --tracker-right RWRIST --tracker-waist WAIST --map chest-anchor --ori-mode palm --control-mode arms+head+waist --waist-mode j3 --pos-scale 1.0 --physics-device cpu --physics-hz 50 --control_hz 50 --no-sym-lock --self-collision hold  --ori-mode track --anchor home --control-mode arms",
+ "素材": {
+  "logs/playlist_all13.msgpack": {
+   "右腕误差均值": 50.4,
+   "右腕误差最大": 592.4,
+   "左腕误差均值": 46.6,
+   "左腕误差最大": 589.3,
+   "头方位误差": null,
+   "头仰角误差": null,
+   "腰行程j3": 0.3,
+   "实时倍率": 2.6,
+   "跳变中位": 0.11166947427099622,
+   "跳变p99": 7.5639132186176745,
+   "跳变>5度占比%": 2.6132404181184667,
+   "大跳中j5占比%": 7.777777777777778,
+   "_missing": [
+    "头方位误差",
+    "头仰角误差"
+   ],
+   "_csv": "logs/regress/incr_armsonly_playlist_all13.csv"
+  }
+ }
+}

@@ -1,0 +1,28 @@
+[project]
+name = "magicdexmate"
+version = "0.1.0"
+description = "Wuji glove -> SharpaWave teleop retargeting (real + sim)"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "numpy>=2.0",
+    "dex_retargeting",
+    "pyzmq",
+]
+
+[project.optional-dependencies]
+viz = ["sapien==3.0.0b0"]
+glove = ["wuji-sdk"]
+dev = ["pytest"]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["magicdexmate*"]
+
+[tool.pytest.ini_options]
+# 只收 tests/。裸跑 pytest 此前会去收 sim/test_env_sharpa.py —— 那不是测试,
+# 是一个需要 isaaclab 的仿真脚本,只因文件名以 test_ 开头就被收进来,于是
+# 「跑一下单测」这个动作在这个仓库里一直是报错的。
+testpaths = ["tests"]

@@ -1,0 +1,34 @@
+retargeting:
+  type: vector
+  urdf_path: sharpa_wave/left/left_sharpa_wave.urdf
+
+  # MIRROR of sharpa_wave_right_vector.yml (fj). Same human MediaPipe indices (left/right
+  # difference is in the keypoint DATA, not the config); only the robot link names flip
+  # right_ -> left_. Keep this in sync with the right config.
+  # Vectors 1-5 (baseline): palm root -> each fingertip (flexion/reach, A1).
+  # Vectors 6-9 (Step 4.1): per-finger ABDUCTION vectors MCP_VL -> MP (small side-swing,
+  #   up-weighted in builder.py; independent of PIP/DIP curl so abduction stays observable).
+  # Vectors 10-13 (Step 5): thumb_tip -> each fingertip PINCH vectors (constrain the
+  #   thumb<->fingertip gap = 对指/opposition). CONDITIONALLY weighted by --pinch-weight
+  #   (only while pinching); DEFAULT 0 => byte-identical to the 9-vector config.
+  target_origin_link_names: [
+    "left_hand_C_MC", "left_hand_C_MC", "left_hand_C_MC", "left_hand_C_MC", "left_hand_C_MC",
+    "left_index_MCP_VL", "left_middle_MCP_VL", "left_ring_MCP_VL", "left_pinky_MCP_VL",
+    "left_thumb_fingertip", "left_thumb_fingertip", "left_thumb_fingertip", "left_thumb_fingertip"
+  ]
+  target_task_link_names: [
+    "left_thumb_fingertip", "left_index_fingertip", "left_middle_fingertip", "left_ring_fingertip", "left_pinky_fingertip",
+    "left_index_MP", "left_middle_MP", "left_ring_MP", "left_pinky_MP",
+    "left_index_fingertip", "left_middle_fingertip", "left_ring_fingertip", "left_pinky_fingertip"
+  ]
+
+  # 1-5: wrist->thumb/index/middle/ring/pinky tips. 6-9: each finger's MCP->PIP.
+  # 10-13: thumb_tip(4) -> index/middle/ring/pinky tip(8/12/16/20) = pinch gap vectors.
+  target_link_human_indices: [
+    [ 0, 0, 0, 0, 0,   5,  9, 13, 17,    4,  4,  4,  4 ],
+    [ 4, 8, 12, 16, 20,   6, 10, 14, 18,    8, 12, 16, 20 ]
+  ]
+
+  scaling_factor: 1.07
+  # fj: 0.2 -> 0.6 (Step 1) -> 0.8 (Part A), output-only LPF, mirrors right hand.
+  low_pass_alpha: 0.8

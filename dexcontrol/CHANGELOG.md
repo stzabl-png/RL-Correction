@@ -1,0 +1,279 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.5.0] - 2026-06-21
+
+### Added
+
+- **Goal-oriented motion via the motion plugin — `move_joint_pos()` and `move_to_joint_pos()`.** New APIs on `ManagedJointComponent` (arms, head, torso) and `Robot`. The *motion plugin* is the robot's internal motion controller, running on the robot-server: the client publishes a target to `motion/target/{component}` and the plugin handles trajectory smoothing, gravity compensation, and convergence detection on the robot. `move_joint_pos()` is fire-and-forget (returns after publishing); `move_to_joint_pos()` is tracked and returns a `MotionHandle` for plugin-signaled convergence, cancellation, and async waiting. `velocity_scale` is a per-joint scale in `(0, 1]` of the hardware velocity ceiling. These complement `set_joint_pos()` (direct streaming control); they do not replace it.
+- **`MotionHandle` / `MultiMotionHandle`** (`dexcontrol.core.motion_handle`): async handles for tracked motion with `.wait(timeout)`, `.cancel()`, `.state`, `.is_done`, `.message`. `Robot.move_to_joint_pos({...})` returns a `MultiMotionHandle` that waits across components within a shared timeout budget. `wait()` raises `PluginNotAvailableError` if the motion plugin never responds (i.e., not running on the robot-server), distinguishing it from an in-flight motion.
+- **`default_velocity_scale`** on `ManagedJointComponent` and `Robot`. Client-side default in `(0, 1]` applied to `move_joint_pos`/`move_to_joint_pos` when `velocity_scale` is omitted; `None` falls back to the plugin's own default. The Robot-level setter fans out to every managed component.
+- **`ManagedJointComponent` class** (`dexcontrol.core.component.ManagedJointComponent`) and **`MotionPluginManaged` marker mixin** (`dexcontrol.core.component.MotionPluginManaged`). `Arm`, `Head`, and `Torso` inherit `ManagedJointComponent` and expose the motion-plugin APIs (`move_joint_pos`, `move_to_joint_pos`, `move_joint_trajectory`, `go_to_pose`, `default_velocity_scale`). `Hand`, `HandF5D6`, `HandF5D6V2`, `DexGripper`, `ChassisSteer`, and `ChassisDrive` inherit `RobotJointComponent` directly and do **not** expose these APIs. `isinstance(c, MotionPluginManaged)` discovers all motion-plugin clients for Robot-level fan-out. `Chassis` is intentionally **not** managed by the motion plugin — it keeps its local-IK steer/drive control path through `set_velocity()`.
+- **`Torso.set_idle_mode(enabled)` / `get_idle_mode()`.** Toggle the torso's server-side auto-idle behaviour. When disabled, the three torso joints stay actively held at the last commanded position instead of powering down between commands — useful for endurance tests and continuous control loops. Backed by the firmware-side idle-mode service.
+
+### Changed
+
+- **`go_to_pose(pose_name, timeout=None)`** now drives the motion plugin (a tracked `move_to_joint_pos`) and waits for plugin-signaled convergence instead of client-side polling. Signature changed from `(pose_name, wait_time=3.0, exit_on_reach=…)`.
+- **`Robot.set_joint_pos()` is now a thin, non-blocking command primitive.** Signature reduced to `set_joint_pos(joint_pos, relative=False)`. It fans one raw setpoint out to every component and returns immediately. Previously non-PV components (torso, head) could be routed through a host-side smooth-trajectory path when `wait_time > 0`; that routing is gone, so PV and non-PV components are now commanded identically with a single immediate setpoint and no blocking wait. For smooth, controller-managed motion use `move_to_joint_pos()`; for continuous control, call `set_joint_pos()` in a high-frequency loop (e.g. 100–500 Hz).
+- **`Robot.move_joint_pos` / `move_to_joint_pos` validate targets up front.** Passing a non-managed component (e.g., `left_hand`, `chassis`) raises `DexcontrolError` wrapping `ValueError("move_joint_pos() does not support [...]. Supported components: [...].")` at the entry point, instead of a downstream `AttributeError`/`NotImplementedError` from the per-component dispatch loop.
+- **Unified `side` parameter name across examples.** Renamed `arm_side` to `side` in all example scripts so every example uses the same input name. CLI flag for tyro-driven scripts is now `--side` instead of `--arm-side`.
+- **Software E-Stop service wire encoding switched to `DictDataCodec`** (request encoder and response decoder), replacing the prior `SoftwareEstopCodec` request / undecoded response. `EStop.activate()` / `deactivate()` / `toggle()` now read a `{"success", "message"}` response dict. **This is a breaking wire change — the robot-server must run a matching motion/E-Stop service build.**
+
+### Removed (breaking)
+
+- **`Chassis.set_velocity` parameters `sequential_steering`, `steering_wait_time`, `steering_tolerance`** (present through 0.4.x). Sequential steering is always on; the tolerance (0.05 rad) and inter-step wait (1.0 s) are now internal constants. Callers passing these kwargs will get `TypeError`. `set_velocity` now also rejects any other unknown kwargs with `TypeError` instead of silently dropping them.
+- **`Arm.set_mode(mode)` deprecated alias.** Removed in favour of `Arm.set_modes([...])`. Callers of `set_mode` will get `AttributeError`.
+- **`wait_time`, `wait_kwargs`, `exit_on_reach`, and `exit_on_reach_kwargs` removed from `Robot.set_joint_pos()`.** The Robot-level blocking-wait and exit-on-reach behaviour is gone (see Changed). Callers passing any of these will get `TypeError`. Migration: drop the arguments; add an explicit `time.sleep(...)` if you need a settle window, or use `move_to_joint_pos()` for motion that signals its own convergence.
+
+### Migration from 0.5.0rc1
+
+`0.5.0rc1` shipped the motion-plugin client as a single `set_joint_target()` plus `set_joint_trajectory()`. `0.5.0` renames these and splits the tracked/untracked paths into separate methods for clarity. **The wire protocol is unchanged** — only the Python surface differs, and there are **no deprecation aliases** (the old names raise `AttributeError`). If you were on `0.5.0rc1`:
+
+- `set_joint_target(pos)` / `set_joint_target(pos, tracked=False)` → **`move_joint_pos(pos)`** (fire-and-forget, returns `None`).
+- `set_joint_target(pos, tracked=True)` → **`move_to_joint_pos(pos)`** (tracked, returns a `MotionHandle`).
+
+## [0.4.9] - 2026-03-29
+
+### Added
+
+- **Auto-detect RTC video codec from publisher** — Camera subscribers query the publisher's metadata to determine the video codec (VP8, H264, H265) instead of hardcoding. Falls back to VP8 if detection fails.
+- **Live FPS display in camera examples** — `get_head_zed_x_mini_data.py` shows per-stream FPS in both matplotlib titles and terminal output. Works for both Zenoh and RTC transport.
+
+### Dependencies
+
+- Requires **dexcomm-video >= 0.4.18** for RTC video streaming support.
+
+## [0.4.7] - 2026-03-13
+
+### Added
+
+- **End-to-end latency measurement in camera examples.** `get_head_zed_x_mini_data.py` and `get_wrist_zed_x_one_data.py` now display live publish-to-receive latency per stream (current, rolling avg/min/max) in the terminal and on matplotlib plot titles. Uses `receive_time_ns` from dexcomm v0.4.6 for accurate measurement.
+
+### Changed
+
+- **Camera info service moved to `BaseCameraSensor`.** `_setup_camera_info_service()`, `_query_camera_info()`, and `get_camera_info()` are now in the base class, eliminating duplicate implementations in `ZedCameraSensor` and `ZedXOneCameraSensor`.
+
+### Dependencies
+
+- Requires **dexcomm >= 0.4.6** for `receive_time_ns` in decoded subscriber messages.
+
+## [0.4.6] - 2026-03-10
+
+### Fixed
+
+- `AttributeError: 'EStopConfig' object has no attribute 'monitoring'`. Fix this issue by enforcing new dexbot-utils version.
+
+
+### Dependencies
+
+- Requires `dexcomm >= 0.4.4` (raised from 0.4.2) `dexbot-utils >= 0.4.4` (raised from 0.4.3).
+
+## [0.4.5] - 2026-03-08
+
+### Added
+
+- **E-Stop boot warning.** `Robot.__init__` now checks whether the software E-Stop is active immediately after initialization. If it is, all control setup is skipped and a clear warning is logged telling the user to call `robot.estop.deactivate()` before controlling the robot. The monitor thread now uses the `monitoring` field instead of `enabled` to control the run loop, matching the actual attribute set during initialization. The previous field name caused the thread to exit immediately on start.
+
+- **Connection benchmark.** New `connect_robot_latency.py` benchmark for measuring robot connection latency.
+
+### Breaking Changes
+
+- **`Robot.__init__` skips control setup when software E-Stop is active.** Previously, all control modes were initialized unconditionally. Now, if the software E-Stop is enabled at startup, control setup is skipped entirely and a warning is logged. Code that initializes `Robot()` while the software E-Stop is active will no longer have functional control — call `robot.estop.deactivate()` first.
+
+### Fixed
+
+- **Outdated docstrings across the core public API.** Audited and corrected all public method docstrings in `component.py`, `robot_query_interface.py`, `robot.py`, `arm.py`, `hand.py`, `head.py`, `chassis.py`, `torso.py`, and `misc.py`. Fixed wrong default values, phantom parameters, inaccurate return type descriptions, and exceptions listed that were never actually raised. Added missing docstrings where none existed.
+- **LIDAR data retrieval no longer calls the removed `get_vega_config`.** `get_lidar_data` was calling `get_vega_config`, which no longer exists. Updated to use `get_robot_config` instead.
+
+## [0.4.4] - 2026-02-18
+
+### Fixed
+
+- **Double-namespaced Zenoh topics in RTC and Arm.** `RTCSubscriber._query_connection_info()` was calling `resolve_key_name()` before passing the topic to `query_json_service()`, which already applies `resolve_key_name()` internally — resulting in the robot name prefix being added twice. Similarly, `Arm` was wrapping `config.ee_pass_through_pub_topic` with `resolve_key_name()` before passing it to `create_publisher()`, which handles namespace resolution at the communication layer. Both call sites now pass the raw topic directly.
+
+## [0.4.3] - 2026-02-17
+
+### Added
+
+- **Robot model compatibility decorators.** New `supported_models` decorator for example scripts and `requires_model` decorator for class methods, both in `dexcontrol.utils.compat`. Scripts decorated with `@supported_models` check the robot model from environment variables before running and exit with a clear error if the model is unsupported — avoiding unnecessary robot connections. Methods decorated with `@requires_model` raise `ModelNotSupportedError` at call time.
+- **`ModelNotSupportedError` exception.** New exception type raised when a method or script is called on an unsupported robot model. Includes `method`, `robot_model`, and `supported_models` attributes for programmatic handling.
+- **Model annotations on examples.** Examples that require specific hardware (chassis, torso, ultrasonic sensors, chassis cameras) are now annotated with `@supported_models` to prevent confusing errors when run on incompatible robot variants.
+
+### Fixed
+
+- **EE pass-through publish format.** `Arm.send_ee_pass_through_message()` now wraps the message bytes in the expected `{"data": message}` dict format.
+
+### Breaking Changes
+
+- **Removed `variant` parameter from `Robot` constructor.** The robot variant is now always resolved automatically from the `ROBOT_NAME` environment variable. To use a custom configuration, pass `configs=` directly. Callers using `Robot(variant=...)` must remove the argument and rely on the `ROBOT_NAME` environment variable instead, or pass a config object via `Robot(configs=...)`.
+
+### Changed
+
+- **`robot_model` property now returns the base model.** `Robot.robot_model` is derived from `RobotInfo` and returns the core platform type (e.g., `"vega_1"`, `"vega_1p"`, `"vega_1u"`) without hand/config suffixes.
+
+## [0.4.2] - 2026-02-15
+
+### Added
+
+- **Force torque sensor control.** New `activate_force_torque_sensor()` and `get_force_torque_sensor_mode()` methods on `Arm`.
+- **PID safety validation.** `set_pid` now rejects P-gain multipliers outside [0.1, 4].
+- **Arm tracking benchmark examples** (sine wave and step response) for comparing PID settings.
+- **New exception types for component/sensor access.** `ComponentNotAvailableError` raised when accessing unavailable robot components (with helpful message suggesting `has_component()` check). `SensorNotAvailableError` raised when accessing unavailable sensors (suggests `has_sensor()` check).
+
+### Fixed
+
+- **Config overwrite bug.** User-provided `configs` passed to `Robot()` were silently ignored because `RobotInfo` was always constructing its own default config. `Robot` now passes `configs` directly to `RobotInfo`, and when both `robot_model` and `configs` are provided, `configs` takes priority with a warning logged.
+
+### Changed
+
+- **Replaced `RuntimeError` with dexcontrol-specific exceptions throughout.** Arm service methods raise `ServiceUnavailableError`, robot-level methods raise `DexcontrolError`, and component activation raises `ComponentError`.
+- **Consistent error handling for service calls.** Read-only queries (`get_pid`, `get_brake_status`, `get_force_torque_sensor_mode`, `get_ee_baud_rate`) raise `ServiceUnavailableError` on timeout. Write operations (`set_pid`, `set_ee_baud_rate`, `release_brake`, `activate_force_torque_sensor`, `DexGripper.set_mode`) return `{"success": False, ...}` fallback dict on timeout.
+- **Examples use `has_component()` method** instead of direct attribute checks.
+- **`get_robot_config()` now uses `RobotInfo.get_default_config`** instead of instantiating a full `RobotInfo` object, avoiding unnecessary URDF loading.
+- **Replay trajectory example** now warns about potential end effector collisions with pre-existing trajectories.
+- **Renamed sensor examples for clarity.** `get_lidar_data.py` → `get_2d_lidar_data.py`, `get_head_cam_data.py` → `get_head_zed_x_mini_data.py`, `get_live_lidar_data.py` → `get_live_2d_lidar_data.py`, `get_wrist_camera_data.py` → `get_wrist_zed_x_one_data.py`.
+
+### Dependencies
+
+- Requires `dexcomm >= 0.4.2`.
+- Requires `dexbot-utils >= 0.4.3`.
+
+### Version Requirements
+
+- **SOC Minimal Version**: 419 (raised from 360).
+
+## [0.4.1] - 2026-02-10
+
+### Performance Improvements
+
+- **Significantly reduced GIL contention for real-time control loops.** Robot component state updates now happen entirely in Rust without acquiring the Python GIL. Previously, every incoming state message triggered a Python callback that acquired the GIL — this caused latency spikes when running CPU-intensive workloads like neural network inference alongside control loops. With this change, background threads store raw bytes in Rust, and state is only decoded when you read it (with smart caching: <1μs for repeated reads, ~10μs for new data).
+- **Heartbeat monitoring is now GIL-free.** The heartbeat safety monitor has been moved from a Python background thread to a Rust-backed `HeartbeatMonitor`. Heartbeat subscription, decoding, and timeout detection all run without GIL involvement, so heartbeat monitoring no longer interferes with Python workloads. The GIL is only briefly acquired if a timeout actually fires (to log the critical error before exiting).
+
+### Added
+
+- **Clearer error messages when things go wrong.** Introduced a hierarchy of specific exceptions to replace generic `RuntimeError`:
+  - `ConfigurationError` — raised when `ZENOH_CONFIG` is not set, the config file is missing, or permissions are wrong. The error message tells you exactly what to fix.
+  - `RobotConnectionError` — raised when the robot cannot be reached (not powered on, network issues, Zenoh routing problems).
+  - `ServiceUnavailableError` — raised when a specific robot service (e.g., hand type query, version info) is not responding. This can happen during robot initialization or if a component is disabled.
+  - All exceptions inherit from `DexcontrolError`, so you can catch all dexcontrol errors with a single `except DexcontrolError`.
+
+### Fixed
+
+- **End effector baud rate configuration now works.** The `set_ee_baud_rate` feature was broken because the service client used a hardcoded endpoint name that didn't match the robot's actual service. It now uses the correct service name from the arm configuration.
+
+### Dependencies
+
+- Requires `dexcomm >= 0.4.1` (for Rust-side subscriber storage and `HeartbeatMonitor`).
+- Requires `dexbot-utils >= 0.4.1`.
+
+## [0.4.0] - 2026-02-02
+
+### Added
+- Unified support for Vega-1U, Vega-1, and Vega-1P robot variants.
+- Dex-gripper end effector support.
+- Robot arm PID tuning (currently P gain only).
+- Arm brake release when joint limits are exceeded.
+- Extracted configuration management to `dexbot-utils` package.
+- Custom end effector feedback topic for receiving data frames from unrecognized end effectors.
+- USB camera support with dedicated `USBCamera` sensor class and configuration.
+- Enhanced camera base class with improved RTC and dexcomm integration.
+- New robot info helper utilities for better system information management.
+
+### Changed
+- **Major dexcomm Migration**: Migrated to dexcomm (>= 0.4.0) with Rust backend for improved performance and reliability.
+- Refactored camera architecture with unified base camera implementation supporting both local and RTC modes.
+- Simplified subscriber infrastructure by removing redundant subscriber wrapper code.
+- Updated all sensor configurations for seamless compatibility with latest dexcomm API.
+- Improved ZED camera implementation with better depth handling and timestamp support.
+- Improve the error code message parsing for all the components. Now dexcontrol will no longer get any error code, it will directly get the error message for each joint.
+
+### Fixed
+- Sensor initialization issues after dexcomm migration.
+- Camera streaming bugs with latest dexcomm integration.
+- ZED head camera configuration and initialization.
+- RTC camera configuration handling.
+- IMU, LiDAR, and ultrasonic sensor compatibility with new dexcomm version.
+- Error handling and reliability across all sensors.
+
+### Dependencies
+- **Breaking**: Requires `dexcomm >= 0.4.0` (migrated from `>= 0.1.18`).
+- **Breaking**: Requires `dexbot-utils >= 0.4.0`.
+- **Breaking**: Requires firmware >= 0.4.0 on the SOC.
+- Removed optional dependencies: `aiortc`, `websockets` (now handled by dexcomm).
+
+### Version Requirements
+- **SOC Minimal Version**: 360
+
+## [0.3.3] - 2025-10-09
+
+### Added
+- WebRTC camera streaming via `RTCSubscriber` with DexComm-compatible API; added `create_rtc_camera_subscriber`.
+- ZED and RGB camera sensors now support RTC mode and DexComm factories; depth stream uses DexComm depth deserializer.
+- ZED `get_obs` supports `include_timestamp` to passthrough timestamps when provided by DexComm.
+- Core DexComm subscriber utilities: `create_subscriber`, `create_buffered_subscriber`, `create_camera_subscriber`, `create_depth_subscriber`, `create_imu_subscriber`, `create_lidar_subscriber`, `create_generic_subscriber`.
+- Ultrasonic sensor now uses typed protobuf deserialization and returns standardized `(4,)` distance array in order `[front_left, front_right, back_left, back_right]`.
+
+### Changed
+- Consolidated sensor subscriptions onto DexComm-based factories with consistent topic resolution and config handling.
+- Chassis IMU mappings standardized; `timestamp_ns` returned when available for clearer units.
+
+### Dependencies
+- Requires `dexcomm >= 0.1.15`.
+- Optional WebRTC: `aiortc`, `websockets`; performance: `uvloop` (Unix).
+
+### Version Requirements
+- **SOC Minimal Version**: 298
+
+## [0.3.2] - 2025-09-27
+
+### Fixed
+- **Arm Mode Switch Query**: Resolved timeout failures in arm mode switch queries, improving reliability during mode transitions.
+
+### Version Requirements
+- **SOC Minimal Version**: 298
+
+## [0.3.1] - 2025-09-26
+
+### Added
+- **End Effector Control Example**: Added simple example demonstrating end effector control patterns for custom manipulator integration.
+
+### Changed
+- **DexComm Integration**: Migrated all Zenoh-based communication to dexcomm library for improved consistency and maintainability.
+- **Environment Variable Standardization**: Changed Zenoh config file path environment variable from `DEXMATE_COMM_CFG_PATH` to `ZENOH_CONFIG` for consistency with dexcomm.
+
+### Fixed
+- **Hand Type Detection**: Fixed hand type query bug that incorrectly assumed unknown hand types when hands were connected.
+
+### Version Requirements
+- **SOC Minimal Version**: 298
+
+## [0.3.0] - 2025-08-29
+
+### Added
+- Automatic hand type detection for component initialization. The robot will only have left_hand or right_hand attributes when hands are physically connected.
+- Minimum version checking on the server side. Robot firmware now returns a minimum required client version to ensure dexcontrol compatibility.
+- RS-485 pass-through support for end-effectors, enabling dexcontrol to send raw bytes directly to unknown end effectors.
+- Free-drive motion support with brake release capability for arm motors.
+- Support for v2-hand touch sensor readings.
+- Unified interface for all motors, providing position, velocity, current/torque, error codes, and timestamps.
+
+### Changed
+- Enhanced internal driver communication efficiency. The driver now handles cases where client control frequency (e.g., dexcontrol) exceeds motor limits, preventing communication overload.
+- Deployed new internal communication protocol for improved consistency and efficiency.
+- Unified arm and head motor enables logic. Both the e-stop button and the software e-stop now disable head motors to prevent head-torso collisions.
+- Separated chassis_steer and chassis_wheel into independent modules for better modularity.
+- Enhanced logging and debugging capabilities.
+
+### Fixed
+- Control Frequency Issue: Fixed bug where control frequency affected reading frequency.
+- Display Bug: Resolved false positive issue in display_robot_info function.
+
+### Breaking Changes
+- **Protobuf Definition Changes**: Updated protobuf definitions require dexcontrol >= 0.3.0 for all firmware >= 0.3.0.
+
+### Version Requirements
+- **SOC Minimal Version**: 286

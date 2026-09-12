@@ -1,0 +1,33 @@
+{
+  "name": "Yanghong_Home",
+  "saved_at": "2026-09-08 19:38:46",
+  "source": "generated(Pour17/rl_rebuild 的 RL 出发站姿:j1 ±45, j2 ±45, j4 -90, 其余 0)",
+  "units": "rad",
+  "arm": {
+    "L_arm_j1": 0.7853981633974483,
+    "L_arm_j2": 0.7853981633974483,
+    "L_arm_j3": 0.0,
+    "L_arm_j4": -1.5707963267948966,
+    "L_arm_j5": 0.0,
+    "L_arm_j6": 0.0,
+    "L_arm_j7": 0.0,
+    "R_arm_j1": -0.7853981633974483,
+    "R_arm_j2": -0.7853981633974483,
+    "R_arm_j3": 0.0,
+    "R_arm_j4": -1.5707963267948966,
+    "R_arm_j5": 0.0,
+    "R_arm_j6": 0.0,
+    "R_arm_j7": 0.0
+  },
+  "torso": {
+    "torso_j1": 0.707817150937599,
+    "torso_j2": 1.2856343018751981,
+    "torso_j3": 0.007817150937599104
+  },
+  "head": {
+    "head_j1": 0.0,
+    "head_j2": 0.0,
+    "head_j3": 0.0
+  },
+  "note": "Yanghong home:与 rl_rebuild/Pour17 的 RL 初始位形一致(tasks/pregrasp/cfg.py:87,参考母带第 0 行验证过)。躯干 = VEGA_TORSO_SQUAT_DEG=28.2 下的 TORSO_HOME,复现 Pour17 焊死值 40.5196/73.6595/0.3896 到 0.06 度以内。head 记录 Pour17 的全 0,但存档回放不驱动头 —— 见 docs/saved_poses/README.md。实测净空:整条臂最低连杆离桌 +163mm(ARM_HOME 只有 +26mm),两手间距 908mm。"
+}

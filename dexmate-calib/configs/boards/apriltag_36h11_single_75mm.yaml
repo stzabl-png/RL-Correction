@@ -1,0 +1,22 @@
+# Single tag36h11 AprilTag id 7, measured black-square edge 75 mm.
+# The detector only accepts this id (`dexcalib board identify --image <photo>` reports it).
+# Re-measure tag_size_m with calipers if in doubt: the translation part of every result
+# scales with it.
+schema_version: 1
+name: apriltag_36h11_single_75mm
+aliases: [apriltag-1x1-75mm, single-tag-75, single-tag]
+target_type: apriltag_grid
+apriltag:
+  family: tag36h11
+layout:
+  rows: 1
+  cols: 1
+  tag_id_start: 7
+  tag_size_m: 0.075
+frame_convention: >-
+  Origin at the tag centre, x right, y down, z into the printed face (OpenCV board
+  handedness); corners TL, TR, BR, BL.
+notes: >-
+  A single planar tag gives only 4 corners per view and a two-fold pose ambiguity;
+  expect lower hand-eye accuracy than a ChArUco or multi-tag board. Use 0.5–0.7 m
+  working distance and 50+ well-rotated views.

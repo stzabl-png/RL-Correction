@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dexmate-calib"
+version = "0.1.0"
+description = "Reproducible camera calibration tools for Dexmate robots"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+  "numpy>=1.24",
+  "opencv-contrib-python>=4.8",
+  "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+# Dexmate robot access + URDF forward kinematics for hand-eye calibration.
+robot = ["dexcontrol>=0.5.0", "dexmate-urdf>=0.8.0", "pin>=3.0"]
+# Azure Kinect capture. Requires the system libk4a1.4 / libk4a1.4-dev packages first.
+kinect = ["pyk4a>=1.5.0"]
+
+[project.scripts]
+dexcalib = "dexmate_calib.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dexmate_calib"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+

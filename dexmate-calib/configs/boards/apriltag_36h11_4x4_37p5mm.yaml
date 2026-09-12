@@ -1,0 +1,20 @@
+# RobotCamCalib compact 4x4 tag36h11 grid printed at ~0.78 scale: measured tag edge 37.5 mm.
+# Pitch is scaled from the original layout (52.1739 mm * 37.5 / 48). Verify on the print:
+# centre-to-centre spacing of neighbouring tags should be ~40.8 mm (white gap ~3.3 mm);
+# if it differs, edit pitch_m — a wrong pitch shows up as large per-view PnP residuals.
+schema_version: 1
+name: apriltag_36h11_4x4_37p5mm
+aliases: [apriltag-4x4-37.5mm, my-4x4]
+target_type: apriltag_grid
+apriltag:
+  family: tag36h11
+layout:
+  rows: 4
+  cols: 4
+  tag_id_start: 0
+  tag_size_m: 0.0375       # measured outer edge of the black square
+  pitch_m: 0.040761        # 52.1739 mm * 37.5 / 48
+frame_convention: >-
+  Origin at the centre of tag 0 (top-left when viewed upright), x right (increasing
+  column), y down (increasing row), z into the printed face – the same handedness as
+  OpenCV ChArUco boards. Corners per tag are OpenCV order TL, TR, BR, BL.

@@ -1,0 +1,18 @@
+# AprilTag grid equivalent to RobotCamCalib assets/apriltag_grid/compact_apriltag_grid_4x4_tag48mm
+# (tag36h11 ids 0-15, 48 mm tags, 52.17 mm pitch, print on A3 at 100 %).
+schema_version: 1
+name: apriltag_36h11_4x4_48mm
+aliases: [apriltag-4x4-48mm, robotcamcalib-4x4, apriltag-4x4]
+target_type: apriltag_grid
+apriltag:
+  family: tag36h11
+layout:
+  rows: 4
+  cols: 4
+  tag_id_start: 0
+  tag_size_m: 0.048        # outer edge of the black square; measure the print
+  pitch_m: 0.0521739       # centre-to-centre spacing
+frame_convention: >-
+  Origin at the centre of tag 0 (top-left when viewed upright), x right (increasing
+  column), y down (increasing row), z into the printed face – the same handedness as
+  OpenCV ChArUco boards. Corners per tag are OpenCV order TL, TR, BR, BL.

@@ -1,0 +1,39 @@
+# Eye-to-hand calibration of the external Azure Kinect against the Vega robot base.
+# `dexcalib extrinsics ...` reads its defaults from here; command-line flags override.
+schema_version: 1
+calibration_type: eye_to_hand
+robot:
+  model: vega_1p          # dexmate-urdf model used for forward kinematics
+  base_frame: base        # URDF root; chassis and torso must not move during a session
+  target_link: L_ee       # link the ChArUco board is rigidly attached to (left flange)
+  joint_components: [torso, left_arm, right_arm, head]
+  # Motion is always commanded by an external teleop (e.g. dexcontrol
+  # examples/advanced_examples/keyboard_joint_control.py); dexcalib only reads joints.
+camera:
+  name: kinect_external
+  vendor: microsoft_azure_kinect
+  expected_serial: "000299113912"
+  color_resolution: 1536P   # 2048x1536, 4:3 – full color FOV overlaps the depth FOV
+  depth_mode: NFOV_UNBINNED
+  fps: 15
+  intrinsics_source: sdk_factory  # color K + 8-coefficient rational distortion from the SDK
+board:
+  profile: dexmate-10x7      # or charuco-10x7-27mm / apriltag-4x4-37.5mm / apriltag-1x1-75mm / any configs/boards/*.yaml (dexcalib board list)
+  mounted_on: L_ee
+capture:
+  samples: 30
+  min_corners: 20
+  min_grid_rows: 3
+  min_grid_cols: 3
+  require_stationary: true
+  settle_checks: 3
+  settle_interval_s: 0.15
+  settle_tolerance_rad: 0.002
+  teleop_settle_s: 1.0        # --teleop: minimum time after the last motion command before SPACE saves
+solve:
+  method: reprojection   # reprojection (default) | robotcamcalib (verbatim RobotCamCalib solver)
+  min_views: 8
+  min_corners: 12
+  huber_px: 2.0
+  max_view_rms_px: 3.0
+  leave_one_out: true

@@ -1,0 +1,27 @@
+schema_version: 1
+name: dexmate_charuco_10x7_27mm
+aliases: [charuco-10x7-27mm, dexmate-10x7]
+target_type: charuco
+geometry:
+  squares_x: 10
+  squares_y: 7
+  square_length_m: 0.027
+  marker_length_m: 0.02025
+aruco:
+  dictionary: DICT_5X5_50
+  legacy_pattern: false
+  marker_ids: sequential
+  first_marker_id: 0
+physical:
+  board_outer_width_m: 0.270
+  board_outer_height_m: 0.189
+  check_length_m: 0.100
+verification:
+  physically_measured_check: true
+  expected_marker_count: 35
+  expected_charuco_corner_count: 54
+  expected_marker_id_min: 0
+  expected_marker_id_max: 34
+frame_convention: >-
+  OpenCV ChArUco board frame; origin and axes follow cv2.aruco.CharucoBoard.
+

@@ -1,0 +1,17 @@
+schema_version: 1
+name: example_charuco
+aliases: []
+target_type: charuco
+geometry:
+  squares_x: 8
+  squares_y: 6
+  square_length_m: 0.030
+  marker_length_m: 0.0225
+aruco:
+  dictionary: DICT_5X5_50
+  legacy_pattern: false
+  marker_ids: sequential
+  first_marker_id: 0
+frame_convention: >-
+  OpenCV ChArUco board frame; origin and axes follow cv2.aruco.CharucoBoard.
+

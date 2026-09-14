@@ -1,0 +1,5 @@
+[eval10] Clean3_taskS_s42_20M  clip=Clean3_plate 母带=clean3_reference_v1.npz 盘=Clean3_plate_left.npz 布=Clean3_sponge_right.npz HAND_REF=0 CONF_FLAT=0
+[eval10] Clean3_taskS_s42_20M → ★ cert=1.000 success=0.000 clock_done=0.000 clock_frac=0.551 cov_med=0.637 travel_med=71.6cm relp_med P/S=1.97/3.05cm 
+[eval10] Clean3_ablCF_s42_r2_20M  clip=Clean3_plate 母带=clean3_reference_v1h.npz 盘=Clean3_plate_left.npz 布=Clean3_sponge_right.npz HAND_REF=0 CONF_FLAT=1
+[eval10] Clean3_ablCF_s42_r2_20M → ★ cert=1.000 success=1.000 clock_done=1.000 clock_frac=1.000 cov_med=0.595 travel_med=99.3cm relp_med P/S=0.96/1.17cm 
+ALLDONE

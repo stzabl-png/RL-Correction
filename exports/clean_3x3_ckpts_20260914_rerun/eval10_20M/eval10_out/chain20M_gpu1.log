@@ -1,0 +1,5 @@
+[eval10] Clean8_ablBase_s42_20M  clip=Clean8_plate 母带=clean8_reference_v1.npz 盘=Clean18_plate_left.npz 布=Clean3_sponge_right.npz HAND_REF=1 CONF_FLAT=0
+[eval10] Clean8_ablBase_s42_20M → ★ cert=1.000 success=1.000 clock_done=1.000 clock_frac=1.000 cov_med=0.833 travel_med=82.5cm relp_med P/S=1.10/2.37cm 
+[eval10] Clean8_ablA1_s42_20M  clip=Clean8_plate 母带=clean8_reference_v1.npz 盘=Clean18_plate_left.npz 布=Clean3_sponge_right.npz HAND_REF=0 CONF_FLAT=0
+[eval10] Clean8_ablA1_s42_20M → ★ cert=1.000 success=1.000 clock_done=1.000 clock_frac=1.000 cov_med=0.766 travel_med=110.8cm relp_med P/S=1.00/1.01cm
+ALLDONE

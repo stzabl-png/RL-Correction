@@ -894,3 +894,26 @@ Base 擦得更狠却每次把海绵转丢。与 §5.11 "交叉与海绵转角是
 
 **坑 (一次)**: 仓库 `.gitignore` 有 `*.pth` / `*.mp4`, 第一次 `git add -A <目录>` 静默丢掉全部 ckpt 与视频 (push 成功、远端核验才发现 pth=0), 第二次 `git add -f` 补齐 (78 个 LFS 对象 160MB)。`.gitattributes` 已补 `*.pth *.mp4` 走 LFS。**以后发布分支的入库核验 = 远端 `git ls-tree` 数 pth/mp4, 不看本地 du**。
 对照: Pour 发布分支 `pour_dp_release_20260908` 本身只有代码+数据集+评测日志, ckpt 是走 msc 目录交付的; 这次 Clean 分支比 Pour 多带了 ckpt/TB/视频, 是按用户"完整 + 看训练细节"的要求加的。
+
+### 5.25 20M 节点 eval10 (2026-09-14 03:31~03:41 PDT, Denso 四卡, `clean_dp_pkg/common/eval10.sh`, 10 env, jitter 0, seed 2026)
+
+| 视频 | Base | A1 | A2 |
+|---|---|---|---|
+| take3 | (重跑中) | **0/10** (cert 1.0, clock_frac 0.55, cov 0.64) | 10/10 (r2 ep_160 = 20.08M 等效) |
+| take8 | 10/10 (cov 0.83, 漂移 1.10cm) | 10/10 | 10/10 |
+| take18 | 4/10 (cov 1.00, 漂移 1.99cm) | 10/10 | 10/10 |
+
+节点 = `ep_1240_step_0020M` (take3 A2 用续跑 r2 `ep_160_step_0002M`)。JSON `logs/eval10_clean20M/<run>_20M/eval/`, 日志 `logs/eval10_clean20M/eval10_out/`。
+对照 30M last.pth (§5.22 / 交接表): take3 A1 10/10, take8 Base 3/10, take18 Base 6/10。**判读**: ① take3 A1 (taskS) 20M 未学成 (训练期 0.31), 这是 20M 口径对我们自己臂的惩罚; ② take8 Base 20M 10/10 → 30M 3/10, 训练期曲线 0.93→0.92 看不出崩, 是确定性评测下的过训退化 (盘漂移 30M 2.0cm/24°); ③ A2 三条 20M 全满。20M 表按臂: A1 20/30, A2 30/30, Base 14/20 + take3 待补。
+
+### 5.26 take3 Base 重跑 (第一次) 无效 → 修正重跑 (2026-09-14 06:27 PDT)
+
+- 第一次重跑 `Clean3_ablBase_s42_20M` (本机, 00:16→05:44 PDT, 20.0M 正常退出) 的发车命令**照抄了 r2 续跑的旗**, 带了 `CLEAN_RELEASE_START=10` —— 那是 §5.21 为"课程已退火到底的续跑"专设的旗; 原始 take3/8/18 九条都是默认 `RELEASE_MAX=50` 起、按 sr/cert EMA 退火到 10 (TB `curr/release_row` 首值 50 vs 重跑 10)。所以这条从第 0 步就没有钉住脚手架, **配方与其余八条不同, 作废**。
+- 它的 20M/19.4M 节点 eval10 (Denso, 同脚本): cert 0/10 (全部 cert_timeout, ep_len 71, 海绵转 32°), 训练期 cert 1.0 但 success/clock_done 全程 0。作废, 不入表。
+- **修正重跑** `Clean3_ablBase_s42_20M_c50`: 同一命令去掉 `CLEAN_RELEASE_START`, 其余 (v1h 母带 / HAND_REF=1 / SOFT_REL=1 / 0.3kg·μ1·指垫1 / 512env / seed 42 / 20M) 不变, 06:27 PDT 本机 GPU0 发车, 按 3.7 M/h 约 11:50 PDT 到 20M; 到点后仍用 `clean_dp_pkg/common/eval10.sh` 评 20M 节点。**教训: 续跑旗 ≠ 从头旗; 发车前对照原 run 的 world.json 全键 (release_row_start 在内) 而不只是 stage2 旗。**
+
+### 5.27 take3 Base 修正重跑 20M 终判 (2026-09-14 12:03 PDT)
+
+`Clean3_ablBase_s42_20M_c50` 06:27→11:58 PDT 跑满 20.0M 正常退出 (3.6 M/h)。训练期: cert 1.0, 课程 release_row 50→10 于 ~10M 退火到底 (与原 take3 Base 同步), success / clock_done 全程 0 —— 与原 run 一致。
+**eval10 (20M last.pth, Denso 同脚本)**: success **0/10**; cert 6/10, 其中 6 回合触相对位姿死线 ('rel'), 4 回合认证超时; clock_frac 0.17, 行程 29cm, 海绵漂移 3.1cm/21°。
+判读: take3 上 HAND_REF=1 (人手腕参考) 在 20M/30M 两个口径下都是 0/10, 与 §5.22 (30M r2 0/10) 相互印证; 20M 表擦盘子 Base 合计 14/30 (take8 10, take18 4, take3 0)。ckpt sha 553cbe978505df20; JSON `logs/eval10_clean20M/Clean3_ablBase_c50_s42_20M/eval/`。

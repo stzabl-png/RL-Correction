@@ -1,0 +1,134 @@
+Loading user config located at: '/home/yanghong/miniconda3/envs/isaac/lib/python3.11/site-packages/isaacsim/kit/data/Kit/Isaac-Sim/5.1/user.config.json'
+[Info] [carb] Logging to file: /home/yanghong/miniconda3/envs/isaac/lib/python3.11/site-packages/isaacsim/kit/logs/Kit/Isaac-Sim/5.1/kit_20260914_103153.log
+2026-09-14T10:31:53Z [170ms] [Warning] [omni.usd_config.extension] Enable omni.materialx.libs extension to use MaterialX
+2026-09-14T10:31:53Z [657ms] [Warning] [omni.platforminfo.plugin] failed to open the default display.  Can't verify X Server version.
+2026-09-14T10:31:54Z [860ms] [Warning] [carb] Acquiring non optional plugin interface which is not listed as dependency: [omni::physx::IPhysxBenchmarks v1.0] (plugin: <default plugin>), by client: omni.physics.physx.plugin. Add it to CARB_PLUGIN_IMPL_DEPS() macro of a client.
+2026-09-14T10:31:54Z [870ms] [Warning] [omni.isaac.dynamic_control] omni.isaac.dynamic_control is deprecated as of Isaac Sim 4.5. No action is needed from end-users.
+2026-09-14T10:31:57Z [4,153ms] [Warning] [carb.cudainterop.plugin] CUDA_VISIBLE_DEVICES environment variable is set.
+2026-09-14T10:31:57Z [4,153ms] [Warning] [carb.cudainterop.plugin] Note CUDA device enumeration and Omniverse device enumeration are different.
+2026-09-14T10:31:57Z [4,153ms] [Warning] [carb.cudainterop.plugin] Setting CUDA_VISIBLE_DEVICES can lead to undesired behavior or crashes.
+2026-09-14T10:31:57Z [4,555ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA GeForce RTX 2080 Ti
+2026-09-14T10:31:57Z [4,555ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-09-14T10:31:57Z [4,555ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA GeForce RTX 2080 Ti
+2026-09-14T10:31:57Z [4,555ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-09-14T10:31:57Z [4,559ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA GeForce RTX 2080 Ti
+2026-09-14T10:31:57Z [4,559ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-09-14T10:31:57Z [4,559ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA GeForce RTX 2080 Ti
+2026-09-14T10:31:57Z [4,559ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-09-14T10:31:57Z [4,559ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA GeForce RTX 2080 Ti
+2026-09-14T10:31:57Z [4,559ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-09-14T10:31:57Z [4,559ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA GeForce RTX 2080 Ti
+2026-09-14T10:31:57Z [4,559ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+
+|---------------------------------------------------------------------------------------------|
+| Driver Version: 550.127.05    | Graphics API: Vulkan
+|=============================================================================================|
+| GPU | Name                             | Active | LDA | GPU Memory | Vendor-ID | LUID       |
+|     |                                  |        |     |            | Device-ID | UUID       |
+|     |                                  |        |     |            | Bus-ID    |            |
+|---------------------------------------------------------------------------------------------|
+| 0   | NVIDIA GeForce RTX 2080 Ti       |        |     | 11510   MB | 10de      | 0          |
+|     |                                  |        |     |            | 1e07      | 4ead8eec.. |
+|     |                                  |        |     |            | 19        |            |
+|---------------------------------------------------------------------------------------------|
+| 1   | NVIDIA GeForce RTX 2Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+[INFO][AppLauncher]: Using device: cuda:0
+[INFO][AppLauncher]: Loading experience file: /home/yanghong/IsaacLab_MagicSim/apps/isaaclab.python.headless.kit
+[world] ✅ 与 world.json 匹配 (task=Clean3_task_stage2 recipe=min6 物理={'POUR_OBJ_MASS': '0.3', 'POUR_OBJ_FRIC': '1.0', 'POUR_PAD_FRIC': '1.0'})
+[clips] 交互手=left: 接触传感器已重建 (['left_thumb_elastomer', 'left_index_elastomer', 'left_middle_elastomer', 'left_ring_elastomer', 'left_pinky_elastomer'])
+[aux] 第二物体 object_1(sponge / dishcloth (take3 asset, 7.6x3.8x13.2cm, scrub face = input -y)): 相对主体偏移 [0.0, 1.9, 3.0]cm (来自 scene_layout)
+[aux]   (诊断) layout 内两物体偏航差 164.6° —— **不**用它做任何补偿: 摆放是纯平移, 且旋转体的 yaw 是任意值
+
+[36m======================================================================================[0m
+[36m[1m[INFO][IsaacLab]: Logging to file: /tmp/isaaclab/logs/isaaclab_2026-09-14_10-31-59.log[0m
+[36m======================================================================================[0m
+
+[33m10:31:59 [simulation_context.py] WARNING: The `enable_external_forces_every_iteration` parameter in the PhysxCfg is set to False. If you are experiencing noisy velocities, consider enabling this flag. You may need to slightly increase the number of velocity iterations (setting it to 1 or 2 rather than 0), together with this flag, to improve the accuracy of velocity updates.[0m
+[INFO]: Base environment:
+	Environment device    : cuda:0
+	Environment seed      : 2026
+	Physics step-size     : 0.004166666666666667
+	Rendering step-size   : 0.008333333333333333
+	Environment step-size : 0.05
+[33m10:31:59 [direct_rl_env.py] WARNING: The render interval (2) is smaller than the decimation (12). Multiple render calls will happen for each environment step.If this is not intended, set the render interval to be equal to the decimation.[0m
+[setup] object 刚体化: 1 mesh, mass=0.3kg
+[33m10:32:00 [interactive_scene.py] WARNING: Collision filtering can only be automatically enabled when replicate_physics=True and using GPU simulation. Please call scene.filter_collisions(global_prim_paths) to filter collisions across environments.[0m
+[setup] 物体材质=/World/Materials/SuperGrip×10 指尖SuperGrip×100 手身LowGrip×10
+[aux] 自由第二物体就绪: sponge / dishcloth (take3 asset, 7.6x3.8x13.2cm, scrub face = input -y) mass=0.05kg friction=1.0 (无约束/不豁免碰撞)
+[HoldProbe] plate convex decomposition: maxConvexHulls=128 shrinkWrap ×10 mesh
+[INFO]: Time taken for scene creation : 2.404804 seconds
+[INFO]: Scene manager:  <class InteractiveScene>
+	Number of environments: 10
+	Environment spacing   : 2.0
+	Source prim name      : /World/envs/env_0
+	Global prim paths     : []
+	Replicate physics     : False
+[INFO]: Starting the simulation. This may take a few seconds. Please wait...
+[INFO]: Time taken for simulation start : 1.962104 seconds
+[INFO]: Completed setting up the environment...
+[phys] 难度覆写 物体: 质量=0.300kg 摩擦=1.00/1.00
+[phys] 指垫摩擦覆写 = 1.0
+[dexmate] 交互侧=left | 臂 ['L_arm_j1', 'L_arm_j2', 'L_arm_j3', 'L_arm_j4', 'L_arm_j5', 'L_arm_j6', 'L_arm_j7'] | 手 22 关节 | 末端 body=left_hand_C_MC
+[smooth] 剔除漂移帧 [23, 227, 228]   物体位置最大修正 1.50 cm
+[fp-dbg] sxy=[ 0.0441 -0.0861] palm=[-0.2587  0.0376] a_off=[-0.0006 -0.0004 -0.002 ] dz=0.0000 obj_z=0.8819 rest_q=[ 0.6932 -0.7204  0.0241  0.    ]
+[replay_grasp] L=400 PreGrasp帧 gs=1(src 0) 合拢至 ge=31 | 相机锚定 + 物体听手 (质心对准交互帧抓取锚点) 物体原点 xy=(-0.214,-0.048) z=0.882 | 腕 path 平移 xy=9.7cm z=+0.00cm
+[debug] hand bodies: [('vega_1p_mobile', 1.0), ('dummy_base_x', 9.999999747378752e-05), ('dummy_base_y', 9.999999747378752e-05), ('vega_1p_base', 88.43486785888672), ('B_base_cam', 0.0030900000128895044), ('F_base_cam', 0.0030900000128895044), ('L_base_cam', 0.0030900000128895044), ('R_base_cam', 0.0030900000128895044), ('vega_1p_back_lidar', 0.004230000078678131), ('vega_1p_front_lidar', 0.1509999930858612), ('vega_1p_torso_l1', 8.832340240478516), ('vega_1p_torso_l2', 14.589259147644043), ('vega_1p_torso_l3', 5.328859806060791), ('arm_center', 1.0), ('vega_1p_L_arm_l1', 1.4135099649429321), ('vega_1p_R_arm_l1', 1.4240100383758545), ('vega_1p_head_l1', 0.43780001997947693), ('L_arm_l2', 1.405940055847168), ('R_arm_l2', 1.4059499502182007), ('vega_1p_head_l2', 0.6077200174331665), ('L_arm_l3', 1.1609400510787964), ('R_arm_l3', 1.1607999801635742), ('vega_1p_head_l3', 0.6327800154685974), ('L_arm_l4', 0.9320400357246399), ('R_arm_l4', 0.9320400357246399), ('zed_left_camera', 1.0), ('zed_depth_frame', 1.0), ('zed_right_camera', 1.0), ('L_arm_l5', 0.6458200216293335), ('R_arm_l5', 0.6458200216293335), ('vega_1p_L_arm_l6', 0.5541999936103821), ('vega_1p_R_arm_l6', 0.5537199974060059), ('L_arm_l7', 0.35802000761032104), ('R_arm_l7', 0.35802000761032104), ('L_arm_l8', 0.2006399929523468), ('R_arm_l8', 0.2006399929523468), ('L_ee', 1.0), ('left_hand_C_MC', 0.650600016117096), ('R_ee', 1.0), ('right_hand_C_MC', 0.650600016117096), ('left_index_MCP_VL', 0.0022100000642240047), ('left_middle_MCP_VL', 0.0022100000642240047), ('left_pinky_MC', 0.12541000545024872), ('left_ring_MCP_VL', 0.0022100000642240047), ('left_thumb_CMC_VL', 0.0024999999441206455), ('right_index_MCP_VL', 0.0022100000642240047), ('right_middle_MCP_VL', 0.0022100000642240047), ('right_pinky_MC', 0.12541000545024872), ('right_ring_MCP_VL', 0.0022100000642240047), ('right_thumb_CMC_VL', 0.0024999999441206455), ('left_index_PP', 0.04741000011563301), ('left_middle_PP', 0.04741000011563301), ('left_pinky_MCP_VL', 0.0022100000642240047), ('left_ring_PP', 0.04741000011563301), ('left_thumb_MC', 0.13586999475955963), ('right_index_PP', 0.04741000011563301), ('right_middle_PP', 0.04741000011563301), ('right_pinky_MCP_VL', 0.0022100000642240047), ('right_ring_PP', 0.04741000011563301), ('right_thumb_MC', 0.13586999475955963), ('left_index_MP', 0.018239999189972878), ('left_middle_MP', 0.018239999189972878), ('left_pinky_PP', 0.04741000011563301), ('left_ring_MP', 0.018239999189972878), ('left_thumb_MCP_VL', 7.999999797903001e-05), ('right_index_MP', 0.018239999189972878), ('right_middle_MP', 0.018239999189972878), ('right_pinky_PP', 0.04741000011563301), ('right_ring_MP', 0.018239999189972878), ('right_thumb_MCP_VL', 7.999999797903001e-05), ('left_index_DP', 0.004550000187009573), ('left_middle_DP', 0.004550000187009573), ('left_pinky_MP', 0.018239999189972878), ('left_ring_DP', 0.004550000187009573), ('left_thumb_PP', 0.030780000612139702), ('right_index_DP', 0.004550000187009573), ('right_middle_DP', 0.004550000187009573), ('right_pinky_MP', 0.018239999189972878), ('right_ring_DP', 0.004550000187009573), ('right_thumb_PP', 0.030780000612139702), ('left_index_elastomer', 9.999999747378752e-05), ('left_middle_elastomer', 9.999999747378752e-05), ('left_pinky_DP', 0.004550000187009573), ('left_ring_elastomer', 9.999999747378752e-05), ('left_thumb_DP', 0.009879999794065952), ('right_index_elastomer', 9.999999747378752e-05), ('right_middle_elastomer', 9.999999747378752e-05), ('right_pinky_DP', 0.004550000187009573), ('right_ring_elastomer', 9.999999747378752e-05), ('right_thumb_DP', 0.00788000039756298), ('left_index_fingertip', 9.999999974752427e-07), ('left_middle_fingertip', 9.999999974752427e-07), ('left_pinky_elastomer', 9.999999747378752e-05), ('left_ring_fingertip', 9.999999974752427e-07), ('left_thumb_elastomer', 9.999999747378752e-05), ('right_index_fingertip', 9.999999974752427e-07), ('right_middle_fingertip', 9.999999974752427e-07), ('right_pinky_elastomer', 9.999999747378752e-05), ('right_ring_fingertip', 9.999999974752427e-07), ('right_thumb_elastomer', 9.999999747378752e-05), ('left_pinky_fingertip', 9.999999974752427e-07), ('left_thumb_fingertip', 9.999999974752427e-07), ('right_pinky_fingertip', 9.999999974752427e-07), ('right_thumb_fingertip', 9.999999974752427e-07)]
+[debug] hand 总质量 141.872 kg
+[reward] 手指模仿通道已关 (无 GraspPose, 参考手指不可信); 抓法由 contact/afford/lift 三项决定
+[finger] 累积残差: rate ±5.7°/步 | total ±68.8° | decay 1.0
+[dexmate] 躯干已在 USD 里锁死 (fixed joint), 无沉降过程
+[dexmate] 相机锚定残差: 实测 ZED xy=[-0.5558000206947327, -0.0] vs 标称 [-0.4079, -0.0004] -> 参考整体补移 [-14.79, 0.04]cm  (标称过期了就改 place_camera.ZED_NOMINAL)
+[ref质量] 可达帧位置误差: 中位 0.50cm 95分位 0.50cm 最大 0.50cm
+[ref质量] 物体漂移帧 3 个 (位置是插值出来的): [31, 303, 304]
+[dexmate] 抬升轨迹: 20 级 x 5cm, 末端实际升 4.8cm
+[dexmate] place_mode=ref_builder (保留 ref builder 摆放, 平移 [0.0, 0.0, 0.0]) | IK 全程可达 100.0% | 抓取窗[1,31] 100.0% | 位置误差中位 0.50cm | 顶替 0 帧
+[pregrasp] 表面法向已采样 (512, 3) (cent 用局部法向, 形状无关)
+[collide] 臂连杆 9 个 (['vega_1p_L_arm_l1', 'L_arm_l2', 'L_arm_l3', 'L_arm_l4', 'L_arm_l5', 'vega_1p_L_arm_l6', 'L_arm_l7', 'L_arm_l8', 'L_ee']) | 需避让 16 个 (躯干/头/另一臂)
+[collide] 外壳口径臂罚开启: 8 节连杆 × ≤96 表面点 (余量 1cm)
+[prior] 零位校准参考数 (静态 FK: 垫->物体表面, 阈值 1.5cm): 不校准 ['2.4', '2.3', '1.9', '2.5']cm (0 垫); 校准后 ['0.6', '0.7', '0.6', '1.0']cm (4 垫)  ⚠仅供参考, 不作判据 (见下)
+[prior] 模板参与指 4/5: ['index', 'middle', 'ring', 'pinky'] (逐指最近接触点 ['2.9', '2.5', '2.5', '2.1', '2.5']cm) | 判据随之: min_pads=4 verify_min_pads=3 cent 归一 /4
+[prior] fixed_attached_tools: 保留任务给定的重建物体首帧位姿
+[prior] 物体 yaw **钉死** 0° (来自 Gate 1 的 best_yaw, 与视频一致) | 该角 IK err 0.49cm
+[finger_gate] 自标定基准 d_g=16.9cm (GraspPose 处腕-物体距离) | 放开 <21.1cm | 冻结 >42.2cm
+[prior]   抬升斜坡: 第 4 级实际抬 10.00mm (要求 10mm) | IK 直解失败 0/20 级
+[prior] GraspPose 已接入: /home/yanghong/clean_dp_pkg/assets/priors/Clean18_plate_left.npz
+[prior]   IK grasp err 0.49cm | pregrasp err 0.47cm | pre->grasp 最大关节差 0.4°
+[prior]   臂外壳离桌余量(指令位形估计): 抓握位 -10.7cm | 预抓位 -10.7cm
+[prior]   ⚠ 指令位形外壳估计为负 —— 以运行时 diag/arm_table_gap_cm 为准, 冒烟/训练时必须核验其为正
+[approach] 开: 参考 gs=1 (0.1s) | 预算 121 步 | 切换 <3.00cm & <15.0° 保持2步 | 直接抓取起步比例 0.50
+[score] 接触分数图已开: 512 个表面点; 只在 verify 斜坡到顶取快照, 按力占比加权
+[pregrasp] v2 稳定抓握+微抬升验证: 起点=PreGrasp(帧1) | 合拢参考 0.025/步 | 候选 ≥4垫 向心≥0.3 保持4步 | 验证升 10mm (4级) | episode ≤ 153 步
+[HoldProbe] right: 用母带 T_oh 覆写 (沉降锚) pos=[0.0495, 0.0402, -0.0998]
+[HoldProbe] left: 用母带 T_oh 覆写 (沉降锚) pos=[-0.163, 0.02, -0.0392]
+[HoldProbe] rows=410 dt=0.00417 n_sub=12 prof_r=[0.2, 0.7, 1.3, 1.8, 2.3, 2.7, 3.2, 3.8, 4.3, 4.7, 5.2, 5.8, 6.2, 6.8, 7.2, 7.8, 8.3, 8.7] face_off=1.93cm
+[CleanHoldEnv] squeeze 剂量覆写 right_pinky_CMC: β=0.0
+[CleanHoldEnv] squeeze 剂量覆写 right_pinky_MCP_AA: β=0.0
+[CleanHoldEnv] grasp 姿相邻指尖 侧向间距(cm)={'left': [2.25, 1.8799999952316284, 2.7300000190734863], 'right': [2.119999885559082, 3.369999885559082, 1.7200000286102295]} 3D距离(cm)={'left': [2.3299999237060547, 2.7200000286102295, 3.630000114440918], 'right': [2.369999885559082, 3.390000104904175, 2.0999999046325684]} (罚阈 1.0/1.5cm)
+[CleanHoldEnv] N=10 obs=367 act=58 T_EP=110 release=50 sag(deg)=[0.10000000149011612, 0.05999999865889549, 0.07999999821186066, -0.23999999463558197, -0.019999999552965164, 0.17000000178813934, -0.9900000095367432, -0.05999999865889549, -0.05999999865889549, 0.15000000596046448, -0.20000000298023224, 0.05999999865889549, -0.5099999904632568, -0.9200000166893005]
+[CleanTaskEnv] 臂每步界 cfg.arm_residual_max×arm_step_scale: R=[0.003800000064074993, 0.0052999998442828655, 0.0044999998062849045, 0.004999999888241291, 0.021900000050663948, 0.012500000186264515, 0.01940000057220459] 累积≤0.08; 硬钳 ['left_middle_MCP_AA', 'left_ring_MCP_AA', 'right_pinky_CMC', 'right_pinky_MCP_AA']
+[CleanTaskEnv] 判据几何: 盘顶面剖面 y∈[0.53,1.23]cm (18 档) | 海绵擦盘面偏移 1.91cm
+[CleanTaskEnv] ★CLEAN_S2_CONF_FLAT=1: 置信度分档拍平为全黄档 (皮筋常量 0.05, 观测档位独热恒定)
+[CleanTaskEnv] 母带 410 行: 档位 绿0/黄410/红0; psc_ref z∈[2.95,2.96]cm; T_EP=643
+[CleanTaskEnv] 候选旗: clock_needs_contact=False reanchor=False soft_rel=True (W=0.5) gate_hold=False push=False (p=0.02, 8行, (0.5, 1.5)×mg, m={'left': 0.3, 'right': 0.05}) (fixed_base=True, jac_bid=38, dq_max=0.15)
+[CleanTaskEnv] N=10 obs=364 act=58 T_EP=643 release=50 cert=1.0cm/5°×10 die=3cm/180° gate n/xy=1/5cm
+[v3net] separate critic ON (priv 22 raw -> critic; actor embeds first 8)
+RunningMeanStd:  (364,)
+RunningMeanStd:  (1,)
+
+[eval_clean] ckpt=/home/yanghong/clean_dp_pkg/runs/Clean8_ablA2_s42_20M/stage1_nn/last.pth N=10 release=10 jitter=0
+ env  cert  succ  clock  cov   trav_cm  relp P/S cm   rot P/S °   die   cross  len
+   0  1     1     1.00   0.81   128.2   1.42/1.31    7.4/ 7.9   -         0.64  428
+   1  1     1     1.00   0.80   126.7   1.36/1.64    7.7/13.0   -         0.60  428
+   2  1     1     1.00   0.83   124.5   1.27/0.88    6.0/ 8.0   -         0.63  428
+   3  1     1     1.00   0.84   123.5   1.25/1.01    6.5/ 7.1   -         0.51  428
+   4  1     1     1.00   0.83   124.7   1.25/1.01    6.8/ 6.5   -         0.60  428
+   5  1     1     1.00   0.84   124.4   1.21/0.97    7.0/ 6.4   -         0.59  428
+   6  1     1     1.00   0.82   124.3   1.18/1.11    7.2/ 7.0   -         0.51  428
+   7  1     1     1.00   0.80   123.8   1.24/1.04    5.2/ 8.4   -         0.62  428
+   8  1     1     1.00   0.82   124.3   1.24/1.18    6.9/ 7.0   -         0.60  428
+   9  1     1     1.00   0.81   123.6   1.21/1.06    5.9/ 7.7   -         0.62  428
+[eval_clean] ★ cert=1.000 success=1.000 clock_done=1.000 clock_frac=1.000 cov_med=0.822 travel_med=124.4cm relp_med P/S=1.25/1.05cm rot_med P/S=6.8/7.4° die=0.00 {'-': 10, 'rel': 0, 'tilt': 0, 'plate_dev': 0, 'drop': 0, 'table': 0} cross=0.59
+[eval_clean] → /home/yanghong/clean_dp_pkg/runs/Clean8_ablA2_s42_20M/eval/eval_Clean8_ablA2_s42_20M_e10s2026.json

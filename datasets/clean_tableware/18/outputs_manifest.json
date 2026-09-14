@@ -1,0 +1,133 @@
+{
+ "manifest_version": "outputs_manifest_v1_20260826",
+ "generated_at": "2026-09-05T06:48:58Z",
+ "take_dir": "/home/lyh/Project/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_auto/clean_tableware/18",
+ "schema_version": "recon_world_v5",
+ "num_frames": 300,
+ "object_ids": [
+  "object_0",
+  "object_1"
+ ],
+ "hand_source_key": "hand_sample_source",
+ "files": {
+  "world_fused.npz": {
+   "bytes": 442507,
+   "mtime": 1788586433
+  },
+  "world_summary.json": {
+   "bytes": 4523,
+   "mtime": 1788439301
+  },
+  "replay_world.npz": {
+   "bytes": 5250085,
+   "mtime": 1788586433
+  },
+  "reconstruction_complete.json": {
+   "bytes": 662,
+   "mtime": 1788439301
+  },
+  "confidence_complete.json": {
+   "bytes": 1591,
+   "mtime": 1788439451
+  },
+  "contact_complete.json": {
+   "bytes": 1268,
+   "mtime": 1788586754
+  },
+  "hand_confidence.npz": {
+   "bytes": 136468,
+   "mtime": 1788439415
+  },
+  "hand_confidence.json": {
+   "bytes": 677,
+   "mtime": 1788439415
+  },
+  "object_valid_measured.npz": {
+   "bytes": 4606,
+   "mtime": 1788586792
+  },
+  "ref_qpos_left.npz": {
+   "bytes": 39583,
+   "mtime": 1788586729
+  },
+  "ref_qpos_right.npz": {
+   "bytes": 39675,
+   "mtime": 1788586732
+  },
+  "contact_auto.json": {
+   "bytes": 6957,
+   "mtime": 1788419627
+  },
+  "PROVENANCE.md": {
+   "bytes": 2887,
+   "mtime": 1788586433
+  },
+  "framescan.json": {
+   "bytes": 2212,
+   "mtime": 1788439451
+  },
+  "conf_clean_tableware_18.mp4": {
+   "bytes": 7861766,
+   "mtime": 1788439450
+  },
+  "recon_render_clean_tableware_18.mp4": {
+   "bytes": 3778455,
+   "mtime": 1788586754
+  },
+  "contact_auto_object_0.json": {
+   "bytes": 7012,
+   "mtime": 1788419644
+  },
+  "contact_auto_object_1.json": {
+   "bytes": 6351,
+   "mtime": 1788419661
+  }
+ },
+ "criteria_versions": {
+  "hand_conf": "hand_conf_v1_arctic55_20260825",
+  "object_valid_measured": "ovm_v1_20260826"
+ },
+ "capabilities": {
+  "object_masks_frames": 300,
+  "hand_masks": true,
+  "hand_confidence": true,
+  "object_valid_measured": true,
+  "replay_fresh_vs_world_fused": true,
+  "ref_qpos": {
+   "left": true,
+   "right": true
+  },
+  "conf_video": "conf_clean_tableware_18.mp4",
+  "recon_render_video": "recon_render_clean_tableware_18.mp4",
+  "affordance_figs": [
+   "affordance_object_0_left.png",
+   "affordance_object_0_right.png",
+   "affordance_object_1_left.png",
+   "affordance_object_1_right.png"
+  ],
+  "poseqa_mirror": true,
+  "retarget_usd": [
+   "object_0.usd",
+   "object_0_textured.usd",
+   "object_1.usd",
+   "object_1_textured.usd"
+  ],
+  "contact_routes": {
+   "c1_mano": true,
+   "align_heatmap": false,
+   "v2_legacy": true
+  }
+ },
+ "meshes": {
+  "object_0": {
+   "file": "objects/object_0/object_mesh_scaled_final.obj",
+   "bytes": 18143370,
+   "mtime": 1788586431
+  },
+  "object_1": {
+   "file": "objects/object_1/object_mesh_scaled_final.obj",
+   "bytes": 37615003,
+   "mtime": 1788586433
+  }
+ }
+}

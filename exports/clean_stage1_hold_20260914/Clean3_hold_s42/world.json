@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "task": "Clean3_hold_stage1",
+  "seed": 42,
+  "clip": "Clean3_plate",
+  "reference": {
+    "path": "/home/yanghong/RL_Correction/tasks/Clean/3/A_Design/L2_Reference/clean3_reference_v1.npz",
+    "sha256": "716c828e54076082821e192754284d36df8b51315f5cf9927ecad55d89f2dcb6"
+  },
+  "priors": {
+    "plate": {
+      "path": "/home/yanghong/RL_Correction/tasks/pregrasp/priors/Clean3_plate_left.npz",
+      "sha256": "2610755014aa214815ffd104549ddfc5505434d601d57f3e2de6252ab93f5773"
+    },
+    "sponge": {
+      "path": "/home/yanghong/RL_Correction/tasks/pregrasp/priors/Clean3_sponge_right.npz",
+      "sha256": "3162daf78e6475b9e2d58f77c9f252224e64d1aecaad48cd974ec7067558bf40"
+    }
+  },
+  "physics": {
+    "POUR_OBJ_MASS": "0.3",
+    "POUR_OBJ_FRIC": "1.0",
+    "POUR_PAD_FRIC": "1.0"
+  },
+  "aux_mass_kg": 0.05,
+  "policy_io": {
+    "obs_dim": 367,
+    "priv_dim": 22,
+    "act_dim": 58
+  },
+  "stage1": {
+    "K_CLOSE": 10,
+    "RELEASE_MAX": 50,
+    "RELEASE_MIN": 10,
+    "RELEASE_STEP": 5,
+    "RELEASE_JITTER": 4,
+    "HOLD_ROWS": 60,
+    "T_EP": 110,
+    "CERT_POS": 0.01,
+    "CERT_ROT_DEG": 5.0,
+    "CERT_STEPS": 10,
+    "DROP_POS": 0.03,
+    "DROP_ROT_DEG": 20.0,
+    "PAD_FTH": 0.5,
+    "PLATE_SUPPORT_MIN": 2,
+    "SPONGE_PADS_MIN": 3,
+    "ARM_STEP": 0.004,
+    "ARM_DEV": 0.08,
+    "FIN_STEP": 0.03,
+    "FIN_DEV": 0.6,
+    "W_CONTACT": 0.1,
+    "W_HOLD_POS": 0.5,
+    "W_HOLD_ROT": 0.5,
+    "W_WITHIN": 0.2,
+    "B_CERT": 5.0,
+    "B_SUCCESS": 20.0,
+    "B_DROP": -10.0,
+    "W_ACT": 0.001
+  },
+  "arm_sag_rad": [
+    0.0017399999778717756,
+    0.00033000000985339284,
+    0.0020699999295175076,
+    -0.003470000112429261,
+    0.007579999975860119,
+    0.0008299999753944576,
+    -0.018489999696612358,
+    -0.001820000004954636,
+    0.00039999998989515007,
+    -0.0016499999910593033,
+    0.00014000000373926014,
+    0.002899999963119626,
+    -0.005590000189840794,
+    -0.012919999659061432
+  ],
+  "release_row_start": 50
+}

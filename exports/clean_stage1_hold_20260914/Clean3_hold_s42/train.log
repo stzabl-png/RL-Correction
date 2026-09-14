@@ -1,0 +1,1429 @@
+[INFO][AppLauncher]: Using device: cuda:0
+[INFO][AppLauncher]: Loading experience file: /home/yanghong/IsaacLab_MagicSim/apps/isaaclab.python.headless.kit
+Loading user config located at: '/home/yanghong/miniconda3/envs/isaac/lib/python3.11/site-packages/isaacsim/kit/data/Kit/Isaac-Sim/5.1/user.config.json'
+[Info] [carb] Logging to file: /home/yanghong/miniconda3/envs/isaac/lib/python3.11/site-packages/isaacsim/kit/logs/Kit/Isaac-Sim/5.1/kit_20260907_230413.log
+2026-09-07T23:04:13Z [123ms] [Warning] [omni.usd_config.extension] Enable omni.materialx.libs extension to use MaterialX
+2026-09-07T23:04:13Z [479ms] [Warning] [omni.platforminfo.plugin] failed to open the default display.  Can't verify X Server version.
+2026-09-07T23:04:14Z [661ms] [Warning] [carb] Acquiring non optional plugin interface which is not listed as dependency: [omni::physx::IPhysxBenchmarks v1.0] (plugin: <default plugin>), by client: omni.physics.physx.plugin. Add it to CARB_PLUGIN_IMPL_DEPS() macro of a client.
+2026-09-07T23:04:14Z [670ms] [Warning] [omni.isaac.dynamic_control] omni.isaac.dynamic_control is deprecated as of Isaac Sim 4.5. No action is needed from end-users.
+2026-09-07T23:04:16Z [3,430ms] [Warning] [carb.cudainterop.plugin] CUDA_VISIBLE_DEVICES environment variable is set.
+2026-09-07T23:04:16Z [3,430ms] [Warning] [carb.cudainterop.plugin] Note CUDA device enumeration and Omniverse device enumeration are different.
+2026-09-07T23:04:16Z [3,430ms] [Warning] [carb.cudainterop.plugin] Setting CUDA_VISIBLE_DEVICES can lead to undesired behavior or crashes.
+2026-09-07T23:04:17Z [3,720ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA GeForce RTX 2080 Ti
+2026-09-07T23:04:17Z [3,720ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-09-07T23:04:17Z [3,720ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA GeForce RTX 2080 Ti
+2026-09-07T23:04:17Z [3,720ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-09-07T23:04:17Z [3,720ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA GeForce RTX 2080 Ti
+2026-09-07T23:04:17Z [3,720ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-09-07T23:04:17Z [3,720ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA GeForce RTX 2080 Ti
+2026-09-07T23:04:17Z [3,720ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-09-07T23:04:17Z [3,720ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA GeForce RTX 2080 Ti
+2026-09-07T23:04:17Z [3,720ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+2026-09-07T23:04:17Z [3,720ms] [Warning] [gpu.foundation.plugin] Skipping NVIDIA GPU due CUDA being in bad state: NVIDIA GeForce RTX 2080 Ti
+2026-09-07T23:04:17Z [3,720ms] [Warning] [gpu.foundation.plugin] Please restart your system if CUDA is known to work in your system.
+
+|---------------------------------------------------------------------------------------------|
+| Driver Version: 550.127.05    | Graphics API: Vulkan
+|=============================================================================================|
+| GPU | Name                             | Active | LDA | GPU Memory | Vendor-ID | LUID       |
+|     |                                  |        |     |            | Device-ID | UUID       |
+|     |                                  |        |     |            | Bus-ID    |            |
+|---------------------------------------------------------------------------------------------|
+| 0   | NVIDIA GeForce RTX 2080 Ti       | Yes: 0 |     | 11510   MB | 10de      | 0          |
+|     |                                  |        |     |            | 1e07      | 4ead8eec.. |
+|     |                                  |        |     |            | 19        |            |
+|---------------------------------------------------------------------------------------------|
+| 1   | NVIDIA GeForce RTX 2080 Ti       |        |     | 11510   MB | 10de      | 0          |
+|     |                                  |        |     |            | 1e07      | c5cb5d4a.. |
+|     |                                  |        |     |            | 1a        |            |
+|---------------------------------------------------------------------------------------------|
+| 2   | NVIDIA GeForce RTX 2080 Ti       |        |     | 11510   MB | 10de      | 0          |
+|     |                                  |        |     |            | 1e07      | b570f4b9.. |
+|     |                                  |        |     |            | 67        |            |
+|---------------------------------------------------------------------------------------------|
+| 3   | NVIDIA GeForce RTX 2080 Ti       |        |     | 11510   MB | 10de      | 0          |
+|     |                                  |        |     |            | 1e07      | fefd1f96.. |
+|     |                                  |        |     |            | 68        |            |
+|=============================================================================================|
+| OS: 22.04.5 LTS (Jammy Jellyfish) ubuntu, Version: 22.04.5, Kernel: 5.15.0-126-generic
+| Processor: Intel(R) Core(TM) i9-9920X CPU @ 3.50GHz
+| Cores: 12 | Logical Cores: 24
+|---------------------------------------------------------------------------------------------|
+| Total Memory (MB): 128483 | Free Memory: 125615
+| Total Page/Swap (MB): 8191 | Free Page/Swap: 8191
+|---------------------------------------------------------------------------------------------|
+2026-09-07T23:04:17Z [3,961ms] [Warning] [gpu.foundation.plugin] CPU performance profile is set to powersave. This profile sets the CPU to the lowest frequency reducing performance.
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+[clips] 交互手=left: 接触传感器已重建 (['left_thumb_elastomer', 'left_index_elastomer', 'left_middle_elastomer', 'left_ring_elastomer', 'left_pinky_elastomer'])
+[aux] 第二物体 object_1(sponge / dishcloth (7.6x3.8x13.2cm, scrub face = input -y)): 相对主体偏移 [-0.6, -4.0, 2.9]cm (来自 scene_layout)
+[aux]   (诊断) layout 内两物体偏航差 179.2° —— **不**用它做任何补偿: 摆放是纯平移, 且旋转体的 yaw 是任意值
+
+[36m===========================================================================================================[0m
+[36m[1m[INFO][IsaacLab]: Logging to file: /home/yanghong/tmp/clean3/isaaclab/logs/isaaclab_2026-09-07_23-04-18.log[0m
+[36m===========================================================================================================[0m
+
+[33m23:04:18 [simulation_context.py] WARNING: The `enable_external_forces_every_iteration` parameter in the PhysxCfg is set to False. If you are experiencing noisy velocities, consider enabling this flag. You may need to slightly increase the number of velocity iterations (setting it to 1 or 2 rather than 0), together with this flag, to improve the accuracy of velocity updates.[0m
+[INFO]: Base environment:
+	Environment device    : cuda:0
+	Environment seed      : 42
+	Physics step-size     : 0.004166666666666667
+	Rendering step-size   : 0.008333333333333333
+	Environment step-size : 0.05
+[33m23:04:18 [direct_rl_env.py] WARNING: The render interval (2) is smaller than the decimation (12). Multiple render calls will happen for each environment step.If this is not intended, set the render interval to be equal to the decimation.[0m
+[33m23:04:22 [prims.py] WARNING: Could not perform 'modify_rigid_body_properties' on any prims under: '/World/envs/env_0/Object'. This might be because of the following reasons:
+	(1) The desired attribute does not exist on any of the prims.
+	(2) The desired attribute exists on an instanced prim.
+		Discovered list of instanced prim paths: [][0m
+[33m23:04:22 [prims.py] WARNING: Could not perform 'modify_collision_properties' on any prims under: '/World/envs/env_0/Object'. This might be because of the following reasons:
+	(1) The desired attribute does not exist on any of the prims.
+	(2) The desired attribute exists on an instanced prim.
+		Discovered list of instanced prim paths: [][0m
+[33m23:04:22 [prims.py] WARNING: Could not perform 'modify_mass_properties' on any prims under: '/World/envs/env_0/Object'. This might be because of the following reasons:
+	(1) The desired attribute does not exist on any of the prims.
+	(2) The desired attribute exists on an instanced prim.
+		Discovered list of instanced prim paths: [][0m
+[setup] object 刚体化: 1 mesh, mass=0.3kg
+[33m23:04:31 [interactive_scene.py] WARNING: Collision filtering can only be automatically enabled when replicate_physics=True and using GPU simulation. Please call scene.filter_collisions(global_prim_paths) to filter collisions across environments.[0m
+[setup] 物体材质=/World/Materials/SuperGrip×512 指尖SuperGrip×5120 手身LowGrip×512
+[clips] auxiliary mesh -> /home/yanghong/RL_Correction/datasets/clean_tableware/3/cache/object_1.usd (convexDecomposition, mass=0.05kg, instanceable off x1)
+[aux] 自由第二物体就绪: sponge / dishcloth (7.6x3.8x13.2cm, scrub face = input -y) mass=0.05kg friction=1.0 (无约束/不豁免碰撞)
+[HoldProbe] plate convex decomposition: maxConvexHulls=128 shrinkWrap ×512 mesh
+[INFO]: Time taken for scene creation : 68.519943 seconds
+[INFO]: Scene manager:  <class InteractiveScene>
+	Number of environments: 512
+	Environment spacing   : 2.0
+	Source prim name      : /World/envs/env_0
+	Global prim paths     : []
+	Replicate physics     : False
+[INFO]: Starting the simulation. This may take a few seconds. Please wait...
+[INFO]: Time taken for simulation start : 63.235365 seconds
+[INFO]: Completed setting up the environment...
+[phys] 难度覆写 物体: 质量=0.300kg 摩擦=1.00/1.00
+[phys] 指垫摩擦覆写 = 1.0
+[dexmate] 交互侧=left | 臂 ['L_arm_j1', 'L_arm_j2', 'L_arm_j3', 'L_arm_j4', 'L_arm_j5', 'L_arm_j6', 'L_arm_j7'] | 手 22 关节 | 末端 body=left_hand_C_MC
+[smooth] 剔除漂移帧 []   物体位置最大修正 3.67 cm
+[fp-dbg] sxy=[ 0.0511 -0.124 ] palm=[-0.2983  0.069 ] a_off=[0.     0.0002 0.001 ] dz=0.0000 obj_z=0.8833 rest_q=[ 0.7037  0.7105 -0.0009  0.    ]
+[replay_grasp] L=400 PreGrasp帧 gs=1(src 0) 合拢至 ge=31 | 相机锚定 + 物体听手 (质心对准交互帧抓取锚点) 物体原点 xy=(-0.247,-0.055) z=0.883 | 腕 path 平移 xy=13.4cm z=+0.00cm
+[debug] hand bodies: [('vega_1p_mobile', 1.0), ('dummy_base_x', 9.999999747378752e-05), ('dummy_base_y', 9.999999747378752e-05), ('vega_1p_base', 88.43486785888672), ('B_base_cam', 0.0030900000128895044), ('F_base_cam', 0.0030900000128895044), ('L_base_cam', 0.0030900000128895044), ('R_base_cam', 0.0030900000128895044), ('vega_1p_back_lidar', 0.004230000078678131), ('vega_1p_front_lidar', 0.1509999930858612), ('vega_1p_torso_l1', 8.832340240478516), ('vega_1p_torso_l2', 14.589259147644043), ('vega_1p_torso_l3', 5.328859806060791), ('arm_center', 1.0), ('vega_1p_L_arm_l1', 1.4135099649429321), ('vega_1p_R_arm_l1', 1.4240100383758545), ('vega_1p_head_l1', 0.43780001997947693), ('L_arm_l2', 1.405940055847168), ('R_arm_l2', 1.4059499502182007), ('vega_1p_head_l2', 0.6077200174331665), ('L_arm_l3', 1.1609400510787964), ('R_arm_l3', 1.1607999801635742), ('vega_1p_head_l3', 0.6327800154685974), ('L_arm_l4', 0.9320400357246399), ('R_arm_l4', 0.9320400357246399), ('zed_left_camera', 1.0), ('zed_depth_frame', 1.0), ('zed_right_camera', 1.0), ('L_arm_l5', 0.6458200216293335), ('R_arm_l5', 0.6458200216293335), ('vega_1p_L_arm_l6', 0.5541999936103821), ('vega_1p_R_arm_l6', 0.5537199974060059), ('L_arm_l7', 0.35802000761032104), ('R_arm_l7', 0.35802000761032104), ('L_arm_l8', 0.2006399929523468), ('R_arm_l8', 0.2006399929523468), ('L_ee', 1.0), ('left_hand_C_MC', 0.650600016117096), ('R_ee', 1.0), ('right_hand_C_MC', 0.650600016117096), ('left_index_MCP_VL', 0.0022100000642240047), ('left_middle_MCP_VL', 0.0022100000642240047), ('left_pinky_MC', 0.12541000545024872), ('left_ring_MCP_VL', 0.0022100000642240047), ('left_thumb_CMC_VL', 0.0024999999441206455), ('right_index_MCP_VL', 0.0022100000642240047), ('right_middle_MCP_VL', 0.0022100000642240047), ('right_pinky_MC', 0.12541000545024872), ('right_ring_MCP_VL', 0.0022100000642240047), ('right_thumb_CMC_VL', 0.0024999999441206455), ('left_index_PP', 0.04741000011563301), ('left_middle_PP', 0.04741000011563301), ('left_pinky_MCP_VL', 0.0022100000642240047), ('left_ring_PP', 0.04741000011563301), ('left_thumb_MC', 0.13586999475955963), ('right_index_PP', 0.04741000011563301), ('right_middle_PP', 0.04741000011563301), ('right_pinky_MCP_VL', 0.0022100000642240047), ('right_ring_PP', 0.04741000011563301), ('right_thumb_MC', 0.13586999475955963), ('left_index_MP', 0.018239999189972878), ('left_middle_MP', 0.018239999189972878), ('left_pinky_PP', 0.04741000011563301), ('left_ring_MP', 0.018239999189972878), ('left_thumb_MCP_VL', 7.999999797903001e-05), ('right_index_MP', 0.018239999189972878), ('right_middle_MP', 0.018239999189972878), ('right_pinky_PP', 0.04741000011563301), ('right_ring_MP', 0.018239999189972878), ('right_thumb_MCP_VL', 7.999999797903001e-05), ('left_index_DP', 0.004550000187009573), ('left_middle_DP', 0.004550000187009573), ('left_pinky_MP', 0.018239999189972878), ('left_ring_DP', 0.004550000187009573), ('left_thumb_PP', 0.030780000612139702), ('right_index_DP', 0.004550000187009573), ('right_middle_DP', 0.004550000187009573), ('right_pinky_MP', 0.018239999189972878), ('right_ring_DP', 0.004550000187009573), ('right_thumb_PP', 0.030780000612139702), ('left_index_elastomer', 9.999999747378752e-05), ('left_middle_elastomer', 9.999999747378752e-05), ('left_pinky_DP', 0.004550000187009573), ('left_ring_elastomer', 9.999999747378752e-05), ('left_thumb_DP', 0.009879999794065952), ('right_index_elastomer', 9.999999747378752e-05), ('right_middle_elastomer', 9.999999747378752e-05), ('right_pinky_DP', 0.004550000187009573), ('right_ring_elastomer', 9.999999747378752e-05), ('right_thumb_DP', 0.00788000039756298), ('left_index_fingertip', 9.999999974752427e-07), ('left_middle_fingertip', 9.999999974752427e-07), ('left_pinky_elastomer', 9.999999747378752e-05), ('left_ring_fingertip', 9.999999974752427e-07), ('left_thumb_elastomer', 9.999999747378752e-05), ('right_index_fingertip', 9.999999974752427e-07), ('right_middle_fingertip', 9.999999974752427e-07), ('right_pinky_elastomer', 9.999999747378752e-05), ('right_ring_fingertip', 9.999999974752427e-07), ('right_thumb_elastomer', 9.999999747378752e-05), ('left_pinky_fingertip', 9.999999974752427e-07), ('left_thumb_fingertip', 9.999999974752427e-07), ('right_pinky_fingertip', 9.999999974752427e-07), ('right_thumb_fingertip', 9.999999974752427e-07)]
+[debug] hand 总质量 141.872 kg
+[reward] 手指模仿通道已关 (无 GraspPose, 参考手指不可信); 抓法由 contact/afford/lift 三项决定
+[finger] 累积残差: rate ±5.7°/步 | total ±68.8° | decay 1.0
+[dexmate] 躯干已在 USD 里锁死 (fixed joint), 无沉降过程
+[dexmate] 相机锚定残差: 实测 ZED xy=[-0.5558000206947327, 0.0] vs 标称 [-0.4079, -0.0004] -> 参考整体补移 [-14.79, 0.04]cm  (标称过期了就改 place_camera.ZED_NOMINAL)
+[ref质量] 可达帧位置误差: 中位 0.20cm 95分位 0.20cm 最大 0.20cm
+[dexmate] 抬升轨迹: 20 级 x 5cm, 末端实际升 4.6cm
+[dexmate] place_mode=ref_builder (保留 ref builder 摆放, 平移 [0.0, 0.0, 0.0]) | IK 全程可达 100.0% | 抓取窗[1,31] 100.0% | 位置误差中位 0.20cm | 顶替 0 帧
+[pregrasp] 表面法向已采样 (512, 3) (cent 用局部法向, 形状无关)
+[collide] 臂连杆 9 个 (['vega_1p_L_arm_l1', 'L_arm_l2', 'L_arm_l3', 'L_arm_l4', 'L_arm_l5', 'vega_1p_L_arm_l6', 'L_arm_l7', 'L_arm_l8', 'L_ee']) | 需避让 16 个 (躯干/头/另一臂)
+[collide] 外壳口径臂罚开启: 8 节连杆 × ≤96 表面点 (余量 1cm)
+[prior] 零位校准参考数 (静态 FK: 垫->物体表面, 阈值 1.5cm): 不校准 ['2.4', '2.1', '2.5', '1.7', '2.9']cm (0 垫); 校准后 ['3.3', '1.2', '1.3', '0.9', '2.2']cm (3 垫)  ⚠仅供参考, 不作判据 (见下)
+[prior] 模板参与指 5/5: ['thumb', 'index', 'middle', 'ring', 'pinky'] (逐指最近接触点 ['2.9', '2.1', '2.5', '2.2', '2.1']cm) | 判据随之: min_pads=4 verify_min_pads=3 cent 归一 /5
+[prior] fixed_attached_tools: 保留任务给定的重建物体首帧位姿
+[prior] 物体 yaw **钉死** 0° (来自 Gate 1 的 best_yaw, 与视频一致) | 该角 IK err 0.12cm
+[finger_gate] 自标定基准 d_g=16.6cm (GraspPose 处腕-物体距离) | 放开 <20.7cm | 冻结 >41.5cm
+[prior]   抬升斜坡: 第 4 级实际抬 9.84mm (要求 10mm) | IK 直解失败 0/20 级
+[prior] GraspPose 已接入: /home/yanghong/RL_Correction/tasks/pregrasp/priors/Clean3_plate_left.npz
+[prior]   IK grasp err 0.12cm | pregrasp err 0.20cm | pre->grasp 最大关节差 0.0°
+[prior]   臂外壳离桌余量(指令位形估计): 抓握位 +5.5cm | 预抓位 +5.5cm
+[approach] 开: 参考 gs=1 (0.1s) | 预算 121 步 | 切换 <3.00cm & <15.0° 保持2步 | 直接抓取起步比例 0.50
+[score] 接触分数图已开: 512 个表面点; 只在 verify 斜坡到顶取快照, 按力占比加权
+[pregrasp] v2 稳定抓握+微抬升验证: 起点=PreGrasp(帧1) | 合拢参考 0.025/步 | 候选 ≥4垫 向心≥0.3 保持4步 | 验证升 10mm (4级) | episode ≤ 153 步
+[HoldProbe] rows=424 dt=0.00417 n_sub=12 prof_r=[0.2, 0.7, 1.3, 1.8, 2.3, 2.7, 3.2, 3.8, 4.3, 4.7, 5.2, 5.8, 6.2, 6.8, 7.2, 7.8, 8.3, 8.7] face_off=1.93cm
+[CleanHoldEnv] squeeze 剂量覆写 right_pinky_CMC: β=0.0
+[CleanHoldEnv] squeeze 剂量覆写 right_pinky_MCP_AA: β=0.0
+[CleanHoldEnv] grasp 姿相邻指尖 侧向间距(cm)={'left': [2.2899999618530273, 2.049999952316284, 3.8399999141693115], 'right': [2.119999885559082, 3.3499999046325684, 1.7000000476837158]} 3D距离(cm)={'left': [2.299999952316284, 2.2300000190734863, 4.199999809265137], 'right': [2.380000114440918, 3.369999885559082, 2.109999895095825]} (罚阈 1.0/1.5cm)
+[CleanHoldEnv] N=512 obs=367 act=58 T_EP=110 release=50 sag(deg)=[0.10000000149011612, 0.019999999552965164, 0.11999999731779099, -0.20000000298023224, 0.4300000071525574, 0.05000000074505806, -1.059999942779541, -0.10000000149011612, 0.019999999552965164, -0.09000000357627869, 0.009999999776482582, 0.17000000178813934, -0.3199999928474426, -0.7400000095367432]
+[v3net] separate critic ON (priv 22 raw -> critic; actor embeds first 8)
+RunningMeanStd:  (367,)
+RunningMeanStd:  (1,)
+[train_clean] N=512 obs=367 act=58 logs=/home/yanghong/RL_Correction/logs/Clean3_hold_s42 release=50
+[warmup] critic-only 前 10 epoch (actor 冻结, lr 调度暂停)
+save current best reward: 0.00
+Agent Steps: 0000M | FPS: 909.2 | Last FPS: 454.6 | Collect Time: 0.6 min | Train RL Time: 0.0 min | Mean Rewards: 0.00 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 765.4 | Last FPS: 581.4 | Collect Time: 1.1 min | Train RL Time: 0.0 min | Mean Rewards: -10.15 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 709.3 | Last FPS: 581.4 | Collect Time: 1.5 min | Train RL Time: 0.0 min | Mean Rewards: -25.54 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 680.0 | Last FPS: 583.6 | Collect Time: 2.0 min | Train RL Time: 0.0 min | Mean Rewards: -49.80 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 660.2 | Last FPS: 576.5 | Collect Time: 2.5 min | Train RL Time: 0.0 min | Mean Rewards: -44.27 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 646.5 | Last FPS: 574.8 | Collect Time: 2.9 min | Train RL Time: 0.0 min | Mean Rewards: -41.83 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 637.2 | Last FPS: 578.7 | Collect Time: 3.4 min | Train RL Time: 0.0 min | Mean Rewards: -53.54 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 629.8 | Last FPS: 576.4 | Collect Time: 3.9 min | Train RL Time: 0.0 min | Mean Rewards: -45.25 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 623.1 | Last FPS: 568.4 | Collect Time: 4.4 min | Train RL Time: 0.0 min | Mean Rewards: -41.30 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 618.8 | Last FPS: 579.3 | Collect Time: 4.8 min | Train RL Time: 0.0 min | Mean Rewards: -46.47 | Current Best: 0.00
+[warmup] 结束 @epoch 11, actor 解冻, lr=3.00e-04
+Agent Steps: 0000M | FPS: 614.5 | Last FPS: 571.0 | Collect Time: 5.3 min | Train RL Time: 0.0 min | Mean Rewards: -47.46 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 611.1 | Last FPS: 572.3 | Collect Time: 5.8 min | Train RL Time: 0.0 min | Mean Rewards: -45.73 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 607.0 | Last FPS: 559.2 | Collect Time: 6.3 min | Train RL Time: 0.0 min | Mean Rewards: -47.84 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 603.2 | Last FPS: 554.1 | Collect Time: 6.8 min | Train RL Time: 0.0 min | Mean Rewards: -50.08 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 599.8 | Last FPS: 553.6 | Collect Time: 7.3 min | Train RL Time: 0.0 min | Mean Rewards: -45.87 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 596.2 | Last FPS: 544.1 | Collect Time: 7.8 min | Train RL Time: 0.0 min | Mean Rewards: -36.57 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 593.1 | Last FPS: 544.0 | Collect Time: 8.3 min | Train RL Time: 0.0 min | Mean Rewards: -37.15 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 590.3 | Last FPS: 544.0 | Collect Time: 8.7 min | Train RL Time: 0.0 min | Mean Rewards: -32.23 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 587.8 | Last FPS: 544.6 | Collect Time: 9.2 min | Train RL Time: 0.0 min | Mean Rewards: -30.86 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 585.7 | Last FPS: 546.0 | Collect Time: 9.7 min | Train RL Time: 0.0 min | Mean Rewards: -30.86 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 583.8 | Last FPS: 546.7 | Collect Time: 10.2 min | Train RL Time: 0.0 min | Mean Rewards: -27.82 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 582.2 | Last FPS: 548.5 | Collect Time: 10.7 min | Train RL Time: 0.0 min | Mean Rewards: -28.92 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 580.5 | Last FPS: 544.2 | Collect Time: 11.2 min | Train RL Time: 0.0 min | Mean Rewards: -27.53 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 579.0 | Last FPS: 545.3 | Collect Time: 11.7 min | Train RL Time: 0.1 min | Mean Rewards: -27.02 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 577.6 | Last FPS: 544.8 | Collect Time: 12.2 min | Train RL Time: 0.1 min | Mean Rewards: -27.35 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 576.2 | Last FPS: 543.6 | Collect Time: 12.7 min | Train RL Time: 0.1 min | Mean Rewards: -23.38 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 574.8 | Last FPS: 539.1 | Collect Time: 13.2 min | Train RL Time: 0.1 min | Mean Rewards: -23.03 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 573.7 | Last FPS: 544.3 | Collect Time: 13.7 min | Train RL Time: 0.1 min | Mean Rewards: -20.98 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 572.6 | Last FPS: 540.8 | Collect Time: 14.2 min | Train RL Time: 0.1 min | Mean Rewards: -15.34 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 571.6 | Last FPS: 543.2 | Collect Time: 14.7 min | Train RL Time: 0.1 min | Mean Rewards: -13.37 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 570.8 | Last FPS: 549.3 | Collect Time: 15.2 min | Train RL Time: 0.1 min | Mean Rewards: -12.15 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 569.9 | Last FPS: 540.1 | Collect Time: 15.7 min | Train RL Time: 0.1 min | Mean Rewards: -10.67 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 569.1 | Last FPS: 544.7 | Collect Time: 16.2 min | Train RL Time: 0.1 min | Mean Rewards: -9.64 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 568.3 | Last FPS: 542.2 | Collect Time: 16.7 min | Train RL Time: 0.1 min | Mean Rewards: -8.26 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 567.1 | Last FPS: 529.6 | Collect Time: 17.2 min | Train RL Time: 0.1 min | Mean Rewards: -7.31 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 566.0 | Last FPS: 527.9 | Collect Time: 17.8 min | Train RL Time: 0.1 min | Mean Rewards: -6.09 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 564.9 | Last FPS: 527.8 | Collect Time: 18.3 min | Train RL Time: 0.1 min | Mean Rewards: -6.36 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 563.8 | Last FPS: 525.6 | Collect Time: 18.8 min | Train RL Time: 0.1 min | Mean Rewards: -5.06 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 562.5 | Last FPS: 514.8 | Collect Time: 19.3 min | Train RL Time: 0.1 min | Mean Rewards: -5.52 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 561.6 | Last FPS: 528.4 | Collect Time: 19.8 min | Train RL Time: 0.1 min | Mean Rewards: -4.65 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 560.8 | Last FPS: 530.7 | Collect Time: 20.3 min | Train RL Time: 0.1 min | Mean Rewards: -4.79 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 560.1 | Last FPS: 531.5 | Collect Time: 20.8 min | Train RL Time: 0.1 min | Mean Rewards: -4.81 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 559.4 | Last FPS: 529.2 | Collect Time: 21.4 min | Train RL Time: 0.1 min | Mean Rewards: -4.58 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 558.6 | Last FPS: 525.6 | Collect Time: 21.9 min | Train RL Time: 0.1 min | Mean Rewards: -4.36 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 557.9 | Last FPS: 529.4 | Collect Time: 22.4 min | Train RL Time: 0.1 min | Mean Rewards: -4.41 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 557.2 | Last FPS: 527.2 | Collect Time: 22.9 min | Train RL Time: 0.1 min | Mean Rewards: -4.54 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 556.5 | Last FPS: 524.8 | Collect Time: 23.4 min | Train RL Time: 0.1 min | Mean Rewards: -4.45 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 555.9 | Last FPS: 529.5 | Collect Time: 23.9 min | Train RL Time: 0.1 min | Mean Rewards: -5.07 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 555.3 | Last FPS: 526.4 | Collect Time: 24.4 min | Train RL Time: 0.1 min | Mean Rewards: -5.28 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 554.7 | Last FPS: 527.9 | Collect Time: 24.9 min | Train RL Time: 0.1 min | Mean Rewards: -5.15 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 554.1 | Last FPS: 523.8 | Collect Time: 25.5 min | Train RL Time: 0.1 min | Mean Rewards: -5.14 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 553.6 | Last FPS: 528.6 | Collect Time: 26.0 min | Train RL Time: 0.1 min | Mean Rewards: -5.26 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 553.1 | Last FPS: 529.1 | Collect Time: 26.5 min | Train RL Time: 0.1 min | Mean Rewards: -5.48 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 552.6 | Last FPS: 526.2 | Collect Time: 27.0 min | Train RL Time: 0.1 min | Mean Rewards: -4.86 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 552.1 | Last FPS: 524.6 | Collect Time: 27.5 min | Train RL Time: 0.1 min | Mean Rewards: -5.17 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 551.6 | Last FPS: 527.0 | Collect Time: 28.0 min | Train RL Time: 0.2 min | Mean Rewards: -5.08 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 551.1 | Last FPS: 524.3 | Collect Time: 28.6 min | Train RL Time: 0.2 min | Mean Rewards: -5.37 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 550.7 | Last FPS: 525.5 | Collect Time: 29.1 min | Train RL Time: 0.2 min | Mean Rewards: -5.19 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 550.2 | Last FPS: 525.7 | Collect Time: 29.6 min | Train RL Time: 0.2 min | Mean Rewards: -5.36 | Current Best: 0.00
+Agent Steps: 0000M | FPS: 549.8 | Last FPS: 525.0 | Collect Time: 30.1 min | Train RL Time: 0.2 min | Mean Rewards: -5.48 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 549.4 | Last FPS: 526.0 | Collect Time: 30.6 min | Train RL Time: 0.2 min | Mean Rewards: -5.34 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 549.0 | Last FPS: 526.1 | Collect Time: 31.1 min | Train RL Time: 0.2 min | Mean Rewards: -5.09 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 548.6 | Last FPS: 525.4 | Collect Time: 31.7 min | Train RL Time: 0.2 min | Mean Rewards: -5.17 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 548.2 | Last FPS: 524.5 | Collect Time: 32.2 min | Train RL Time: 0.2 min | Mean Rewards: -4.79 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 547.9 | Last FPS: 525.8 | Collect Time: 32.7 min | Train RL Time: 0.2 min | Mean Rewards: -5.36 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 547.5 | Last FPS: 523.7 | Collect Time: 33.2 min | Train RL Time: 0.2 min | Mean Rewards: -4.69 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 547.2 | Last FPS: 526.8 | Collect Time: 33.7 min | Train RL Time: 0.2 min | Mean Rewards: -4.29 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 546.9 | Last FPS: 526.6 | Collect Time: 34.2 min | Train RL Time: 0.2 min | Mean Rewards: -4.45 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 546.5 | Last FPS: 524.3 | Collect Time: 34.8 min | Train RL Time: 0.2 min | Mean Rewards: -4.40 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 546.2 | Last FPS: 524.5 | Collect Time: 35.3 min | Train RL Time: 0.2 min | Mean Rewards: -4.27 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 546.2 | Last FPS: 540.9 | Collect Time: 35.8 min | Train RL Time: 0.2 min | Mean Rewards: -4.31 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 546.5 | Last FPS: 570.6 | Collect Time: 36.2 min | Train RL Time: 0.2 min | Mean Rewards: -4.40 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 546.7 | Last FPS: 566.0 | Collect Time: 36.7 min | Train RL Time: 0.2 min | Mean Rewards: -4.22 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 546.9 | Last FPS: 560.5 | Collect Time: 37.2 min | Train RL Time: 0.2 min | Mean Rewards: -4.12 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 547.0 | Last FPS: 555.1 | Collect Time: 37.7 min | Train RL Time: 0.2 min | Mean Rewards: -4.19 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 547.2 | Last FPS: 558.8 | Collect Time: 38.2 min | Train RL Time: 0.2 min | Mean Rewards: -3.99 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 547.3 | Last FPS: 558.3 | Collect Time: 38.7 min | Train RL Time: 0.2 min | Mean Rewards: -3.86 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 547.4 | Last FPS: 556.8 | Collect Time: 39.2 min | Train RL Time: 0.2 min | Mean Rewards: -3.94 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 547.6 | Last FPS: 559.1 | Collect Time: 39.6 min | Train RL Time: 0.2 min | Mean Rewards: -3.87 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 547.7 | Last FPS: 562.2 | Collect Time: 40.1 min | Train RL Time: 0.2 min | Mean Rewards: -3.97 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 547.9 | Last FPS: 561.8 | Collect Time: 40.6 min | Train RL Time: 0.2 min | Mean Rewards: -3.88 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 548.0 | Last FPS: 559.1 | Collect Time: 41.1 min | Train RL Time: 0.2 min | Mean Rewards: -3.67 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 548.2 | Last FPS: 559.6 | Collect Time: 41.6 min | Train RL Time: 0.2 min | Mean Rewards: -4.02 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 548.4 | Last FPS: 565.8 | Collect Time: 42.1 min | Train RL Time: 0.2 min | Mean Rewards: -3.96 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 548.5 | Last FPS: 557.0 | Collect Time: 42.5 min | Train RL Time: 0.2 min | Mean Rewards: -3.89 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 548.5 | Last FPS: 548.9 | Collect Time: 43.0 min | Train RL Time: 0.2 min | Mean Rewards: -3.68 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 548.4 | Last FPS: 538.9 | Collect Time: 43.5 min | Train RL Time: 0.2 min | Mean Rewards: -3.64 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 548.5 | Last FPS: 557.6 | Collect Time: 44.0 min | Train RL Time: 0.3 min | Mean Rewards: -3.45 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 548.7 | Last FPS: 569.0 | Collect Time: 44.5 min | Train RL Time: 0.3 min | Mean Rewards: -3.52 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 549.0 | Last FPS: 573.8 | Collect Time: 45.0 min | Train RL Time: 0.3 min | Mean Rewards: -3.38 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 549.1 | Last FPS: 567.4 | Collect Time: 45.5 min | Train RL Time: 0.3 min | Mean Rewards: -3.42 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 549.4 | Last FPS: 572.4 | Collect Time: 45.9 min | Train RL Time: 0.3 min | Mean Rewards: -3.31 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 549.6 | Last FPS: 570.9 | Collect Time: 46.4 min | Train RL Time: 0.3 min | Mean Rewards: -2.96 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 549.9 | Last FPS: 575.2 | Collect Time: 46.9 min | Train RL Time: 0.3 min | Mean Rewards: -3.08 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 550.1 | Last FPS: 571.9 | Collect Time: 47.4 min | Train RL Time: 0.3 min | Mean Rewards: -2.84 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 550.3 | Last FPS: 571.5 | Collect Time: 47.8 min | Train RL Time: 0.3 min | Mean Rewards: -3.12 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 550.5 | Last FPS: 568.1 | Collect Time: 48.3 min | Train RL Time: 0.3 min | Mean Rewards: -2.76 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 550.7 | Last FPS: 573.2 | Collect Time: 48.8 min | Train RL Time: 0.3 min | Mean Rewards: -3.12 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 550.9 | Last FPS: 568.3 | Collect Time: 49.3 min | Train RL Time: 0.3 min | Mean Rewards: -2.60 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 551.0 | Last FPS: 568.1 | Collect Time: 49.7 min | Train RL Time: 0.3 min | Mean Rewards: -3.16 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 551.2 | Last FPS: 566.8 | Collect Time: 50.2 min | Train RL Time: 0.3 min | Mean Rewards: -2.90 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 551.3 | Last FPS: 567.6 | Collect Time: 50.7 min | Train RL Time: 0.3 min | Mean Rewards: -3.15 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 551.5 | Last FPS: 567.6 | Collect Time: 51.2 min | Train RL Time: 0.3 min | Mean Rewards: -2.75 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 551.7 | Last FPS: 572.6 | Collect Time: 51.6 min | Train RL Time: 0.3 min | Mean Rewards: -2.91 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 551.9 | Last FPS: 573.6 | Collect Time: 52.1 min | Train RL Time: 0.3 min | Mean Rewards: -2.47 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 552.0 | Last FPS: 569.5 | Collect Time: 52.6 min | Train RL Time: 0.3 min | Mean Rewards: -2.69 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 552.2 | Last FPS: 566.8 | Collect Time: 53.1 min | Train RL Time: 0.3 min | Mean Rewards: -2.78 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 552.4 | Last FPS: 573.5 | Collect Time: 53.5 min | Train RL Time: 0.3 min | Mean Rewards: -2.79 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 552.5 | Last FPS: 571.3 | Collect Time: 54.0 min | Train RL Time: 0.3 min | Mean Rewards: -2.38 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 552.7 | Last FPS: 570.1 | Collect Time: 54.5 min | Train RL Time: 0.3 min | Mean Rewards: -2.48 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 552.8 | Last FPS: 568.8 | Collect Time: 55.0 min | Train RL Time: 0.3 min | Mean Rewards: -2.31 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 553.0 | Last FPS: 570.5 | Collect Time: 55.5 min | Train RL Time: 0.3 min | Mean Rewards: -2.26 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 553.1 | Last FPS: 563.5 | Collect Time: 55.9 min | Train RL Time: 0.3 min | Mean Rewards: -2.38 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 553.2 | Last FPS: 572.0 | Collect Time: 56.4 min | Train RL Time: 0.3 min | Mean Rewards: -2.21 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 553.4 | Last FPS: 570.2 | Collect Time: 56.9 min | Train RL Time: 0.3 min | Mean Rewards: -2.22 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 553.5 | Last FPS: 565.3 | Collect Time: 57.4 min | Train RL Time: 0.3 min | Mean Rewards: -2.44 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 553.6 | Last FPS: 567.0 | Collect Time: 57.8 min | Train RL Time: 0.3 min | Mean Rewards: -2.35 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 553.7 | Last FPS: 566.7 | Collect Time: 58.3 min | Train RL Time: 0.3 min | Mean Rewards: -2.37 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 553.8 | Last FPS: 568.6 | Collect Time: 58.8 min | Train RL Time: 0.3 min | Mean Rewards: -2.50 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 553.9 | Last FPS: 571.3 | Collect Time: 59.3 min | Train RL Time: 0.3 min | Mean Rewards: -2.57 | Current Best: 0.00
+Agent Steps: 0001M | FPS: 554.0 | Last FPS: 564.2 | Collect Time: 59.8 min | Train RL Time: 0.3 min | Mean Rewards: -2.24 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 554.1 | Last FPS: 567.4 | Collect Time: 60.2 min | Train RL Time: 0.3 min | Mean Rewards: -2.37 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 554.2 | Last FPS: 565.7 | Collect Time: 60.7 min | Train RL Time: 0.3 min | Mean Rewards: -2.26 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 554.3 | Last FPS: 567.0 | Collect Time: 61.2 min | Train RL Time: 0.3 min | Mean Rewards: -2.35 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 554.4 | Last FPS: 569.4 | Collect Time: 61.7 min | Train RL Time: 0.3 min | Mean Rewards: -2.18 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 554.5 | Last FPS: 568.5 | Collect Time: 62.1 min | Train RL Time: 0.3 min | Mean Rewards: -2.63 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 554.7 | Last FPS: 569.0 | Collect Time: 62.6 min | Train RL Time: 0.4 min | Mean Rewards: -2.45 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 554.8 | Last FPS: 567.6 | Collect Time: 63.1 min | Train RL Time: 0.4 min | Mean Rewards: -2.22 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 554.9 | Last FPS: 567.7 | Collect Time: 63.6 min | Train RL Time: 0.4 min | Mean Rewards: -2.39 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 554.9 | Last FPS: 566.6 | Collect Time: 64.1 min | Train RL Time: 0.4 min | Mean Rewards: -2.28 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 555.0 | Last FPS: 567.0 | Collect Time: 64.5 min | Train RL Time: 0.4 min | Mean Rewards: -2.19 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 555.1 | Last FPS: 565.0 | Collect Time: 65.0 min | Train RL Time: 0.4 min | Mean Rewards: -2.20 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 555.2 | Last FPS: 566.2 | Collect Time: 65.5 min | Train RL Time: 0.4 min | Mean Rewards: -2.00 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 555.3 | Last FPS: 570.8 | Collect Time: 66.0 min | Train RL Time: 0.4 min | Mean Rewards: -2.61 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 555.3 | Last FPS: 562.1 | Collect Time: 66.5 min | Train RL Time: 0.4 min | Mean Rewards: -2.15 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 555.4 | Last FPS: 564.7 | Collect Time: 66.9 min | Train RL Time: 0.4 min | Mean Rewards: -2.24 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 555.5 | Last FPS: 566.5 | Collect Time: 67.4 min | Train RL Time: 0.4 min | Mean Rewards: -2.70 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 555.6 | Last FPS: 566.9 | Collect Time: 67.9 min | Train RL Time: 0.4 min | Mean Rewards: -2.20 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 555.7 | Last FPS: 567.2 | Collect Time: 68.4 min | Train RL Time: 0.4 min | Mean Rewards: -2.28 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 555.7 | Last FPS: 562.8 | Collect Time: 68.9 min | Train RL Time: 0.4 min | Mean Rewards: -2.91 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 555.8 | Last FPS: 565.5 | Collect Time: 69.3 min | Train RL Time: 0.4 min | Mean Rewards: -2.63 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 555.8 | Last FPS: 564.2 | Collect Time: 69.8 min | Train RL Time: 0.4 min | Mean Rewards: -2.91 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 555.9 | Last FPS: 570.4 | Collect Time: 70.3 min | Train RL Time: 0.4 min | Mean Rewards: -2.60 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 556.0 | Last FPS: 563.1 | Collect Time: 70.8 min | Train RL Time: 0.4 min | Mean Rewards: -2.54 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 556.1 | Last FPS: 568.0 | Collect Time: 71.3 min | Train RL Time: 0.4 min | Mean Rewards: -2.36 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 556.1 | Last FPS: 564.8 | Collect Time: 71.7 min | Train RL Time: 0.4 min | Mean Rewards: -2.33 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 556.2 | Last FPS: 565.5 | Collect Time: 72.2 min | Train RL Time: 0.4 min | Mean Rewards: -2.08 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 556.2 | Last FPS: 563.4 | Collect Time: 72.7 min | Train RL Time: 0.4 min | Mean Rewards: -2.12 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 556.3 | Last FPS: 563.4 | Collect Time: 73.2 min | Train RL Time: 0.4 min | Mean Rewards: -2.06 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 556.3 | Last FPS: 566.0 | Collect Time: 73.7 min | Train RL Time: 0.4 min | Mean Rewards: -1.86 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 556.4 | Last FPS: 566.3 | Collect Time: 74.1 min | Train RL Time: 0.4 min | Mean Rewards: -2.04 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 556.5 | Last FPS: 567.0 | Collect Time: 74.6 min | Train RL Time: 0.4 min | Mean Rewards: -1.95 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 556.5 | Last FPS: 564.5 | Collect Time: 75.1 min | Train RL Time: 0.4 min | Mean Rewards: -2.00 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 556.6 | Last FPS: 566.8 | Collect Time: 75.6 min | Train RL Time: 0.4 min | Mean Rewards: -2.07 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 556.6 | Last FPS: 565.4 | Collect Time: 76.1 min | Train RL Time: 0.4 min | Mean Rewards: -1.89 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 556.7 | Last FPS: 563.5 | Collect Time: 76.5 min | Train RL Time: 0.4 min | Mean Rewards: -1.92 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 556.7 | Last FPS: 566.6 | Collect Time: 77.0 min | Train RL Time: 0.4 min | Mean Rewards: -1.92 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 556.8 | Last FPS: 564.4 | Collect Time: 77.5 min | Train RL Time: 0.4 min | Mean Rewards: -1.83 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 556.9 | Last FPS: 568.3 | Collect Time: 78.0 min | Train RL Time: 0.4 min | Mean Rewards: -1.90 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 556.9 | Last FPS: 560.4 | Collect Time: 78.5 min | Train RL Time: 0.4 min | Mean Rewards: -2.05 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 556.9 | Last FPS: 561.1 | Collect Time: 78.9 min | Train RL Time: 0.4 min | Mean Rewards: -1.99 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 557.0 | Last FPS: 563.5 | Collect Time: 79.4 min | Train RL Time: 0.4 min | Mean Rewards: -2.01 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 557.0 | Last FPS: 563.3 | Collect Time: 79.9 min | Train RL Time: 0.4 min | Mean Rewards: -1.86 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 557.0 | Last FPS: 560.8 | Collect Time: 80.4 min | Train RL Time: 0.4 min | Mean Rewards: -2.03 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 557.0 | Last FPS: 558.6 | Collect Time: 80.9 min | Train RL Time: 0.5 min | Mean Rewards: -2.29 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 557.0 | Last FPS: 559.0 | Collect Time: 81.4 min | Train RL Time: 0.5 min | Mean Rewards: -2.42 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 557.1 | Last FPS: 563.2 | Collect Time: 81.8 min | Train RL Time: 0.5 min | Mean Rewards: -2.12 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 557.1 | Last FPS: 561.2 | Collect Time: 82.3 min | Train RL Time: 0.5 min | Mean Rewards: -2.21 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 557.1 | Last FPS: 565.2 | Collect Time: 82.8 min | Train RL Time: 0.5 min | Mean Rewards: -2.25 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 557.1 | Last FPS: 557.7 | Collect Time: 83.3 min | Train RL Time: 0.5 min | Mean Rewards: -2.05 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 557.2 | Last FPS: 568.8 | Collect Time: 83.8 min | Train RL Time: 0.5 min | Mean Rewards: -2.12 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 557.2 | Last FPS: 562.0 | Collect Time: 84.3 min | Train RL Time: 0.5 min | Mean Rewards: -1.92 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 557.3 | Last FPS: 561.0 | Collect Time: 84.7 min | Train RL Time: 0.5 min | Mean Rewards: -1.79 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 557.3 | Last FPS: 563.3 | Collect Time: 85.2 min | Train RL Time: 0.5 min | Mean Rewards: -1.68 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 557.3 | Last FPS: 562.6 | Collect Time: 85.7 min | Train RL Time: 0.5 min | Mean Rewards: -1.65 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 557.4 | Last FPS: 566.5 | Collect Time: 86.2 min | Train RL Time: 0.5 min | Mean Rewards: -1.58 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 557.4 | Last FPS: 564.3 | Collect Time: 86.7 min | Train RL Time: 0.5 min | Mean Rewards: -1.49 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 557.4 | Last FPS: 561.4 | Collect Time: 87.2 min | Train RL Time: 0.5 min | Mean Rewards: -1.59 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 557.5 | Last FPS: 562.1 | Collect Time: 87.6 min | Train RL Time: 0.5 min | Mean Rewards: -1.44 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 557.5 | Last FPS: 563.1 | Collect Time: 88.1 min | Train RL Time: 0.5 min | Mean Rewards: -1.61 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 557.5 | Last FPS: 562.2 | Collect Time: 88.6 min | Train RL Time: 0.5 min | Mean Rewards: -1.69 | Current Best: 0.00
+Agent Steps: 0002M | FPS: 557.5 | Last FPS: 559.8 | Collect Time: 89.1 min | Train RL Time: 0.5 min | Mean Rewards: -1.60 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.6 | Last FPS: 565.2 | Collect Time: 89.6 min | Train RL Time: 0.5 min | Mean Rewards: -1.48 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.6 | Last FPS: 558.8 | Collect Time: 90.1 min | Train RL Time: 0.5 min | Mean Rewards: -1.63 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.6 | Last FPS: 560.8 | Collect Time: 90.5 min | Train RL Time: 0.5 min | Mean Rewards: -1.49 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.6 | Last FPS: 559.2 | Collect Time: 91.0 min | Train RL Time: 0.5 min | Mean Rewards: -1.41 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.6 | Last FPS: 562.2 | Collect Time: 91.5 min | Train RL Time: 0.5 min | Mean Rewards: -1.30 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.6 | Last FPS: 560.6 | Collect Time: 92.0 min | Train RL Time: 0.5 min | Mean Rewards: -1.32 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 563.5 | Collect Time: 92.5 min | Train RL Time: 0.5 min | Mean Rewards: -1.73 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 560.6 | Collect Time: 93.0 min | Train RL Time: 0.5 min | Mean Rewards: -1.75 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 559.8 | Collect Time: 93.4 min | Train RL Time: 0.5 min | Mean Rewards: -1.62 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 556.5 | Collect Time: 93.9 min | Train RL Time: 0.5 min | Mean Rewards: -1.44 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 559.1 | Collect Time: 94.4 min | Train RL Time: 0.5 min | Mean Rewards: -1.47 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 559.6 | Collect Time: 94.9 min | Train RL Time: 0.5 min | Mean Rewards: -1.55 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 556.3 | Collect Time: 95.4 min | Train RL Time: 0.5 min | Mean Rewards: -1.74 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 558.8 | Collect Time: 95.9 min | Train RL Time: 0.5 min | Mean Rewards: -1.26 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 558.4 | Collect Time: 96.4 min | Train RL Time: 0.5 min | Mean Rewards: -1.41 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 561.1 | Collect Time: 96.8 min | Train RL Time: 0.5 min | Mean Rewards: -1.09 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 555.7 | Collect Time: 97.3 min | Train RL Time: 0.5 min | Mean Rewards: -1.27 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 558.5 | Collect Time: 97.8 min | Train RL Time: 0.5 min | Mean Rewards: -0.98 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 559.5 | Collect Time: 98.3 min | Train RL Time: 0.5 min | Mean Rewards: -1.40 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 559.5 | Collect Time: 98.8 min | Train RL Time: 0.5 min | Mean Rewards: -0.86 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 557.2 | Collect Time: 99.3 min | Train RL Time: 0.5 min | Mean Rewards: -0.91 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.8 | Last FPS: 563.4 | Collect Time: 99.8 min | Train RL Time: 0.6 min | Mean Rewards: -1.17 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.8 | Last FPS: 564.3 | Collect Time: 100.2 min | Train RL Time: 0.6 min | Mean Rewards: -0.95 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.8 | Last FPS: 560.7 | Collect Time: 100.7 min | Train RL Time: 0.6 min | Mean Rewards: -0.92 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.8 | Last FPS: 556.2 | Collect Time: 101.2 min | Train RL Time: 0.6 min | Mean Rewards: -0.77 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.8 | Last FPS: 557.3 | Collect Time: 101.7 min | Train RL Time: 0.6 min | Mean Rewards: -0.82 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.8 | Last FPS: 556.1 | Collect Time: 102.2 min | Train RL Time: 0.6 min | Mean Rewards: -0.98 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.8 | Last FPS: 558.0 | Collect Time: 102.7 min | Train RL Time: 0.6 min | Mean Rewards: -0.71 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.8 | Last FPS: 558.5 | Collect Time: 103.2 min | Train RL Time: 0.6 min | Mean Rewards: -0.76 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.8 | Last FPS: 555.5 | Collect Time: 103.6 min | Train RL Time: 0.6 min | Mean Rewards: -0.62 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.8 | Last FPS: 554.7 | Collect Time: 104.1 min | Train RL Time: 0.6 min | Mean Rewards: -0.81 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.8 | Last FPS: 556.5 | Collect Time: 104.6 min | Train RL Time: 0.6 min | Mean Rewards: -0.72 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 554.0 | Collect Time: 105.1 min | Train RL Time: 0.6 min | Mean Rewards: -0.95 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 552.3 | Collect Time: 105.6 min | Train RL Time: 0.6 min | Mean Rewards: -1.01 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 556.0 | Collect Time: 106.1 min | Train RL Time: 0.6 min | Mean Rewards: -0.75 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 560.0 | Collect Time: 106.6 min | Train RL Time: 0.6 min | Mean Rewards: -0.76 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 555.0 | Collect Time: 107.1 min | Train RL Time: 0.6 min | Mean Rewards: -0.80 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 558.1 | Collect Time: 107.6 min | Train RL Time: 0.6 min | Mean Rewards: -1.07 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 555.9 | Collect Time: 108.0 min | Train RL Time: 0.6 min | Mean Rewards: -1.02 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 558.5 | Collect Time: 108.5 min | Train RL Time: 0.6 min | Mean Rewards: -0.87 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 554.5 | Collect Time: 109.0 min | Train RL Time: 0.6 min | Mean Rewards: -0.65 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 556.0 | Collect Time: 109.5 min | Train RL Time: 0.6 min | Mean Rewards: -0.92 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 557.5 | Collect Time: 110.0 min | Train RL Time: 0.6 min | Mean Rewards: -0.79 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 554.6 | Collect Time: 110.5 min | Train RL Time: 0.6 min | Mean Rewards: -0.76 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 556.9 | Collect Time: 111.0 min | Train RL Time: 0.6 min | Mean Rewards: -0.53 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 558.0 | Collect Time: 111.5 min | Train RL Time: 0.6 min | Mean Rewards: -0.48 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 558.4 | Collect Time: 111.9 min | Train RL Time: 0.6 min | Mean Rewards: -0.43 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 561.5 | Collect Time: 112.4 min | Train RL Time: 0.6 min | Mean Rewards: -0.63 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 556.4 | Collect Time: 112.9 min | Train RL Time: 0.6 min | Mean Rewards: -0.62 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 562.3 | Collect Time: 113.4 min | Train RL Time: 0.6 min | Mean Rewards: -0.47 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 555.5 | Collect Time: 113.9 min | Train RL Time: 0.6 min | Mean Rewards: -0.46 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 555.6 | Collect Time: 114.4 min | Train RL Time: 0.6 min | Mean Rewards: -0.42 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 557.3 | Collect Time: 114.9 min | Train RL Time: 0.6 min | Mean Rewards: -0.30 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 558.8 | Collect Time: 115.3 min | Train RL Time: 0.6 min | Mean Rewards: -0.38 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 553.9 | Collect Time: 115.8 min | Train RL Time: 0.6 min | Mean Rewards: -0.39 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 560.3 | Collect Time: 116.3 min | Train RL Time: 0.6 min | Mean Rewards: -0.55 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 560.4 | Collect Time: 116.8 min | Train RL Time: 0.6 min | Mean Rewards: -0.39 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 557.6 | Collect Time: 117.3 min | Train RL Time: 0.6 min | Mean Rewards: -0.62 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 556.6 | Collect Time: 117.8 min | Train RL Time: 0.6 min | Mean Rewards: -0.47 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 557.3 | Collect Time: 118.3 min | Train RL Time: 0.6 min | Mean Rewards: -0.41 | Current Best: 0.00
+Agent Steps: 0003M | FPS: 557.7 | Last FPS: 558.4 | Collect Time: 118.8 min | Train RL Time: 0.7 min | Mean Rewards: -0.98 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 562.5 | Collect Time: 119.2 min | Train RL Time: 0.7 min | Mean Rewards: -0.38 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 557.5 | Collect Time: 119.7 min | Train RL Time: 0.7 min | Mean Rewards: -0.26 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 559.5 | Collect Time: 120.2 min | Train RL Time: 0.7 min | Mean Rewards: -0.45 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 556.2 | Collect Time: 120.7 min | Train RL Time: 0.7 min | Mean Rewards: -0.37 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 558.1 | Collect Time: 121.2 min | Train RL Time: 0.7 min | Mean Rewards: -0.36 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 561.3 | Collect Time: 121.7 min | Train RL Time: 0.7 min | Mean Rewards: -0.33 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 554.6 | Collect Time: 122.2 min | Train RL Time: 0.7 min | Mean Rewards: -0.33 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 554.9 | Collect Time: 122.7 min | Train RL Time: 0.7 min | Mean Rewards: -0.39 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 559.0 | Collect Time: 123.1 min | Train RL Time: 0.7 min | Mean Rewards: -0.40 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 559.4 | Collect Time: 123.6 min | Train RL Time: 0.7 min | Mean Rewards: -0.45 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 553.7 | Collect Time: 124.1 min | Train RL Time: 0.7 min | Mean Rewards: -0.72 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 558.0 | Collect Time: 124.6 min | Train RL Time: 0.7 min | Mean Rewards: -0.69 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 556.9 | Collect Time: 125.1 min | Train RL Time: 0.7 min | Mean Rewards: -0.63 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 558.2 | Collect Time: 125.6 min | Train RL Time: 0.7 min | Mean Rewards: -0.70 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 559.7 | Collect Time: 126.1 min | Train RL Time: 0.7 min | Mean Rewards: -0.39 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 558.1 | Collect Time: 126.5 min | Train RL Time: 0.7 min | Mean Rewards: -0.61 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 557.9 | Collect Time: 127.0 min | Train RL Time: 0.7 min | Mean Rewards: -0.48 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 554.4 | Collect Time: 127.5 min | Train RL Time: 0.7 min | Mean Rewards: -0.26 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 555.3 | Collect Time: 128.0 min | Train RL Time: 0.7 min | Mean Rewards: -0.31 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 557.8 | Collect Time: 128.5 min | Train RL Time: 0.7 min | Mean Rewards: -0.19 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 556.6 | Collect Time: 129.0 min | Train RL Time: 0.7 min | Mean Rewards: -0.14 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 557.4 | Collect Time: 129.5 min | Train RL Time: 0.7 min | Mean Rewards: -0.21 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 560.7 | Collect Time: 130.0 min | Train RL Time: 0.7 min | Mean Rewards: -0.24 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 550.6 | Collect Time: 130.4 min | Train RL Time: 0.7 min | Mean Rewards: -0.16 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 557.8 | Collect Time: 130.9 min | Train RL Time: 0.7 min | Mean Rewards: -0.05 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 560.2 | Collect Time: 131.4 min | Train RL Time: 0.7 min | Mean Rewards: -0.27 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 561.5 | Collect Time: 131.9 min | Train RL Time: 0.7 min | Mean Rewards: -0.25 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 563.4 | Collect Time: 132.4 min | Train RL Time: 0.7 min | Mean Rewards: -0.20 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 556.9 | Collect Time: 132.9 min | Train RL Time: 0.7 min | Mean Rewards: -0.17 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 555.4 | Collect Time: 133.4 min | Train RL Time: 0.7 min | Mean Rewards: -0.35 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 558.5 | Collect Time: 133.8 min | Train RL Time: 0.7 min | Mean Rewards: -0.15 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 555.1 | Collect Time: 134.3 min | Train RL Time: 0.7 min | Mean Rewards: -0.25 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 558.0 | Collect Time: 134.8 min | Train RL Time: 0.7 min | Mean Rewards: -0.19 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 553.5 | Collect Time: 135.3 min | Train RL Time: 0.7 min | Mean Rewards: -0.09 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 559.9 | Collect Time: 135.8 min | Train RL Time: 0.7 min | Mean Rewards: -0.03 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 556.0 | Collect Time: 136.3 min | Train RL Time: 0.7 min | Mean Rewards: -0.07 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 557.4 | Collect Time: 136.8 min | Train RL Time: 0.7 min | Mean Rewards: -0.17 | Current Best: 0.00
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 556.9 | Collect Time: 137.3 min | Train RL Time: 0.7 min | Mean Rewards: -0.01 | Current Best: 0.00
+save current best reward: 0.01
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 554.4 | Collect Time: 137.8 min | Train RL Time: 0.8 min | Mean Rewards: 0.01 | Current Best: 0.01
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 556.6 | Collect Time: 138.2 min | Train RL Time: 0.8 min | Mean Rewards: -0.04 | Current Best: 0.01
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 557.9 | Collect Time: 138.7 min | Train RL Time: 0.8 min | Mean Rewards: -0.05 | Current Best: 0.01
+save current best reward: 0.06
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 559.3 | Collect Time: 139.2 min | Train RL Time: 0.8 min | Mean Rewards: 0.06 | Current Best: 0.06
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 559.0 | Collect Time: 139.7 min | Train RL Time: 0.8 min | Mean Rewards: 0.05 | Current Best: 0.06
+save current best reward: 0.10
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 556.3 | Collect Time: 140.2 min | Train RL Time: 0.8 min | Mean Rewards: 0.10 | Current Best: 0.10
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 559.8 | Collect Time: 140.7 min | Train RL Time: 0.8 min | Mean Rewards: 0.07 | Current Best: 0.10
+save current best reward: 0.16
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 560.1 | Collect Time: 141.2 min | Train RL Time: 0.8 min | Mean Rewards: 0.16 | Current Best: 0.16
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 557.5 | Collect Time: 141.6 min | Train RL Time: 0.8 min | Mean Rewards: 0.03 | Current Best: 0.16
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 558.9 | Collect Time: 142.1 min | Train RL Time: 0.8 min | Mean Rewards: 0.08 | Current Best: 0.16
+save current best reward: 0.19
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 560.3 | Collect Time: 142.6 min | Train RL Time: 0.8 min | Mean Rewards: 0.19 | Current Best: 0.19
+save current best reward: 0.21
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 557.5 | Collect Time: 143.1 min | Train RL Time: 0.8 min | Mean Rewards: 0.21 | Current Best: 0.21
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 556.9 | Collect Time: 143.6 min | Train RL Time: 0.8 min | Mean Rewards: 0.10 | Current Best: 0.21
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 558.5 | Collect Time: 144.1 min | Train RL Time: 0.8 min | Mean Rewards: 0.05 | Current Best: 0.21
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 557.8 | Collect Time: 144.6 min | Train RL Time: 0.8 min | Mean Rewards: 0.15 | Current Best: 0.21
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 556.0 | Collect Time: 145.0 min | Train RL Time: 0.8 min | Mean Rewards: 0.20 | Current Best: 0.21
+save current best reward: 0.28
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 564.0 | Collect Time: 145.5 min | Train RL Time: 0.8 min | Mean Rewards: 0.28 | Current Best: 0.28
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 556.4 | Collect Time: 146.0 min | Train RL Time: 0.8 min | Mean Rewards: 0.22 | Current Best: 0.28
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 556.1 | Collect Time: 146.5 min | Train RL Time: 0.8 min | Mean Rewards: 0.16 | Current Best: 0.28
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 558.4 | Collect Time: 147.0 min | Train RL Time: 0.8 min | Mean Rewards: 0.17 | Current Best: 0.28
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 559.3 | Collect Time: 147.5 min | Train RL Time: 0.8 min | Mean Rewards: -0.06 | Current Best: 0.28
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 556.2 | Collect Time: 148.0 min | Train RL Time: 0.8 min | Mean Rewards: -0.01 | Current Best: 0.28
+Agent Steps: 0004M | FPS: 557.7 | Last FPS: 556.3 | Collect Time: 148.5 min | Train RL Time: 0.8 min | Mean Rewards: 0.13 | Current Best: 0.28
+Agent Steps: 0005M | FPS: 557.7 | Last FPS: 550.7 | Collect Time: 148.9 min | Train RL Time: 0.8 min | Mean Rewards: -0.03 | Current Best: 0.28
+Agent Steps: 0005M | FPS: 557.7 | Last FPS: 554.5 | Collect Time: 149.4 min | Train RL Time: 0.8 min | Mean Rewards: -0.02 | Current Best: 0.28
+Agent Steps: 0005M | FPS: 557.7 | Last FPS: 555.0 | Collect Time: 149.9 min | Train RL Time: 0.8 min | Mean Rewards: 0.04 | Current Best: 0.28
+Agent Steps: 0005M | FPS: 557.6 | Last FPS: 552.5 | Collect Time: 150.4 min | Train RL Time: 0.8 min | Mean Rewards: 0.13 | Current Best: 0.28
+Agent Steps: 0005M | FPS: 557.6 | Last FPS: 552.6 | Collect Time: 150.9 min | Train RL Time: 0.8 min | Mean Rewards: -0.16 | Current Best: 0.28
+Agent Steps: 0005M | FPS: 557.6 | Last FPS: 554.1 | Collect Time: 151.4 min | Train RL Time: 0.8 min | Mean Rewards: -0.37 | Current Best: 0.28
+Agent Steps: 0005M | FPS: 557.6 | Last FPS: 555.0 | Collect Time: 151.9 min | Train RL Time: 0.8 min | Mean Rewards: -0.06 | Current Best: 0.28
+Agent Steps: 0005M | FPS: 557.6 | Last FPS: 555.9 | Collect Time: 152.4 min | Train RL Time: 0.8 min | Mean Rewards: 0.11 | Current Best: 0.28
+Agent Steps: 0005M | FPS: 557.6 | Last FPS: 553.7 | Collect Time: 152.9 min | Train RL Time: 0.8 min | Mean Rewards: -0.18 | Current Best: 0.28
+Agent Steps: 0005M | FPS: 557.6 | Last FPS: 550.8 | Collect Time: 153.4 min | Train RL Time: 0.8 min | Mean Rewards: -0.25 | Current Best: 0.28
+Agent Steps: 0005M | FPS: 557.6 | Last FPS: 553.9 | Collect Time: 153.8 min | Train RL Time: 0.8 min | Mean Rewards: -0.36 | Current Best: 0.28
+Agent Steps: 0005M | FPS: 557.5 | Last FPS: 554.0 | Collect Time: 154.3 min | Train RL Time: 0.8 min | Mean Rewards: -0.52 | Current Best: 0.28
+Agent Steps: 0005M | FPS: 557.5 | Last FPS: 552.8 | Collect Time: 154.8 min | Train RL Time: 0.8 min | Mean Rewards: -0.33 | Current Best: 0.28
+Agent Steps: 0005M | FPS: 557.5 | Last FPS: 552.8 | Collect Time: 155.3 min | Train RL Time: 0.8 min | Mean Rewards: -0.26 | Current Best: 0.28
+Agent Steps: 0005M | FPS: 557.5 | Last FPS: 555.9 | Collect Time: 155.8 min | Train RL Time: 0.8 min | Mean Rewards: 0.10 | Current Best: 0.28
+Agent Steps: 0005M | FPS: 557.5 | Last FPS: 552.1 | Collect Time: 156.3 min | Train RL Time: 0.8 min | Mean Rewards: 0.21 | Current Best: 0.28
+save current best reward: 0.37
+Agent Steps: 0005M | FPS: 557.5 | Last FPS: 555.8 | Collect Time: 156.8 min | Train RL Time: 0.8 min | Mean Rewards: 0.37 | Current Best: 0.37
+Agent Steps: 0005M | FPS: 557.5 | Last FPS: 558.2 | Collect Time: 157.3 min | Train RL Time: 0.9 min | Mean Rewards: 0.26 | Current Best: 0.37
+Agent Steps: 0005M | FPS: 557.5 | Last FPS: 555.8 | Collect Time: 157.8 min | Train RL Time: 0.9 min | Mean Rewards: 0.36 | Current Best: 0.37
+Agent Steps: 0005M | FPS: 557.5 | Last FPS: 554.2 | Collect Time: 158.3 min | Train RL Time: 0.9 min | Mean Rewards: 0.36 | Current Best: 0.37
+save current best reward: 0.54
+Agent Steps: 0005M | FPS: 557.5 | Last FPS: 553.8 | Collect Time: 158.7 min | Train RL Time: 0.9 min | Mean Rewards: 0.54 | Current Best: 0.54
+Agent Steps: 0005M | FPS: 557.5 | Last FPS: 557.2 | Collect Time: 159.2 min | Train RL Time: 0.9 min | Mean Rewards: 0.36 | Current Best: 0.54
+Agent Steps: 0005M | FPS: 557.5 | Last FPS: 555.2 | Collect Time: 159.7 min | Train RL Time: 0.9 min | Mean Rewards: 0.44 | Current Best: 0.54
+save current best reward: 0.74
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 550.9 | Collect Time: 160.2 min | Train RL Time: 0.9 min | Mean Rewards: 0.74 | Current Best: 0.74
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 559.6 | Collect Time: 160.7 min | Train RL Time: 0.9 min | Mean Rewards: 0.56 | Current Best: 0.74
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 551.6 | Collect Time: 161.2 min | Train RL Time: 0.9 min | Mean Rewards: 0.59 | Current Best: 0.74
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 559.2 | Collect Time: 161.7 min | Train RL Time: 0.9 min | Mean Rewards: 0.66 | Current Best: 0.74
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 558.2 | Collect Time: 162.2 min | Train RL Time: 0.9 min | Mean Rewards: 0.38 | Current Best: 0.74
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 554.2 | Collect Time: 162.7 min | Train RL Time: 0.9 min | Mean Rewards: 0.73 | Current Best: 0.74
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 553.3 | Collect Time: 163.1 min | Train RL Time: 0.9 min | Mean Rewards: 0.58 | Current Best: 0.74
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 556.9 | Collect Time: 163.6 min | Train RL Time: 0.9 min | Mean Rewards: 0.49 | Current Best: 0.74
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 556.4 | Collect Time: 164.1 min | Train RL Time: 0.9 min | Mean Rewards: 0.58 | Current Best: 0.74
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 557.3 | Collect Time: 164.6 min | Train RL Time: 0.9 min | Mean Rewards: 0.65 | Current Best: 0.74
+save current best reward: 0.83
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 557.2 | Collect Time: 165.1 min | Train RL Time: 0.9 min | Mean Rewards: 0.83 | Current Best: 0.83
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 554.2 | Collect Time: 165.6 min | Train RL Time: 0.9 min | Mean Rewards: 0.80 | Current Best: 0.83
+save current best reward: 0.83
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 553.7 | Collect Time: 166.1 min | Train RL Time: 0.9 min | Mean Rewards: 0.83 | Current Best: 0.83
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 555.2 | Collect Time: 166.6 min | Train RL Time: 0.9 min | Mean Rewards: 0.54 | Current Best: 0.83
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 555.4 | Collect Time: 167.1 min | Train RL Time: 0.9 min | Mean Rewards: 0.71 | Current Best: 0.83
+save current best reward: 0.84
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 557.2 | Collect Time: 167.5 min | Train RL Time: 0.9 min | Mean Rewards: 0.84 | Current Best: 0.84
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 556.2 | Collect Time: 168.0 min | Train RL Time: 0.9 min | Mean Rewards: 0.78 | Current Best: 0.84
+save current best reward: 0.91
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 559.3 | Collect Time: 168.5 min | Train RL Time: 0.9 min | Mean Rewards: 0.91 | Current Best: 0.91
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 559.5 | Collect Time: 169.0 min | Train RL Time: 0.9 min | Mean Rewards: 0.87 | Current Best: 0.91
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 556.6 | Collect Time: 169.5 min | Train RL Time: 0.9 min | Mean Rewards: 0.90 | Current Best: 0.91
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 558.7 | Collect Time: 170.0 min | Train RL Time: 0.9 min | Mean Rewards: 0.86 | Current Best: 0.91
+save current best reward: 0.94
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 558.2 | Collect Time: 170.5 min | Train RL Time: 0.9 min | Mean Rewards: 0.94 | Current Best: 0.94
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 556.6 | Collect Time: 170.9 min | Train RL Time: 0.9 min | Mean Rewards: 0.82 | Current Best: 0.94
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 558.9 | Collect Time: 171.4 min | Train RL Time: 0.9 min | Mean Rewards: 0.88 | Current Best: 0.94
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 555.2 | Collect Time: 171.9 min | Train RL Time: 0.9 min | Mean Rewards: 0.84 | Current Best: 0.94
+save current best reward: 0.94
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 557.9 | Collect Time: 172.4 min | Train RL Time: 0.9 min | Mean Rewards: 0.94 | Current Best: 0.94
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 558.1 | Collect Time: 172.9 min | Train RL Time: 0.9 min | Mean Rewards: 0.86 | Current Best: 0.94
+save current best reward: 0.98
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 554.8 | Collect Time: 173.4 min | Train RL Time: 0.9 min | Mean Rewards: 0.98 | Current Best: 0.98
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 556.4 | Collect Time: 173.9 min | Train RL Time: 0.9 min | Mean Rewards: 0.97 | Current Best: 0.98
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 557.9 | Collect Time: 174.4 min | Train RL Time: 0.9 min | Mean Rewards: 0.96 | Current Best: 0.98
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 555.7 | Collect Time: 174.8 min | Train RL Time: 0.9 min | Mean Rewards: 0.92 | Current Best: 0.98
+save current best reward: 1.10
+Agent Steps: 0005M | FPS: 557.4 | Last FPS: 554.8 | Collect Time: 175.3 min | Train RL Time: 0.9 min | Mean Rewards: 1.10 | Current Best: 1.10
+Agent Steps: 0005M | FPS: 557.3 | Last FPS: 552.1 | Collect Time: 175.8 min | Train RL Time: 0.9 min | Mean Rewards: 0.86 | Current Best: 1.10
+Agent Steps: 0005M | FPS: 557.3 | Last FPS: 554.2 | Collect Time: 176.3 min | Train RL Time: 1.0 min | Mean Rewards: 0.81 | Current Best: 1.10
+Agent Steps: 0005M | FPS: 557.3 | Last FPS: 555.5 | Collect Time: 176.8 min | Train RL Time: 1.0 min | Mean Rewards: 0.83 | Current Best: 1.10
+Agent Steps: 0005M | FPS: 557.3 | Last FPS: 556.0 | Collect Time: 177.3 min | Train RL Time: 1.0 min | Mean Rewards: 0.95 | Current Best: 1.10
+Agent Steps: 0005M | FPS: 557.3 | Last FPS: 553.0 | Collect Time: 177.8 min | Train RL Time: 1.0 min | Mean Rewards: 0.97 | Current Best: 1.10
+Agent Steps: 0005M | FPS: 557.3 | Last FPS: 557.0 | Collect Time: 178.3 min | Train RL Time: 1.0 min | Mean Rewards: 0.91 | Current Best: 1.10
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 556.3 | Collect Time: 178.8 min | Train RL Time: 1.0 min | Mean Rewards: 0.89 | Current Best: 1.10
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 552.4 | Collect Time: 179.3 min | Train RL Time: 1.0 min | Mean Rewards: 0.76 | Current Best: 1.10
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 554.1 | Collect Time: 179.7 min | Train RL Time: 1.0 min | Mean Rewards: 0.88 | Current Best: 1.10
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 550.0 | Collect Time: 180.2 min | Train RL Time: 1.0 min | Mean Rewards: 0.55 | Current Best: 1.10
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 554.9 | Collect Time: 180.7 min | Train RL Time: 1.0 min | Mean Rewards: 0.52 | Current Best: 1.10
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 553.5 | Collect Time: 181.2 min | Train RL Time: 1.0 min | Mean Rewards: 0.63 | Current Best: 1.10
+Agent Steps: 0006M | FPS: 557.2 | Last FPS: 552.0 | Collect Time: 181.7 min | Train RL Time: 1.0 min | Mean Rewards: 0.81 | Current Best: 1.10
+Agent Steps: 0006M | FPS: 557.2 | Last FPS: 555.5 | Collect Time: 182.2 min | Train RL Time: 1.0 min | Mean Rewards: 0.91 | Current Best: 1.10
+Agent Steps: 0006M | FPS: 557.2 | Last FPS: 552.5 | Collect Time: 182.7 min | Train RL Time: 1.0 min | Mean Rewards: 0.91 | Current Best: 1.10
+Agent Steps: 0006M | FPS: 557.2 | Last FPS: 556.8 | Collect Time: 183.2 min | Train RL Time: 1.0 min | Mean Rewards: 0.80 | Current Best: 1.10
+Agent Steps: 0006M | FPS: 557.2 | Last FPS: 556.7 | Collect Time: 183.7 min | Train RL Time: 1.0 min | Mean Rewards: 0.92 | Current Best: 1.10
+Agent Steps: 0006M | FPS: 557.2 | Last FPS: 560.5 | Collect Time: 184.1 min | Train RL Time: 1.0 min | Mean Rewards: 0.94 | Current Best: 1.10
+Agent Steps: 0006M | FPS: 557.2 | Last FPS: 559.4 | Collect Time: 184.6 min | Train RL Time: 1.0 min | Mean Rewards: 1.07 | Current Best: 1.10
+Agent Steps: 0006M | FPS: 557.2 | Last FPS: 559.6 | Collect Time: 185.1 min | Train RL Time: 1.0 min | Mean Rewards: 1.05 | Current Best: 1.10
+Agent Steps: 0006M | FPS: 557.2 | Last FPS: 560.8 | Collect Time: 185.6 min | Train RL Time: 1.0 min | Mean Rewards: 1.05 | Current Best: 1.10
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 559.6 | Collect Time: 186.1 min | Train RL Time: 1.0 min | Mean Rewards: 1.01 | Current Best: 1.10
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 559.5 | Collect Time: 186.6 min | Train RL Time: 1.0 min | Mean Rewards: 1.01 | Current Best: 1.10
+save current best reward: 1.11
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 560.2 | Collect Time: 187.1 min | Train RL Time: 1.0 min | Mean Rewards: 1.11 | Current Best: 1.11
+save current best reward: 1.12
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 557.5 | Collect Time: 187.5 min | Train RL Time: 1.0 min | Mean Rewards: 1.12 | Current Best: 1.12
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 558.0 | Collect Time: 188.0 min | Train RL Time: 1.0 min | Mean Rewards: 1.03 | Current Best: 1.12
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 560.2 | Collect Time: 188.5 min | Train RL Time: 1.0 min | Mean Rewards: 1.06 | Current Best: 1.12
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 560.3 | Collect Time: 189.0 min | Train RL Time: 1.0 min | Mean Rewards: 1.08 | Current Best: 1.12
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 559.2 | Collect Time: 189.5 min | Train RL Time: 1.0 min | Mean Rewards: 1.00 | Current Best: 1.12
+save current best reward: 1.14
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 560.1 | Collect Time: 190.0 min | Train RL Time: 1.0 min | Mean Rewards: 1.14 | Current Best: 1.14
+save current best reward: 1.14
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 560.0 | Collect Time: 190.5 min | Train RL Time: 1.0 min | Mean Rewards: 1.14 | Current Best: 1.14
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 562.4 | Collect Time: 190.9 min | Train RL Time: 1.0 min | Mean Rewards: 1.11 | Current Best: 1.14
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 558.4 | Collect Time: 191.4 min | Train RL Time: 1.0 min | Mean Rewards: 1.10 | Current Best: 1.14
+save current best reward: 1.17
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 562.3 | Collect Time: 191.9 min | Train RL Time: 1.0 min | Mean Rewards: 1.17 | Current Best: 1.17
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 556.9 | Collect Time: 192.4 min | Train RL Time: 1.0 min | Mean Rewards: 1.10 | Current Best: 1.17
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 561.7 | Collect Time: 192.9 min | Train RL Time: 1.0 min | Mean Rewards: 1.10 | Current Best: 1.17
+save current best reward: 1.24
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 553.4 | Collect Time: 193.4 min | Train RL Time: 1.0 min | Mean Rewards: 1.24 | Current Best: 1.24
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 560.5 | Collect Time: 193.9 min | Train RL Time: 1.0 min | Mean Rewards: 1.13 | Current Best: 1.24
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 557.9 | Collect Time: 194.3 min | Train RL Time: 1.0 min | Mean Rewards: 1.13 | Current Best: 1.24
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 559.4 | Collect Time: 194.8 min | Train RL Time: 1.0 min | Mean Rewards: 1.06 | Current Best: 1.24
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 557.4 | Collect Time: 195.3 min | Train RL Time: 1.0 min | Mean Rewards: 1.19 | Current Best: 1.24
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 557.5 | Collect Time: 195.8 min | Train RL Time: 1.1 min | Mean Rewards: 1.13 | Current Best: 1.24
+Agent Steps: 0006M | FPS: 557.3 | Last FPS: 556.3 | Collect Time: 196.3 min | Train RL Time: 1.1 min | Mean Rewards: 1.03 | Current Best: 1.24
+Agent Steps: 0006M | FPS: 557.4 | Last FPS: 562.2 | Collect Time: 196.8 min | Train RL Time: 1.1 min | Mean Rewards: 1.23 | Current Best: 1.24
+Agent Steps: 0006M | FPS: 557.4 | Last FPS: 559.4 | Collect Time: 197.3 min | Train RL Time: 1.1 min | Mean Rewards: 1.21 | Current Best: 1.24
+save current best reward: 1.26
+Agent Steps: 0006M | FPS: 557.4 | Last FPS: 559.3 | Collect Time: 197.7 min | Train RL Time: 1.1 min | Mean Rewards: 1.26 | Current Best: 1.26
+Agent Steps: 0006M | FPS: 557.4 | Last FPS: 559.8 | Collect Time: 198.2 min | Train RL Time: 1.1 min | Mean Rewards: 1.10 | Current Best: 1.26
+Agent Steps: 0006M | FPS: 557.4 | Last FPS: 561.7 | Collect Time: 198.7 min | Train RL Time: 1.1 min | Mean Rewards: 1.22 | Current Best: 1.26
+Agent Steps: 0006M | FPS: 557.4 | Last FPS: 561.6 | Collect Time: 199.2 min | Train RL Time: 1.1 min | Mean Rewards: 1.22 | Current Best: 1.26
+Agent Steps: 0006M | FPS: 557.4 | Last FPS: 556.8 | Collect Time: 199.7 min | Train RL Time: 1.1 min | Mean Rewards: 1.07 | Current Best: 1.26
+Agent Steps: 0006M | FPS: 557.4 | Last FPS: 562.4 | Collect Time: 200.2 min | Train RL Time: 1.1 min | Mean Rewards: 1.23 | Current Best: 1.26
+save current best reward: 1.27
+Agent Steps: 0006M | FPS: 557.4 | Last FPS: 557.0 | Collect Time: 200.7 min | Train RL Time: 1.1 min | Mean Rewards: 1.27 | Current Best: 1.27
+Agent Steps: 0006M | FPS: 557.4 | Last FPS: 558.6 | Collect Time: 201.1 min | Train RL Time: 1.1 min | Mean Rewards: 1.15 | Current Best: 1.27
+Agent Steps: 0006M | FPS: 557.4 | Last FPS: 557.7 | Collect Time: 201.6 min | Train RL Time: 1.1 min | Mean Rewards: 1.00 | Current Best: 1.27
+Agent Steps: 0006M | FPS: 557.4 | Last FPS: 556.6 | Collect Time: 202.1 min | Train RL Time: 1.1 min | Mean Rewards: 1.25 | Current Best: 1.27
+save current best reward: 1.31
+Agent Steps: 0006M | FPS: 557.4 | Last FPS: 563.2 | Collect Time: 202.6 min | Train RL Time: 1.1 min | Mean Rewards: 1.31 | Current Best: 1.31
+Agent Steps: 0006M | FPS: 557.4 | Last FPS: 558.6 | Collect Time: 203.1 min | Train RL Time: 1.1 min | Mean Rewards: 1.24 | Current Best: 1.31
+Agent Steps: 0006M | FPS: 557.4 | Last FPS: 562.2 | Collect Time: 203.6 min | Train RL Time: 1.1 min | Mean Rewards: 1.19 | Current Best: 1.31
+Agent Steps: 0006M | FPS: 557.4 | Last FPS: 562.1 | Collect Time: 204.0 min | Train RL Time: 1.1 min | Mean Rewards: 1.17 | Current Best: 1.31
+Agent Steps: 0006M | FPS: 557.5 | Last FPS: 562.1 | Collect Time: 204.5 min | Train RL Time: 1.1 min | Mean Rewards: 1.20 | Current Best: 1.31
+Agent Steps: 0006M | FPS: 557.5 | Last FPS: 563.5 | Collect Time: 205.0 min | Train RL Time: 1.1 min | Mean Rewards: 1.14 | Current Best: 1.31
+Agent Steps: 0006M | FPS: 557.5 | Last FPS: 561.2 | Collect Time: 205.5 min | Train RL Time: 1.1 min | Mean Rewards: 1.15 | Current Best: 1.31
+Agent Steps: 0006M | FPS: 557.5 | Last FPS: 563.0 | Collect Time: 206.0 min | Train RL Time: 1.1 min | Mean Rewards: 0.99 | Current Best: 1.31
+Agent Steps: 0006M | FPS: 557.5 | Last FPS: 558.5 | Collect Time: 206.5 min | Train RL Time: 1.1 min | Mean Rewards: 1.21 | Current Best: 1.31
+Agent Steps: 0006M | FPS: 557.5 | Last FPS: 560.0 | Collect Time: 206.9 min | Train RL Time: 1.1 min | Mean Rewards: 0.95 | Current Best: 1.31
+Agent Steps: 0006M | FPS: 557.5 | Last FPS: 553.3 | Collect Time: 207.4 min | Train RL Time: 1.1 min | Mean Rewards: 0.97 | Current Best: 1.31
+Agent Steps: 0006M | FPS: 557.5 | Last FPS: 557.1 | Collect Time: 207.9 min | Train RL Time: 1.1 min | Mean Rewards: 0.90 | Current Best: 1.31
+Agent Steps: 0007M | FPS: 557.5 | Last FPS: 558.8 | Collect Time: 208.4 min | Train RL Time: 1.1 min | Mean Rewards: 0.83 | Current Best: 1.31
+Agent Steps: 0007M | FPS: 557.5 | Last FPS: 558.1 | Collect Time: 208.9 min | Train RL Time: 1.1 min | Mean Rewards: 0.79 | Current Best: 1.31
+Agent Steps: 0007M | FPS: 557.5 | Last FPS: 558.0 | Collect Time: 209.4 min | Train RL Time: 1.1 min | Mean Rewards: 0.78 | Current Best: 1.31
+Agent Steps: 0007M | FPS: 557.5 | Last FPS: 556.4 | Collect Time: 209.9 min | Train RL Time: 1.1 min | Mean Rewards: 0.92 | Current Best: 1.31
+Agent Steps: 0007M | FPS: 557.5 | Last FPS: 561.5 | Collect Time: 210.4 min | Train RL Time: 1.1 min | Mean Rewards: 0.70 | Current Best: 1.31
+Agent Steps: 0007M | FPS: 557.5 | Last FPS: 553.3 | Collect Time: 210.8 min | Train RL Time: 1.1 min | Mean Rewards: 0.81 | Current Best: 1.31
+Agent Steps: 0007M | FPS: 557.5 | Last FPS: 555.9 | Collect Time: 211.3 min | Train RL Time: 1.1 min | Mean Rewards: 0.83 | Current Best: 1.31
+Agent Steps: 0007M | FPS: 557.5 | Last FPS: 557.3 | Collect Time: 211.8 min | Train RL Time: 1.1 min | Mean Rewards: 0.86 | Current Best: 1.31
+Agent Steps: 0007M | FPS: 557.5 | Last FPS: 555.1 | Collect Time: 212.3 min | Train RL Time: 1.1 min | Mean Rewards: 0.76 | Current Best: 1.31
+save current best reward: 1.41
+Agent Steps: 0007M | FPS: 557.5 | Last FPS: 554.3 | Collect Time: 212.8 min | Train RL Time: 1.1 min | Mean Rewards: 1.41 | Current Best: 1.41
+Agent Steps: 0007M | FPS: 557.5 | Last FPS: 554.4 | Collect Time: 213.3 min | Train RL Time: 1.1 min | Mean Rewards: 1.27 | Current Best: 1.41
+save current best reward: 1.82
+Agent Steps: 0007M | FPS: 557.5 | Last FPS: 551.6 | Collect Time: 213.8 min | Train RL Time: 1.1 min | Mean Rewards: 1.82 | Current Best: 1.82
+Agent Steps: 0007M | FPS: 557.4 | Last FPS: 552.9 | Collect Time: 214.3 min | Train RL Time: 1.1 min | Mean Rewards: 1.51 | Current Best: 1.82
+Agent Steps: 0007M | FPS: 557.4 | Last FPS: 552.5 | Collect Time: 214.8 min | Train RL Time: 1.2 min | Mean Rewards: 1.72 | Current Best: 1.82
+Agent Steps: 0007M | FPS: 557.4 | Last FPS: 554.1 | Collect Time: 215.3 min | Train RL Time: 1.2 min | Mean Rewards: 1.48 | Current Best: 1.82
+save current best reward: 1.99
+Agent Steps: 0007M | FPS: 557.4 | Last FPS: 554.3 | Collect Time: 215.7 min | Train RL Time: 1.2 min | Mean Rewards: 1.99 | Current Best: 1.99
+Agent Steps: 0007M | FPS: 557.4 | Last FPS: 554.8 | Collect Time: 216.2 min | Train RL Time: 1.2 min | Mean Rewards: 1.40 | Current Best: 1.99
+Agent Steps: 0007M | FPS: 557.4 | Last FPS: 552.2 | Collect Time: 216.7 min | Train RL Time: 1.2 min | Mean Rewards: 1.91 | Current Best: 1.99
+save current best reward: 2.95
+Agent Steps: 0007M | FPS: 557.4 | Last FPS: 555.9 | Collect Time: 217.2 min | Train RL Time: 1.2 min | Mean Rewards: 2.95 | Current Best: 2.95
+save current best reward: 3.02
+Agent Steps: 0007M | FPS: 557.4 | Last FPS: 551.7 | Collect Time: 217.7 min | Train RL Time: 1.2 min | Mean Rewards: 3.02 | Current Best: 3.02
+save current best reward: 3.47
+Agent Steps: 0007M | FPS: 557.4 | Last FPS: 554.3 | Collect Time: 218.2 min | Train RL Time: 1.2 min | Mean Rewards: 3.47 | Current Best: 3.47
+save current best reward: 4.36
+Agent Steps: 0007M | FPS: 557.4 | Last FPS: 549.0 | Collect Time: 218.7 min | Train RL Time: 1.2 min | Mean Rewards: 4.36 | Current Best: 4.36
+Agent Steps: 0007M | FPS: 557.3 | Last FPS: 550.3 | Collect Time: 219.2 min | Train RL Time: 1.2 min | Mean Rewards: 3.08 | Current Best: 4.36
+Agent Steps: 0007M | FPS: 557.3 | Last FPS: 546.2 | Collect Time: 219.7 min | Train RL Time: 1.2 min | Mean Rewards: 3.42 | Current Best: 4.36
+Agent Steps: 0007M | FPS: 557.3 | Last FPS: 549.3 | Collect Time: 220.2 min | Train RL Time: 1.2 min | Mean Rewards: 2.44 | Current Best: 4.36
+save current best reward: 4.82
+Agent Steps: 0007M | FPS: 557.3 | Last FPS: 551.4 | Collect Time: 220.7 min | Train RL Time: 1.2 min | Mean Rewards: 4.82 | Current Best: 4.82
+save current best reward: 5.29
+Agent Steps: 0007M | FPS: 557.3 | Last FPS: 553.8 | Collect Time: 221.2 min | Train RL Time: 1.2 min | Mean Rewards: 5.29 | Current Best: 5.29
+Agent Steps: 0007M | FPS: 557.3 | Last FPS: 555.9 | Collect Time: 221.6 min | Train RL Time: 1.2 min | Mean Rewards: 5.27 | Current Best: 5.29
+save current best reward: 6.33
+Agent Steps: 0007M | FPS: 557.3 | Last FPS: 550.0 | Collect Time: 222.1 min | Train RL Time: 1.2 min | Mean Rewards: 6.33 | Current Best: 6.33
+Agent Steps: 0007M | FPS: 557.2 | Last FPS: 552.3 | Collect Time: 222.6 min | Train RL Time: 1.2 min | Mean Rewards: 5.55 | Current Best: 6.33
+Agent Steps: 0007M | FPS: 557.2 | Last FPS: 551.6 | Collect Time: 223.1 min | Train RL Time: 1.2 min | Mean Rewards: 5.92 | Current Best: 6.33
+Agent Steps: 0007M | FPS: 557.2 | Last FPS: 546.0 | Collect Time: 223.6 min | Train RL Time: 1.2 min | Mean Rewards: 4.82 | Current Best: 6.33
+Agent Steps: 0007M | FPS: 557.2 | Last FPS: 547.2 | Collect Time: 224.1 min | Train RL Time: 1.2 min | Mean Rewards: 5.60 | Current Best: 6.33
+Agent Steps: 0007M | FPS: 557.2 | Last FPS: 549.2 | Collect Time: 224.6 min | Train RL Time: 1.2 min | Mean Rewards: 5.82 | Current Best: 6.33
+save current best reward: 6.83
+Agent Steps: 0007M | FPS: 557.2 | Last FPS: 552.2 | Collect Time: 225.1 min | Train RL Time: 1.2 min | Mean Rewards: 6.83 | Current Best: 6.83
+save current best reward: 7.05
+Agent Steps: 0007M | FPS: 557.2 | Last FPS: 554.3 | Collect Time: 225.6 min | Train RL Time: 1.2 min | Mean Rewards: 7.05 | Current Best: 7.05
+Agent Steps: 0007M | FPS: 557.1 | Last FPS: 550.0 | Collect Time: 226.1 min | Train RL Time: 1.2 min | Mean Rewards: 7.03 | Current Best: 7.05
+save current best reward: 7.26
+Agent Steps: 0007M | FPS: 557.1 | Last FPS: 553.9 | Collect Time: 226.6 min | Train RL Time: 1.2 min | Mean Rewards: 7.26 | Current Best: 7.26
+Agent Steps: 0007M | FPS: 557.1 | Last FPS: 545.4 | Collect Time: 227.1 min | Train RL Time: 1.2 min | Mean Rewards: 6.97 | Current Best: 7.26
+Agent Steps: 0007M | FPS: 557.1 | Last FPS: 552.5 | Collect Time: 227.6 min | Train RL Time: 1.2 min | Mean Rewards: 6.86 | Current Best: 7.26
+Agent Steps: 0007M | FPS: 557.1 | Last FPS: 550.6 | Collect Time: 228.1 min | Train RL Time: 1.2 min | Mean Rewards: 7.00 | Current Best: 7.26
+Agent Steps: 0007M | FPS: 557.1 | Last FPS: 545.0 | Collect Time: 228.6 min | Train RL Time: 1.2 min | Mean Rewards: 6.85 | Current Best: 7.26
+Agent Steps: 0007M | FPS: 557.0 | Last FPS: 552.4 | Collect Time: 229.1 min | Train RL Time: 1.2 min | Mean Rewards: 7.12 | Current Best: 7.26
+Agent Steps: 0007M | FPS: 557.0 | Last FPS: 550.2 | Collect Time: 229.5 min | Train RL Time: 1.2 min | Mean Rewards: 7.10 | Current Best: 7.26
+Agent Steps: 0007M | FPS: 557.0 | Last FPS: 546.7 | Collect Time: 230.0 min | Train RL Time: 1.2 min | Mean Rewards: 7.12 | Current Best: 7.26
+Agent Steps: 0007M | FPS: 557.0 | Last FPS: 550.9 | Collect Time: 230.5 min | Train RL Time: 1.2 min | Mean Rewards: 6.76 | Current Best: 7.26
+save current best reward: 7.63
+Agent Steps: 0007M | FPS: 557.0 | Last FPS: 544.5 | Collect Time: 231.0 min | Train RL Time: 1.2 min | Mean Rewards: 7.63 | Current Best: 7.63
+save current best reward: 8.00
+Agent Steps: 0007M | FPS: 557.0 | Last FPS: 549.2 | Collect Time: 231.5 min | Train RL Time: 1.2 min | Mean Rewards: 8.00 | Current Best: 8.00
+save current best reward: 8.49
+Agent Steps: 0007M | FPS: 556.9 | Last FPS: 549.4 | Collect Time: 232.0 min | Train RL Time: 1.2 min | Mean Rewards: 8.49 | Current Best: 8.49
+save current best reward: 8.98
+Agent Steps: 0007M | FPS: 556.9 | Last FPS: 550.2 | Collect Time: 232.5 min | Train RL Time: 1.2 min | Mean Rewards: 8.98 | Current Best: 8.98
+Agent Steps: 0007M | FPS: 556.9 | Last FPS: 546.0 | Collect Time: 233.0 min | Train RL Time: 1.2 min | Mean Rewards: 8.50 | Current Best: 8.98
+Agent Steps: 0007M | FPS: 556.9 | Last FPS: 544.3 | Collect Time: 233.5 min | Train RL Time: 1.2 min | Mean Rewards: 6.91 | Current Best: 8.98
+Agent Steps: 0007M | FPS: 556.9 | Last FPS: 549.0 | Collect Time: 234.0 min | Train RL Time: 1.2 min | Mean Rewards: 5.78 | Current Best: 8.98
+Agent Steps: 0007M | FPS: 556.8 | Last FPS: 551.0 | Collect Time: 234.5 min | Train RL Time: 1.3 min | Mean Rewards: 5.72 | Current Best: 8.98
+Agent Steps: 0007M | FPS: 556.8 | Last FPS: 552.5 | Collect Time: 235.0 min | Train RL Time: 1.3 min | Mean Rewards: 7.10 | Current Best: 8.98
+Agent Steps: 0007M | FPS: 556.8 | Last FPS: 550.3 | Collect Time: 235.5 min | Train RL Time: 1.3 min | Mean Rewards: 6.94 | Current Best: 8.98
+Agent Steps: 0007M | FPS: 556.8 | Last FPS: 553.0 | Collect Time: 236.0 min | Train RL Time: 1.3 min | Mean Rewards: 6.09 | Current Best: 8.98
+Agent Steps: 0007M | FPS: 556.8 | Last FPS: 546.9 | Collect Time: 236.5 min | Train RL Time: 1.3 min | Mean Rewards: 5.75 | Current Best: 8.98
+Agent Steps: 0007M | FPS: 556.8 | Last FPS: 549.6 | Collect Time: 237.0 min | Train RL Time: 1.3 min | Mean Rewards: 7.59 | Current Best: 8.98
+Agent Steps: 0007M | FPS: 556.8 | Last FPS: 549.4 | Collect Time: 237.5 min | Train RL Time: 1.3 min | Mean Rewards: 7.05 | Current Best: 8.98
+save current best reward: 9.11
+Agent Steps: 0007M | FPS: 556.7 | Last FPS: 549.9 | Collect Time: 238.0 min | Train RL Time: 1.3 min | Mean Rewards: 9.11 | Current Best: 9.11
+save current best reward: 10.07
+Agent Steps: 0008M | FPS: 556.7 | Last FPS: 549.9 | Collect Time: 238.4 min | Train RL Time: 1.3 min | Mean Rewards: 10.07 | Current Best: 10.07
+save current best reward: 10.37
+Agent Steps: 0008M | FPS: 556.7 | Last FPS: 545.7 | Collect Time: 238.9 min | Train RL Time: 1.3 min | Mean Rewards: 10.37 | Current Best: 10.37
+save current best reward: 10.61
+Agent Steps: 0008M | FPS: 556.7 | Last FPS: 548.4 | Collect Time: 239.4 min | Train RL Time: 1.3 min | Mean Rewards: 10.61 | Current Best: 10.61
+save current best reward: 11.31
+Agent Steps: 0008M | FPS: 556.7 | Last FPS: 552.0 | Collect Time: 239.9 min | Train RL Time: 1.3 min | Mean Rewards: 11.31 | Current Best: 11.31
+save current best reward: 11.59
+Agent Steps: 0008M | FPS: 556.7 | Last FPS: 548.8 | Collect Time: 240.4 min | Train RL Time: 1.3 min | Mean Rewards: 11.59 | Current Best: 11.59
+Agent Steps: 0008M | FPS: 556.6 | Last FPS: 544.9 | Collect Time: 240.9 min | Train RL Time: 1.3 min | Mean Rewards: 10.98 | Current Best: 11.59
+Agent Steps: 0008M | FPS: 556.6 | Last FPS: 546.4 | Collect Time: 241.4 min | Train RL Time: 1.3 min | Mean Rewards: 11.08 | Current Best: 11.59
+save current best reward: 11.74
+Agent Steps: 0008M | FPS: 556.6 | Last FPS: 545.8 | Collect Time: 241.9 min | Train RL Time: 1.3 min | Mean Rewards: 11.74 | Current Best: 11.74
+Agent Steps: 0008M | FPS: 556.6 | Last FPS: 547.8 | Collect Time: 242.4 min | Train RL Time: 1.3 min | Mean Rewards: 10.78 | Current Best: 11.74
+Agent Steps: 0008M | FPS: 556.6 | Last FPS: 545.4 | Collect Time: 242.9 min | Train RL Time: 1.3 min | Mean Rewards: 11.66 | Current Best: 11.74
+Agent Steps: 0008M | FPS: 556.5 | Last FPS: 548.1 | Collect Time: 243.4 min | Train RL Time: 1.3 min | Mean Rewards: 11.27 | Current Best: 11.74
+Agent Steps: 0008M | FPS: 556.5 | Last FPS: 550.1 | Collect Time: 243.9 min | Train RL Time: 1.3 min | Mean Rewards: 10.72 | Current Best: 11.74
+save current best reward: 12.45
+Agent Steps: 0008M | FPS: 556.5 | Last FPS: 543.3 | Collect Time: 244.4 min | Train RL Time: 1.3 min | Mean Rewards: 12.45 | Current Best: 12.45
+save current best reward: 13.93
+Agent Steps: 0008M | FPS: 556.5 | Last FPS: 542.8 | Collect Time: 244.9 min | Train RL Time: 1.3 min | Mean Rewards: 13.93 | Current Best: 13.93
+save current best reward: 16.40
+Agent Steps: 0008M | FPS: 556.4 | Last FPS: 543.7 | Collect Time: 245.4 min | Train RL Time: 1.3 min | Mean Rewards: 16.40 | Current Best: 16.40
+save current best reward: 23.87
+Agent Steps: 0008M | FPS: 556.4 | Last FPS: 544.8 | Collect Time: 245.9 min | Train RL Time: 1.3 min | Mean Rewards: 23.87 | Current Best: 23.87
+save current best reward: 27.58
+Agent Steps: 0008M | FPS: 556.4 | Last FPS: 540.5 | Collect Time: 246.4 min | Train RL Time: 1.3 min | Mean Rewards: 27.58 | Current Best: 27.58
+Agent Steps: 0008M | FPS: 556.4 | Last FPS: 543.4 | Collect Time: 246.9 min | Train RL Time: 1.3 min | Mean Rewards: 27.42 | Current Best: 27.58
+save current best reward: 32.90
+Agent Steps: 0008M | FPS: 556.3 | Last FPS: 545.8 | Collect Time: 247.4 min | Train RL Time: 1.3 min | Mean Rewards: 32.90 | Current Best: 32.90
+save current best reward: 33.20
+Agent Steps: 0008M | FPS: 556.3 | Last FPS: 544.6 | Collect Time: 247.9 min | Train RL Time: 1.3 min | Mean Rewards: 33.20 | Current Best: 33.20
+save current best reward: 37.18
+Agent Steps: 0008M | FPS: 556.3 | Last FPS: 539.5 | Collect Time: 248.4 min | Train RL Time: 1.3 min | Mean Rewards: 37.18 | Current Best: 37.18
+save current best reward: 40.24
+Agent Steps: 0008M | FPS: 556.3 | Last FPS: 543.2 | Collect Time: 248.9 min | Train RL Time: 1.3 min | Mean Rewards: 40.24 | Current Best: 40.24
+save current best reward: 42.88
+Agent Steps: 0008M | FPS: 556.2 | Last FPS: 546.7 | Collect Time: 249.4 min | Train RL Time: 1.3 min | Mean Rewards: 42.88 | Current Best: 42.88
+save current best reward: 43.30
+Agent Steps: 0008M | FPS: 556.2 | Last FPS: 546.8 | Collect Time: 249.9 min | Train RL Time: 1.3 min | Mean Rewards: 43.30 | Current Best: 43.30
+save current best reward: 45.42
+Agent Steps: 0008M | FPS: 556.2 | Last FPS: 541.7 | Collect Time: 250.4 min | Train RL Time: 1.3 min | Mean Rewards: 45.42 | Current Best: 45.42
+save current best reward: 46.59
+Agent Steps: 0008M | FPS: 556.2 | Last FPS: 546.7 | Collect Time: 250.9 min | Train RL Time: 1.3 min | Mean Rewards: 46.59 | Current Best: 46.59
+Agent Steps: 0008M | FPS: 556.1 | Last FPS: 544.4 | Collect Time: 251.4 min | Train RL Time: 1.3 min | Mean Rewards: 46.21 | Current Best: 46.59
+save current best reward: 46.82
+Agent Steps: 0008M | FPS: 556.1 | Last FPS: 546.4 | Collect Time: 251.9 min | Train RL Time: 1.3 min | Mean Rewards: 46.82 | Current Best: 46.82
+Agent Steps: 0008M | FPS: 556.1 | Last FPS: 547.5 | Collect Time: 252.4 min | Train RL Time: 1.3 min | Mean Rewards: 45.36 | Current Best: 46.82
+save current best reward: 47.02
+Agent Steps: 0008M | FPS: 556.1 | Last FPS: 540.1 | Collect Time: 252.9 min | Train RL Time: 1.3 min | Mean Rewards: 47.02 | Current Best: 47.02
+save current best reward: 47.07
+Agent Steps: 0008M | FPS: 556.1 | Last FPS: 542.0 | Collect Time: 253.4 min | Train RL Time: 1.3 min | Mean Rewards: 47.07 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 556.0 | Last FPS: 542.0 | Collect Time: 253.9 min | Train RL Time: 1.4 min | Mean Rewards: 45.78 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 556.0 | Last FPS: 544.1 | Collect Time: 254.4 min | Train RL Time: 1.4 min | Mean Rewards: 45.83 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 556.0 | Last FPS: 541.5 | Collect Time: 254.9 min | Train RL Time: 1.4 min | Mean Rewards: 43.59 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 555.9 | Last FPS: 542.6 | Collect Time: 255.4 min | Train RL Time: 1.4 min | Mean Rewards: 44.68 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 555.9 | Last FPS: 543.3 | Collect Time: 255.9 min | Train RL Time: 1.4 min | Mean Rewards: 43.55 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 555.9 | Last FPS: 546.8 | Collect Time: 256.4 min | Train RL Time: 1.4 min | Mean Rewards: 44.12 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 555.9 | Last FPS: 542.0 | Collect Time: 256.9 min | Train RL Time: 1.4 min | Mean Rewards: 45.19 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 555.9 | Last FPS: 543.4 | Collect Time: 257.4 min | Train RL Time: 1.4 min | Mean Rewards: 45.42 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 555.8 | Last FPS: 540.5 | Collect Time: 257.9 min | Train RL Time: 1.4 min | Mean Rewards: 45.42 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 555.8 | Last FPS: 537.5 | Collect Time: 258.4 min | Train RL Time: 1.4 min | Mean Rewards: 45.09 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 555.8 | Last FPS: 539.3 | Collect Time: 258.9 min | Train RL Time: 1.4 min | Mean Rewards: 43.98 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 555.7 | Last FPS: 537.1 | Collect Time: 259.4 min | Train RL Time: 1.4 min | Mean Rewards: 44.77 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 555.7 | Last FPS: 543.5 | Collect Time: 259.9 min | Train RL Time: 1.4 min | Mean Rewards: 44.36 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 555.7 | Last FPS: 539.9 | Collect Time: 260.4 min | Train RL Time: 1.4 min | Mean Rewards: 43.69 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 555.6 | Last FPS: 543.7 | Collect Time: 260.9 min | Train RL Time: 1.4 min | Mean Rewards: 44.90 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 555.6 | Last FPS: 544.7 | Collect Time: 261.4 min | Train RL Time: 1.4 min | Mean Rewards: 43.82 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 555.6 | Last FPS: 543.6 | Collect Time: 261.9 min | Train RL Time: 1.4 min | Mean Rewards: 42.69 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 555.6 | Last FPS: 540.2 | Collect Time: 262.4 min | Train RL Time: 1.4 min | Mean Rewards: 43.79 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 555.5 | Last FPS: 543.2 | Collect Time: 262.9 min | Train RL Time: 1.4 min | Mean Rewards: 43.76 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 555.5 | Last FPS: 540.3 | Collect Time: 263.4 min | Train RL Time: 1.4 min | Mean Rewards: 44.02 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 555.5 | Last FPS: 546.2 | Collect Time: 263.9 min | Train RL Time: 1.4 min | Mean Rewards: 43.98 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 555.5 | Last FPS: 542.3 | Collect Time: 264.4 min | Train RL Time: 1.4 min | Mean Rewards: 41.85 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 555.5 | Last FPS: 550.6 | Collect Time: 264.9 min | Train RL Time: 1.4 min | Mean Rewards: 40.57 | Current Best: 47.07
+[课程] release_row -> 45 @ 8.90M
+Agent Steps: 0008M | FPS: 555.4 | Last FPS: 545.1 | Collect Time: 265.4 min | Train RL Time: 1.4 min | Mean Rewards: 40.69 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 555.4 | Last FPS: 544.0 | Collect Time: 265.9 min | Train RL Time: 1.4 min | Mean Rewards: 38.77 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 555.4 | Last FPS: 548.0 | Collect Time: 266.4 min | Train RL Time: 1.4 min | Mean Rewards: 39.03 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 555.4 | Last FPS: 541.1 | Collect Time: 266.9 min | Train RL Time: 1.4 min | Mean Rewards: 41.38 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 555.4 | Last FPS: 545.1 | Collect Time: 267.4 min | Train RL Time: 1.4 min | Mean Rewards: 42.67 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 555.3 | Last FPS: 537.4 | Collect Time: 267.9 min | Train RL Time: 1.4 min | Mean Rewards: 42.66 | Current Best: 47.07
+Agent Steps: 0008M | FPS: 555.3 | Last FPS: 545.5 | Collect Time: 268.4 min | Train RL Time: 1.4 min | Mean Rewards: 43.12 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 555.3 | Last FPS: 543.1 | Collect Time: 268.9 min | Train RL Time: 1.4 min | Mean Rewards: 42.95 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 555.3 | Last FPS: 545.2 | Collect Time: 269.4 min | Train RL Time: 1.4 min | Mean Rewards: 43.80 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 555.2 | Last FPS: 544.0 | Collect Time: 269.9 min | Train RL Time: 1.4 min | Mean Rewards: 45.34 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 555.2 | Last FPS: 541.1 | Collect Time: 270.4 min | Train RL Time: 1.4 min | Mean Rewards: 46.16 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 555.2 | Last FPS: 544.4 | Collect Time: 270.9 min | Train RL Time: 1.4 min | Mean Rewards: 45.27 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 555.2 | Last FPS: 541.3 | Collect Time: 271.4 min | Train RL Time: 1.4 min | Mean Rewards: 44.36 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 555.1 | Last FPS: 536.8 | Collect Time: 271.9 min | Train RL Time: 1.4 min | Mean Rewards: 42.88 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 555.1 | Last FPS: 539.1 | Collect Time: 272.4 min | Train RL Time: 1.4 min | Mean Rewards: 43.73 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 555.1 | Last FPS: 538.1 | Collect Time: 272.9 min | Train RL Time: 1.5 min | Mean Rewards: 43.81 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 555.0 | Last FPS: 534.9 | Collect Time: 273.4 min | Train RL Time: 1.5 min | Mean Rewards: 45.38 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 555.0 | Last FPS: 538.4 | Collect Time: 273.9 min | Train RL Time: 1.5 min | Mean Rewards: 44.47 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 555.0 | Last FPS: 536.8 | Collect Time: 274.4 min | Train RL Time: 1.5 min | Mean Rewards: 43.36 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.9 | Last FPS: 535.8 | Collect Time: 274.9 min | Train RL Time: 1.5 min | Mean Rewards: 44.11 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.9 | Last FPS: 536.4 | Collect Time: 275.4 min | Train RL Time: 1.5 min | Mean Rewards: 44.85 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.9 | Last FPS: 538.6 | Collect Time: 275.9 min | Train RL Time: 1.5 min | Mean Rewards: 44.33 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.9 | Last FPS: 540.4 | Collect Time: 276.4 min | Train RL Time: 1.5 min | Mean Rewards: 44.46 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.8 | Last FPS: 539.8 | Collect Time: 276.9 min | Train RL Time: 1.5 min | Mean Rewards: 43.15 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.8 | Last FPS: 543.4 | Collect Time: 277.4 min | Train RL Time: 1.5 min | Mean Rewards: 44.30 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.8 | Last FPS: 537.7 | Collect Time: 278.0 min | Train RL Time: 1.5 min | Mean Rewards: 45.21 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.8 | Last FPS: 545.8 | Collect Time: 278.4 min | Train RL Time: 1.5 min | Mean Rewards: 45.24 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.7 | Last FPS: 540.6 | Collect Time: 279.0 min | Train RL Time: 1.5 min | Mean Rewards: 45.80 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.7 | Last FPS: 540.1 | Collect Time: 279.5 min | Train RL Time: 1.5 min | Mean Rewards: 44.83 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.7 | Last FPS: 541.1 | Collect Time: 280.0 min | Train RL Time: 1.5 min | Mean Rewards: 44.60 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.7 | Last FPS: 539.5 | Collect Time: 280.5 min | Train RL Time: 1.5 min | Mean Rewards: 44.51 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.6 | Last FPS: 539.2 | Collect Time: 281.0 min | Train RL Time: 1.5 min | Mean Rewards: 42.20 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.6 | Last FPS: 543.4 | Collect Time: 281.5 min | Train RL Time: 1.5 min | Mean Rewards: 42.17 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.6 | Last FPS: 541.9 | Collect Time: 282.0 min | Train RL Time: 1.5 min | Mean Rewards: 41.38 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.6 | Last FPS: 541.3 | Collect Time: 282.5 min | Train RL Time: 1.5 min | Mean Rewards: 40.98 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.5 | Last FPS: 541.9 | Collect Time: 283.0 min | Train RL Time: 1.5 min | Mean Rewards: 38.80 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.5 | Last FPS: 541.8 | Collect Time: 283.5 min | Train RL Time: 1.5 min | Mean Rewards: 38.05 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.5 | Last FPS: 537.7 | Collect Time: 284.0 min | Train RL Time: 1.5 min | Mean Rewards: 38.76 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.5 | Last FPS: 541.7 | Collect Time: 284.5 min | Train RL Time: 1.5 min | Mean Rewards: 41.39 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.4 | Last FPS: 542.0 | Collect Time: 285.0 min | Train RL Time: 1.5 min | Mean Rewards: 42.29 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.4 | Last FPS: 547.8 | Collect Time: 285.5 min | Train RL Time: 1.5 min | Mean Rewards: 41.32 | Current Best: 47.07
+[课程] release_row -> 40 @ 9.57M
+Agent Steps: 0009M | FPS: 554.4 | Last FPS: 543.1 | Collect Time: 286.0 min | Train RL Time: 1.5 min | Mean Rewards: 41.69 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.4 | Last FPS: 539.8 | Collect Time: 286.5 min | Train RL Time: 1.5 min | Mean Rewards: 41.18 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.4 | Last FPS: 545.9 | Collect Time: 287.0 min | Train RL Time: 1.5 min | Mean Rewards: 42.56 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.4 | Last FPS: 542.4 | Collect Time: 287.5 min | Train RL Time: 1.5 min | Mean Rewards: 43.29 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.3 | Last FPS: 549.7 | Collect Time: 288.0 min | Train RL Time: 1.5 min | Mean Rewards: 45.21 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.3 | Last FPS: 547.2 | Collect Time: 288.5 min | Train RL Time: 1.5 min | Mean Rewards: 44.52 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.3 | Last FPS: 541.8 | Collect Time: 289.0 min | Train RL Time: 1.5 min | Mean Rewards: 45.05 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.3 | Last FPS: 538.0 | Collect Time: 289.5 min | Train RL Time: 1.5 min | Mean Rewards: 43.56 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.3 | Last FPS: 541.0 | Collect Time: 290.0 min | Train RL Time: 1.5 min | Mean Rewards: 42.51 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.2 | Last FPS: 539.8 | Collect Time: 290.5 min | Train RL Time: 1.5 min | Mean Rewards: 42.86 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.2 | Last FPS: 542.0 | Collect Time: 291.0 min | Train RL Time: 1.5 min | Mean Rewards: 41.99 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.2 | Last FPS: 548.6 | Collect Time: 291.5 min | Train RL Time: 1.5 min | Mean Rewards: 40.49 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.2 | Last FPS: 539.0 | Collect Time: 292.0 min | Train RL Time: 1.6 min | Mean Rewards: 40.56 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.2 | Last FPS: 542.2 | Collect Time: 292.5 min | Train RL Time: 1.6 min | Mean Rewards: 38.89 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.1 | Last FPS: 539.9 | Collect Time: 293.0 min | Train RL Time: 1.6 min | Mean Rewards: 37.28 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.1 | Last FPS: 543.6 | Collect Time: 293.5 min | Train RL Time: 1.6 min | Mean Rewards: 36.58 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.1 | Last FPS: 539.4 | Collect Time: 294.0 min | Train RL Time: 1.6 min | Mean Rewards: 40.27 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.1 | Last FPS: 540.1 | Collect Time: 294.5 min | Train RL Time: 1.6 min | Mean Rewards: 39.95 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.0 | Last FPS: 542.2 | Collect Time: 295.0 min | Train RL Time: 1.6 min | Mean Rewards: 40.18 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.0 | Last FPS: 540.7 | Collect Time: 295.5 min | Train RL Time: 1.6 min | Mean Rewards: 41.66 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.0 | Last FPS: 539.9 | Collect Time: 296.0 min | Train RL Time: 1.6 min | Mean Rewards: 40.13 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 554.0 | Last FPS: 537.3 | Collect Time: 296.5 min | Train RL Time: 1.6 min | Mean Rewards: 39.46 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 553.9 | Last FPS: 538.6 | Collect Time: 297.0 min | Train RL Time: 1.6 min | Mean Rewards: 38.92 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 553.9 | Last FPS: 539.8 | Collect Time: 297.5 min | Train RL Time: 1.6 min | Mean Rewards: 39.99 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 553.9 | Last FPS: 548.3 | Collect Time: 298.0 min | Train RL Time: 1.6 min | Mean Rewards: 40.81 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 553.9 | Last FPS: 542.2 | Collect Time: 298.5 min | Train RL Time: 1.6 min | Mean Rewards: 39.77 | Current Best: 47.07
+Agent Steps: 0009M | FPS: 553.9 | Last FPS: 544.4 | Collect Time: 299.0 min | Train RL Time: 1.6 min | Mean Rewards: 40.70 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.9 | Last FPS: 540.0 | Collect Time: 299.5 min | Train RL Time: 1.6 min | Mean Rewards: 39.69 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.8 | Last FPS: 540.4 | Collect Time: 300.0 min | Train RL Time: 1.6 min | Mean Rewards: 38.82 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.8 | Last FPS: 541.3 | Collect Time: 300.5 min | Train RL Time: 1.6 min | Mean Rewards: 39.53 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.8 | Last FPS: 544.0 | Collect Time: 301.0 min | Train RL Time: 1.6 min | Mean Rewards: 40.14 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.8 | Last FPS: 540.1 | Collect Time: 301.5 min | Train RL Time: 1.6 min | Mean Rewards: 40.85 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.7 | Last FPS: 543.0 | Collect Time: 302.0 min | Train RL Time: 1.6 min | Mean Rewards: 40.03 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.7 | Last FPS: 536.7 | Collect Time: 302.5 min | Train RL Time: 1.6 min | Mean Rewards: 40.58 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.7 | Last FPS: 540.4 | Collect Time: 303.0 min | Train RL Time: 1.6 min | Mean Rewards: 40.52 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.7 | Last FPS: 539.4 | Collect Time: 303.5 min | Train RL Time: 1.6 min | Mean Rewards: 41.15 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.7 | Last FPS: 540.1 | Collect Time: 304.0 min | Train RL Time: 1.6 min | Mean Rewards: 39.64 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.6 | Last FPS: 541.7 | Collect Time: 304.5 min | Train RL Time: 1.6 min | Mean Rewards: 39.06 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.6 | Last FPS: 543.4 | Collect Time: 305.0 min | Train RL Time: 1.6 min | Mean Rewards: 39.30 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.6 | Last FPS: 536.3 | Collect Time: 305.5 min | Train RL Time: 1.6 min | Mean Rewards: 39.75 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.6 | Last FPS: 542.5 | Collect Time: 306.0 min | Train RL Time: 1.6 min | Mean Rewards: 39.42 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.6 | Last FPS: 541.9 | Collect Time: 306.5 min | Train RL Time: 1.6 min | Mean Rewards: 38.62 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.5 | Last FPS: 538.8 | Collect Time: 307.0 min | Train RL Time: 1.6 min | Mean Rewards: 38.78 | Current Best: 47.07
+[课程] release_row -> 35 @ 10.27M
+Agent Steps: 0010M | FPS: 553.5 | Last FPS: 537.9 | Collect Time: 307.5 min | Train RL Time: 1.6 min | Mean Rewards: 38.54 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.5 | Last FPS: 539.2 | Collect Time: 308.0 min | Train RL Time: 1.6 min | Mean Rewards: 37.63 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.5 | Last FPS: 536.8 | Collect Time: 308.5 min | Train RL Time: 1.6 min | Mean Rewards: 38.22 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.4 | Last FPS: 539.0 | Collect Time: 309.1 min | Train RL Time: 1.6 min | Mean Rewards: 38.23 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.4 | Last FPS: 542.7 | Collect Time: 309.6 min | Train RL Time: 1.6 min | Mean Rewards: 36.85 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.4 | Last FPS: 542.2 | Collect Time: 310.1 min | Train RL Time: 1.6 min | Mean Rewards: 35.56 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.4 | Last FPS: 539.7 | Collect Time: 310.6 min | Train RL Time: 1.6 min | Mean Rewards: 36.75 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.4 | Last FPS: 541.5 | Collect Time: 311.1 min | Train RL Time: 1.6 min | Mean Rewards: 36.81 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.3 | Last FPS: 538.5 | Collect Time: 311.6 min | Train RL Time: 1.7 min | Mean Rewards: 36.39 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.3 | Last FPS: 540.7 | Collect Time: 312.1 min | Train RL Time: 1.7 min | Mean Rewards: 36.38 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.3 | Last FPS: 537.1 | Collect Time: 312.6 min | Train RL Time: 1.7 min | Mean Rewards: 35.09 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.3 | Last FPS: 541.2 | Collect Time: 313.1 min | Train RL Time: 1.7 min | Mean Rewards: 35.11 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.2 | Last FPS: 542.6 | Collect Time: 313.6 min | Train RL Time: 1.7 min | Mean Rewards: 34.95 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.2 | Last FPS: 538.8 | Collect Time: 314.1 min | Train RL Time: 1.7 min | Mean Rewards: 35.11 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.2 | Last FPS: 539.7 | Collect Time: 314.6 min | Train RL Time: 1.7 min | Mean Rewards: 36.31 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.2 | Last FPS: 540.1 | Collect Time: 315.1 min | Train RL Time: 1.7 min | Mean Rewards: 35.87 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.1 | Last FPS: 533.8 | Collect Time: 315.6 min | Train RL Time: 1.7 min | Mean Rewards: 36.13 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.1 | Last FPS: 538.8 | Collect Time: 316.1 min | Train RL Time: 1.7 min | Mean Rewards: 35.46 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.1 | Last FPS: 540.3 | Collect Time: 316.6 min | Train RL Time: 1.7 min | Mean Rewards: 35.89 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.1 | Last FPS: 536.1 | Collect Time: 317.1 min | Train RL Time: 1.7 min | Mean Rewards: 35.58 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.1 | Last FPS: 537.5 | Collect Time: 317.6 min | Train RL Time: 1.7 min | Mean Rewards: 35.28 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.0 | Last FPS: 545.4 | Collect Time: 318.1 min | Train RL Time: 1.7 min | Mean Rewards: 34.94 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.0 | Last FPS: 541.3 | Collect Time: 318.6 min | Train RL Time: 1.7 min | Mean Rewards: 34.23 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.0 | Last FPS: 539.9 | Collect Time: 319.1 min | Train RL Time: 1.7 min | Mean Rewards: 34.01 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.0 | Last FPS: 538.6 | Collect Time: 319.6 min | Train RL Time: 1.7 min | Mean Rewards: 33.33 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 553.0 | Last FPS: 541.7 | Collect Time: 320.1 min | Train RL Time: 1.7 min | Mean Rewards: 31.60 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 552.9 | Last FPS: 538.2 | Collect Time: 320.6 min | Train RL Time: 1.7 min | Mean Rewards: 32.35 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 552.9 | Last FPS: 541.9 | Collect Time: 321.1 min | Train RL Time: 1.7 min | Mean Rewards: 32.18 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 552.9 | Last FPS: 541.8 | Collect Time: 321.6 min | Train RL Time: 1.7 min | Mean Rewards: 31.71 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 552.9 | Last FPS: 541.3 | Collect Time: 322.1 min | Train RL Time: 1.7 min | Mean Rewards: 30.34 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 552.9 | Last FPS: 536.9 | Collect Time: 322.6 min | Train RL Time: 1.7 min | Mean Rewards: 28.94 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 552.8 | Last FPS: 539.0 | Collect Time: 323.1 min | Train RL Time: 1.7 min | Mean Rewards: 29.10 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 552.8 | Last FPS: 540.1 | Collect Time: 323.6 min | Train RL Time: 1.7 min | Mean Rewards: 29.36 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 552.8 | Last FPS: 539.7 | Collect Time: 324.1 min | Train RL Time: 1.7 min | Mean Rewards: 28.82 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 552.8 | Last FPS: 540.3 | Collect Time: 324.6 min | Train RL Time: 1.7 min | Mean Rewards: 27.21 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 552.8 | Last FPS: 547.9 | Collect Time: 325.1 min | Train RL Time: 1.7 min | Mean Rewards: 26.66 | Current Best: 47.07
+[课程] release_row -> 30 @ 10.86M
+Agent Steps: 0010M | FPS: 552.7 | Last FPS: 538.3 | Collect Time: 325.6 min | Train RL Time: 1.7 min | Mean Rewards: 26.00 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 552.7 | Last FPS: 538.3 | Collect Time: 326.2 min | Train RL Time: 1.7 min | Mean Rewards: 26.48 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 552.7 | Last FPS: 540.8 | Collect Time: 326.7 min | Train RL Time: 1.7 min | Mean Rewards: 25.16 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 552.7 | Last FPS: 537.4 | Collect Time: 327.2 min | Train RL Time: 1.7 min | Mean Rewards: 22.57 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 552.7 | Last FPS: 537.6 | Collect Time: 327.7 min | Train RL Time: 1.7 min | Mean Rewards: 22.23 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 552.6 | Last FPS: 542.4 | Collect Time: 328.2 min | Train RL Time: 1.7 min | Mean Rewards: 20.33 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 552.6 | Last FPS: 542.3 | Collect Time: 328.7 min | Train RL Time: 1.7 min | Mean Rewards: 18.71 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 552.6 | Last FPS: 539.0 | Collect Time: 329.2 min | Train RL Time: 1.7 min | Mean Rewards: 18.57 | Current Best: 47.07
+Agent Steps: 0010M | FPS: 552.6 | Last FPS: 538.6 | Collect Time: 329.7 min | Train RL Time: 1.7 min | Mean Rewards: 16.86 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 552.6 | Last FPS: 537.9 | Collect Time: 330.2 min | Train RL Time: 1.7 min | Mean Rewards: 17.75 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 552.6 | Last FPS: 543.6 | Collect Time: 330.7 min | Train RL Time: 1.7 min | Mean Rewards: 18.80 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 552.5 | Last FPS: 538.8 | Collect Time: 331.2 min | Train RL Time: 1.7 min | Mean Rewards: 19.62 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 552.5 | Last FPS: 540.5 | Collect Time: 331.7 min | Train RL Time: 1.8 min | Mean Rewards: 19.49 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 552.5 | Last FPS: 536.6 | Collect Time: 332.2 min | Train RL Time: 1.8 min | Mean Rewards: 19.49 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 552.5 | Last FPS: 539.4 | Collect Time: 332.7 min | Train RL Time: 1.8 min | Mean Rewards: 19.30 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 552.5 | Last FPS: 541.7 | Collect Time: 333.2 min | Train RL Time: 1.8 min | Mean Rewards: 20.13 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 552.4 | Last FPS: 541.5 | Collect Time: 333.7 min | Train RL Time: 1.8 min | Mean Rewards: 20.69 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 552.4 | Last FPS: 538.8 | Collect Time: 334.2 min | Train RL Time: 1.8 min | Mean Rewards: 20.09 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 552.4 | Last FPS: 536.7 | Collect Time: 334.7 min | Train RL Time: 1.8 min | Mean Rewards: 17.81 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 552.4 | Last FPS: 539.8 | Collect Time: 335.2 min | Train RL Time: 1.8 min | Mean Rewards: 17.64 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 552.4 | Last FPS: 540.4 | Collect Time: 335.7 min | Train RL Time: 1.8 min | Mean Rewards: 20.53 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 552.3 | Last FPS: 539.2 | Collect Time: 336.2 min | Train RL Time: 1.8 min | Mean Rewards: 18.30 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 552.3 | Last FPS: 545.0 | Collect Time: 336.7 min | Train RL Time: 1.8 min | Mean Rewards: 18.64 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 552.3 | Last FPS: 540.8 | Collect Time: 337.2 min | Train RL Time: 1.8 min | Mean Rewards: 20.09 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 552.3 | Last FPS: 537.7 | Collect Time: 337.7 min | Train RL Time: 1.8 min | Mean Rewards: 19.33 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 552.3 | Last FPS: 539.8 | Collect Time: 338.2 min | Train RL Time: 1.8 min | Mean Rewards: 18.14 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 552.2 | Last FPS: 517.9 | Collect Time: 338.7 min | Train RL Time: 1.8 min | Mean Rewards: 17.62 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 552.2 | Last FPS: 533.5 | Collect Time: 339.3 min | Train RL Time: 1.8 min | Mean Rewards: 16.87 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 552.1 | Last FPS: 524.3 | Collect Time: 339.8 min | Train RL Time: 1.8 min | Mean Rewards: 15.93 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 552.1 | Last FPS: 522.0 | Collect Time: 340.3 min | Train RL Time: 1.8 min | Mean Rewards: 15.98 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 552.1 | Last FPS: 539.4 | Collect Time: 340.8 min | Train RL Time: 1.8 min | Mean Rewards: 15.74 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 552.1 | Last FPS: 535.4 | Collect Time: 341.3 min | Train RL Time: 1.8 min | Mean Rewards: 15.08 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 552.0 | Last FPS: 538.8 | Collect Time: 341.8 min | Train RL Time: 1.8 min | Mean Rewards: 15.15 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 552.0 | Last FPS: 539.0 | Collect Time: 342.3 min | Train RL Time: 1.8 min | Mean Rewards: 16.26 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 552.0 | Last FPS: 524.2 | Collect Time: 342.8 min | Train RL Time: 1.8 min | Mean Rewards: 13.96 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.9 | Last FPS: 528.1 | Collect Time: 343.3 min | Train RL Time: 1.8 min | Mean Rewards: 14.28 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.9 | Last FPS: 532.5 | Collect Time: 343.9 min | Train RL Time: 1.8 min | Mean Rewards: 15.47 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.9 | Last FPS: 534.0 | Collect Time: 344.4 min | Train RL Time: 1.8 min | Mean Rewards: 16.51 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.9 | Last FPS: 539.0 | Collect Time: 344.9 min | Train RL Time: 1.8 min | Mean Rewards: 17.71 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.8 | Last FPS: 533.1 | Collect Time: 345.4 min | Train RL Time: 1.8 min | Mean Rewards: 16.70 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.8 | Last FPS: 536.5 | Collect Time: 345.9 min | Train RL Time: 1.8 min | Mean Rewards: 16.66 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.8 | Last FPS: 529.7 | Collect Time: 346.4 min | Train RL Time: 1.8 min | Mean Rewards: 17.71 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.8 | Last FPS: 533.6 | Collect Time: 346.9 min | Train RL Time: 1.8 min | Mean Rewards: 16.68 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.7 | Last FPS: 535.0 | Collect Time: 347.4 min | Train RL Time: 1.8 min | Mean Rewards: 16.43 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.7 | Last FPS: 539.0 | Collect Time: 347.9 min | Train RL Time: 1.8 min | Mean Rewards: 16.05 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.7 | Last FPS: 536.1 | Collect Time: 348.4 min | Train RL Time: 1.8 min | Mean Rewards: 15.76 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.7 | Last FPS: 535.1 | Collect Time: 348.9 min | Train RL Time: 1.8 min | Mean Rewards: 15.78 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.6 | Last FPS: 535.0 | Collect Time: 349.4 min | Train RL Time: 1.8 min | Mean Rewards: 15.19 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.6 | Last FPS: 537.3 | Collect Time: 349.9 min | Train RL Time: 1.8 min | Mean Rewards: 15.49 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.6 | Last FPS: 534.7 | Collect Time: 350.5 min | Train RL Time: 1.8 min | Mean Rewards: 15.62 | Current Best: 47.07
+[课程] release_row -> 25 @ 11.68M
+Agent Steps: 0011M | FPS: 551.6 | Last FPS: 537.6 | Collect Time: 351.0 min | Train RL Time: 1.9 min | Mean Rewards: 14.44 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.6 | Last FPS: 535.4 | Collect Time: 351.5 min | Train RL Time: 1.9 min | Mean Rewards: 14.41 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.5 | Last FPS: 538.3 | Collect Time: 352.0 min | Train RL Time: 1.9 min | Mean Rewards: 14.91 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.5 | Last FPS: 543.8 | Collect Time: 352.5 min | Train RL Time: 1.9 min | Mean Rewards: 12.00 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.5 | Last FPS: 540.3 | Collect Time: 353.0 min | Train RL Time: 1.9 min | Mean Rewards: 12.53 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.5 | Last FPS: 538.8 | Collect Time: 353.5 min | Train RL Time: 1.9 min | Mean Rewards: 11.85 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.5 | Last FPS: 544.8 | Collect Time: 354.0 min | Train RL Time: 1.9 min | Mean Rewards: 8.97 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.5 | Last FPS: 543.3 | Collect Time: 354.5 min | Train RL Time: 1.9 min | Mean Rewards: 9.57 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.4 | Last FPS: 539.4 | Collect Time: 355.0 min | Train RL Time: 1.9 min | Mean Rewards: 7.74 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.4 | Last FPS: 539.9 | Collect Time: 355.5 min | Train RL Time: 1.9 min | Mean Rewards: 9.06 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.4 | Last FPS: 540.9 | Collect Time: 356.0 min | Train RL Time: 1.9 min | Mean Rewards: 7.28 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.4 | Last FPS: 537.5 | Collect Time: 356.5 min | Train RL Time: 1.9 min | Mean Rewards: 4.97 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.4 | Last FPS: 537.6 | Collect Time: 357.0 min | Train RL Time: 1.9 min | Mean Rewards: 1.59 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.4 | Last FPS: 541.5 | Collect Time: 357.5 min | Train RL Time: 1.9 min | Mean Rewards: 2.32 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.3 | Last FPS: 540.0 | Collect Time: 358.0 min | Train RL Time: 1.9 min | Mean Rewards: 2.90 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.3 | Last FPS: 536.7 | Collect Time: 358.5 min | Train RL Time: 1.9 min | Mean Rewards: 3.28 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.3 | Last FPS: 542.1 | Collect Time: 359.0 min | Train RL Time: 1.9 min | Mean Rewards: 2.42 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.3 | Last FPS: 541.8 | Collect Time: 359.5 min | Train RL Time: 1.9 min | Mean Rewards: 1.43 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.3 | Last FPS: 539.1 | Collect Time: 360.0 min | Train RL Time: 1.9 min | Mean Rewards: 2.84 | Current Best: 47.07
+Agent Steps: 0011M | FPS: 551.3 | Last FPS: 539.9 | Collect Time: 360.5 min | Train RL Time: 1.9 min | Mean Rewards: 5.21 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 551.3 | Last FPS: 545.6 | Collect Time: 361.0 min | Train RL Time: 1.9 min | Mean Rewards: 5.38 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 551.2 | Last FPS: 538.8 | Collect Time: 361.5 min | Train RL Time: 1.9 min | Mean Rewards: 5.34 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 551.2 | Last FPS: 538.1 | Collect Time: 362.0 min | Train RL Time: 1.9 min | Mean Rewards: 6.56 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 551.2 | Last FPS: 538.2 | Collect Time: 362.5 min | Train RL Time: 1.9 min | Mean Rewards: 7.59 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 551.2 | Last FPS: 542.7 | Collect Time: 363.0 min | Train RL Time: 1.9 min | Mean Rewards: 8.29 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 551.2 | Last FPS: 539.1 | Collect Time: 363.5 min | Train RL Time: 1.9 min | Mean Rewards: 8.91 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 551.2 | Last FPS: 538.8 | Collect Time: 364.0 min | Train RL Time: 1.9 min | Mean Rewards: 7.26 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 551.1 | Last FPS: 540.8 | Collect Time: 364.5 min | Train RL Time: 1.9 min | Mean Rewards: 5.06 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 551.1 | Last FPS: 539.1 | Collect Time: 365.0 min | Train RL Time: 1.9 min | Mean Rewards: 4.25 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 551.1 | Last FPS: 535.4 | Collect Time: 365.5 min | Train RL Time: 1.9 min | Mean Rewards: 4.85 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 551.1 | Last FPS: 536.9 | Collect Time: 366.1 min | Train RL Time: 1.9 min | Mean Rewards: 3.75 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 551.1 | Last FPS: 542.7 | Collect Time: 366.6 min | Train RL Time: 1.9 min | Mean Rewards: -1.04 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 551.1 | Last FPS: 540.8 | Collect Time: 367.1 min | Train RL Time: 1.9 min | Mean Rewards: -0.64 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 551.0 | Last FPS: 536.1 | Collect Time: 367.6 min | Train RL Time: 1.9 min | Mean Rewards: -1.21 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 551.0 | Last FPS: 544.3 | Collect Time: 368.1 min | Train RL Time: 1.9 min | Mean Rewards: 2.00 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 551.0 | Last FPS: 539.2 | Collect Time: 368.6 min | Train RL Time: 1.9 min | Mean Rewards: 1.34 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 551.0 | Last FPS: 538.9 | Collect Time: 369.1 min | Train RL Time: 1.9 min | Mean Rewards: 0.34 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 551.0 | Last FPS: 540.1 | Collect Time: 369.6 min | Train RL Time: 1.9 min | Mean Rewards: 1.79 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 551.0 | Last FPS: 536.2 | Collect Time: 370.1 min | Train RL Time: 1.9 min | Mean Rewards: 1.23 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.9 | Last FPS: 534.3 | Collect Time: 370.6 min | Train RL Time: 2.0 min | Mean Rewards: 2.78 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.9 | Last FPS: 539.8 | Collect Time: 371.1 min | Train RL Time: 2.0 min | Mean Rewards: 4.56 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.9 | Last FPS: 541.2 | Collect Time: 371.6 min | Train RL Time: 2.0 min | Mean Rewards: 4.80 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.9 | Last FPS: 541.2 | Collect Time: 372.1 min | Train RL Time: 2.0 min | Mean Rewards: 8.96 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.9 | Last FPS: 534.3 | Collect Time: 372.6 min | Train RL Time: 2.0 min | Mean Rewards: 10.85 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.9 | Last FPS: 540.7 | Collect Time: 373.1 min | Train RL Time: 2.0 min | Mean Rewards: 12.60 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.9 | Last FPS: 540.9 | Collect Time: 373.6 min | Train RL Time: 2.0 min | Mean Rewards: 12.39 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.8 | Last FPS: 540.3 | Collect Time: 374.1 min | Train RL Time: 2.0 min | Mean Rewards: 12.14 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.8 | Last FPS: 542.2 | Collect Time: 374.6 min | Train RL Time: 2.0 min | Mean Rewards: 11.90 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.8 | Last FPS: 540.2 | Collect Time: 375.1 min | Train RL Time: 2.0 min | Mean Rewards: 12.55 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.8 | Last FPS: 537.6 | Collect Time: 375.6 min | Train RL Time: 2.0 min | Mean Rewards: 11.98 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.8 | Last FPS: 533.5 | Collect Time: 376.1 min | Train RL Time: 2.0 min | Mean Rewards: 12.67 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.8 | Last FPS: 537.8 | Collect Time: 376.6 min | Train RL Time: 2.0 min | Mean Rewards: 12.70 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.7 | Last FPS: 536.6 | Collect Time: 377.1 min | Train RL Time: 2.0 min | Mean Rewards: 11.83 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.7 | Last FPS: 535.6 | Collect Time: 377.6 min | Train RL Time: 2.0 min | Mean Rewards: 13.59 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.7 | Last FPS: 540.0 | Collect Time: 378.1 min | Train RL Time: 2.0 min | Mean Rewards: 12.63 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.7 | Last FPS: 540.6 | Collect Time: 378.6 min | Train RL Time: 2.0 min | Mean Rewards: 14.10 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.7 | Last FPS: 537.1 | Collect Time: 379.2 min | Train RL Time: 2.0 min | Mean Rewards: 13.15 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.6 | Last FPS: 536.1 | Collect Time: 379.7 min | Train RL Time: 2.0 min | Mean Rewards: 12.99 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.6 | Last FPS: 538.7 | Collect Time: 380.2 min | Train RL Time: 2.0 min | Mean Rewards: 11.41 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.6 | Last FPS: 538.0 | Collect Time: 380.7 min | Train RL Time: 2.0 min | Mean Rewards: 13.05 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.6 | Last FPS: 536.2 | Collect Time: 381.2 min | Train RL Time: 2.0 min | Mean Rewards: 14.14 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.6 | Last FPS: 533.2 | Collect Time: 381.7 min | Train RL Time: 2.0 min | Mean Rewards: 13.95 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.6 | Last FPS: 538.7 | Collect Time: 382.2 min | Train RL Time: 2.0 min | Mean Rewards: 14.69 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.5 | Last FPS: 535.5 | Collect Time: 382.7 min | Train RL Time: 2.0 min | Mean Rewards: 14.13 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.5 | Last FPS: 536.9 | Collect Time: 383.2 min | Train RL Time: 2.0 min | Mean Rewards: 13.64 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.5 | Last FPS: 535.9 | Collect Time: 383.7 min | Train RL Time: 2.0 min | Mean Rewards: 13.16 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.5 | Last FPS: 540.9 | Collect Time: 384.2 min | Train RL Time: 2.0 min | Mean Rewards: 13.50 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.5 | Last FPS: 539.5 | Collect Time: 384.7 min | Train RL Time: 2.0 min | Mean Rewards: 13.47 | Current Best: 47.07
+[课程] release_row -> 20 @ 12.80M
+Agent Steps: 0012M | FPS: 550.5 | Last FPS: 539.2 | Collect Time: 385.2 min | Train RL Time: 2.0 min | Mean Rewards: 13.70 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.4 | Last FPS: 540.0 | Collect Time: 385.7 min | Train RL Time: 2.0 min | Mean Rewards: 12.01 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.4 | Last FPS: 538.3 | Collect Time: 386.2 min | Train RL Time: 2.0 min | Mean Rewards: 13.43 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.4 | Last FPS: 543.8 | Collect Time: 386.7 min | Train RL Time: 2.0 min | Mean Rewards: 15.01 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.4 | Last FPS: 542.6 | Collect Time: 387.2 min | Train RL Time: 2.0 min | Mean Rewards: 12.42 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.4 | Last FPS: 540.4 | Collect Time: 387.7 min | Train RL Time: 2.0 min | Mean Rewards: 5.20 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.4 | Last FPS: 537.9 | Collect Time: 388.2 min | Train RL Time: 2.0 min | Mean Rewards: 5.28 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.4 | Last FPS: 542.2 | Collect Time: 388.7 min | Train RL Time: 2.0 min | Mean Rewards: 7.21 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.4 | Last FPS: 540.9 | Collect Time: 389.2 min | Train RL Time: 2.0 min | Mean Rewards: 6.84 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.3 | Last FPS: 541.8 | Collect Time: 389.7 min | Train RL Time: 2.1 min | Mean Rewards: 9.25 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.3 | Last FPS: 543.1 | Collect Time: 390.2 min | Train RL Time: 2.1 min | Mean Rewards: 8.51 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.3 | Last FPS: 542.1 | Collect Time: 390.7 min | Train RL Time: 2.1 min | Mean Rewards: 8.36 | Current Best: 47.07
+Agent Steps: 0012M | FPS: 550.3 | Last FPS: 541.0 | Collect Time: 391.2 min | Train RL Time: 2.1 min | Mean Rewards: 9.16 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.3 | Last FPS: 541.6 | Collect Time: 391.7 min | Train RL Time: 2.1 min | Mean Rewards: 8.50 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.3 | Last FPS: 546.6 | Collect Time: 392.2 min | Train RL Time: 2.1 min | Mean Rewards: 9.17 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.3 | Last FPS: 545.0 | Collect Time: 392.7 min | Train RL Time: 2.1 min | Mean Rewards: 9.70 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.3 | Last FPS: 544.7 | Collect Time: 393.2 min | Train RL Time: 2.1 min | Mean Rewards: 7.82 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.3 | Last FPS: 543.8 | Collect Time: 393.7 min | Train RL Time: 2.1 min | Mean Rewards: 9.28 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.3 | Last FPS: 544.0 | Collect Time: 394.2 min | Train RL Time: 2.1 min | Mean Rewards: 8.78 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.3 | Last FPS: 535.2 | Collect Time: 394.7 min | Train RL Time: 2.1 min | Mean Rewards: 10.35 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.2 | Last FPS: 536.2 | Collect Time: 395.2 min | Train RL Time: 2.1 min | Mean Rewards: 9.02 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.2 | Last FPS: 541.4 | Collect Time: 395.7 min | Train RL Time: 2.1 min | Mean Rewards: 8.32 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.2 | Last FPS: 541.8 | Collect Time: 396.3 min | Train RL Time: 2.1 min | Mean Rewards: 8.47 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.2 | Last FPS: 539.5 | Collect Time: 396.8 min | Train RL Time: 2.1 min | Mean Rewards: 8.09 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.2 | Last FPS: 545.6 | Collect Time: 397.3 min | Train RL Time: 2.1 min | Mean Rewards: 9.68 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.2 | Last FPS: 542.5 | Collect Time: 397.8 min | Train RL Time: 2.1 min | Mean Rewards: 9.92 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.2 | Last FPS: 542.6 | Collect Time: 398.3 min | Train RL Time: 2.1 min | Mean Rewards: 9.86 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.2 | Last FPS: 538.4 | Collect Time: 398.8 min | Train RL Time: 2.1 min | Mean Rewards: 10.33 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.2 | Last FPS: 546.1 | Collect Time: 399.3 min | Train RL Time: 2.1 min | Mean Rewards: 8.90 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.1 | Last FPS: 544.0 | Collect Time: 399.8 min | Train RL Time: 2.1 min | Mean Rewards: 10.28 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.1 | Last FPS: 541.5 | Collect Time: 400.3 min | Train RL Time: 2.1 min | Mean Rewards: 9.70 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.1 | Last FPS: 544.8 | Collect Time: 400.8 min | Train RL Time: 2.1 min | Mean Rewards: 9.27 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.1 | Last FPS: 542.4 | Collect Time: 401.3 min | Train RL Time: 2.1 min | Mean Rewards: 9.26 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.1 | Last FPS: 539.6 | Collect Time: 401.8 min | Train RL Time: 2.1 min | Mean Rewards: 11.19 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.1 | Last FPS: 541.4 | Collect Time: 402.3 min | Train RL Time: 2.1 min | Mean Rewards: 11.66 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.1 | Last FPS: 543.9 | Collect Time: 402.8 min | Train RL Time: 2.1 min | Mean Rewards: 12.19 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.1 | Last FPS: 540.8 | Collect Time: 403.3 min | Train RL Time: 2.1 min | Mean Rewards: 12.07 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.1 | Last FPS: 539.4 | Collect Time: 403.8 min | Train RL Time: 2.1 min | Mean Rewards: 12.13 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.1 | Last FPS: 543.3 | Collect Time: 404.3 min | Train RL Time: 2.1 min | Mean Rewards: 11.74 | Current Best: 47.07
+[课程] release_row -> 15 @ 13.43M
+Agent Steps: 0013M | FPS: 550.0 | Last FPS: 544.2 | Collect Time: 404.8 min | Train RL Time: 2.1 min | Mean Rewards: 10.97 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.0 | Last FPS: 538.8 | Collect Time: 405.3 min | Train RL Time: 2.1 min | Mean Rewards: 11.06 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.0 | Last FPS: 536.8 | Collect Time: 405.8 min | Train RL Time: 2.1 min | Mean Rewards: 11.07 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.0 | Last FPS: 543.3 | Collect Time: 406.3 min | Train RL Time: 2.1 min | Mean Rewards: 10.05 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.0 | Last FPS: 539.9 | Collect Time: 406.8 min | Train RL Time: 2.1 min | Mean Rewards: 8.53 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.0 | Last FPS: 541.3 | Collect Time: 407.3 min | Train RL Time: 2.1 min | Mean Rewards: 7.53 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.0 | Last FPS: 541.1 | Collect Time: 407.8 min | Train RL Time: 2.1 min | Mean Rewards: 7.36 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.0 | Last FPS: 540.7 | Collect Time: 408.3 min | Train RL Time: 2.1 min | Mean Rewards: 6.37 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 550.0 | Last FPS: 544.8 | Collect Time: 408.8 min | Train RL Time: 2.1 min | Mean Rewards: 7.68 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 549.9 | Last FPS: 542.1 | Collect Time: 409.3 min | Train RL Time: 2.2 min | Mean Rewards: 7.28 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 549.9 | Last FPS: 544.1 | Collect Time: 409.8 min | Train RL Time: 2.2 min | Mean Rewards: 6.85 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 549.9 | Last FPS: 539.2 | Collect Time: 410.3 min | Train RL Time: 2.2 min | Mean Rewards: 7.35 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 549.9 | Last FPS: 544.0 | Collect Time: 410.8 min | Train RL Time: 2.2 min | Mean Rewards: 7.46 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 549.9 | Last FPS: 539.6 | Collect Time: 411.3 min | Train RL Time: 2.2 min | Mean Rewards: 4.36 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 549.9 | Last FPS: 535.2 | Collect Time: 411.8 min | Train RL Time: 2.2 min | Mean Rewards: 3.69 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 549.9 | Last FPS: 535.6 | Collect Time: 412.3 min | Train RL Time: 2.2 min | Mean Rewards: 0.32 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 549.9 | Last FPS: 541.7 | Collect Time: 412.8 min | Train RL Time: 2.2 min | Mean Rewards: -2.94 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 549.9 | Last FPS: 544.6 | Collect Time: 413.3 min | Train RL Time: 2.2 min | Mean Rewards: -2.17 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 549.8 | Last FPS: 545.4 | Collect Time: 413.8 min | Train RL Time: 2.2 min | Mean Rewards: 0.01 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 549.8 | Last FPS: 542.0 | Collect Time: 414.3 min | Train RL Time: 2.2 min | Mean Rewards: 2.74 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 549.8 | Last FPS: 543.6 | Collect Time: 414.8 min | Train RL Time: 2.2 min | Mean Rewards: 4.38 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 549.8 | Last FPS: 538.9 | Collect Time: 415.3 min | Train RL Time: 2.2 min | Mean Rewards: 3.89 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 549.8 | Last FPS: 538.8 | Collect Time: 415.8 min | Train RL Time: 2.2 min | Mean Rewards: 5.40 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 549.8 | Last FPS: 538.4 | Collect Time: 416.3 min | Train RL Time: 2.2 min | Mean Rewards: 5.63 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 549.8 | Last FPS: 541.5 | Collect Time: 416.8 min | Train RL Time: 2.2 min | Mean Rewards: 6.28 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 549.8 | Last FPS: 540.8 | Collect Time: 417.3 min | Train RL Time: 2.2 min | Mean Rewards: 6.00 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 549.8 | Last FPS: 537.2 | Collect Time: 417.8 min | Train RL Time: 2.2 min | Mean Rewards: 7.29 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 549.7 | Last FPS: 541.1 | Collect Time: 418.3 min | Train RL Time: 2.2 min | Mean Rewards: 7.61 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 549.7 | Last FPS: 539.4 | Collect Time: 418.8 min | Train RL Time: 2.2 min | Mean Rewards: 6.99 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 549.7 | Last FPS: 546.4 | Collect Time: 419.3 min | Train RL Time: 2.2 min | Mean Rewards: 5.58 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 549.7 | Last FPS: 544.0 | Collect Time: 419.8 min | Train RL Time: 2.2 min | Mean Rewards: 2.82 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 549.7 | Last FPS: 543.4 | Collect Time: 420.3 min | Train RL Time: 2.2 min | Mean Rewards: 7.81 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 549.7 | Last FPS: 539.4 | Collect Time: 420.8 min | Train RL Time: 2.2 min | Mean Rewards: 8.58 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 549.7 | Last FPS: 537.5 | Collect Time: 421.3 min | Train RL Time: 2.2 min | Mean Rewards: 8.51 | Current Best: 47.07
+Agent Steps: 0013M | FPS: 549.7 | Last FPS: 541.9 | Collect Time: 421.8 min | Train RL Time: 2.2 min | Mean Rewards: 8.64 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.7 | Last FPS: 534.7 | Collect Time: 422.3 min | Train RL Time: 2.2 min | Mean Rewards: 7.06 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.6 | Last FPS: 541.0 | Collect Time: 422.8 min | Train RL Time: 2.2 min | Mean Rewards: 7.00 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.6 | Last FPS: 541.9 | Collect Time: 423.3 min | Train RL Time: 2.2 min | Mean Rewards: 7.80 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.6 | Last FPS: 541.1 | Collect Time: 423.8 min | Train RL Time: 2.2 min | Mean Rewards: 6.34 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.6 | Last FPS: 542.1 | Collect Time: 424.3 min | Train RL Time: 2.2 min | Mean Rewards: 5.74 | Current Best: 47.07
+[课程] release_row -> 10 @ 14.09M
+Agent Steps: 0014M | FPS: 549.6 | Last FPS: 543.9 | Collect Time: 424.8 min | Train RL Time: 2.2 min | Mean Rewards: 3.62 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.6 | Last FPS: 546.4 | Collect Time: 425.3 min | Train RL Time: 2.2 min | Mean Rewards: 3.87 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.6 | Last FPS: 540.2 | Collect Time: 425.8 min | Train RL Time: 2.2 min | Mean Rewards: 3.69 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.6 | Last FPS: 540.5 | Collect Time: 426.3 min | Train RL Time: 2.2 min | Mean Rewards: 1.03 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.6 | Last FPS: 543.9 | Collect Time: 426.8 min | Train RL Time: 2.2 min | Mean Rewards: 0.21 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.6 | Last FPS: 546.6 | Collect Time: 427.3 min | Train RL Time: 2.2 min | Mean Rewards: 2.17 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.6 | Last FPS: 540.7 | Collect Time: 427.8 min | Train RL Time: 2.2 min | Mean Rewards: 3.49 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.6 | Last FPS: 543.7 | Collect Time: 428.3 min | Train RL Time: 2.2 min | Mean Rewards: 3.83 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.6 | Last FPS: 543.6 | Collect Time: 428.8 min | Train RL Time: 2.3 min | Mean Rewards: 4.23 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.5 | Last FPS: 543.3 | Collect Time: 429.3 min | Train RL Time: 2.3 min | Mean Rewards: 3.97 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.5 | Last FPS: 545.9 | Collect Time: 429.8 min | Train RL Time: 2.3 min | Mean Rewards: 2.55 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.5 | Last FPS: 539.8 | Collect Time: 430.3 min | Train RL Time: 2.3 min | Mean Rewards: 2.55 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.5 | Last FPS: 539.7 | Collect Time: 430.8 min | Train RL Time: 2.3 min | Mean Rewards: 3.47 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.5 | Last FPS: 542.9 | Collect Time: 431.3 min | Train RL Time: 2.3 min | Mean Rewards: 1.82 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.5 | Last FPS: 540.9 | Collect Time: 431.9 min | Train RL Time: 2.3 min | Mean Rewards: -0.67 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.5 | Last FPS: 541.7 | Collect Time: 432.4 min | Train RL Time: 2.3 min | Mean Rewards: -0.37 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.5 | Last FPS: 541.4 | Collect Time: 432.9 min | Train RL Time: 2.3 min | Mean Rewards: -1.79 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.5 | Last FPS: 541.0 | Collect Time: 433.4 min | Train RL Time: 2.3 min | Mean Rewards: -2.47 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.5 | Last FPS: 542.5 | Collect Time: 433.9 min | Train RL Time: 2.3 min | Mean Rewards: 0.12 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.5 | Last FPS: 543.2 | Collect Time: 434.4 min | Train RL Time: 2.3 min | Mean Rewards: 0.00 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.5 | Last FPS: 542.4 | Collect Time: 434.9 min | Train RL Time: 2.3 min | Mean Rewards: 0.01 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.4 | Last FPS: 541.3 | Collect Time: 435.4 min | Train RL Time: 2.3 min | Mean Rewards: -0.32 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.4 | Last FPS: 542.2 | Collect Time: 435.9 min | Train RL Time: 2.3 min | Mean Rewards: 1.60 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.4 | Last FPS: 544.7 | Collect Time: 436.4 min | Train RL Time: 2.3 min | Mean Rewards: 1.46 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.4 | Last FPS: 545.1 | Collect Time: 436.9 min | Train RL Time: 2.3 min | Mean Rewards: 0.50 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.4 | Last FPS: 546.0 | Collect Time: 437.4 min | Train RL Time: 2.3 min | Mean Rewards: 2.16 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.4 | Last FPS: 545.9 | Collect Time: 437.8 min | Train RL Time: 2.3 min | Mean Rewards: 0.79 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.4 | Last FPS: 544.8 | Collect Time: 438.3 min | Train RL Time: 2.3 min | Mean Rewards: 2.82 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.4 | Last FPS: 546.2 | Collect Time: 438.8 min | Train RL Time: 2.3 min | Mean Rewards: 2.90 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.4 | Last FPS: 551.4 | Collect Time: 439.3 min | Train RL Time: 2.3 min | Mean Rewards: 2.90 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.4 | Last FPS: 542.9 | Collect Time: 439.8 min | Train RL Time: 2.3 min | Mean Rewards: 3.69 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.4 | Last FPS: 545.8 | Collect Time: 440.3 min | Train RL Time: 2.3 min | Mean Rewards: 4.82 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.4 | Last FPS: 544.7 | Collect Time: 440.8 min | Train RL Time: 2.3 min | Mean Rewards: 3.10 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.4 | Last FPS: 543.5 | Collect Time: 441.3 min | Train RL Time: 2.3 min | Mean Rewards: 2.91 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.4 | Last FPS: 543.2 | Collect Time: 441.8 min | Train RL Time: 2.3 min | Mean Rewards: 4.53 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.4 | Last FPS: 540.7 | Collect Time: 442.3 min | Train RL Time: 2.3 min | Mean Rewards: 2.67 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.4 | Last FPS: 547.4 | Collect Time: 442.8 min | Train RL Time: 2.3 min | Mean Rewards: 1.34 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.4 | Last FPS: 543.5 | Collect Time: 443.3 min | Train RL Time: 2.3 min | Mean Rewards: 2.10 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.3 | Last FPS: 541.4 | Collect Time: 443.8 min | Train RL Time: 2.3 min | Mean Rewards: 3.10 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.3 | Last FPS: 542.4 | Collect Time: 444.3 min | Train RL Time: 2.3 min | Mean Rewards: 4.45 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.3 | Last FPS: 544.6 | Collect Time: 444.8 min | Train RL Time: 2.3 min | Mean Rewards: 3.53 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.3 | Last FPS: 545.7 | Collect Time: 445.3 min | Train RL Time: 2.3 min | Mean Rewards: 2.91 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.3 | Last FPS: 544.1 | Collect Time: 445.8 min | Train RL Time: 2.3 min | Mean Rewards: 2.15 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.3 | Last FPS: 541.5 | Collect Time: 446.3 min | Train RL Time: 2.3 min | Mean Rewards: -0.66 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.3 | Last FPS: 543.2 | Collect Time: 446.8 min | Train RL Time: 2.3 min | Mean Rewards: -2.17 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.3 | Last FPS: 544.5 | Collect Time: 447.3 min | Train RL Time: 2.3 min | Mean Rewards: -3.02 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.3 | Last FPS: 545.5 | Collect Time: 447.8 min | Train RL Time: 2.3 min | Mean Rewards: -4.19 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.3 | Last FPS: 545.7 | Collect Time: 448.3 min | Train RL Time: 2.4 min | Mean Rewards: -4.86 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.3 | Last FPS: 547.4 | Collect Time: 448.8 min | Train RL Time: 2.4 min | Mean Rewards: -6.87 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.3 | Last FPS: 547.6 | Collect Time: 449.3 min | Train RL Time: 2.4 min | Mean Rewards: -7.51 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.3 | Last FPS: 538.7 | Collect Time: 449.8 min | Train RL Time: 2.4 min | Mean Rewards: -8.02 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.3 | Last FPS: 547.7 | Collect Time: 450.3 min | Train RL Time: 2.4 min | Mean Rewards: -7.71 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.3 | Last FPS: 549.4 | Collect Time: 450.8 min | Train RL Time: 2.4 min | Mean Rewards: -8.71 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.3 | Last FPS: 544.5 | Collect Time: 451.3 min | Train RL Time: 2.4 min | Mean Rewards: -10.60 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.3 | Last FPS: 545.2 | Collect Time: 451.8 min | Train RL Time: 2.4 min | Mean Rewards: -10.41 | Current Best: 47.07
+Agent Steps: 0014M | FPS: 549.3 | Last FPS: 551.2 | Collect Time: 452.3 min | Train RL Time: 2.4 min | Mean Rewards: -10.50 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.3 | Last FPS: 543.1 | Collect Time: 452.8 min | Train RL Time: 2.4 min | Mean Rewards: -9.10 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.3 | Last FPS: 546.5 | Collect Time: 453.3 min | Train RL Time: 2.4 min | Mean Rewards: -9.44 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.3 | Last FPS: 546.3 | Collect Time: 453.8 min | Train RL Time: 2.4 min | Mean Rewards: -12.34 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.3 | Last FPS: 545.6 | Collect Time: 454.3 min | Train RL Time: 2.4 min | Mean Rewards: -14.44 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.2 | Last FPS: 542.5 | Collect Time: 454.8 min | Train RL Time: 2.4 min | Mean Rewards: -17.08 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.2 | Last FPS: 538.6 | Collect Time: 455.3 min | Train RL Time: 2.4 min | Mean Rewards: -16.36 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.2 | Last FPS: 541.9 | Collect Time: 455.8 min | Train RL Time: 2.4 min | Mean Rewards: -19.20 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.2 | Last FPS: 541.3 | Collect Time: 456.3 min | Train RL Time: 2.4 min | Mean Rewards: -20.19 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.2 | Last FPS: 545.4 | Collect Time: 456.8 min | Train RL Time: 2.4 min | Mean Rewards: -20.62 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.2 | Last FPS: 548.8 | Collect Time: 457.3 min | Train RL Time: 2.4 min | Mean Rewards: -17.79 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.2 | Last FPS: 543.4 | Collect Time: 457.8 min | Train RL Time: 2.4 min | Mean Rewards: -17.46 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.2 | Last FPS: 538.5 | Collect Time: 458.3 min | Train RL Time: 2.4 min | Mean Rewards: -17.58 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.2 | Last FPS: 541.2 | Collect Time: 458.8 min | Train RL Time: 2.4 min | Mean Rewards: -14.83 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.2 | Last FPS: 545.9 | Collect Time: 459.3 min | Train RL Time: 2.4 min | Mean Rewards: -10.99 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.2 | Last FPS: 545.2 | Collect Time: 459.8 min | Train RL Time: 2.4 min | Mean Rewards: -8.06 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.2 | Last FPS: 543.2 | Collect Time: 460.3 min | Train RL Time: 2.4 min | Mean Rewards: -5.26 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.2 | Last FPS: 547.6 | Collect Time: 460.8 min | Train RL Time: 2.4 min | Mean Rewards: -4.69 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.2 | Last FPS: 543.9 | Collect Time: 461.3 min | Train RL Time: 2.4 min | Mean Rewards: -4.35 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.2 | Last FPS: 546.0 | Collect Time: 461.8 min | Train RL Time: 2.4 min | Mean Rewards: -3.03 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.2 | Last FPS: 541.9 | Collect Time: 462.3 min | Train RL Time: 2.4 min | Mean Rewards: -3.13 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.1 | Last FPS: 544.6 | Collect Time: 462.8 min | Train RL Time: 2.4 min | Mean Rewards: -2.02 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.1 | Last FPS: 545.9 | Collect Time: 463.3 min | Train RL Time: 2.4 min | Mean Rewards: -1.93 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.1 | Last FPS: 544.3 | Collect Time: 463.8 min | Train RL Time: 2.4 min | Mean Rewards: -0.95 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.1 | Last FPS: 547.5 | Collect Time: 464.3 min | Train RL Time: 2.4 min | Mean Rewards: -1.07 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.1 | Last FPS: 547.0 | Collect Time: 464.8 min | Train RL Time: 2.4 min | Mean Rewards: -0.51 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.1 | Last FPS: 543.5 | Collect Time: 465.3 min | Train RL Time: 2.4 min | Mean Rewards: -0.34 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.1 | Last FPS: 544.3 | Collect Time: 465.8 min | Train RL Time: 2.4 min | Mean Rewards: -0.31 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.1 | Last FPS: 543.8 | Collect Time: 466.3 min | Train RL Time: 2.4 min | Mean Rewards: -0.18 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.1 | Last FPS: 546.7 | Collect Time: 466.8 min | Train RL Time: 2.4 min | Mean Rewards: -0.77 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.1 | Last FPS: 543.5 | Collect Time: 467.3 min | Train RL Time: 2.5 min | Mean Rewards: -1.65 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.1 | Last FPS: 543.5 | Collect Time: 467.8 min | Train RL Time: 2.5 min | Mean Rewards: -1.75 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.1 | Last FPS: 541.0 | Collect Time: 468.3 min | Train RL Time: 2.5 min | Mean Rewards: -3.80 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.1 | Last FPS: 541.4 | Collect Time: 468.8 min | Train RL Time: 2.5 min | Mean Rewards: -4.82 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.1 | Last FPS: 543.3 | Collect Time: 469.3 min | Train RL Time: 2.5 min | Mean Rewards: -2.88 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.1 | Last FPS: 543.7 | Collect Time: 469.8 min | Train RL Time: 2.5 min | Mean Rewards: -4.23 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.1 | Last FPS: 545.5 | Collect Time: 470.3 min | Train RL Time: 2.5 min | Mean Rewards: -3.76 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.1 | Last FPS: 547.6 | Collect Time: 470.8 min | Train RL Time: 2.5 min | Mean Rewards: -4.39 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.1 | Last FPS: 551.2 | Collect Time: 471.3 min | Train RL Time: 2.5 min | Mean Rewards: -2.06 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.1 | Last FPS: 547.5 | Collect Time: 471.8 min | Train RL Time: 2.5 min | Mean Rewards: -1.64 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.1 | Last FPS: 540.7 | Collect Time: 472.3 min | Train RL Time: 2.5 min | Mean Rewards: -2.39 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.1 | Last FPS: 549.1 | Collect Time: 472.8 min | Train RL Time: 2.5 min | Mean Rewards: -2.37 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.1 | Last FPS: 545.4 | Collect Time: 473.2 min | Train RL Time: 2.5 min | Mean Rewards: -3.19 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.1 | Last FPS: 542.2 | Collect Time: 473.7 min | Train RL Time: 2.5 min | Mean Rewards: -4.56 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.0 | Last FPS: 545.6 | Collect Time: 474.2 min | Train RL Time: 2.5 min | Mean Rewards: -5.49 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.0 | Last FPS: 542.6 | Collect Time: 474.7 min | Train RL Time: 2.5 min | Mean Rewards: -5.97 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.0 | Last FPS: 541.1 | Collect Time: 475.2 min | Train RL Time: 2.5 min | Mean Rewards: -7.68 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.0 | Last FPS: 540.7 | Collect Time: 475.8 min | Train RL Time: 2.5 min | Mean Rewards: -9.58 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.0 | Last FPS: 539.6 | Collect Time: 476.3 min | Train RL Time: 2.5 min | Mean Rewards: -7.95 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.0 | Last FPS: 543.4 | Collect Time: 476.8 min | Train RL Time: 2.5 min | Mean Rewards: -7.45 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.0 | Last FPS: 543.8 | Collect Time: 477.3 min | Train RL Time: 2.5 min | Mean Rewards: -7.92 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.0 | Last FPS: 540.4 | Collect Time: 477.8 min | Train RL Time: 2.5 min | Mean Rewards: -5.21 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.0 | Last FPS: 542.7 | Collect Time: 478.3 min | Train RL Time: 2.5 min | Mean Rewards: -4.29 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.0 | Last FPS: 544.2 | Collect Time: 478.8 min | Train RL Time: 2.5 min | Mean Rewards: -5.52 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.0 | Last FPS: 542.7 | Collect Time: 479.3 min | Train RL Time: 2.5 min | Mean Rewards: -7.22 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.0 | Last FPS: 541.5 | Collect Time: 479.8 min | Train RL Time: 2.5 min | Mean Rewards: -9.38 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 549.0 | Last FPS: 543.1 | Collect Time: 480.3 min | Train RL Time: 2.5 min | Mean Rewards: -8.82 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 548.9 | Last FPS: 537.4 | Collect Time: 480.8 min | Train RL Time: 2.5 min | Mean Rewards: -9.00 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 548.9 | Last FPS: 546.2 | Collect Time: 481.3 min | Train RL Time: 2.5 min | Mean Rewards: -9.29 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 548.9 | Last FPS: 542.9 | Collect Time: 481.8 min | Train RL Time: 2.5 min | Mean Rewards: -11.35 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 548.9 | Last FPS: 538.9 | Collect Time: 482.3 min | Train RL Time: 2.5 min | Mean Rewards: -14.39 | Current Best: 47.07
+Agent Steps: 0015M | FPS: 548.9 | Last FPS: 540.9 | Collect Time: 482.8 min | Train RL Time: 2.5 min | Mean Rewards: -15.47 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.9 | Last FPS: 537.2 | Collect Time: 483.3 min | Train RL Time: 2.5 min | Mean Rewards: -16.35 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.9 | Last FPS: 543.8 | Collect Time: 483.8 min | Train RL Time: 2.5 min | Mean Rewards: -14.45 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.9 | Last FPS: 539.0 | Collect Time: 484.3 min | Train RL Time: 2.5 min | Mean Rewards: -18.45 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.9 | Last FPS: 548.1 | Collect Time: 484.8 min | Train RL Time: 2.5 min | Mean Rewards: -17.41 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.9 | Last FPS: 549.3 | Collect Time: 485.3 min | Train RL Time: 2.5 min | Mean Rewards: -18.26 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.9 | Last FPS: 539.5 | Collect Time: 485.8 min | Train RL Time: 2.5 min | Mean Rewards: -17.70 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.9 | Last FPS: 539.8 | Collect Time: 486.3 min | Train RL Time: 2.5 min | Mean Rewards: -17.42 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.9 | Last FPS: 542.2 | Collect Time: 486.8 min | Train RL Time: 2.5 min | Mean Rewards: -13.14 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.9 | Last FPS: 541.3 | Collect Time: 487.3 min | Train RL Time: 2.6 min | Mean Rewards: -10.34 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.8 | Last FPS: 537.6 | Collect Time: 487.8 min | Train RL Time: 2.6 min | Mean Rewards: -11.84 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.8 | Last FPS: 544.7 | Collect Time: 488.3 min | Train RL Time: 2.6 min | Mean Rewards: -10.71 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.8 | Last FPS: 541.6 | Collect Time: 488.8 min | Train RL Time: 2.6 min | Mean Rewards: -8.93 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.8 | Last FPS: 534.8 | Collect Time: 489.3 min | Train RL Time: 2.6 min | Mean Rewards: -7.07 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.8 | Last FPS: 542.9 | Collect Time: 489.8 min | Train RL Time: 2.6 min | Mean Rewards: -8.03 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.8 | Last FPS: 545.0 | Collect Time: 490.3 min | Train RL Time: 2.6 min | Mean Rewards: -7.51 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.8 | Last FPS: 549.4 | Collect Time: 490.8 min | Train RL Time: 2.6 min | Mean Rewards: -7.13 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.8 | Last FPS: 537.9 | Collect Time: 491.3 min | Train RL Time: 2.6 min | Mean Rewards: -7.14 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.8 | Last FPS: 543.8 | Collect Time: 491.8 min | Train RL Time: 2.6 min | Mean Rewards: -10.17 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.8 | Last FPS: 542.1 | Collect Time: 492.3 min | Train RL Time: 2.6 min | Mean Rewards: -9.26 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.8 | Last FPS: 540.3 | Collect Time: 492.8 min | Train RL Time: 2.6 min | Mean Rewards: -13.01 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.8 | Last FPS: 547.2 | Collect Time: 493.3 min | Train RL Time: 2.6 min | Mean Rewards: -12.89 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.8 | Last FPS: 540.4 | Collect Time: 493.8 min | Train RL Time: 2.6 min | Mean Rewards: -13.12 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.8 | Last FPS: 537.7 | Collect Time: 494.3 min | Train RL Time: 2.6 min | Mean Rewards: -10.84 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.7 | Last FPS: 539.0 | Collect Time: 494.8 min | Train RL Time: 2.6 min | Mean Rewards: -9.68 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.7 | Last FPS: 540.9 | Collect Time: 495.3 min | Train RL Time: 2.6 min | Mean Rewards: -11.42 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.7 | Last FPS: 541.5 | Collect Time: 495.8 min | Train RL Time: 2.6 min | Mean Rewards: -10.65 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.7 | Last FPS: 543.4 | Collect Time: 496.3 min | Train RL Time: 2.6 min | Mean Rewards: -14.24 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.7 | Last FPS: 543.4 | Collect Time: 496.8 min | Train RL Time: 2.6 min | Mean Rewards: -13.59 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.7 | Last FPS: 541.8 | Collect Time: 497.3 min | Train RL Time: 2.6 min | Mean Rewards: -13.33 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.7 | Last FPS: 540.1 | Collect Time: 497.8 min | Train RL Time: 2.6 min | Mean Rewards: -10.80 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.7 | Last FPS: 543.1 | Collect Time: 498.3 min | Train RL Time: 2.6 min | Mean Rewards: -9.15 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.7 | Last FPS: 540.8 | Collect Time: 498.8 min | Train RL Time: 2.6 min | Mean Rewards: -8.51 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.7 | Last FPS: 544.8 | Collect Time: 499.3 min | Train RL Time: 2.6 min | Mean Rewards: -9.72 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.7 | Last FPS: 536.5 | Collect Time: 499.8 min | Train RL Time: 2.6 min | Mean Rewards: -9.19 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.7 | Last FPS: 545.0 | Collect Time: 500.3 min | Train RL Time: 2.6 min | Mean Rewards: -11.40 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.7 | Last FPS: 539.0 | Collect Time: 500.8 min | Train RL Time: 2.6 min | Mean Rewards: -13.54 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.7 | Last FPS: 543.2 | Collect Time: 501.3 min | Train RL Time: 2.6 min | Mean Rewards: -18.75 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.7 | Last FPS: 541.3 | Collect Time: 501.8 min | Train RL Time: 2.6 min | Mean Rewards: -22.50 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.6 | Last FPS: 542.4 | Collect Time: 502.3 min | Train RL Time: 2.6 min | Mean Rewards: -21.52 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.6 | Last FPS: 543.3 | Collect Time: 502.8 min | Train RL Time: 2.6 min | Mean Rewards: -25.09 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.6 | Last FPS: 541.3 | Collect Time: 503.3 min | Train RL Time: 2.6 min | Mean Rewards: -24.80 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.6 | Last FPS: 540.5 | Collect Time: 503.8 min | Train RL Time: 2.6 min | Mean Rewards: -25.70 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.6 | Last FPS: 546.3 | Collect Time: 504.3 min | Train RL Time: 2.6 min | Mean Rewards: -23.64 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.6 | Last FPS: 542.2 | Collect Time: 504.8 min | Train RL Time: 2.6 min | Mean Rewards: -25.88 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.6 | Last FPS: 540.8 | Collect Time: 505.3 min | Train RL Time: 2.6 min | Mean Rewards: -26.59 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.6 | Last FPS: 543.3 | Collect Time: 505.8 min | Train RL Time: 2.6 min | Mean Rewards: -26.46 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.6 | Last FPS: 544.4 | Collect Time: 506.3 min | Train RL Time: 2.6 min | Mean Rewards: -24.54 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.6 | Last FPS: 539.9 | Collect Time: 506.8 min | Train RL Time: 2.7 min | Mean Rewards: -22.86 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.6 | Last FPS: 542.0 | Collect Time: 507.3 min | Train RL Time: 2.7 min | Mean Rewards: -21.35 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.6 | Last FPS: 545.4 | Collect Time: 507.8 min | Train RL Time: 2.7 min | Mean Rewards: -20.17 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.6 | Last FPS: 543.0 | Collect Time: 508.3 min | Train RL Time: 2.7 min | Mean Rewards: -21.36 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.6 | Last FPS: 544.1 | Collect Time: 508.8 min | Train RL Time: 2.7 min | Mean Rewards: -23.42 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.6 | Last FPS: 545.4 | Collect Time: 509.3 min | Train RL Time: 2.7 min | Mean Rewards: -22.99 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.6 | Last FPS: 539.8 | Collect Time: 509.8 min | Train RL Time: 2.7 min | Mean Rewards: -21.07 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.6 | Last FPS: 546.4 | Collect Time: 510.3 min | Train RL Time: 2.7 min | Mean Rewards: -18.11 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.6 | Last FPS: 544.4 | Collect Time: 510.8 min | Train RL Time: 2.7 min | Mean Rewards: -16.80 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.5 | Last FPS: 544.7 | Collect Time: 511.3 min | Train RL Time: 2.7 min | Mean Rewards: -14.67 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.5 | Last FPS: 541.1 | Collect Time: 511.8 min | Train RL Time: 2.7 min | Mean Rewards: -14.30 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.5 | Last FPS: 542.0 | Collect Time: 512.3 min | Train RL Time: 2.7 min | Mean Rewards: -9.69 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.5 | Last FPS: 536.9 | Collect Time: 512.8 min | Train RL Time: 2.7 min | Mean Rewards: -9.76 | Current Best: 47.07
+Agent Steps: 0016M | FPS: 548.5 | Last FPS: 528.3 | Collect Time: 513.3 min | Train RL Time: 2.7 min | Mean Rewards: -7.95 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 548.5 | Last FPS: 520.4 | Collect Time: 513.9 min | Train RL Time: 2.7 min | Mean Rewards: -6.93 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 548.5 | Last FPS: 528.3 | Collect Time: 514.4 min | Train RL Time: 2.7 min | Mean Rewards: -8.40 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 548.4 | Last FPS: 527.4 | Collect Time: 514.9 min | Train RL Time: 2.7 min | Mean Rewards: -8.84 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 548.4 | Last FPS: 520.0 | Collect Time: 515.4 min | Train RL Time: 2.7 min | Mean Rewards: -7.76 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 548.4 | Last FPS: 526.0 | Collect Time: 515.9 min | Train RL Time: 2.7 min | Mean Rewards: -8.99 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 548.4 | Last FPS: 527.3 | Collect Time: 516.4 min | Train RL Time: 2.7 min | Mean Rewards: -10.51 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 548.3 | Last FPS: 522.3 | Collect Time: 517.0 min | Train RL Time: 2.7 min | Mean Rewards: -10.16 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 548.3 | Last FPS: 523.5 | Collect Time: 517.5 min | Train RL Time: 2.7 min | Mean Rewards: -14.14 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 548.3 | Last FPS: 525.1 | Collect Time: 518.0 min | Train RL Time: 2.7 min | Mean Rewards: -11.55 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 548.3 | Last FPS: 521.4 | Collect Time: 518.5 min | Train RL Time: 2.7 min | Mean Rewards: -9.41 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 548.2 | Last FPS: 526.1 | Collect Time: 519.0 min | Train RL Time: 2.7 min | Mean Rewards: -9.30 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 548.2 | Last FPS: 524.4 | Collect Time: 519.6 min | Train RL Time: 2.7 min | Mean Rewards: -9.03 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 548.2 | Last FPS: 523.6 | Collect Time: 520.1 min | Train RL Time: 2.7 min | Mean Rewards: -7.96 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 548.2 | Last FPS: 526.9 | Collect Time: 520.6 min | Train RL Time: 2.7 min | Mean Rewards: -6.00 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 548.2 | Last FPS: 528.8 | Collect Time: 521.1 min | Train RL Time: 2.7 min | Mean Rewards: -6.86 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 548.1 | Last FPS: 529.5 | Collect Time: 521.6 min | Train RL Time: 2.7 min | Mean Rewards: -4.23 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 548.1 | Last FPS: 523.0 | Collect Time: 522.1 min | Train RL Time: 2.7 min | Mean Rewards: -4.02 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 548.1 | Last FPS: 527.3 | Collect Time: 522.6 min | Train RL Time: 2.7 min | Mean Rewards: -4.21 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 548.1 | Last FPS: 533.4 | Collect Time: 523.2 min | Train RL Time: 2.7 min | Mean Rewards: -5.33 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 548.1 | Last FPS: 530.3 | Collect Time: 523.7 min | Train RL Time: 2.7 min | Mean Rewards: -7.34 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 548.0 | Last FPS: 524.1 | Collect Time: 524.2 min | Train RL Time: 2.7 min | Mean Rewards: -7.37 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 548.0 | Last FPS: 525.9 | Collect Time: 524.7 min | Train RL Time: 2.7 min | Mean Rewards: -8.08 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 548.0 | Last FPS: 531.0 | Collect Time: 525.2 min | Train RL Time: 2.7 min | Mean Rewards: -8.53 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 548.0 | Last FPS: 524.9 | Collect Time: 525.7 min | Train RL Time: 2.7 min | Mean Rewards: -6.43 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 548.0 | Last FPS: 530.8 | Collect Time: 526.2 min | Train RL Time: 2.8 min | Mean Rewards: -5.75 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.9 | Last FPS: 541.2 | Collect Time: 526.7 min | Train RL Time: 2.8 min | Mean Rewards: -7.14 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.9 | Last FPS: 544.9 | Collect Time: 527.2 min | Train RL Time: 2.8 min | Mean Rewards: -2.71 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.9 | Last FPS: 539.0 | Collect Time: 527.7 min | Train RL Time: 2.8 min | Mean Rewards: -1.18 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.9 | Last FPS: 538.1 | Collect Time: 528.3 min | Train RL Time: 2.8 min | Mean Rewards: -2.54 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.9 | Last FPS: 537.6 | Collect Time: 528.8 min | Train RL Time: 2.8 min | Mean Rewards: -3.16 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.9 | Last FPS: 520.8 | Collect Time: 529.3 min | Train RL Time: 2.8 min | Mean Rewards: -5.76 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.9 | Last FPS: 520.5 | Collect Time: 529.8 min | Train RL Time: 2.8 min | Mean Rewards: -4.79 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.8 | Last FPS: 525.0 | Collect Time: 530.3 min | Train RL Time: 2.8 min | Mean Rewards: -5.61 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.8 | Last FPS: 521.6 | Collect Time: 530.8 min | Train RL Time: 2.8 min | Mean Rewards: -6.18 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.8 | Last FPS: 526.6 | Collect Time: 531.4 min | Train RL Time: 2.8 min | Mean Rewards: -4.26 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.8 | Last FPS: 529.6 | Collect Time: 531.9 min | Train RL Time: 2.8 min | Mean Rewards: -4.46 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.8 | Last FPS: 523.4 | Collect Time: 532.4 min | Train RL Time: 2.8 min | Mean Rewards: -4.42 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.7 | Last FPS: 522.4 | Collect Time: 532.9 min | Train RL Time: 2.8 min | Mean Rewards: -4.84 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.7 | Last FPS: 521.8 | Collect Time: 533.4 min | Train RL Time: 2.8 min | Mean Rewards: -3.69 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.7 | Last FPS: 519.5 | Collect Time: 533.9 min | Train RL Time: 2.8 min | Mean Rewards: -3.79 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.7 | Last FPS: 523.3 | Collect Time: 534.5 min | Train RL Time: 2.8 min | Mean Rewards: -3.80 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.6 | Last FPS: 524.0 | Collect Time: 535.0 min | Train RL Time: 2.8 min | Mean Rewards: -2.92 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.6 | Last FPS: 524.6 | Collect Time: 535.5 min | Train RL Time: 2.8 min | Mean Rewards: -3.99 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.6 | Last FPS: 525.3 | Collect Time: 536.0 min | Train RL Time: 2.8 min | Mean Rewards: -2.54 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.6 | Last FPS: 524.8 | Collect Time: 536.5 min | Train RL Time: 2.8 min | Mean Rewards: -2.90 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.5 | Last FPS: 529.0 | Collect Time: 537.0 min | Train RL Time: 2.8 min | Mean Rewards: -2.85 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.5 | Last FPS: 530.8 | Collect Time: 537.6 min | Train RL Time: 2.8 min | Mean Rewards: -3.86 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.5 | Last FPS: 521.1 | Collect Time: 538.1 min | Train RL Time: 2.8 min | Mean Rewards: -3.95 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.5 | Last FPS: 529.1 | Collect Time: 538.6 min | Train RL Time: 2.8 min | Mean Rewards: -4.00 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.5 | Last FPS: 544.7 | Collect Time: 539.1 min | Train RL Time: 2.8 min | Mean Rewards: -4.12 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.5 | Last FPS: 542.9 | Collect Time: 539.6 min | Train RL Time: 2.8 min | Mean Rewards: -4.68 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.5 | Last FPS: 543.5 | Collect Time: 540.1 min | Train RL Time: 2.8 min | Mean Rewards: -6.53 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.5 | Last FPS: 540.7 | Collect Time: 540.6 min | Train RL Time: 2.8 min | Mean Rewards: -7.82 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.5 | Last FPS: 543.0 | Collect Time: 541.1 min | Train RL Time: 2.8 min | Mean Rewards: -4.76 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.5 | Last FPS: 537.9 | Collect Time: 541.6 min | Train RL Time: 2.8 min | Mean Rewards: -5.41 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.4 | Last FPS: 539.6 | Collect Time: 542.1 min | Train RL Time: 2.8 min | Mean Rewards: -5.10 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.4 | Last FPS: 536.5 | Collect Time: 542.6 min | Train RL Time: 2.8 min | Mean Rewards: -6.35 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.4 | Last FPS: 538.7 | Collect Time: 543.1 min | Train RL Time: 2.8 min | Mean Rewards: -5.76 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.4 | Last FPS: 538.7 | Collect Time: 543.6 min | Train RL Time: 2.8 min | Mean Rewards: -4.71 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.4 | Last FPS: 542.6 | Collect Time: 544.1 min | Train RL Time: 2.8 min | Mean Rewards: -8.11 | Current Best: 47.07
+Agent Steps: 0017M | FPS: 547.4 | Last FPS: 541.4 | Collect Time: 544.6 min | Train RL Time: 2.8 min | Mean Rewards: -7.60 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.4 | Last FPS: 541.1 | Collect Time: 545.1 min | Train RL Time: 2.8 min | Mean Rewards: -6.27 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.4 | Last FPS: 540.4 | Collect Time: 545.6 min | Train RL Time: 2.9 min | Mean Rewards: -6.12 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.4 | Last FPS: 542.2 | Collect Time: 546.1 min | Train RL Time: 2.9 min | Mean Rewards: -3.41 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.4 | Last FPS: 537.8 | Collect Time: 546.6 min | Train RL Time: 2.9 min | Mean Rewards: -2.09 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.4 | Last FPS: 532.6 | Collect Time: 547.1 min | Train RL Time: 2.9 min | Mean Rewards: -1.48 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.4 | Last FPS: 536.7 | Collect Time: 547.6 min | Train RL Time: 2.9 min | Mean Rewards: -2.01 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.4 | Last FPS: 539.0 | Collect Time: 548.2 min | Train RL Time: 2.9 min | Mean Rewards: -2.13 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.3 | Last FPS: 530.5 | Collect Time: 548.7 min | Train RL Time: 2.9 min | Mean Rewards: -1.47 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.3 | Last FPS: 536.4 | Collect Time: 549.2 min | Train RL Time: 2.9 min | Mean Rewards: -2.89 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.3 | Last FPS: 538.0 | Collect Time: 549.7 min | Train RL Time: 2.9 min | Mean Rewards: -4.21 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.3 | Last FPS: 533.7 | Collect Time: 550.2 min | Train RL Time: 2.9 min | Mean Rewards: -3.43 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.3 | Last FPS: 533.9 | Collect Time: 550.7 min | Train RL Time: 2.9 min | Mean Rewards: -6.60 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.3 | Last FPS: 537.6 | Collect Time: 551.2 min | Train RL Time: 2.9 min | Mean Rewards: -10.32 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.3 | Last FPS: 538.8 | Collect Time: 551.7 min | Train RL Time: 2.9 min | Mean Rewards: -10.61 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.3 | Last FPS: 533.7 | Collect Time: 552.2 min | Train RL Time: 2.9 min | Mean Rewards: -13.43 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.3 | Last FPS: 533.5 | Collect Time: 552.7 min | Train RL Time: 2.9 min | Mean Rewards: -13.70 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.2 | Last FPS: 533.9 | Collect Time: 553.2 min | Train RL Time: 2.9 min | Mean Rewards: -11.40 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.2 | Last FPS: 533.6 | Collect Time: 553.7 min | Train RL Time: 2.9 min | Mean Rewards: -10.60 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.2 | Last FPS: 536.8 | Collect Time: 554.2 min | Train RL Time: 2.9 min | Mean Rewards: -11.90 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.2 | Last FPS: 533.8 | Collect Time: 554.8 min | Train RL Time: 2.9 min | Mean Rewards: -12.47 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.2 | Last FPS: 531.7 | Collect Time: 555.3 min | Train RL Time: 2.9 min | Mean Rewards: -10.46 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.2 | Last FPS: 533.4 | Collect Time: 555.8 min | Train RL Time: 2.9 min | Mean Rewards: -10.19 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.2 | Last FPS: 534.2 | Collect Time: 556.3 min | Train RL Time: 2.9 min | Mean Rewards: -8.85 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.2 | Last FPS: 532.8 | Collect Time: 556.8 min | Train RL Time: 2.9 min | Mean Rewards: -7.75 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.1 | Last FPS: 528.3 | Collect Time: 557.3 min | Train RL Time: 2.9 min | Mean Rewards: -6.88 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.1 | Last FPS: 533.8 | Collect Time: 557.8 min | Train RL Time: 2.9 min | Mean Rewards: -7.25 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.1 | Last FPS: 533.6 | Collect Time: 558.3 min | Train RL Time: 2.9 min | Mean Rewards: -6.94 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.1 | Last FPS: 533.3 | Collect Time: 558.8 min | Train RL Time: 2.9 min | Mean Rewards: -7.31 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.1 | Last FPS: 529.6 | Collect Time: 559.3 min | Train RL Time: 2.9 min | Mean Rewards: -8.92 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.1 | Last FPS: 534.9 | Collect Time: 559.9 min | Train RL Time: 2.9 min | Mean Rewards: -6.48 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.1 | Last FPS: 531.1 | Collect Time: 560.4 min | Train RL Time: 2.9 min | Mean Rewards: -6.23 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.0 | Last FPS: 530.9 | Collect Time: 560.9 min | Train RL Time: 2.9 min | Mean Rewards: -5.97 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.0 | Last FPS: 533.2 | Collect Time: 561.4 min | Train RL Time: 2.9 min | Mean Rewards: -5.61 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.0 | Last FPS: 528.2 | Collect Time: 561.9 min | Train RL Time: 2.9 min | Mean Rewards: -4.11 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.0 | Last FPS: 531.1 | Collect Time: 562.4 min | Train RL Time: 2.9 min | Mean Rewards: -1.96 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.0 | Last FPS: 530.3 | Collect Time: 562.9 min | Train RL Time: 2.9 min | Mean Rewards: -4.00 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.0 | Last FPS: 538.3 | Collect Time: 563.4 min | Train RL Time: 2.9 min | Mean Rewards: -3.57 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.0 | Last FPS: 535.9 | Collect Time: 563.9 min | Train RL Time: 2.9 min | Mean Rewards: -2.89 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 547.0 | Last FPS: 531.5 | Collect Time: 564.4 min | Train RL Time: 2.9 min | Mean Rewards: -2.34 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 546.9 | Last FPS: 535.4 | Collect Time: 565.0 min | Train RL Time: 2.9 min | Mean Rewards: -3.00 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 546.9 | Last FPS: 529.8 | Collect Time: 565.5 min | Train RL Time: 2.9 min | Mean Rewards: -1.05 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 546.9 | Last FPS: 535.0 | Collect Time: 566.0 min | Train RL Time: 3.0 min | Mean Rewards: 0.97 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 546.9 | Last FPS: 533.2 | Collect Time: 566.5 min | Train RL Time: 3.0 min | Mean Rewards: -0.30 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 546.9 | Last FPS: 532.8 | Collect Time: 567.0 min | Train RL Time: 3.0 min | Mean Rewards: -0.41 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 546.9 | Last FPS: 533.0 | Collect Time: 567.5 min | Train RL Time: 3.0 min | Mean Rewards: -1.03 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 546.9 | Last FPS: 531.7 | Collect Time: 568.0 min | Train RL Time: 3.0 min | Mean Rewards: -0.98 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 546.9 | Last FPS: 535.7 | Collect Time: 568.5 min | Train RL Time: 3.0 min | Mean Rewards: -1.41 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 546.8 | Last FPS: 538.1 | Collect Time: 569.0 min | Train RL Time: 3.0 min | Mean Rewards: -2.03 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 546.8 | Last FPS: 541.1 | Collect Time: 569.5 min | Train RL Time: 3.0 min | Mean Rewards: -2.60 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 546.8 | Last FPS: 535.2 | Collect Time: 570.0 min | Train RL Time: 3.0 min | Mean Rewards: -5.70 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 546.8 | Last FPS: 539.0 | Collect Time: 570.5 min | Train RL Time: 3.0 min | Mean Rewards: -4.56 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 546.8 | Last FPS: 536.8 | Collect Time: 571.0 min | Train RL Time: 3.0 min | Mean Rewards: -2.75 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 546.8 | Last FPS: 531.0 | Collect Time: 571.6 min | Train RL Time: 3.0 min | Mean Rewards: -3.66 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 546.8 | Last FPS: 539.2 | Collect Time: 572.1 min | Train RL Time: 3.0 min | Mean Rewards: -4.58 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 546.8 | Last FPS: 537.8 | Collect Time: 572.6 min | Train RL Time: 3.0 min | Mean Rewards: -4.87 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 546.8 | Last FPS: 540.3 | Collect Time: 573.1 min | Train RL Time: 3.0 min | Mean Rewards: -3.62 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 546.8 | Last FPS: 534.7 | Collect Time: 573.6 min | Train RL Time: 3.0 min | Mean Rewards: -4.52 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 546.8 | Last FPS: 533.7 | Collect Time: 574.1 min | Train RL Time: 3.0 min | Mean Rewards: -3.94 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 546.8 | Last FPS: 539.6 | Collect Time: 574.6 min | Train RL Time: 3.0 min | Mean Rewards: -4.87 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 546.7 | Last FPS: 535.4 | Collect Time: 575.1 min | Train RL Time: 3.0 min | Mean Rewards: -6.02 | Current Best: 47.07
+Agent Steps: 0018M | FPS: 546.7 | Last FPS: 534.4 | Collect Time: 575.6 min | Train RL Time: 3.0 min | Mean Rewards: -6.10 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.7 | Last FPS: 528.3 | Collect Time: 576.1 min | Train RL Time: 3.0 min | Mean Rewards: -7.56 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.7 | Last FPS: 532.7 | Collect Time: 576.6 min | Train RL Time: 3.0 min | Mean Rewards: -6.32 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.7 | Last FPS: 536.9 | Collect Time: 577.1 min | Train RL Time: 3.0 min | Mean Rewards: -7.38 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.7 | Last FPS: 535.4 | Collect Time: 577.6 min | Train RL Time: 3.0 min | Mean Rewards: -8.32 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.7 | Last FPS: 531.4 | Collect Time: 578.1 min | Train RL Time: 3.0 min | Mean Rewards: -9.62 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.7 | Last FPS: 535.4 | Collect Time: 578.7 min | Train RL Time: 3.0 min | Mean Rewards: -10.77 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.7 | Last FPS: 537.3 | Collect Time: 579.2 min | Train RL Time: 3.0 min | Mean Rewards: -10.56 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.6 | Last FPS: 530.6 | Collect Time: 579.7 min | Train RL Time: 3.0 min | Mean Rewards: -11.87 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.6 | Last FPS: 529.5 | Collect Time: 580.2 min | Train RL Time: 3.0 min | Mean Rewards: -11.35 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.6 | Last FPS: 536.8 | Collect Time: 580.7 min | Train RL Time: 3.0 min | Mean Rewards: -10.97 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.6 | Last FPS: 532.4 | Collect Time: 581.2 min | Train RL Time: 3.0 min | Mean Rewards: -10.01 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.6 | Last FPS: 528.9 | Collect Time: 581.7 min | Train RL Time: 3.0 min | Mean Rewards: -8.64 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.6 | Last FPS: 539.0 | Collect Time: 582.2 min | Train RL Time: 3.0 min | Mean Rewards: -7.05 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.6 | Last FPS: 535.0 | Collect Time: 582.7 min | Train RL Time: 3.0 min | Mean Rewards: -5.29 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.6 | Last FPS: 534.4 | Collect Time: 583.2 min | Train RL Time: 3.0 min | Mean Rewards: -2.77 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.5 | Last FPS: 528.9 | Collect Time: 583.7 min | Train RL Time: 3.0 min | Mean Rewards: -1.81 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.5 | Last FPS: 532.8 | Collect Time: 584.3 min | Train RL Time: 3.0 min | Mean Rewards: -0.80 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.5 | Last FPS: 529.6 | Collect Time: 584.8 min | Train RL Time: 3.0 min | Mean Rewards: 0.91 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.5 | Last FPS: 531.8 | Collect Time: 585.3 min | Train RL Time: 3.0 min | Mean Rewards: 0.84 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.5 | Last FPS: 532.8 | Collect Time: 585.8 min | Train RL Time: 3.1 min | Mean Rewards: -0.37 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.5 | Last FPS: 532.3 | Collect Time: 586.3 min | Train RL Time: 3.1 min | Mean Rewards: 0.74 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.5 | Last FPS: 535.3 | Collect Time: 586.8 min | Train RL Time: 3.1 min | Mean Rewards: 0.73 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.5 | Last FPS: 532.6 | Collect Time: 587.3 min | Train RL Time: 3.1 min | Mean Rewards: -0.75 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.5 | Last FPS: 535.6 | Collect Time: 587.8 min | Train RL Time: 3.1 min | Mean Rewards: -2.01 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.4 | Last FPS: 534.5 | Collect Time: 588.3 min | Train RL Time: 3.1 min | Mean Rewards: -0.13 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.4 | Last FPS: 528.6 | Collect Time: 588.8 min | Train RL Time: 3.1 min | Mean Rewards: 1.53 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.4 | Last FPS: 535.5 | Collect Time: 589.4 min | Train RL Time: 3.1 min | Mean Rewards: 0.42 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.4 | Last FPS: 542.9 | Collect Time: 589.9 min | Train RL Time: 3.1 min | Mean Rewards: -1.56 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.4 | Last FPS: 531.6 | Collect Time: 590.4 min | Train RL Time: 3.1 min | Mean Rewards: 1.14 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.4 | Last FPS: 534.5 | Collect Time: 590.9 min | Train RL Time: 3.1 min | Mean Rewards: 2.72 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.4 | Last FPS: 537.0 | Collect Time: 591.4 min | Train RL Time: 3.1 min | Mean Rewards: 1.76 | Current Best: 47.07
+Agent Steps: 0019M | FPS: 546.4 | Last FPS: 535.6 | Collect Time: 591.9 min | Train RL Time: 3.1 min | Mean Rewards: 0.46 | Current Best: 47.07
+2026-09-08T09:02:14Z [35,880,590ms] [Error] [carb] 
+
+../../../source/plugins/carb.tasking/Mutex.cpp(103): void carb::tasking::Mutex::lock()(): Assertion (m_recursive) failed: Recursion not allowed
+
+Assertion Failed!
+The following assertion condition failed in the process 3463998:
+	'm_recursive'
+
+at the location:
+	'../../../source/plugins/carb.tasking/Mutex.cpp'
+	on line 103
+	 in void carb::tasking::Mutex::lock()()
+
+with the message:
+	"Recursion not allowed"
+
+Press ABORT to exit.
+Press RETRY to debug (attach a debugger first).
+Press IGNORE to attempt to continue.

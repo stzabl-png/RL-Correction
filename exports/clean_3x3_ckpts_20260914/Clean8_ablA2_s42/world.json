@@ -1,0 +1,144 @@
+{
+  "schema": 2,
+  "task": "Clean3_task_stage2",
+  "seed": 42,
+  "clip": "Clean8_plate",
+  "recipe": "min6",
+  "reference": {
+    "path": "tasks/Clean/3/A_Design/L2_Reference/clean8_reference_v1.npz",
+    "sha256": "e24080e30f9641c427e3b57ea8564cfb4776c444deada0e2874f3937b65ab5e8"
+  },
+  "priors": {
+    "plate": {
+      "path": "/home/yanghong/RL_Correction/tasks/pregrasp/priors/Clean18_plate_left.npz",
+      "sha256": "fecd40be5388feccc3ac24b491c7e46eef9a8a9d9916c3699a7d44ef661a5a10"
+    },
+    "sponge": {
+      "path": "/home/yanghong/RL_Correction/tasks/pregrasp/priors/Clean3_sponge_right.npz",
+      "sha256": "3162daf78e6475b9e2d58f77c9f252224e64d1aecaad48cd974ec7067558bf40"
+    }
+  },
+  "physics": {
+    "POUR_OBJ_MASS": "0.3",
+    "POUR_OBJ_FRIC": "1.0",
+    "POUR_PAD_FRIC": "1.0"
+  },
+  "aux_mass_kg": 0.05,
+  "policy_io": {
+    "obs_dim": 364,
+    "priv_dim": 22,
+    "act_dim": 58
+  },
+  "stage1": {
+    "K_CLOSE": 10,
+    "RELEASE_MAX": 50,
+    "RELEASE_MIN": 10,
+    "RELEASE_STEP": 5,
+    "RELEASE_JITTER": 4,
+    "HOLD_ROWS": 60,
+    "T_EP": 110,
+    "CERT_POS": 0.01,
+    "CERT_ROT_DEG": 5.0,
+    "CERT_STEPS": 10,
+    "DROP_POS": 0.03,
+    "DROP_ROT_DEG": 20.0,
+    "PAD_FTH": 0.5,
+    "PLATE_SUPPORT_MIN": 2,
+    "SPONGE_PADS_MIN": 3,
+    "ARM_STEP": 0.004,
+    "ARM_DEV": 0.08,
+    "FIN_STEP": 0.03,
+    "FIN_DEV": 0.6,
+    "W_CONTACT": 0.1,
+    "W_HOLD_POS": 0.5,
+    "W_HOLD_ROT": 0.5,
+    "W_WITHIN": 0.2,
+    "B_CERT": 5.0,
+    "B_SUCCESS": 20.0,
+    "B_DROP": -10.0,
+    "W_ACT": 0.001
+  },
+  "stage2": {
+    "S2_CERT_POS": 0.01,
+    "S2_CERT_ROT_DEG": 5.0,
+    "S2_CERT_STEPS": 10,
+    "S2_CERT_BUDGET": 60,
+    "S2_DIE_POS": 0.03,
+    "S2_DIE_ROT_DEG": 180.0,
+    "S2_PLATE_TILT_DIE_DEG": 30.0,
+    "S2_PLATE_DEV_DIE": 0.1,
+    "S2_SOFT_SPAN_POS": 0.03,
+    "S2_SOFT_SPAN_ROT_DEG": 20.0,
+    "S2_GATE_N": 0.01,
+    "S2_GATE_XY": 0.05,
+    "S2_LEASH_N": 0.01,
+    "S2_LEASH_XY": {
+      "2": 0.03,
+      "1": 0.05,
+      "0": 0.08
+    },
+    "S2_TIER_HI": 70.0,
+    "S2_TIER_LO": 40.0,
+    "S2_R_ADV": 1.0,
+    "S2_B_CERT": 5.0,
+    "S2_B_SUCC": 20.0,
+    "S2_B_DIE": -10.0,
+    "S2_W_ACT": 0.001,
+    "S2_CLOCK_SLACK": 1.3,
+    "S2_ARM_DEV": 0.08,
+    "S2_CLAMP_JOINTS": {
+      "left": [
+        "left_middle_MCP_AA",
+        "left_ring_MCP_AA"
+      ],
+      "right": [
+        "right_pinky_CMC",
+        "right_pinky_MCP_AA"
+      ]
+    },
+    "S2_LOOKAHEAD": [
+      0,
+      5,
+      10
+    ],
+    "S2_CLOCK_NEEDS_CONTACT": false,
+    "S2_REANCHOR": false,
+    "S2_REANCHOR_KP": 0.2,
+    "S2_REANCHOR_DEADBAND": 0.002,
+    "S2_REANCHOR_DQ_MAX": 0.15,
+    "S2_REANCHOR_DAMP": 0.05,
+    "S2_SOFT_REL": true,
+    "S2_SOFT_W": 0.5,
+    "S2_GATE_HOLD": false,
+    "S2_PUSH": false,
+    "S2_PUSH_P": 0.02,
+    "S2_PUSH_STEPS": 8,
+    "S2_PUSH_F": [
+      0.5,
+      1.5
+    ],
+    "S2_HAND_REF": false,
+    "S2_HAND_W": 1.0,
+    "S2_CONF_FLAT": true
+  },
+  "t_ep": 643,
+  "t_ref": 410,
+  "anneal_key": "sr/cert",
+  "arm_sag_rad": [
+    0.0017099999822676182,
+    0.0010300000431016088,
+    0.001449999981559813,
+    -0.004230000078678131,
+    -0.0003800000122282654,
+    0.002940000034868717,
+    -0.017410000786185265,
+    -0.0010000000474974513,
+    -0.0009800000116229057,
+    0.0025599999353289604,
+    -0.003490000031888485,
+    0.0010999999940395355,
+    -0.008969999849796295,
+    -0.01606000028550625
+  ],
+  "release_row_start": 50
+}

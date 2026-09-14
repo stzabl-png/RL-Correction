@@ -1,0 +1,74 @@
+{
+  "status": "complete",
+  "step": "contact",
+  "dataset": "egodex_auto",
+  "video_id": "clean_tableware__3",
+  "objects": {
+    "object_0": {
+      "left": {
+        "status": "heatmap_skipped",
+        "frame": 149,
+        "intervals": [
+          [
+            0,
+            299
+          ]
+        ]
+      },
+      "right": {
+        "status": "heatmap_skipped",
+        "frame": 149,
+        "intervals": [
+          [
+            0,
+            299
+          ]
+        ]
+      }
+    },
+    "object_1": {
+      "left": {
+        "status": "heatmap_skipped",
+        "frame": 141,
+        "intervals": [
+          [
+            0,
+            3
+          ],
+          [
+            27,
+            33
+          ],
+          [
+            57,
+            60
+          ],
+          [
+            138,
+            145
+          ],
+          [
+            182,
+            186
+          ]
+        ]
+      },
+      "right": {
+        "status": "heatmap_skipped",
+        "frame": 149,
+        "intervals": [
+          [
+            0,
+            299
+          ]
+        ]
+      }
+    }
+  },
+  "affordance_figs": [
+    "affordance_object_0_left.png",
+    "affordance_object_0_right.png",
+    "affordance_object_1_left.png",
+    "affordance_object_1_right.png"
+  ]
+}

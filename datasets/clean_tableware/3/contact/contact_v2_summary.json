@@ -1,0 +1,39 @@
+{
+ "schema_version": "contact_v2_summary_v1",
+ "is_prior": false,
+ "n_ok": 1,
+ "attempts": [
+  {
+   "object_id": "object_0",
+   "side": "left",
+   "status": "hand_unreliable",
+   "why": "重建的手只有 22.2% 落在实测手 mask 里(正常 55~63%) —— 手被重建到了错的位置, 接触结果不可信。常见原因: replay_world.npz 陈旧 / 手部重建失败",
+   "opposition": null,
+   "hand_mask_agreement": 0.22236503856041132
+  },
+  {
+   "object_id": "object_0",
+   "side": "right",
+   "status": "no_stable_contact",
+   "why": "窗口 2 帧 < 门槛 5 帧, 判无稳定抓握",
+   "opposition": null,
+   "hand_mask_agreement": null
+  },
+  {
+   "object_id": "object_1",
+   "side": "left",
+   "status": "hand_unreliable",
+   "why": "重建的手只有 19.5% 落在实测手 mask 里(正常 55~63%) —— 手被重建到了错的位置, 接触结果不可信。常见原因: replay_world.npz 陈旧 / 手部重建失败",
+   "opposition": null,
+   "hand_mask_agreement": 0.1953727506426735
+  },
+  {
+   "object_id": "object_1",
+   "side": "right",
+   "status": "ok",
+   "why": null,
+   "opposition": 0.595126291942505,
+   "hand_mask_agreement": 0.46272493573264784
+  }
+ ]
+}

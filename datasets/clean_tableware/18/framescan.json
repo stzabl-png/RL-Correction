@@ -1,0 +1,133 @@
+{
+ "video_id": "clean_tableware__18",
+ "rot_min": 30,
+ "rot_safe": 45,
+ "objects": {
+  "object_0": {
+   "recon": 80,
+   "fp": 10,
+   "best": {
+    "conf_pos": 62.0,
+    "conf_rot": 2.0,
+    "refuted": 10,
+    "status": "active",
+    "usable": false,
+    "n": 300
+   },
+   "best_median": null,
+   "trials": [
+    {
+     "stage": 0,
+     "recon": 91,
+     "fp": 10,
+     "conf_pos": 62.0,
+     "conf_rot": 7.0,
+     "refuted": 51,
+     "status": "active",
+     "usable": false,
+     "n": 300
+    },
+    {
+     "stage": 1,
+     "recon": 92,
+     "fp": 10,
+     "conf_pos": 59.5,
+     "conf_rot": 0.0,
+     "refuted": 39,
+     "status": "active",
+     "usable": false,
+     "n": 300
+    },
+    {
+     "stage": 1,
+     "recon": 80,
+     "fp": 10,
+     "conf_pos": 61.0,
+     "conf_rot": 3.0,
+     "refuted": 23,
+     "status": "active",
+     "usable": false,
+     "n": 300
+    },
+    {
+     "stage": 2,
+     "recon": 80,
+     "fp": 20,
+     "conf_pos": 62.0,
+     "conf_rot": 3.0,
+     "refuted": 24,
+     "status": "active",
+     "usable": false,
+     "n": 300
+    }
+   ],
+   "pass": false
+  },
+  "object_1": {
+   "recon": 24,
+   "fp": 13,
+   "best": {
+    "conf_pos": 52.0,
+    "conf_rot": 44.0,
+    "refuted": 0,
+    "status": "active",
+    "usable": true,
+    "n": 300
+   },
+   "best_median": {
+    "conf_rot": 44.0,
+    "refuted": 0,
+    "status": "active",
+    "conf_pos": 52.0
+   },
+   "trials": [
+    {
+     "stage": 0,
+     "recon": 33,
+     "fp": 13,
+     "conf_pos": 48.0,
+     "conf_rot": 40.0,
+     "refuted": 2,
+     "status": "active",
+     "usable": true,
+     "n": 300
+    },
+    {
+     "stage": 1,
+     "recon": 15,
+     "fp": 13,
+     "conf_pos": 50.0,
+     "conf_rot": 35.0,
+     "refuted": 13,
+     "status": "active",
+     "usable": true,
+     "n": 300
+    },
+    {
+     "stage": 1,
+     "recon": 24,
+     "fp": 13,
+     "conf_pos": 52.0,
+     "conf_rot": 46.0,
+     "refuted": 0,
+     "status": "active",
+     "usable": true,
+     "n": 300
+    },
+    {
+     "stage": "confirm",
+     "recon": 24,
+     "fp": 13,
+     "conf_pos": 52.0,
+     "conf_rot": 44.0,
+     "refuted": 0,
+     "status": "active",
+     "usable": true,
+     "n": 300
+    }
+   ],
+   "pass": true,
+   "confirmed": true
+  }
+ }
+}

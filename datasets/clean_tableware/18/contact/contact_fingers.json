@@ -1,0 +1,38 @@
+{
+ "schema_version": "contact_fingers_v1",
+ "tau_m": 0.035,
+ "vote": 0.3,
+ "align": false,
+ "hands": {
+  "left": {
+   "objects": {
+    "object_0": {
+     "status": "no_grasp_core",
+     "n_frames": 300,
+     "max_regions": 0
+    },
+    "object_1": {
+     "status": "no_grasp_core",
+     "n_frames": 61,
+     "max_regions": 0
+    }
+   },
+   "primary": null
+  },
+  "right": {
+   "objects": {
+    "object_0": {
+     "status": "no_grasp_core",
+     "n_frames": 279,
+     "max_regions": 0
+    },
+    "object_1": {
+     "status": "no_grasp_core",
+     "n_frames": 300,
+     "max_regions": 0
+    }
+   },
+   "primary": null
+  }
+ }
+}

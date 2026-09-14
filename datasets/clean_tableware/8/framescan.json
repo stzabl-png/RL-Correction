@@ -1,0 +1,110 @@
+{
+ "video_id": "clean_tableware__8",
+ "rot_min": 30,
+ "rot_safe": 70,
+ "objects": {
+  "object_0": {
+   "recon": null,
+   "fp": 23,
+   "best": {
+    "conf_pos": 65.0,
+    "conf_rot": 5.0,
+    "refuted": 4,
+    "status": "active",
+    "usable": false,
+    "n": 300
+   },
+   "best_median": null,
+   "trials": [
+    {
+     "stage": 0,
+     "recon": null,
+     "fp": 13,
+     "conf_pos": 66.0,
+     "conf_rot": 10.0,
+     "refuted": 76,
+     "status": "active",
+     "usable": false,
+     "n": 300
+    },
+    {
+     "stage": 2,
+     "recon": null,
+     "fp": 10,
+     "conf_pos": 66.5,
+     "conf_rot": 10.0,
+     "refuted": 78,
+     "status": "active",
+     "usable": false,
+     "n": 300
+    },
+    {
+     "stage": 2,
+     "recon": null,
+     "fp": 23,
+     "conf_pos": 66.0,
+     "conf_rot": 10.0,
+     "refuted": 75,
+     "status": "active",
+     "usable": false,
+     "n": 300
+    }
+   ],
+   "pass": false
+  },
+  "object_1": {
+   "recon": null,
+   "fp": 13,
+   "best": {
+    "conf_pos": 55.0,
+    "conf_rot": 21.0,
+    "refuted": 44,
+    "status": "active",
+    "usable": false,
+    "n": 300
+   },
+   "best_median": {
+    "conf_rot": 21.0,
+    "refuted": 39,
+    "status": "active",
+    "conf_pos": 55.0
+   },
+   "trials": [
+    {
+     "stage": 0,
+     "recon": null,
+     "fp": 13,
+     "conf_pos": 35.0,
+     "conf_rot": 18.0,
+     "refuted": 0,
+     "status": "active",
+     "usable": false,
+     "n": 300
+    },
+    {
+     "stage": 2,
+     "recon": null,
+     "fp": 10,
+     "conf_pos": 35.0,
+     "conf_rot": 18.0,
+     "refuted": 0,
+     "status": "active",
+     "usable": false,
+     "n": 300
+    },
+    {
+     "stage": 2,
+     "recon": null,
+     "fp": 23,
+     "conf_pos": 35.0,
+     "conf_rot": 18.0,
+     "refuted": 27,
+     "status": "active",
+     "usable": false,
+     "n": 300
+    }
+   ],
+   "pass": false
+  }
+ }
+}

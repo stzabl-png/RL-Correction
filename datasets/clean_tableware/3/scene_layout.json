@@ -1,0 +1,90 @@
+{
+ "schema_version": "clean_held_scene_v1",
+ "rl_table_height": 0.87,
+ "scene_table_z": 0.87,
+ "scene_table_z_source_estimate": 1.0216793691471913,
+ "scene_table_source": "无物体落桌; 源世界桌高估计 = 盘 rts 位置中位 z - plate_height; objects.pos 直接给 RL 系",
+ "source_frame": 0,
+ "registration": {
+  "scene_yaw_deg": 0.0,
+  "plate_center_xy": [
+   -0.12,
+   0.06
+  ],
+  "plate_height": 0.12,
+  "plate_yaw_deg": 0.0,
+  "plate_tilt_deg": 0.0,
+  "sponge_yaw_deg": -130.0,
+  "sponge_xy_mode": "plate",
+  "lp_window_s": 0.67
+ },
+ "objects": {
+  "object_0": {
+   "identity": "plate",
+   "anchor_hand": "left",
+   "pos_source": [
+    0.5053386857457576,
+    -0.04116873947448921,
+    1.189068055194711
+   ],
+   "quat_source": [
+    -0.2845717978270402,
+    -0.41445382838246664,
+    0.6172136207454688,
+    0.605222489987667
+   ],
+   "pos": [
+    -0.14555501504475776,
+    0.05538832210297372,
+    1.0130497327614023
+   ],
+   "quat_wxyz": [
+    0.7071067811869012,
+    0.7071067811861939,
+    0.0,
+    0.0
+   ],
+   "quat_reason": "常量: 水平(规范 z-up)+tilt, 重建姿态不用 (圆盘绕法向自转不可观测)",
+   "mesh": "datasets/clean_tableware/3/objects/object_0/object_mesh_scaled_final.obj",
+   "extent_cm": [
+    17.7,
+    2.4,
+    18.0
+   ]
+  },
+  "object_1": {
+   "identity": "sponge",
+   "anchor_hand": "right",
+   "pos_source": [
+    0.4718110067068551,
+    -0.016560265996731174,
+    1.198950761903269
+   ],
+   "quat_source": [
+    0.44114579516269936,
+    0.2895411274843738,
+    0.5715352330339116,
+    0.6284137174713961
+   ],
+   "pos": [
+    -0.15152866381010655,
+    0.015252457825256145,
+    1.0424789027614023
+   ],
+   "quat_wxyz": [
+    0.005225009313049303,
+    0.005225009313044076,
+    0.7070874763967882,
+    0.7070874763974955
+   ],
+   "quat_reason": "擦盘面朝盘 + 面内 yaw ψ(t) 来自重建长轴投影",
+   "mesh": "datasets/clean_tableware/3/objects/object_1/object_mesh_scaled_final.obj",
+   "extent_cm": [
+    7.6,
+    3.8,
+    13.2
+   ]
+  }
+ },
+ "reference_npz": "tasks/Clean/3/A_Design/L2_Reference/clean3_reference_v2.npz"
+}

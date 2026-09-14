@@ -1,0 +1,39 @@
+{
+ "scene": "/home/yanghong/Reconstruct_and_Retarget/Output/ReconstructOutput/egodex_auto/clean_tableware/18",
+ "n": 300,
+ "A_static_step": {
+  "raw_mm": null,
+  "smooth_mm": null,
+  "raw_deg": null,
+  "smooth_deg": null,
+  "n_free": 0
+ },
+ "B_image": {
+  "high_conf": {
+   "n": 84,
+   "explained_raw": 0.9544357032436377,
+   "explained_smooth": 0.9485108907527526,
+   "dcent_raw": 0.13039458716149288,
+   "dcent_smooth": 0.1328631203375748
+  },
+  "low_conf": {
+   "n": 66,
+   "explained_raw": 0.9248095400534425,
+   "explained_smooth": 0.9115056903756524,
+   "dcent_raw": 0.1695301564745936,
+   "dcent_smooth": 0.18461287975435225
+  }
+ },
+ "C_innov_spikes_pos": [],
+ "n_rot_refuted": 10,
+ "sigma_pos_mm": {
+  "min": 3.3,
+  "median": 5.7,
+  "max": 10.6
+ },
+ "sigma_rot_deg": {
+  "min": 1.0,
+  "median": 2.0,
+  "max": 6.8
+ }
+}

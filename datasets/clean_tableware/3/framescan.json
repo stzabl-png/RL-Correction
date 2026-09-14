@@ -1,0 +1,63 @@
+{
+ "video_id": "clean_tableware__3",
+ "rot_min": 30,
+ "rot_safe": 45,
+ "objects": {
+  "object_0": {
+   "recon": 78,
+   "fp": 13,
+   "best": {
+    "conf_pos": 86.5,
+    "conf_rot": 0.0,
+    "refuted": 4,
+    "status": "active",
+    "usable": false,
+    "n": 300
+   },
+   "best_median": null,
+   "trials": [
+    {
+     "stage": 0,
+     "recon": 78,
+     "fp": 13,
+     "conf_pos": 86.5,
+     "conf_rot": 0.0,
+     "refuted": 4,
+     "status": "active",
+     "usable": false,
+     "n": 300
+    }
+   ],
+   "pass": false,
+   "finalize_failed": true
+  },
+  "object_1": {
+   "recon": 252,
+   "fp": 13,
+   "best": {
+    "conf_pos": 73.0,
+    "conf_rot": 73.0,
+    "refuted": 0,
+    "status": "active",
+    "usable": true,
+    "n": 300
+   },
+   "best_median": null,
+   "trials": [
+    {
+     "stage": 0,
+     "recon": 252,
+     "fp": 13,
+     "conf_pos": 73.0,
+     "conf_rot": 73.0,
+     "refuted": 0,
+     "status": "active",
+     "usable": true,
+     "n": 300
+    }
+   ],
+   "pass": true,
+   "finalize_failed": true
+  }
+ }
+}

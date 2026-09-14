@@ -1,0 +1,90 @@
+{
+ "schema_version": "clean_held_scene_v1",
+ "rl_table_height": 0.87,
+ "scene_table_z": 0.87,
+ "scene_table_z_source_estimate": 1.0157005835641284,
+ "scene_table_source": "无物体落桌; 源世界桌高估计 = 盘 rts 位置中位 z - plate_height; objects.pos 直接给 RL 系",
+ "source_frame": 0,
+ "registration": {
+  "scene_yaw_deg": 0.0,
+  "plate_center_xy": [
+   -0.12,
+   0.06
+  ],
+  "plate_height": 0.12,
+  "plate_yaw_deg": 0.0,
+  "plate_tilt_deg": 0.0,
+  "sponge_yaw_deg": 165.0,
+  "sponge_xy_mode": "plate",
+  "lp_window_s": 0.67
+ },
+ "objects": {
+  "object_0": {
+   "identity": "plate",
+   "anchor_hand": "left",
+   "pos_source": [
+    0.40318817320630546,
+    0.026852807134497142,
+    1.1303907808352869
+   ],
+   "quat_source": [
+    0.7864409262642138,
+    -0.5334885419876917,
+    0.04851750159463254,
+    -0.3074844664426923
+   ],
+   "pos": [
+    -0.12626585413142277,
+    0.053172333456040846,
+    0.9872821387564836
+   ],
+   "quat_wxyz": [
+    0.7071067811869012,
+    0.7071067811861939,
+    0.0,
+    0.0
+   ],
+   "quat_reason": "常量: 水平(规范 z-up)+tilt, 重建姿态不用 (圆盘绕法向自转不可观测)",
+   "mesh": "datasets/clean_tableware/18/objects/object_0/object_mesh_scaled_final.obj",
+   "extent_cm": [
+    17.97,
+    1.9,
+    18.0
+   ]
+  },
+  "object_1": {
+   "identity": "sponge",
+   "anchor_hand": "right",
+   "pos_source": [
+    0.3907579695987276,
+    0.008504733189655105,
+    1.132025823109573
+   ],
+   "quat_source": [
+    -0.28469584267534725,
+    0.4397678561492683,
+    0.38929333138683725,
+    0.7576299967655642
+   ],
+   "pos": [
+    -0.1260517907341847,
+    0.07235103920189055,
+    1.0168359856212814
+   ],
+   "quat_wxyz": [
+    0.0950040544851693,
+    0.09500405448507428,
+    0.7006955327607682,
+    0.7006955327614692
+   ],
+   "quat_reason": "擦盘面朝盘 + 面内 yaw ψ(t) 来自重建长轴投影",
+   "mesh": "datasets/clean_tableware/3/objects/object_1/object_mesh_scaled_final.obj",
+   "extent_cm": [
+    7.64,
+    3.79,
+    13.22
+   ]
+  }
+ },
+ "reference_npz": "tasks/Clean/3/A_Design/L2_Reference/clean8_reference_v1.npz"
+}

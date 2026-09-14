@@ -1,0 +1,927 @@
+{
+ "tag": "p4t0.008",
+ "num_envs": 2,
+ "plate_mass": 0.3,
+ "mu": 1.0,
+ "hulls": 128,
+ "beta": 1.0,
+ "trim_left": [
+  0.0,
+  0.008,
+  0.0
+ ],
+ "trim_right": [
+  0.0,
+  0.0,
+  0.0
+ ],
+ "reference": "/home/lyh/Project/RL_Correction/tasks/Clean/3/A_Design/L2_Reference/clean3_reference_v1.npz",
+ "settle": {
+  "hand_in_obj_err_pre_close": {
+   "left": [
+    0.038975026458501816,
+    0.19690470397472382
+   ],
+   "right": [
+    0.006276012863963842,
+    0.04915542155504227
+   ]
+  },
+  "hand_in_obj_err_post_close": {
+   "left": [
+    0.015067354775965214,
+    0.11352356523275375
+   ],
+   "right": [
+    0.00308006233535707,
+    0.04081237316131592
+   ]
+  },
+  "pads_pre_cm": {
+   "left": {
+    "thumb": 1.62,
+    "index": 2.83,
+    "middle": 2.86,
+    "ring": 1.92,
+    "pinky": 3.49
+   },
+   "right": {
+    "thumb": 1.43,
+    "index": 2.11,
+    "middle": 2.35,
+    "ring": 1.85,
+    "pinky": 1.49
+   }
+  },
+  "pads_post_cm": {
+   "left": {
+    "thumb": 2.18,
+    "index": 1.81,
+    "middle": 1.98,
+    "ring": 1.25,
+    "pinky": 2.66
+   },
+   "right": {
+    "thumb": 1.11,
+    "index": 1.21,
+    "middle": 1.46,
+    "ring": 0.97,
+    "pinky": 0.98
+   }
+  },
+  "pad_forces_pinned_N": {
+   "left": {
+    "thumb": 5.68,
+    "index": 14.22,
+    "middle": 3.14,
+    "ring": 5.18,
+    "pinky": 8.99
+   },
+   "right": {
+    "thumb": 8.57,
+    "index": 0.78,
+    "middle": 1.74,
+    "ring": 3.73,
+    "pinky": 7.25
+   }
+  },
+  "pad_forces_N": {
+   "left": {
+    "thumb": 11.26,
+    "index": 13.76,
+    "middle": 0.96,
+    "ring": 1.67,
+    "pinky": 1.41
+   },
+   "right": {
+    "thumb": 8.62,
+    "index": 0.81,
+    "middle": 1.65,
+    "ring": 3.08,
+    "pinky": 7.18
+   }
+  },
+  "finger_block_deg": {
+   "left": 55.08008575439453,
+   "right": 27.618318557739258
+  },
+  "beta": 1.0,
+  "beta_side": {
+   "left": 1.0,
+   "right": 1.0
+  },
+  "hand_vs_ref_target": {
+   "left": [
+    0.008882882073521614,
+    1.0527514219284058
+   ],
+   "right": [
+    0.0008289787801913917,
+    0.3753436803817749
+   ]
+  },
+  "arm_q_err_deg": 0.38728538155555725,
+  "anchor_pos_delta_cm": [
+   0.0,
+   -0.0,
+   0.0
+  ],
+  "masses_kg": {
+   "left": 0.30000001192092896,
+   "right": 0.05000000074505806
+  },
+  "obj_friction": {
+   "left": [
+    1.0,
+    1.0
+   ],
+   "right": [
+    1.0,
+    1.0
+   ]
+  },
+  "plate_tilt_deg": 4.694608688354492
+ },
+ "hold": {
+  "left_pos_cm": 2.484052896499634,
+  "left_rot_deg": 10.399221420288086,
+  "right_pos_cm": 0.3419373035430908,
+  "right_rot_deg": 3.0038766860961914,
+  "plate_tilt_deg": 9.033462524414062,
+  "sponge_gap_mm": 9.105447769165039,
+  "forces_end": {
+   "left": {
+    "thumb": 11.31,
+    "index": 10.32,
+    "middle": 1.24,
+    "ring": 1.29,
+    "pinky": 3.56
+   },
+   "right": {
+    "thumb": 8.61,
+    "index": 0.69,
+    "middle": 1.9,
+    "ring": 2.89,
+    "pinky": 7.47
+   }
+  },
+  "dropped": {
+   "left": 0,
+   "right": 0
+  }
+ },
+ "hold_log": [
+  {
+   "t": 0.1,
+   "left_pos_cm": 2.251255989074707,
+   "left_rot_deg": 9.504839897155762,
+   "right_pos_cm": 0.3419373035430908,
+   "right_rot_deg": 2.7291672229766846,
+   "plate_tilt_deg": 7.921964168548584,
+   "sponge_gap_mm": 8.465312957763672,
+   "forces": {
+    "left": {
+     "thumb": 11.12,
+     "index": 12.58,
+     "middle": 2.05,
+     "ring": 2.06,
+     "pinky": 3.06
+    },
+    "right": {
+     "thumb": 8.64,
+     "index": 0.73,
+     "middle": 1.95,
+     "ring": 2.85,
+     "pinky": 7.55
+    }
+   }
+  },
+  {
+   "t": 0.2,
+   "left_pos_cm": 2.484052896499634,
+   "left_rot_deg": 10.399221420288086,
+   "right_pos_cm": 0.331493079662323,
+   "right_rot_deg": 2.8812434673309326,
+   "plate_tilt_deg": 9.033462524414062,
+   "sponge_gap_mm": 9.105447769165039,
+   "forces": {
+    "left": {
+     "thumb": 11.34,
+     "index": 10.4,
+     "middle": 1.19,
+     "ring": 1.49,
+     "pinky": 3.6
+    },
+    "right": {
+     "thumb": 8.59,
+     "index": 0.71,
+     "middle": 1.93,
+     "ring": 2.91,
+     "pinky": 7.55
+    }
+   }
+  },
+  {
+   "t": 0.3,
+   "left_pos_cm": 2.4407522678375244,
+   "left_rot_deg": 10.221652030944824,
+   "right_pos_cm": 0.3293665945529938,
+   "right_rot_deg": 2.960832118988037,
+   "plate_tilt_deg": 8.714717864990234,
+   "sponge_gap_mm": 8.925188064575195,
+   "forces": {
+    "left": {
+     "thumb": 11.32,
+     "index": 10.3,
+     "middle": 1.19,
+     "ring": 1.26,
+     "pinky": 3.54
+    },
+    "right": {
+     "thumb": 8.6,
+     "index": 0.71,
+     "middle": 1.91,
+     "ring": 2.91,
+     "pinky": 7.48
+    }
+   }
+  },
+  {
+   "t": 0.4,
+   "left_pos_cm": 2.4291841983795166,
+   "left_rot_deg": 10.164448738098145,
+   "right_pos_cm": 0.3286794424057007,
+   "right_rot_deg": 2.9884626865386963,
+   "plate_tilt_deg": 8.590160369873047,
+   "sponge_gap_mm": 8.715826988220215,
+   "forces": {
+    "left": {
+     "thumb": 11.34,
+     "index": 10.28,
+     "middle": 1.25,
+     "ring": 1.27,
+     "pinky": 3.55
+    },
+    "right": {
+     "thumb": 8.61,
+     "index": 0.7,
+     "middle": 1.9,
+     "ring": 2.89,
+     "pinky": 7.47
+    }
+   }
+  },
+  {
+   "t": 0.5,
+   "left_pos_cm": 2.4292614459991455,
+   "left_rot_deg": 10.156658172607422,
+   "right_pos_cm": 0.3284214437007904,
+   "right_rot_deg": 2.9957876205444336,
+   "plate_tilt_deg": 8.584830284118652,
+   "sponge_gap_mm": 8.669814109802246,
+   "forces": {
+    "left": {
+     "thumb": 11.31,
+     "index": 10.33,
+     "middle": 1.25,
+     "ring": 1.29,
+     "pinky": 3.56
+    },
+    "right": {
+     "thumb": 8.62,
+     "index": 0.69,
+     "middle": 1.9,
+     "ring": 2.9,
+     "pinky": 7.47
+    }
+   }
+  },
+  {
+   "t": 0.6,
+   "left_pos_cm": 2.4335827827453613,
+   "left_rot_deg": 10.170459747314453,
+   "right_pos_cm": 0.3284159004688263,
+   "right_rot_deg": 3.002312660217285,
+   "plate_tilt_deg": 8.608637809753418,
+   "sponge_gap_mm": 8.686013221740723,
+   "forces": {
+    "left": {
+     "thumb": 11.31,
+     "index": 10.32,
+     "middle": 1.24,
+     "ring": 1.29,
+     "pinky": 3.56
+    },
+    "right": {
+     "thumb": 8.61,
+     "index": 0.7,
+     "middle": 1.9,
+     "ring": 2.9,
+     "pinky": 7.47
+    }
+   }
+  },
+  {
+   "t": 0.7,
+   "left_pos_cm": 2.433807849884033,
+   "left_rot_deg": 10.17069149017334,
+   "right_pos_cm": 0.3284395635128021,
+   "right_rot_deg": 3.0033557415008545,
+   "plate_tilt_deg": 8.609390258789062,
+   "sponge_gap_mm": 8.686464309692383,
+   "forces": {
+    "left": {
+     "thumb": 11.32,
+     "index": 10.32,
+     "middle": 1.24,
+     "ring": 1.28,
+     "pinky": 3.56
+    },
+    "right": {
+     "thumb": 8.61,
+     "index": 0.7,
+     "middle": 1.9,
+     "ring": 2.9,
+     "pinky": 7.47
+    }
+   }
+  },
+  {
+   "t": 0.8,
+   "left_pos_cm": 2.4336094856262207,
+   "left_rot_deg": 10.169844627380371,
+   "right_pos_cm": 0.3284578323364258,
+   "right_rot_deg": 3.0038766860961914,
+   "plate_tilt_deg": 8.608226776123047,
+   "sponge_gap_mm": 8.684831619262695,
+   "forces": {
+    "left": {
+     "thumb": 11.32,
+     "index": 10.32,
+     "middle": 1.24,
+     "ring": 1.28,
+     "pinky": 3.57
+    },
+    "right": {
+     "thumb": 8.61,
+     "index": 0.7,
+     "middle": 1.9,
+     "ring": 2.9,
+     "pinky": 7.47
+    }
+   }
+  },
+  {
+   "t": 0.9,
+   "left_pos_cm": 2.4334936141967773,
+   "left_rot_deg": 10.169382095336914,
+   "right_pos_cm": 0.3284681439399719,
+   "right_rot_deg": 3.0036163330078125,
+   "plate_tilt_deg": 8.607770919799805,
+   "sponge_gap_mm": 8.683716773986816,
+   "forces": {
+    "left": {
+     "thumb": 11.32,
+     "index": 10.32,
+     "middle": 1.25,
+     "ring": 1.28,
+     "pinky": 3.56
+    },
+    "right": {
+     "thumb": 8.62,
+     "index": 0.69,
+     "middle": 1.9,
+     "ring": 2.9,
+     "pinky": 7.47
+    }
+   }
+  },
+  {
+   "t": 1.0,
+   "left_pos_cm": 2.4334614276885986,
+   "left_rot_deg": 10.169227600097656,
+   "right_pos_cm": 0.3284969627857208,
+   "right_rot_deg": 3.0038766860961914,
+   "plate_tilt_deg": 8.607633590698242,
+   "sponge_gap_mm": 8.683959007263184,
+   "forces": {
+    "left": {
+     "thumb": 11.31,
+     "index": 10.32,
+     "middle": 1.24,
+     "ring": 1.28,
+     "pinky": 3.56
+    },
+    "right": {
+     "thumb": 8.62,
+     "index": 0.69,
+     "middle": 1.9,
+     "ring": 2.9,
+     "pinky": 7.47
+    }
+   }
+  },
+  {
+   "t": 1.1,
+   "left_pos_cm": 2.4334781169891357,
+   "left_rot_deg": 10.169150352478027,
+   "right_pos_cm": 0.32842323184013367,
+   "right_rot_deg": 3.0038766860961914,
+   "plate_tilt_deg": 8.60752010345459,
+   "sponge_gap_mm": 8.683316230773926,
+   "forces": {
+    "left": {
+     "thumb": 11.32,
+     "index": 10.32,
+     "middle": 1.24,
+     "ring": 1.28,
+     "pinky": 3.56
+    },
+    "right": {
+     "thumb": 8.62,
+     "index": 0.7,
+     "middle": 1.9,
+     "ring": 2.89,
+     "pinky": 7.47
+    }
+   }
+  },
+  {
+   "t": 1.2,
+   "left_pos_cm": 2.4335508346557617,
+   "left_rot_deg": 10.169458389282227,
+   "right_pos_cm": 0.32845667004585266,
+   "right_rot_deg": 3.0036163330078125,
+   "plate_tilt_deg": 8.607815742492676,
+   "sponge_gap_mm": 8.683648109436035,
+   "forces": {
+    "left": {
+     "thumb": 11.32,
+     "index": 10.32,
+     "middle": 1.24,
+     "ring": 1.29,
+     "pinky": 3.57
+    },
+    "right": {
+     "thumb": 8.62,
+     "index": 0.7,
+     "middle": 1.9,
+     "ring": 2.9,
+     "pinky": 7.47
+    }
+   }
+  },
+  {
+   "t": 1.3,
+   "left_pos_cm": 2.433546781539917,
+   "left_rot_deg": 10.169535636901855,
+   "right_pos_cm": 0.3284704089164734,
+   "right_rot_deg": 3.0036163330078125,
+   "plate_tilt_deg": 8.607748031616211,
+   "sponge_gap_mm": 8.684126853942871,
+   "forces": {
+    "left": {
+     "thumb": 11.32,
+     "index": 10.32,
+     "middle": 1.25,
+     "ring": 1.29,
+     "pinky": 3.56
+    },
+    "right": {
+     "thumb": 8.61,
+     "index": 0.69,
+     "middle": 1.9,
+     "ring": 2.9,
+     "pinky": 7.47
+    }
+   }
+  },
+  {
+   "t": 1.4,
+   "left_pos_cm": 2.4334800243377686,
+   "left_rot_deg": 10.169458389282227,
+   "right_pos_cm": 0.32845422625541687,
+   "right_rot_deg": 3.0030951499938965,
+   "plate_tilt_deg": 8.607792854309082,
+   "sponge_gap_mm": 8.683926582336426,
+   "forces": {
+    "left": {
+     "thumb": 11.32,
+     "index": 10.32,
+     "middle": 1.24,
+     "ring": 1.28,
+     "pinky": 3.56
+    },
+    "right": {
+     "thumb": 8.62,
+     "index": 0.69,
+     "middle": 1.9,
+     "ring": 2.9,
+     "pinky": 7.47
+    }
+   }
+  },
+  {
+   "t": 1.5,
+   "left_pos_cm": 2.4335243701934814,
+   "left_rot_deg": 10.169227600097656,
+   "right_pos_cm": 0.32842159271240234,
+   "right_rot_deg": 3.0033557415008545,
+   "plate_tilt_deg": 8.607633590698242,
+   "sponge_gap_mm": 8.684290885925293,
+   "forces": {
+    "left": {
+     "thumb": 11.32,
+     "index": 10.32,
+     "middle": 1.24,
+     "ring": 1.28,
+     "pinky": 3.56
+    },
+    "right": {
+     "thumb": 8.61,
+     "index": 0.69,
+     "middle": 1.9,
+     "ring": 2.89,
+     "pinky": 7.47
+    }
+   }
+  },
+  {
+   "t": 1.6,
+   "left_pos_cm": 2.433505058288574,
+   "left_rot_deg": 10.169227600097656,
+   "right_pos_cm": 0.32843413949012756,
+   "right_rot_deg": 3.0036163330078125,
+   "plate_tilt_deg": 8.60749626159668,
+   "sponge_gap_mm": 8.684043884277344,
+   "forces": {
+    "left": {
+     "thumb": 11.32,
+     "index": 10.32,
+     "middle": 1.24,
+     "ring": 1.28,
+     "pinky": 3.56
+    },
+    "right": {
+     "thumb": 8.61,
+     "index": 0.7,
+     "middle": 1.9,
+     "ring": 2.9,
+     "pinky": 7.47
+    }
+   }
+  },
+  {
+   "t": 1.7,
+   "left_pos_cm": 2.433537483215332,
+   "left_rot_deg": 10.169535636901855,
+   "right_pos_cm": 0.3284798562526703,
+   "right_rot_deg": 3.0033557415008545,
+   "plate_tilt_deg": 8.6077241897583,
+   "sponge_gap_mm": 8.683670043945312,
+   "forces": {
+    "left": {
+     "thumb": 11.31,
+     "index": 10.32,
+     "middle": 1.24,
+     "ring": 1.28,
+     "pinky": 3.56
+    },
+    "right": {
+     "thumb": 8.62,
+     "index": 0.7,
+     "middle": 1.9,
+     "ring": 2.9,
+     "pinky": 7.47
+    }
+   }
+  },
+  {
+   "t": 1.8,
+   "left_pos_cm": 2.433487892150879,
+   "left_rot_deg": 10.169150352478027,
+   "right_pos_cm": 0.3284352719783783,
+   "right_rot_deg": 3.0038766860961914,
+   "plate_tilt_deg": 8.607633590698242,
+   "sponge_gap_mm": 8.683780670166016,
+   "forces": {
+    "left": {
+     "thumb": 11.31,
+     "index": 10.32,
+     "middle": 1.24,
+     "ring": 1.29,
+     "pinky": 3.56
+    },
+    "right": {
+     "thumb": 8.61,
+     "index": 0.69,
+     "middle": 1.9,
+     "ring": 2.89,
+     "pinky": 7.47
+    }
+   }
+  },
+  {
+   "t": 1.9,
+   "left_pos_cm": 2.4334828853607178,
+   "left_rot_deg": 10.169227600097656,
+   "right_pos_cm": 0.32834821939468384,
+   "right_rot_deg": 3.0033557415008545,
+   "plate_tilt_deg": 8.607587814331055,
+   "sponge_gap_mm": 8.683908462524414,
+   "forces": {
+    "left": {
+     "thumb": 11.32,
+     "index": 10.32,
+     "middle": 1.24,
+     "ring": 1.28,
+     "pinky": 3.56
+    },
+    "right": {
+     "thumb": 8.62,
+     "index": 0.7,
+     "middle": 1.9,
+     "ring": 2.9,
+     "pinky": 7.47
+    }
+   }
+  },
+  {
+   "t": 2.0,
+   "left_pos_cm": 2.4334957599639893,
+   "left_rot_deg": 10.169150352478027,
+   "right_pos_cm": 0.32842740416526794,
+   "right_rot_deg": 3.0033557415008545,
+   "plate_tilt_deg": 8.607656478881836,
+   "sponge_gap_mm": 8.683769226074219,
+   "forces": {
+    "left": {
+     "thumb": 11.32,
+     "index": 10.32,
+     "middle": 1.25,
+     "ring": 1.28,
+     "pinky": 3.56
+    },
+    "right": {
+     "thumb": 8.62,
+     "index": 0.7,
+     "middle": 1.9,
+     "ring": 2.9,
+     "pinky": 7.47
+    }
+   }
+  },
+  {
+   "t": 2.1,
+   "left_pos_cm": 2.4336183071136475,
+   "left_rot_deg": 10.169535636901855,
+   "right_pos_cm": 0.32845938205718994,
+   "right_rot_deg": 3.0033557415008545,
+   "plate_tilt_deg": 8.60802173614502,
+   "sponge_gap_mm": 8.683894157409668,
+   "forces": {
+    "left": {
+     "thumb": 11.32,
+     "index": 10.32,
+     "middle": 1.25,
+     "ring": 1.29,
+     "pinky": 3.57
+    },
+    "right": {
+     "thumb": 8.62,
+     "index": 0.7,
+     "middle": 1.9,
+     "ring": 2.89,
+     "pinky": 7.47
+    }
+   }
+  },
+  {
+   "t": 2.2,
+   "left_pos_cm": 2.4335782527923584,
+   "left_rot_deg": 10.169690132141113,
+   "right_pos_cm": 0.32844534516334534,
+   "right_rot_deg": 3.0038766860961914,
+   "plate_tilt_deg": 8.607861518859863,
+   "sponge_gap_mm": 8.684146881103516,
+   "forces": {
+    "left": {
+     "thumb": 11.32,
+     "index": 10.32,
+     "middle": 1.24,
+     "ring": 1.29,
+     "pinky": 3.57
+    },
+    "right": {
+     "thumb": 8.62,
+     "index": 0.7,
+     "middle": 1.9,
+     "ring": 2.9,
+     "pinky": 7.47
+    }
+   }
+  },
+  {
+   "t": 2.3,
+   "left_pos_cm": 2.4335062503814697,
+   "left_rot_deg": 10.169382095336914,
+   "right_pos_cm": 0.3284318745136261,
+   "right_rot_deg": 3.0033557415008545,
+   "plate_tilt_deg": 8.607633590698242,
+   "sponge_gap_mm": 8.68365478515625,
+   "forces": {
+    "left": {
+     "thumb": 11.32,
+     "index": 10.32,
+     "middle": 1.25,
+     "ring": 1.29,
+     "pinky": 3.56
+    },
+    "right": {
+     "thumb": 8.62,
+     "index": 0.7,
+     "middle": 1.9,
+     "ring": 2.9,
+     "pinky": 7.47
+    }
+   }
+  },
+  {
+   "t": 2.4,
+   "left_pos_cm": 2.433466672897339,
+   "left_rot_deg": 10.169303894042969,
+   "right_pos_cm": 0.3284253776073456,
+   "right_rot_deg": 3.0033557415008545,
+   "plate_tilt_deg": 8.60752010345459,
+   "sponge_gap_mm": 8.683587074279785,
+   "forces": {
+    "left": {
+     "thumb": 11.32,
+     "index": 10.32,
+     "middle": 1.25,
+     "ring": 1.28,
+     "pinky": 3.56
+    },
+    "right": {
+     "thumb": 8.61,
+     "index": 0.7,
+     "middle": 1.9,
+     "ring": 2.9,
+     "pinky": 7.47
+    }
+   }
+  },
+  {
+   "t": 2.5,
+   "left_pos_cm": 2.433480739593506,
+   "left_rot_deg": 10.169227600097656,
+   "right_pos_cm": 0.3284291625022888,
+   "right_rot_deg": 3.0038766860961914,
+   "plate_tilt_deg": 8.607587814331055,
+   "sponge_gap_mm": 8.684138298034668,
+   "forces": {
+    "left": {
+     "thumb": 11.32,
+     "index": 10.32,
+     "middle": 1.24,
+     "ring": 1.28,
+     "pinky": 3.56
+    },
+    "right": {
+     "thumb": 8.62,
+     "index": 0.69,
+     "middle": 1.9,
+     "ring": 2.89,
+     "pinky": 7.47
+    }
+   }
+  },
+  {
+   "t": 2.6,
+   "left_pos_cm": 2.4334747791290283,
+   "left_rot_deg": 10.169303894042969,
+   "right_pos_cm": 0.3284536600112915,
+   "right_rot_deg": 3.0038766860961914,
+   "plate_tilt_deg": 8.607702255249023,
+   "sponge_gap_mm": 8.684056282043457,
+   "forces": {
+    "left": {
+     "thumb": 11.31,
+     "index": 10.32,
+     "middle": 1.25,
+     "ring": 1.29,
+     "pinky": 3.56
+    },
+    "right": {
+     "thumb": 8.62,
+     "index": 0.69,
+     "middle": 1.9,
+     "ring": 2.9,
+     "pinky": 7.47
+    }
+   }
+  },
+  {
+   "t": 2.7,
+   "left_pos_cm": 2.433566093444824,
+   "left_rot_deg": 10.169303894042969,
+   "right_pos_cm": 0.3284521996974945,
+   "right_rot_deg": 3.0036163330078125,
+   "plate_tilt_deg": 8.607770919799805,
+   "sponge_gap_mm": 8.684141159057617,
+   "forces": {
+    "left": {
+     "thumb": 11.32,
+     "index": 10.32,
+     "middle": 1.24,
+     "ring": 1.29,
+     "pinky": 3.56
+    },
+    "right": {
+     "thumb": 8.61,
+     "index": 0.69,
+     "middle": 1.9,
+     "ring": 2.89,
+     "pinky": 7.47
+    }
+   }
+  },
+  {
+   "t": 2.8,
+   "left_pos_cm": 2.4335551261901855,
+   "left_rot_deg": 10.169535636901855,
+   "right_pos_cm": 0.32844316959381104,
+   "right_rot_deg": 3.0033557415008545,
+   "plate_tilt_deg": 8.607906341552734,
+   "sponge_gap_mm": 8.683676719665527,
+   "forces": {
+    "left": {
+     "thumb": 11.31,
+     "index": 10.32,
+     "middle": 1.24,
+     "ring": 1.29,
+     "pinky": 3.56
+    },
+    "right": {
+     "thumb": 8.62,
+     "index": 0.69,
+     "middle": 1.9,
+     "ring": 2.9,
+     "pinky": 7.47
+    }
+   }
+  },
+  {
+   "t": 2.9,
+   "left_pos_cm": 2.4334685802459717,
+   "left_rot_deg": 10.169535636901855,
+   "right_pos_cm": 0.32843515276908875,
+   "right_rot_deg": 3.0038766860961914,
+   "plate_tilt_deg": 8.607748031616211,
+   "sponge_gap_mm": 8.683784484863281,
+   "forces": {
+    "left": {
+     "thumb": 11.32,
+     "index": 10.32,
+     "middle": 1.24,
+     "ring": 1.28,
+     "pinky": 3.56
+    },
+    "right": {
+     "thumb": 8.61,
+     "index": 0.69,
+     "middle": 1.9,
+     "ring": 2.89,
+     "pinky": 7.47
+    }
+   }
+  },
+  {
+   "t": 3.0,
+   "left_pos_cm": 2.433603286743164,
+   "left_rot_deg": 10.169458389282227,
+   "right_pos_cm": 0.3283344805240631,
+   "right_rot_deg": 3.0033557415008545,
+   "plate_tilt_deg": 8.607884407043457,
+   "sponge_gap_mm": 8.684191703796387,
+   "forces": {
+    "left": {
+     "thumb": 11.31,
+     "index": 10.32,
+     "middle": 1.24,
+     "ring": 1.29,
+     "pinky": 3.56
+    },
+    "right": {
+     "thumb": 8.61,
+     "index": 0.69,
+     "middle": 1.9,
+     "ring": 2.89,
+     "pinky": 7.47
+    }
+   }
+  }
+ ],
+ "replay": null,
+ "wall_s": 26.945108890533447
+}

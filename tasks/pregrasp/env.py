@@ -739,7 +739,13 @@ class GraspTaskEnv(DexmateCorrectionEnv):
                 else np.array([1.0, 0, 0, 0])
             assert abs(_canon[0]) > 0.999, \
                 f"resting_pose 权威假设 canon_rot≈单位阵, 实际 {_canon}"
-        elif "canon_rot" in z.files and not getattr(cfg, "fixed_attached_tools", False):
+        elif "canon_rot" in z.files and (not getattr(cfg, "fixed_attached_tools", False)
+                                        or getattr(cfg, "canon_rest_override", False)):
+            # canon_rest_override (2026-09-11, Sweep408): fixed_attached_tools 本意是
+            # "物体从第 0 行就在手里, 基类别重摆", 但它连带关掉了下面这条**静置姿对齐**。
+            # 对盘/簸箕无所谓 (最大支撑面恰好=Dexonomy 静置面, 实测差 2.6°), 对扫把
+            # 就要命: ref builder 按最大支撑面把它躺到**另一个面**上 (上轴差 94.3°),
+            # 抓姿跟着转 -> 钉死 yaw 的 IK 误差 13.3cm。旗默认关, 老任务零影响。
             from rl_rebuild.correction import frames as _F
             oq = np.asarray(z["canon_rot"], np.float64)
             _v = _F.load_obj_verts(self.du.mesh_path) @ quat_to_R(oq).T

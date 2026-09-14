@@ -13,7 +13,7 @@ p = argparse.ArgumentParser()
 p.add_argument("--checkpoint", required=True)
 p.add_argument("--num_envs", type=int, default=512)
 p.add_argument("--episodes", type=int, default=None)
-p.add_argument("--protocol", choices=("final512", "curve50"), default="final512")
+p.add_argument("--protocol", choices=("final512", "curve50", "eval10"), default="final512")   # eval10: 用户 2026-09-14 协议, 每 ckpt 10 回合, 按臂汇总 x/30
 p.add_argument("--method", choices=("full", "wo_human", "wo_conf"), default="full")
 p.add_argument("--variant_index", type=int, default=None,
                help="force one cube variant (0..4); requires SWEEP_CUBE_VARIANTS_NPZ")
@@ -21,7 +21,7 @@ p.add_argument("--world", default=None, help="training world.json; defaults besi
 p.add_argument("--out", required=True, help="JSON path under project logs/")
 AppLauncher.add_app_launcher_args(p)
 args = p.parse_args()
-required = 512 if args.protocol == "final512" else 50
+required = 512 if args.protocol == "final512" else (10 if args.protocol == "eval10" else 50)
 episodes = args.episodes if args.episodes is not None else required
 assert episodes >= required, f"{args.protocol} requires at least {required} episodes"
 assert args.num_envs >= 1
@@ -39,7 +39,8 @@ import torch  # noqa: E402
 import yaml  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import sweep_env as SE  # noqa: E402
+import importlib  # noqa: E402
+SE = importlib.import_module("sweep_grip_env" if os.environ.get("SWEEP_VARIANT") == "grip" else "sweep_env")  # noqa: E402
 import world_fingerprint as WF  # noqa: E402
 from rl_rebuild.algo.ppo.ppo import PPO  # noqa: E402
 from rl_rebuild.wrapper.config_wrapper import ConfigWrapper  # noqa: E402
@@ -62,8 +63,8 @@ world_path = args.world or os.path.join(os.path.dirname(os.path.abspath(args.che
 with open(world_path) as handle:
     expected_world = json.load(handle)
 expected_world.update({
-    "task": ("Sweep2_cube_variants_fullinside" if SE.CUBE_VARIANTS
-             else "Sweep2_fixed_cube_fullinside"),
+    "task": (SE.SPEC.world_task.replace("fixed_cube", "cube_variants") if SE.CUBE_VARIANTS
+             else SE.SPEC.world_task),   # 与 train_sweep 同式 (2026-09-14: 之前写死 Sweep2_*, 408/175 的 ckpt 评测报 world mismatch)
     "policy_io": {"obs_dim": SE.OBS_DIM, "priv_dim": SE.PRIV_DIM,
                   "act_dim": SE.ACT_DIM},
     "time": {"control_dt_s": 0.05,
@@ -81,7 +82,7 @@ expected_world.update({
     "reference": {"path": SE.REFERENCE, "sha256": _sha256(SE.REFERENCE)},
 })
 if not SE.CUBE_VARIANTS:
-    expected_world["cube_start_world_m"] = list(SE.SWEEP2_FIXED_CUBE_START)
+    expected_world["cube_start_world_m"] = (list(SE.SPEC.fixed_cube_start) if SE.SPEC.fixed_cube_start is not None else [float(v) for v in raw.cube_start_ref.detach().cpu().numpy()])
 pan_asset = SE.clips.clip_entry("Sweep2_broom")["secondary"]["mesh"]
 expected_world["dustpan_asset"] = {"path": pan_asset, "sha256": _sha256(pan_asset)}
 expected_world["method"] = {

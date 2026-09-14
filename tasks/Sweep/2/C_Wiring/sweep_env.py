@@ -29,21 +29,23 @@ _L3 = os.path.join(_TASK, "A_Design", "L3_Learning")
 sys.path.insert(0, _L3)
 from progress_batch import SweepGeometry, SweepProgressBatch, sweep_signals  # noqa: E402
 from ablation_settings import resolve as resolve_ablation  # noqa: E402
+from task_spec import resolve_spec  # noqa: E402
 
-REFERENCE = os.environ.get("SWEEP_REF_NPZ") or os.path.join(
-    _TASK, "A_Design", "L2_Reference", "sweep2_reference_v1.npz")
+# 2026-09-13: 数据相关常量全部从 task_spec 取 (SWEEP_TASK_SPEC=sweep2|sweep408); sweep2 逐位不变。
+SPEC = resolve_spec()
+REFERENCE = os.environ.get("SWEEP_REF_NPZ") or SPEC.reference
 CUBE_VARIANTS = os.environ.get("SWEEP_CUBE_VARIANTS_NPZ", "")
 ACT_DIM = 14
 OBS_DIM = 191
 PRIV_DIM = 22
-SCRIPTED_PRELUDE_STEPS = 80
-SWEEP2_FIXED_CUBE_START = (-0.0259767957, -0.1788897067, 0.8830000162)
+SCRIPTED_PRELUDE_STEPS = int(os.environ.get("SWEEP_PRELUDE_STEPS", "80"))   # sweep2 原值 80; B 组 (408 钉住解焊) 用 20 = contact_row
+SWEEP2_FIXED_CUBE_START = SPEC.fixed_cube_start          # None = 用母带 cube_start_w
 MOUTH_PENALTY_START_M = 0.0005
 MOUTH_PENALTY_SPAN_M = 0.0035
 MOUTH_PENALTY_SCALE = 4.0
 MOUTH_FAILURE_CLEARANCE_M = -0.003
-PRIOR_BROOM = "tasks/pregrasp/priors/Sweep2_broom.npz"
-PRIOR_PAN = "tasks/pregrasp/priors/Sweep2_dustpan.npz"
+PRIOR_BROOM = SPEC.prior_broom
+PRIOR_PAN = SPEC.prior_pan
 
 
 def _safe_arm_reference(z, margin=1.0e-6):
@@ -61,7 +63,8 @@ def _qangle(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return 2.0 * torch.acos(d)
 
 
-def _pan_cube_start(pan_pos, pan_quat, table_z, geometry=SweepGeometry()):
+def _pan_cube_start(pan_pos, pan_quat, table_z, geometry=None):
+    geometry = geometry or SPEC.geometry
     """Fixed easy start with exact pan-local x/z and table-resting world height."""
     local = torch.tensor([0.0, 0.0, geometry.pan_mouth_z + geometry.start_outside],
                          dtype=pan_pos.dtype, device=pan_pos.device).expand_as(
@@ -82,12 +85,14 @@ def build_cfg(num_envs=1, reference=REFERENCE, ablation_method="full"):
     z = np.load(reference, allow_pickle=True)
     safe_arm = _safe_arm_reference(z)
     cfg = GraspTaskCfg()
-    clips.configure_cfg(cfg, "Sweep2_broom")
+    clips.configure_cfg(cfg, SPEC.clip)
     cfg.fixed_attached_tools = True
     cfg.approach_only = True
     # The actual object pose comes from the shared reconstruction registration below.
     # Keep the inherited single-object prior path neutral; never inject a task yaw.
-    apply_grasp_prior(cfg, PRIOR_BROOM, 0.0, approach=True)
+    if SPEC.canon_rest_override:
+        cfg.canon_rest_override = True
+    apply_grasp_prior(cfg, PRIOR_BROOM, float(SPEC.prior_yaw), approach=True)
     cfg.scene.num_envs = int(num_envs)
     cfg.obj_jitter_xy = 0.0
     cfg.action_space = ACT_DIM
@@ -150,7 +155,7 @@ class SweepEnv(GraspTaskEnv):
         self.contact_row = min(int(self._z["contact_row"]), self.T - 1)
         self.cube_start_ref = to(self._z["cube_start_w"]).clone()
         self.cube_start_ref[2] = (float(cfg.table_top_z)
-                                  + SweepGeometry().cube_half + 0.0005)
+                                  + SPEC.geometry.cube_half + 0.0005)
         self.row = torch.zeros(N, dtype=torch.long, device=dev)
         self.map_ids = [self.hand.joint_names.index(f"{P}_arm_j{i}")
                         for P in ("R", "L") for i in range(1, 8)]
@@ -173,7 +178,7 @@ class SweepEnv(GraspTaskEnv):
         self.step_lo = to([0.008] * 7 + [0.005] * 7)
         self.dev_lo = to([0.10] * 7 + [0.05] * 7)
         self.q_tgt = self.ref_arm[0].expand(N, -1).clone()
-        self.geometry = SweepGeometry()
+        self.geometry = SPEC.geometry
         self.progress = SweepProgressBatch(N, dev, self.geometry)
         self.cube_start = torch.zeros(N, 3, device=dev)
         self._tick_out = None
@@ -215,7 +220,7 @@ class SweepEnv(GraspTaskEnv):
                      - self.ref_pos[0][0]).mean(dim=0)
         pan_shift = float(torch.linalg.vector_norm(pan_delta))
         if pan_shift >= 0.003:
-            assert pan_shift < 0.010, (
+            assert pan_shift < SPEC.pan_registration_max_m, (
                 f"left tool runtime registration {pan_shift*1000:.2f}mm exceeds "
                 "the approved 1cm initial-pose adjustment")
             self.ref_pos[0] = self.ref_pos[0] + pan_delta
@@ -227,7 +232,10 @@ class SweepEnv(GraspTaskEnv):
         self._validate_attachment_reset()
         # Freeze the accepted v1 physical task.  The reference NPZ's easy-start
         # field was edited after the canonical replay and experts were produced.
-        self.cube_start_ref[:] = to(SWEEP2_FIXED_CUBE_START)
+        # (spec.fixed_cube_start=None => keep the tape's cube_start_w, e.g. sweep408)
+        if SWEEP2_FIXED_CUBE_START is not None:
+            self.cube_start_ref[:] = to(SWEEP2_FIXED_CUBE_START)
+        print(f"[SweepEnv] spec={SPEC.name} cube_start={self.cube_start_ref.detach().cpu().numpy().round(4).tolist()}")
         self.cube_variant_index = torch.zeros(N, dtype=torch.long, device=dev)
         self.cube_start_variants = None
         if self._cube_variants_np is not None:
@@ -235,7 +243,7 @@ class SweepEnv(GraspTaskEnv):
             colors = np.asarray(self._cube_variants_np["colors_rgb"], np.float32)
             names = np.asarray(self._cube_variants_np["variant_ids"]).astype(str)
             assert starts.shape == (5, 3) and colors.shape == (5, 3), (starts.shape, colors.shape)
-            assert np.allclose(starts[:, 2], SWEEP2_FIXED_CUBE_START[2]), starts[:, 2]
+            assert np.allclose(starts[:, 2], float(self.cube_start_ref[2])), starts[:, 2]
             forced = os.environ.get("SWEEP_CUBE_VARIANT_INDEX")
             if forced is None:
                 self.cube_variant_index = torch.arange(N, device=dev) % len(starts)
@@ -319,8 +327,8 @@ class SweepEnv(GraspTaskEnv):
                 continue
             mesh = UsdGeom.Mesh(prim)
             local = np.asarray(mesh.GetPointsAttr().Get(), dtype=np.float64)
-            mask = ((local[:, 1] < -0.050) & (local[:, 2] > 0.020)
-                    & (local[:, 2] < 0.090))
+            mask = ((local[:, 1] < SPEC.bristle_y_max) & (local[:, 2] > SPEC.bristle_z_min)
+                    & (local[:, 2] < SPEC.bristle_z_max))
             if not mask.any():
                 continue
             mesh_world = cache.GetLocalToWorldTransform(prim)
@@ -372,16 +380,7 @@ class SweepEnv(GraspTaskEnv):
             # over z=80--108 mm.  Keep the collision surface coincident with that
             # profile; in particular, never extend the ramp toward the initial
             # cube/broom geometry as the superseded 80 mm proxy did.
-            boxes = {
-                "floor": ((0.0, 0.0065, 0.0475), (0.120, 0.004, 0.065), 0.0),
-                # A 28 mm, 5.102165-degree wedge.  Its top surface is exactly
-                # y=8.5 mm at z=80 mm and y=6 mm at z=108 mm.
-                "ramp": ((0.0, 0.00625396, 0.09391105),
-                         (0.120, 0.002, 0.02811138), 5.102165),
-                "side_l": ((-0.062, 0.020, 0.055), (0.004, 0.028, 0.080), 0.0),
-                "side_r": ((+0.062, 0.020, 0.055), (0.004, 0.028, 0.080), 0.0),
-                "back": ((0.0, 0.020, 0.015), (0.124, 0.028, 0.004), 0.0),
-            }
+            boxes = SPEC.pan_boxes          # sweep2: 28 mm 5.102165-deg wedge, y=8.5mm@z=80 -> 6mm@z=108
             for name, (center, size, rotate_x_deg) in boxes.items():
                 path = f"{root_path}/SweepOpenCollision/{name}"
                 cube = UsdGeom.Cube.Define(stage, path)
@@ -489,7 +488,7 @@ class SweepEnv(GraspTaskEnv):
         # steady-state PD sag at reset without teleporting either tool: refine only
         # the commanded arm target, then let the physical FixedJoints settle again.
         ref0 = self.ref_arm[0].expand(self.num_envs, -1)
-        for _ in range(4):
+        for _ in range(int(SPEC.attach_refine_rounds)):
             arm_err = ref0 - self.hand.data.joint_pos[:, self.map_ids_t]
             qfull[:, self.map_ids_t] += arm_err.clamp(-0.02, 0.02)
             for _ in range(8):
@@ -510,8 +509,11 @@ class SweepEnv(GraspTaskEnv):
             q = art.data.root_quat_w
             target_p = self.ref_pos[oi][0].expand_as(p)
             target_q = self.ref_quat[oi][0].expand_as(q)
-            pose_err = torch.linalg.vector_norm(p - target_p, dim=1).max()
+            _pe_all = torch.linalg.vector_norm(p - target_p, dim=1)
+            pose_err = _pe_all.max()
             rot_err = _qangle(q, target_q).max()
+            print(f"[SweepEnv] {side} tool pose err: median={float(_pe_all.median())*1000:.2f}mm p90={float(_pe_all.quantile(0.9))*1000:.2f}mm "
+                  f"max={float(pose_err)*1000:.1f}mm n>2cm={int((_pe_all > 0.02).sum())}/{self.num_envs}", flush=True)
             hp = self.hand.data.body_pos_w[:, self.hand_bid[side]]
             hq = self.hand.data.body_quat_w[:, self.hand_bid[side]]
             gp = torch.tensor(prior["grasp"][:3], dtype=torch.float32,
@@ -543,9 +545,12 @@ class SweepEnv(GraspTaskEnv):
               f"applied_torque={np.round(torque_vector, 3).tolist()}; "
               f"runtime_anchor_T={np.asarray(self._anchor_T).round(8).tolist()}")
         print(f"[SweepEnv] attachment reset audit={checks}")
-        assert max(x[1] for x in checks) < 0.003, checks
-        assert max(x[3] for x in checks) < 0.003, checks
-        assert max(x[4] for x in checks) < np.radians(2.0), checks
+        _audit_max = globals().get("AUDIT_MAX_M") or SPEC.attach_audit_max_m   # 变体 (pin_release) 可放宽
+        assert max(x[1] for x in checks) < _audit_max, (checks, _audit_max)
+        _joint_max = globals().get("AUDIT_MAX_M") or 0.003          # pin 模式: 手 vs 工具∘grasp 差 = 臂下垂, 放宽
+        assert max(x[3] for x in checks) < _joint_max, (checks, _joint_max)
+        _joint_rot_max = np.radians(10.0) if globals().get("AUDIT_MAX_M") else np.radians(2.0)   # pin 模式实测右 6.5° (指上互穿的预压)
+        assert max(x[4] for x in checks) < _joint_rot_max, (checks, _joint_rot_max)
 
     def _pre_physics_step(self, actions):
         self.prev_act = self.last_act.clone()
@@ -591,7 +596,7 @@ class SweepEnv(GraspTaskEnv):
         pan_tilt = torch.acos(pan_up[:, 2].clamp(-1.0, 1.0))
         # Lowest edge of the physical entry wedge (local y=4mm, z=108mm).
         lip_local = torch.tensor(
-            [[-0.060, 0.004, 0.108], [0.060, 0.004, 0.108]],
+            [list(SPEC.lip_local[0]), list(SPEC.lip_local[1])],
             device=self.device).expand(self.num_envs, -1, -1)
         lip_q = pan_q[:, None, :].expand(-1, 2, -1).reshape(-1, 4)
         lip_world = (quat_apply(lip_q, lip_local.reshape(-1, 3)).reshape(

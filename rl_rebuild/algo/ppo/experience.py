@@ -50,6 +50,10 @@ class ExperienceBuffer(Dataset):
             'mus': torch.zeros((self.transitions_per_env, self.num_envs, self.act_dim), dtype=torch.float32, device=self.device),
             'sigmas': torch.zeros((self.transitions_per_env, self.num_envs, self.act_dim), dtype=torch.float32, device=self.device),
             'returns': torch.zeros((self.transitions_per_env, self.num_envs,  1), dtype=torch.float32, device=self.device),
+            # Optional per-transition policy-update mask.  Environments with a
+            # scripted prelude can keep critic targets while excluding actions
+            # that were intentionally not executed from the actor objective.
+            'actor_mask': torch.ones((self.transitions_per_env, self.num_envs, 1), dtype=torch.float32, device=self.device),
         }
         if self.use_pc:
             self.storage_dict['pointcloud'] = torch.zeros(
@@ -79,7 +83,8 @@ class ExperienceBuffer(Dataset):
         return input_dict['values'], input_dict['neglogpacs'], input_dict['advantages'], input_dict['mus'], \
             input_dict['sigmas'], input_dict['returns'], input_dict['actions'], \
             input_dict['obses'], input_dict['priv_info'], \
-            input_dict.get('pointcloud', None), input_dict.get('obj_pose', None)
+            input_dict.get('pointcloud', None), input_dict.get('obj_pose', None), \
+            input_dict['actor_mask']
 
     def update_mu_sigma(self, mu, sigma):
         start = self.last_range[0]
@@ -113,5 +118,9 @@ class ExperienceBuffer(Dataset):
         for k, v in self.storage_dict.items():
             self.data_dict[k] = transform_op(v)
         advantages = self.data_dict['returns'] - self.data_dict['values']
-        self.data_dict['advantages'] = ((advantages - advantages.mean()) / (advantages.std() + 1e-8)).squeeze(1)
+        active = self.data_dict['actor_mask'].squeeze(1) > 0.5
+        source = advantages.squeeze(1)[active]
+        if source.numel() == 0:
+            source = advantages.squeeze(1)
+        self.data_dict['advantages'] = ((advantages - source.mean()) / (source.std() + 1e-8)).squeeze(1)
         return self.data_dict

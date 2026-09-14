@@ -47,7 +47,8 @@ import torch  # noqa: E402
 import yaml  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import sweep_env as SE  # noqa: E402
+import importlib  # noqa: E402
+SE = importlib.import_module("sweep_grip_env" if os.environ.get("SWEEP_VARIANT") == "grip" else "sweep_env")  # noqa: E402
 from ablation_settings import resolve as resolve_ablation  # noqa: E402
 from bc_warmup import warm_actor_critic  # noqa: E402
 from rl_rebuild.algo.ppo.ppo import PPO  # noqa: E402
@@ -91,13 +92,19 @@ def _sha256(path):
     return h.hexdigest()
 
 world = {
-    "schema": 3, "task": ("Sweep2_cube_variants_fullinside" if SE.CUBE_VARIANTS
-                            else "Sweep2_fixed_cube_fullinside"), "seed": args.seed,
+    "schema": 3, "task": (SE.SPEC.world_task.replace("fixed_cube", "cube_variants") if SE.CUBE_VARIANTS
+                            else SE.SPEC.world_task), "seed": args.seed,
+    "task_spec": SE.SPEC.name,
+    "variant": {"grip": os.environ.get("SWEEP_VARIANT") == "grip",
+                "attach": os.environ.get("SWEEP_ATTACH", "joint"), "release_step": os.environ.get("SWEEP_RELEASE_STEP", "80"),
+                "soft_rel": os.environ.get("SWEEP_SOFT_REL", "0"), "soft_w": os.environ.get("SWEEP_SOFT_W", "0.5"),
+                "cert": [os.environ.get("SWEEP_CERT_POS_CM", "1.0"), os.environ.get("SWEEP_CERT_ROT_DEG", "5.0")],
+                "die": [os.environ.get("SWEEP_DIE_POS_CM", "6.0"), os.environ.get("SWEEP_DIE_ROT_DEG", "45.0")]},
     "policy_io": {"obs_dim": SE.OBS_DIM, "priv_dim": SE.PRIV_DIM,
                   "act_dim": SE.ACT_DIM},
     "time": {"control_dt_s": 0.05,
              "scripted_prelude_steps": SE.SCRIPTED_PRELUDE_STEPS},
-    "cube_start_world_m": list(SE.SWEEP2_FIXED_CUBE_START),
+    "cube_start_world_m": (list(SE.SPEC.fixed_cube_start) if SE.SPEC.fixed_cube_start is not None else [float(v) for v in raw.cube_start_ref.detach().cpu().numpy()]),
     "cube_variants": ({"enabled": False} if not SE.CUBE_VARIANTS else {
         "enabled": True, "path": os.path.abspath(SE.CUBE_VARIANTS),
         "sha256": _sha256(SE.CUBE_VARIANTS), "assignment": "env_id_mod_5"}),
@@ -134,7 +141,7 @@ world = {
         "path": SE.REFERENCE, "sha256": _sha256(SE.REFERENCE)},
     "dustpan_asset": {},
 }
-_pan_asset = SE.clips.clip_entry("Sweep2_broom")["secondary"]["mesh"]
+_pan_asset = SE.clips.clip_entry(SE.SPEC.clip)["secondary"]["mesh"]
 world["dustpan_asset"] = {"path": _pan_asset, "sha256": _sha256(_pan_asset)}
 with open(os.path.join(log_dir, "world.json"), "w") as f:
     json.dump(world, f, indent=2)

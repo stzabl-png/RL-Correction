@@ -3,10 +3,9 @@ algo: PPO
 device: cuda
 network:
   mlp:
-    units: [256, 128]
+    units: [512, 256, 128]
   critic_mlp:
-    units: [256, 256, 128]
-  honor_critic_mlp: true       # 发布 ckpt 的 critic 是 213->256->256->128 (2026-09-13 核对), 主干默认忽略 critic_mlp
+    units: [512, 256, 128]
   priv_mlp:
     units: [64, 32, 8]
   separate_critic: true
@@ -16,7 +15,7 @@ network:
   mu_init_scale: 0.01
 load_path: null
 algorithm:
-  experiment_name: Sweep2_fixed
+  experiment_name: Clean3_hold
   normalize_input: true
   normalize_value: true
   value_bootstrap: true
@@ -41,7 +40,7 @@ algorithm:
   grad_norm: 1.0
   save_best_after: 0
   save_frequency: 40
-  max_agent_steps: 100000000
+  max_agent_steps: 50000000
   priv_info: true
   priv_info_dim: 22
   priv_info_embed_dim: 8

@@ -18,7 +18,8 @@ _slot = isaac_slot("sweep2_smoke")
 app = AppLauncher(args).app
 import torch  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import sweep_env as SE  # noqa: E402
+import importlib  # noqa: E402
+SE = importlib.import_module("sweep_grip_env" if os.environ.get("SWEEP_VARIANT") == "grip" else "sweep_env")  # noqa: E402
 from rl_rebuild.wrapper.sharpa_wave_env_wrapper import GymStyleEnvWrapper  # noqa: E402
 raw = SE.SweepEnv(SE.build_cfg(args.num_envs)); env = GymStyleEnvWrapper(raw, clip_actions=1.0)
 obs = env.reset()

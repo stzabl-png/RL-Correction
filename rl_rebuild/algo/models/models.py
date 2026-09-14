@@ -75,6 +75,7 @@ class ActorCritic(nn.Module):
         actions_num = kwargs.pop('actions_num')
         input_shape = kwargs.pop('input_shape')
         self.units = kwargs.pop('actor_units')
+        self.critic_units = kwargs.pop('critic_units', self.units)
         self.priv_mlp = kwargs.pop('priv_mlp_units')
         mlp_input_shape = input_shape[0]
 
@@ -106,7 +107,9 @@ class ActorCritic(nn.Module):
             self.pc_encoder = PointNetEncoder(kwargs.get('pc_in_dim', 5), self.pc_feat_dim)
             mlp_input_shape += self.pc_feat_dim
         if self.separate_critic:
-            self.critic_mlp = MLP(units=self.units,
+            assert self.critic_units[-1] == out_size, (
+                "actor and critic trunks must end at the shared value-head width")
+            self.critic_mlp = MLP(units=self.critic_units,
                                   input_size=input_shape[0] + kwargs['priv_info_dim'] + self.pc_feat_dim)
 
         self.actor_mlp = MLP(units=self.units, input_size=mlp_input_shape)

@@ -160,5 +160,5 @@ for t in range(T):
 
 ## 附: 训练细节在哪看 (2026-09-14 补)
 - **Stage-1 抓稳段 (退火课程)**: `exports/clean_stage1_hold_20260914/Clean3_hold_s42/` —— `stage1_tb/` (sr/success, sr/cert, term/drop_*, hold/dev_*, 课程 release_row 的退火轨迹), `train.log`, 31 个 ckpt (0~19M), `videos/`, `README.md`。课程设计与逐日读数见 `tasks/Clean/3/A_Design/DECISIONS.md` §4~§5 (release_row 50→10 按成功率 EMA 单向退火)。
-- **Stage-2 九条 (Base/A1/A2 × take3/8/18)**: `exports/clean_3x3_ckpts_20260914/<run>/` —— `world.json`, `stage1_tb/`, `eval/` (eval10 seed2026 + ev16), `videos/`, `stage1_nn/{last.pth, *step_0020M*.pth}` (20M 节点用于统一 20M 口径的对比; take3 Base/A2 无 20M 节点, 见台账 §9.20)。
+- **Stage-2 九条 (Base/A1/A2 × take3/8/18)**: `exports/clean_3x3_ckpts_20260914/<run>/` —— `world.json`, `stage1_tb/`, `eval/` (eval10 seed2026 + ev16), `videos/`, `stage1_nn/{last.pth, *step_0020M*.pth}` (20M 节点用于统一 20M 口径的对比, 七条有: take18 ×3、take8 ×3、take3 A1=taskS; take3 Base/A2 是 r2 续跑、无 20M 节点, 见台账 §5.22/§5.24)。
 - 复现命令: `common/eval10.sh <repo根> <GPU> 2026 <run,...>`; 数据集在 `datasets/clean_tableware/{3,8,18}` (LFS)。

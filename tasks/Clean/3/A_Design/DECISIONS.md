@@ -879,3 +879,18 @@ Base 擦得更狠却每次把海绵转丢。与 §5.11 "交叉与海绵转角是
 
 ⚠ **第三条最危险**: 它不报错、只给错数。第一次发的那条 CF 评测就是用默认母带跑的, 结果无效;
 是因为 Base 崩了才暴露。**跨机评测的铁则: 先读 world.json 复刻母带+旗+物理, 再发。**
+
+### 5.24 Clean 训练完整推 GitHub (2026-09-14 02:07~02:13 PDT, 用户: "和 Pour 一样, 让同事能直接看到训练细节, 尤其是一开始退火的学习抓稳盘子和洗碗布的阶段")
+
+分支 **`clean_dp_release_20260914`** (origin = stzabl-png/RL-Correction, 基于 `clean_dp_release_20260913` 代码分支 43d57475), 两次提交 e524be69 + 792fd0d3:
+
+| 内容 | 路径 (分支内) | 说明 |
+|---|---|---|
+| 数据集 | `datasets/clean_tableware/{3,8,18}` | 202 文件, LFS ~500MB (obj/npz/png/usd) |
+| Stage-1 抓稳段 (退火课程) 完整 run | `exports/clean_stage1_hold_20260914/Clean3_hold_s42/` | `stage1_tb/` (release_row 50→10 退火轨迹, sr/success, term/drop_*, hold/dev_*), `train.log`, `launch.log`, **31 个 ckpt 0~19M**, 6 段视频, `world.json`, run README。设计与逐日读数 = 本台账 §4.x (L172~219) |
+| Stage-2 九条 (Base/A1/A2 × take3/8/18) | `exports/clean_3x3_ckpts_20260914/<run>/` | `world.json`, `stage1_tb/`, `eval/` (eval10 seed2026 + ev16), `videos/` (3 段), `stage1_nn/last.pth` + `*step_0020M*.pth` (有 20M 节点的 5 条: take18 ×3, take8 Base, take3 taskS; take3 Base/A2 是 r2 续跑无 20M 节点 §5.22; take8 A1/A2 历史只留 last, 见下) |
+| 交接文档 | `docs/DP_CLEAN_ROLLOUT_HANDOFF.md` | = 09-13 交接 README + "训练细节在哪看" 附录 |
+| 台账 | `tasks/Clean/3/A_Design/DECISIONS.md` | 本文件 |
+
+**坑 (一次)**: 仓库 `.gitignore` 有 `*.pth` / `*.mp4`, 第一次 `git add -A <目录>` 静默丢掉全部 ckpt 与视频 (push 成功、远端核验才发现 pth=0), 第二次 `git add -f` 补齐 (78 个 LFS 对象 160MB)。`.gitattributes` 已补 `*.pth *.mp4` 走 LFS。**以后发布分支的入库核验 = 远端 `git ls-tree` 数 pth/mp4, 不看本地 du**。
+对照: Pour 发布分支 `pour_dp_release_20260908` 本身只有代码+数据集+评测日志, ckpt 是走 msc 目录交付的; 这次 Clean 分支比 Pour 多带了 ckpt/TB/视频, 是按用户"完整 + 看训练细节"的要求加的。
